@@ -21,6 +21,7 @@
         claude-code = pkgs.callPackage ./packages/claude-code/package.nix { };
         claude-desktop = pkgs.callPackage ./packages/claude-desktop/package.nix { inherit patchy-cnb; };
         opencode = pkgs.callPackage ./packages/opencode/package.nix { };
+        codex = pkgs.callPackage ./packages/codex/package.nix { };
         ccstatusline = pkgs.callPackage ./packages/ccstatusline/package.nix { };
       });
 
@@ -28,6 +29,7 @@
         claude-code = self.packages.${pkgs.system}.claude-code;
         claude-desktop = self.packages.${pkgs.system}.claude-desktop;
         opencode = self.packages.${pkgs.system}.opencode;
+        codex = self.packages.${pkgs.system}.codex;
         ccstatusline = self.packages.${pkgs.system}.ccstatusline;
       });
     };

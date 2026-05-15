@@ -5,4 +5,4 @@ check:
     nix flake check
 
 build:
-    nix build .#claude-code .#opencode .#ccstatusline
+    nix build .#claude-code .#opencode .#codex .#ccstatusline
