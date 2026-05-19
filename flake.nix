@@ -23,6 +23,7 @@
         opencode = pkgs.callPackage ./packages/opencode/package.nix { };
         codex = pkgs.callPackage ./packages/codex/package.nix { };
         ccstatusline = pkgs.callPackage ./packages/ccstatusline/package.nix { };
+        pi = pkgs.callPackage ./packages/pi/package.nix { };
       });
 
       checks = forAllSystems (pkgs: {
@@ -31,6 +32,7 @@
         opencode = self.packages.${pkgs.system}.opencode;
         codex = self.packages.${pkgs.system}.codex;
         ccstatusline = self.packages.${pkgs.system}.ccstatusline;
+        pi = self.packages.${pkgs.system}.pi;
       });
     };
 }
