@@ -48,6 +48,7 @@ buildNpmPackage {
       --unset OPENAI_BASE_URL \
       --unset OPENAI_ORG_ID \
       --unset OPENAI_PROJECT \
+      --unset PI_CODING_AGENT_DIR \
       --run 'export PI_CONFIG_DIR="''${PI_CONFIG_DIR:-$HOME/.pi}"'
 
     runHook postInstall
