@@ -31,7 +31,8 @@ buildNpmPackage {
       --add-flags $out/libexec/pi/node_modules/@earendil-works/pi-coding-agent/dist/cli.js \
       --prefix PATH : ${lib.makeBinPath [ git nodejs openssh ]} \
       --set PI_SKIP_VERSION_CHECK 1 \
-      --set PI_TELEMETRY 0
+      --set PI_TELEMETRY 0 \
+      --run 'export PI_CODING_AGENT_DIR="''${PI_CODING_AGENT_DIR:-''${XDG_DATA_HOME:-$HOME/.local/share}/pi/agent}"'
 
     runHook postInstall
   '';
