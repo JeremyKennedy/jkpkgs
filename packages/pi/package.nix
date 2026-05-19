@@ -32,6 +32,10 @@ buildNpmPackage {
       --prefix PATH : ${lib.makeBinPath [ git nodejs openssh ]} \
       --set PI_SKIP_VERSION_CHECK 1 \
       --set PI_TELEMETRY 0 \
+      --unset OPENAI_API_KEY \
+      --unset OPENAI_BASE_URL \
+      --unset OPENAI_ORG_ID \
+      --unset OPENAI_PROJECT \
       --run 'export PI_CODING_AGENT_DIR="''${PI_CODING_AGENT_DIR:-''${XDG_DATA_HOME:-$HOME/.local/share}/pi/agent}"'
 
     runHook postInstall
