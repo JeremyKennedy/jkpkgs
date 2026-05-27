@@ -17,6 +17,8 @@ buildNpmPackage {
 
   src = ./.;
 
+  npmDepsFetcherVersion = 2;
+
   dontNpmBuild = true;
 
   nativeBuildInputs = [ makeWrapper ];
@@ -30,7 +32,7 @@ buildNpmPackage {
     # Ghostty supports Kitty keyboard protocol, but does not currently answer
     # pi-tui's protocol query. Enable it directly for pi sessions so modified
     # Backspace keys are distinguishable without global terminal key remaps.
-    substituteInPlace $out/libexec/pi/node_modules/@earendil-works/pi-tui/dist/terminal.js \
+    substituteInPlace $out/libexec/pi/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-tui/dist/terminal.js \
       --replace-fail 'process.stdout.write("\x1b[?u");' 'if (process.env.TERM_PROGRAM === "ghostty") { this._kittyProtocolActive = true; setKittyProtocolActive(true); process.stdout.write("\x1b[>7u"); return; } process.stdout.write("\x1b[?u");'
 
     makeWrapper ${nodejs}/bin/node $out/bin/pi \
