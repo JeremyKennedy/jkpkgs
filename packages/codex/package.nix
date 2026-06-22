@@ -47,8 +47,8 @@ stdenv.mkDerivation {
     mkdir -p $out/bin $out/libexec/codex
     cp -R ${platformInfo.vendorPath} $out/libexec/codex/vendor
     cp package.json README.md $out/libexec/codex/
-    makeWrapper $out/libexec/codex/vendor/codex/codex $out/bin/codex \
-      --prefix PATH : $out/libexec/codex/vendor/path \
+    makeWrapper $out/libexec/codex/vendor/bin/codex $out/bin/codex \
+      --prefix PATH : $out/libexec/codex/vendor/codex-path \
       --set CODEX_MANAGED_NODE_PATH ${nodejs}/bin/node \
       --set CODEX_MANAGED_VENDOR_DIR $out/libexec/codex/vendor
     ln -s $out/bin/codex $out/bin/co
