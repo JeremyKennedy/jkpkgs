@@ -15,6 +15,8 @@
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
     in
     {
+      overlays.default = import ./overlays/default.nix;
+
       packages = forAllSystems (pkgs: let
         patchy-cnb = pkgs.callPackage ./packages/claude-desktop/patchy-cnb.nix { };
       in {
