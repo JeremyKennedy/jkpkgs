@@ -21,9 +21,18 @@
 #     break, bun either falls back to its plain runtime CLI ("Script not found")
 #     or SIGSEGVs on startup.
 #   * --set-interpreter ALONE         -> patched in place, trailer intact, works.
-# So we ONLY rewrite the interpreter, then supply libc/libstdc++ through a
-# wrapper's LD_LIBRARY_PATH instead of rpath. Verified: `omp models` exits 0.
-# Runtime deps: glibc (libc/pthread/dl/m) plus gcc-lib for the native addons.
+# So we ONLY rewrite the interpreter.
+#
+# The interpreter is the host's nix-ld loader (/lib64/ld-linux-x86-64.so.2),
+# NOT the nixpkgs stdenv one: nix-ld carries glibc/libstdc++/zlib in its own
+# baked-in search path, so omp needs no LD_LIBRARY_PATH. We previously
+# injected LD_LIBRARY_PATH via wrapProgram instead — but that variable
+# propagates into every child omp spawns (agent shells, uv, venv pythons)
+# and segfaults any nix python linked against a different glibc, because
+# LD_LIBRARY_PATH preempts their RUNPATH. nix-ld's search path applies only
+# to binaries that use the nix-ld interpreter, so children stay clean.
+# Requires programs.nix-ld.enable on the host (all interactive hosts have it).
+# Verified: `omp models` exits 0.
 let
   versionData = builtins.fromJSON (builtins.readFile ./hashes.json);
   inherit (versionData) version hashes;
@@ -56,7 +65,6 @@ stdenv.mkDerivation {
 
   nativeBuildInputs = lib.optionals stdenv.hostPlatform.isLinux [
     patchelf
-    makeWrapper
   ];
 
   installPhase = ''
@@ -65,12 +73,10 @@ stdenv.mkDerivation {
     runHook postInstall
   '';
 
-  # Linux only: patch the interpreter in place (trailer-safe) and inject libc
-  # via LD_LIBRARY_PATH. Darwin gets the Mach-O binary as-is.
+  # Linux only: repoint the interpreter at the host nix-ld loader
+  # (trailer-safe). Darwin gets the Mach-O binary as-is.
   postFixup = lib.optionalString stdenv.hostPlatform.isLinux ''
-    patchelf --set-interpreter "$(cat ${stdenv.cc}/nix-support/dynamic-linker)" $out/bin/omp
-    wrapProgram $out/bin/omp \
-      --prefix LD_LIBRARY_PATH : "${lib.makeLibraryPath [ stdenv.cc.libc stdenv.cc.cc.lib ]}"
+    patchelf --set-interpreter /lib64/ld-linux-x86-64.so.2 $out/bin/omp
   '';
 
   meta = {
