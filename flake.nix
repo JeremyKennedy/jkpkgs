@@ -26,6 +26,7 @@
         codex = pkgs.callPackage ./packages/codex/package.nix { };
         ccstatusline = pkgs.callPackage ./packages/ccstatusline/package.nix { };
         pi = pkgs.callPackage ./packages/pi/package.nix { };
+        oh-my-pi = pkgs.callPackage ./packages/oh-my-pi/package.nix { };
       });
 
       checks = forAllSystems (pkgs: {
@@ -35,6 +36,7 @@
         codex = self.packages.${pkgs.system}.codex;
         ccstatusline = self.packages.${pkgs.system}.ccstatusline;
         pi = self.packages.${pkgs.system}.pi;
+        oh-my-pi = self.packages.${pkgs.system}.oh-my-pi;
       });
     };
 }

@@ -5,4 +5,4 @@ check:
     nix flake check
 
 build:
-    nix build .#claude-code .#opencode .#codex .#ccstatusline .#pi
+    nix build .#claude-code .#opencode .#codex .#ccstatusline .#pi .#oh-my-pi
