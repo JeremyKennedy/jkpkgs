@@ -17,6 +17,9 @@ const oldFunction = `function loadContextFileFromDir(dir) {
         const filePath = join(dir, filename);
         if (existsSync(filePath)) {
             try {
+                if (!statSync(filePath).isFile()) {
+                    continue;
+                }
                 return {
                     path: filePath,
                     content: readFileSync(filePath, "utf-8"),
@@ -37,6 +40,9 @@ const newFunction = `function loadContextFilesFromDir(dir) {
         const filePath = join(dir, filename);
         if (existsSync(filePath)) {
             try {
+                if (!statSync(filePath).isFile()) {
+                    continue;
+                }
                 contextFiles.push({
                     path: filePath,
                     content: readFileSync(filePath, "utf-8"),

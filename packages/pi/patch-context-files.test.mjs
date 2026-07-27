@@ -1,0 +1,75 @@
+#!/usr/bin/env node
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+const source = `function loadContextFileFromDir(dir) {
+    const candidates = ["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"];
+    for (const filename of candidates) {
+        const filePath = join(dir, filename);
+        if (existsSync(filePath)) {
+            try {
+                if (!statSync(filePath).isFile()) {
+                    continue;
+                }
+                return {
+                    path: filePath,
+                    content: readFileSync(filePath, "utf-8"),
+                };
+            }
+            catch (error) {
+                console.error(chalk.yellow(\`Warning: Could not read \${filePath}: \${error}\`));
+            }
+        }
+    }
+    return null;
+}
+export function loadProjectContextFiles(options) {
+    const resolvedCwd = resolvePath(options.cwd);
+    const resolvedAgentDir = resolvePath(options.agentDir);
+    const contextFiles = [];
+    const seenPaths = new Set();
+    const globalContext = loadContextFileFromDir(resolvedAgentDir);
+    if (globalContext) {
+        contextFiles.push(globalContext);
+        seenPaths.add(globalContext.path);
+    }
+    const ancestorContextFiles = [];
+    let currentDir = resolvedCwd;
+    while (true) {
+        const contextFile = loadContextFileFromDir(currentDir);
+        if (contextFile && !seenPaths.has(contextFile.path)) {
+            ancestorContextFiles.unshift(contextFile);
+            seenPaths.add(contextFile.path);
+        }
+        const parentDir = dirname(currentDir);
+        if (parentDir === currentDir)
+            break;
+        currentDir = parentDir;
+    }
+    contextFiles.push(...ancestorContextFiles);
+    return contextFiles;
+}
+`;
+
+const workspace = mkdtempSync(join(tmpdir(), "pi-context-patch-"));
+try {
+  const packageRoot = join(workspace, "node_modules", "@earendil-works", "pi-coding-agent");
+  const resourceLoader = join(packageRoot, "dist", "core", "resource-loader.js");
+  mkdirSync(join(packageRoot, "dist", "core"), { recursive: true });
+  writeFileSync(resourceLoader, source);
+
+  execFileSync(process.execPath, ["patch-context-files.mjs", packageRoot], {
+    cwd: import.meta.dirname,
+    stdio: "inherit",
+  });
+
+  const patched = readFileSync(resourceLoader, "utf8");
+  assert.match(patched, /function loadContextFilesFromDir\(dir\)/);
+  assert.match(patched, /if \(!statSync\(filePath\)\.isFile\(\)\)/);
+  assert.doesNotMatch(patched, /function loadContextFileFromDir\(dir\)/);
+} finally {
+  rmSync(workspace, { recursive: true, force: true });
+}
