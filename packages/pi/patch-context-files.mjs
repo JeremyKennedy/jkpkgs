@@ -69,11 +69,15 @@ const newGlobal = `    for (const globalContext of loadContextFilesFromDir(resol
     }`;
 
 const oldAncestor = `        const contextFile = loadContextFileFromDir(currentDir);
-        if (contextFile && !seenPaths.has(contextFile.path)) {
+        const isShadowed = shadowedContextFile !== undefined && canonicalizePath(contextFile?.path ?? "") === shadowedContextFile;
+        if (contextFile && !isShadowed && !seenPaths.has(contextFile.path)) {
             ancestorContextFiles.unshift(contextFile);
             seenPaths.add(contextFile.path);
         }`;
-const newAncestor = `        const dirContextFiles = loadContextFilesFromDir(currentDir).filter((contextFile) => !seenPaths.has(contextFile.path));
+const newAncestor = `        const dirContextFiles = loadContextFilesFromDir(currentDir).filter((contextFile) => {
+            const isShadowed = shadowedContextFile !== undefined && canonicalizePath(contextFile.path) === shadowedContextFile;
+            return !isShadowed && !seenPaths.has(contextFile.path);
+        });
         if (dirContextFiles.length > 0) {
             ancestorContextFiles.unshift(...dirContextFiles);
             for (const contextFile of dirContextFiles) {
@@ -89,7 +93,7 @@ function replaceOnce(haystack, needle, replacement, label) {
   return haystack.replace(needle, replacement);
 }
 
-text = replaceOnce(text, oldFunction, newFunction, "context loader function");
+text = replaceOnce(text, oldFunction, oldFunction + "\n" + newFunction, "context loader function (insert new)");
 text = replaceOnce(text, oldGlobal, newGlobal, "global context load block");
 text = replaceOnce(text, oldAncestor, newAncestor, "ancestor context load block");
 writeFileSync(resourceLoader, text);

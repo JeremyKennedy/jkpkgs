@@ -5,7 +5,10 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const source = `function loadContextFileFromDir(dir) {
+const source = `const sep = "/";
+function canonicalizePath(p) { return p; }
+function findGitPaths(cwd) { return null; }
+function loadContextFileFromDir(dir) {
     const candidates = ["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"];
     for (const filename of candidates) {
         const filePath = join(dir, filename);
@@ -26,6 +29,20 @@ const source = `function loadContextFileFromDir(dir) {
     }
     return null;
 }
+function findShadowedContextFile(cwd) {
+    const gitPaths = findGitPaths(cwd);
+    if (!gitPaths)
+        return undefined;
+    const commonGitDir = canonicalizePath(gitPaths.commonGitDir);
+    const worktreeRoot = canonicalizePath(gitPaths.repoDir);
+    const mainRepoRoot = dirname(commonGitDir);
+    if (!worktreeRoot.startsWith(\`\${mainRepoRoot}\${sep}\`))
+        return undefined;
+    if (canonicalizePath(join(mainRepoRoot, ".git")) !== commonGitDir)
+        return undefined;
+    const worktreeContextFile = loadContextFileFromDir(worktreeRoot);
+    return worktreeContextFile ? join(mainRepoRoot, basename(worktreeContextFile.path)) : undefined;
+}
 export function loadProjectContextFiles(options) {
     const resolvedCwd = resolvePath(options.cwd);
     const resolvedAgentDir = resolvePath(options.agentDir);
@@ -37,10 +54,12 @@ export function loadProjectContextFiles(options) {
         seenPaths.add(globalContext.path);
     }
     const ancestorContextFiles = [];
+    const shadowedContextFile = findShadowedContextFile(resolvedCwd);
     let currentDir = resolvedCwd;
     while (true) {
         const contextFile = loadContextFileFromDir(currentDir);
-        if (contextFile && !seenPaths.has(contextFile.path)) {
+        const isShadowed = shadowedContextFile !== undefined && canonicalizePath(contextFile?.path ?? "") === shadowedContextFile;
+        if (contextFile && !isShadowed && !seenPaths.has(contextFile.path)) {
             ancestorContextFiles.unshift(contextFile);
             seenPaths.add(contextFile.path);
         }
@@ -68,8 +87,8 @@ try {
 
   const patched = readFileSync(resourceLoader, "utf8");
   assert.match(patched, /function loadContextFilesFromDir\(dir\)/);
+  assert.match(patched, /function loadContextFileFromDir\(dir\)/);
   assert.match(patched, /if \(!statSync\(filePath\)\.isFile\(\)\)/);
-  assert.doesNotMatch(patched, /function loadContextFileFromDir\(dir\)/);
 } finally {
   rmSync(workspace, { recursive: true, force: true });
 }
