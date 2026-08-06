@@ -12,7 +12,7 @@ const resourceLoader = join(packageRoot, "dist/core/resource-loader.js");
 let text = readFileSync(resourceLoader, "utf8");
 
 const oldFunction = `function loadContextFileFromDir(dir) {
-    const candidates = ["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"];
+    const candidates = ["AGENTS.override.md", "AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"];
     for (const filename of candidates) {
         const filePath = join(dir, filename);
         if (existsSync(filePath)) {
@@ -34,7 +34,7 @@ const oldFunction = `function loadContextFileFromDir(dir) {
 }`;
 
 const newFunction = `function loadContextFilesFromDir(dir) {
-    const candidates = ["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"];
+    const candidates = ["AGENTS.override.md", "AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"];
     const contextFiles = [];
     for (const filename of candidates) {
         const filePath = join(dir, filename);

@@ -9,7 +9,7 @@ const source = `const sep = "/";
 function canonicalizePath(p) { return p; }
 function findGitPaths(cwd) { return null; }
 function loadContextFileFromDir(dir) {
-    const candidates = ["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"];
+    const candidates = ["AGENTS.override.md", "AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"];
     for (const filename of candidates) {
         const filePath = join(dir, filename);
         if (existsSync(filePath)) {
