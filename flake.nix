@@ -9,7 +9,6 @@
       systems = [
         "x86_64-linux"
         "aarch64-linux"
-        "x86_64-darwin"
         "aarch64-darwin"
       ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
@@ -30,13 +29,13 @@
       });
 
       checks = forAllSystems (pkgs: {
-        claude-code = self.packages.${pkgs.system}.claude-code;
-        claude-desktop = self.packages.${pkgs.system}.claude-desktop;
-        opencode = self.packages.${pkgs.system}.opencode;
-        codex = self.packages.${pkgs.system}.codex;
-        ccstatusline = self.packages.${pkgs.system}.ccstatusline;
-        pi = self.packages.${pkgs.system}.pi;
-        oh-my-pi = self.packages.${pkgs.system}.oh-my-pi;
+        claude-code = self.packages.${pkgs.stdenv.hostPlatform.system}.claude-code;
+        claude-desktop = self.packages.${pkgs.stdenv.hostPlatform.system}.claude-desktop;
+        opencode = self.packages.${pkgs.stdenv.hostPlatform.system}.opencode;
+        codex = self.packages.${pkgs.stdenv.hostPlatform.system}.codex;
+        ccstatusline = self.packages.${pkgs.stdenv.hostPlatform.system}.ccstatusline;
+        pi = self.packages.${pkgs.stdenv.hostPlatform.system}.pi;
+        oh-my-pi = self.packages.${pkgs.stdenv.hostPlatform.system}.oh-my-pi;
       });
     };
 }
