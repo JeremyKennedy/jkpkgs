@@ -44,6 +44,15 @@ buildNpmPackage {
     printf 'dev claude' > "$context_test_dir/home/dev/CLAUDE.md"
     printf 'project agents' > "$context_test_dir/home/dev/project/AGENTS.md"
     printf 'project claude' > "$context_test_dir/home/dev/project/CLAUDE.md"
+    # On case-sensitive builders, hard links simulate the case aliases that
+    # APFS exposes automatically. The loader must deduplicate by file identity.
+    [ -e "$context_test_dir/agent/AGENTS.MD" ] || ln "$context_test_dir/agent/AGENTS.md" "$context_test_dir/agent/AGENTS.MD"
+    [ -e "$context_test_dir/agent/CLAUDE.MD" ] || ln "$context_test_dir/agent/CLAUDE.md" "$context_test_dir/agent/CLAUDE.MD"
+    [ -e "$context_test_dir/CLAUDE.MD" ] || ln "$context_test_dir/CLAUDE.md" "$context_test_dir/CLAUDE.MD"
+    [ -e "$context_test_dir/home/CLAUDE.MD" ] || ln "$context_test_dir/home/CLAUDE.md" "$context_test_dir/home/CLAUDE.MD"
+    [ -e "$context_test_dir/home/dev/CLAUDE.MD" ] || ln "$context_test_dir/home/dev/CLAUDE.md" "$context_test_dir/home/dev/CLAUDE.MD"
+    [ -e "$context_test_dir/home/dev/project/AGENTS.MD" ] || ln "$context_test_dir/home/dev/project/AGENTS.md" "$context_test_dir/home/dev/project/AGENTS.MD"
+    [ -e "$context_test_dir/home/dev/project/CLAUDE.MD" ] || ln "$context_test_dir/home/dev/project/CLAUDE.md" "$context_test_dir/home/dev/project/CLAUDE.MD"
     ${nodejs}/bin/node --input-type=module <<EOF
     import { loadProjectContextFiles } from "$out/libexec/pi/node_modules/@earendil-works/pi-coding-agent/dist/core/resource-loader.js";
     const root = process.env.context_test_dir;

@@ -36,13 +36,20 @@ const oldFunction = `function loadContextFileFromDir(dir) {
 const newFunction = `function loadContextFilesFromDir(dir) {
     const candidates = ["AGENTS.override.md", "AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"];
     const contextFiles = [];
+    const seenFileIdentities = new Set();
     for (const filename of candidates) {
         const filePath = join(dir, filename);
         if (existsSync(filePath)) {
             try {
-                if (!statSync(filePath).isFile()) {
+                const fileStat = statSync(filePath);
+                if (!fileStat.isFile()) {
                     continue;
                 }
+                const fileIdentity = String(fileStat.dev) + ":" + String(fileStat.ino);
+                if (seenFileIdentities.has(fileIdentity)) {
+                    continue;
+                }
+                seenFileIdentities.add(fileIdentity);
                 contextFiles.push({
                     path: filePath,
                     content: readFileSync(filePath, "utf-8"),
