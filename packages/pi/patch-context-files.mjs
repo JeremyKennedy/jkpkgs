@@ -22,7 +22,7 @@ const oldFunction = `function loadContextFileFromDir(dir) {
                 }
                 return {
                     path: filePath,
-                    content: readFileSync(filePath, "utf-8"),
+                    content: stripBom(readFileSync(filePath, "utf-8")),
                 };
             }
             catch (error) {
@@ -52,7 +52,7 @@ const newFunction = `function loadContextFilesFromDir(dir) {
                 seenFileIdentities.add(fileIdentity);
                 contextFiles.push({
                     path: filePath,
-                    content: readFileSync(filePath, "utf-8"),
+                    content: stripBom(readFileSync(filePath, "utf-8")),
                 });
             }
             catch (error) {

@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const source = `const sep = "/";
+function stripBom(text) { return text; }
 function canonicalizePath(p) { return p; }
 function findGitPaths(cwd) { return null; }
 function loadContextFileFromDir(dir) {
@@ -19,7 +20,7 @@ function loadContextFileFromDir(dir) {
                 }
                 return {
                     path: filePath,
-                    content: readFileSync(filePath, "utf-8"),
+                    content: stripBom(readFileSync(filePath, "utf-8")),
                 };
             }
             catch (error) {
