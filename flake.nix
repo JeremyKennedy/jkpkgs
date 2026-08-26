@@ -19,6 +19,7 @@
       packages = forAllSystems (
         pkgs:
         let
+          system = pkgs.stdenv.hostPlatform.system;
           patchy-cnb = pkgs.callPackage ./packages/claude-desktop/patchy-cnb.nix { };
         in
         {
@@ -30,6 +31,7 @@
           ccstatusline = pkgs.callPackage ./packages/ccstatusline/package.nix { };
           pi = pkgs.callPackage ./packages/pi/package.nix { };
           oh-my-pi = pkgs.callPackage ./packages/oh-my-pi/package.nix { };
+          herdr = pkgs.callPackage ./packages/herdr/package.nix { };
         }
       );
 
@@ -42,6 +44,7 @@
         ccstatusline = self.packages.${pkgs.stdenv.hostPlatform.system}.ccstatusline;
         pi = self.packages.${pkgs.stdenv.hostPlatform.system}.pi;
         oh-my-pi = self.packages.${pkgs.stdenv.hostPlatform.system}.oh-my-pi;
+        herdr = self.packages.${pkgs.stdenv.hostPlatform.system}.herdr;
       });
     };
 }
