@@ -5,6 +5,7 @@
   makeWrapper,
   fzf,
   ripgrep,
+  testers,
 }:
 let
   versionData = builtins.fromJSON (builtins.readFile ./hashes.json);
@@ -23,7 +24,7 @@ let
   platform = stdenv.hostPlatform.system;
   platformPkg = platformMap.${platform} or (throw "opencode2: unsupported system ${platform}");
 in
-stdenv.mkDerivation {
+stdenv.mkDerivation (finalAttrs: {
   pname = "opencode2";
   inherit version;
 
@@ -61,4 +62,15 @@ stdenv.mkDerivation {
     platforms = builtins.attrNames platformMap;
     mainProgram = "opencode2";
   };
-}
+
+  # Like opencode, opencode2 is a bun executable that creates XDG base
+  # directories on startup; the sandbox HOME is unwritable, so redirect
+  # them to /tmp. `opencode2 --version` prints "opencode2 v<version>"
+  # and the bare version is not a standalone word there (the "v" glues
+  # onto it for grep -w), so match the prefixed form.
+  passthru.tests.version = testers.testVersion {
+    package = finalAttrs.finalPackage;
+    command = "HOME=/tmp XDG_DATA_HOME=/tmp XDG_CACHE_HOME=/tmp XDG_STATE_HOME=/tmp XDG_CONFIG_HOME=/tmp opencode2 --version";
+    version = "v${version}";
+  };
+})

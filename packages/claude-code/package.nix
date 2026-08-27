@@ -6,6 +6,7 @@
   autoPatchelfHook,
   bubblewrap,
   socat,
+  testers,
 }:
 
 let
@@ -20,7 +21,7 @@ let
   platform = stdenv.hostPlatform.system;
   platformSuffix = platformMap.${platform} or (throw "Unsupported: ${platform}");
 in
-stdenv.mkDerivation {
+stdenv.mkDerivation (finalAttrs: {
   pname = "claude-code";
   inherit version;
 
@@ -59,4 +60,8 @@ stdenv.mkDerivation {
     platforms = builtins.attrNames platformMap;
     mainProgram = "claude";
   };
-}
+
+  passthru.tests.version = testers.testVersion {
+    package = finalAttrs.finalPackage;
+  };
+})

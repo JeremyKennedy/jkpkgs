@@ -5,108 +5,117 @@
   makeWrapper,
   nodejs,
   openssh,
+  testers,
 }:
 
 let
   versionData = builtins.fromJSON (builtins.readFile ./hashes.json);
   inherit (versionData) version npmDepsHash;
-in
-buildNpmPackage {
-  pname = "pi";
-  inherit version npmDepsHash;
 
-  src = ./.;
+  package = buildNpmPackage {
+    pname = "pi";
+    inherit version npmDepsHash;
 
-  npmDepsFetcherVersion = 2;
+    src = ./.;
 
-  dontNpmBuild = true;
+    npmDepsFetcherVersion = 2;
 
-  nativeBuildInputs = [ makeWrapper ];
+    dontNpmBuild = true;
 
-  installPhase = ''
-    runHook preInstall
+    nativeBuildInputs = [ makeWrapper ];
 
-    mkdir -p $out/bin $out/libexec/pi
-    cp -R node_modules package.json package-lock.json $out/libexec/pi/
+    installPhase = ''
+      runHook preInstall
 
-    ${nodejs}/bin/node ${./patch-context-files.mjs} $out/libexec/pi/node_modules/@earendil-works/pi-coding-agent
+      mkdir -p $out/bin $out/libexec/pi
+      cp -R node_modules package.json package-lock.json $out/libexec/pi/
 
-    # Verify pi loads every AGENTS.md/CLAUDE.md it finds while walking from
-    # filesystem root to cwd. In particular, an AGENTS.md in a project must not
-    # shadow ~/dev/CLAUDE.md or that project's own CLAUDE.md.
-    context_test_dir=$(mktemp -d)
-    export context_test_dir
-    mkdir -p "$context_test_dir/agent" "$context_test_dir/home/dev/project"
-    printf 'global agents' > "$context_test_dir/agent/AGENTS.md"
-    printf 'global claude' > "$context_test_dir/agent/CLAUDE.md"
-    printf 'root claude' > "$context_test_dir/CLAUDE.md"
-    printf 'home claude' > "$context_test_dir/home/CLAUDE.md"
-    printf 'dev claude' > "$context_test_dir/home/dev/CLAUDE.md"
-    printf 'project agents' > "$context_test_dir/home/dev/project/AGENTS.md"
-    printf 'project claude' > "$context_test_dir/home/dev/project/CLAUDE.md"
-    # On case-sensitive builders, hard links simulate the case aliases that
-    # APFS exposes automatically. The loader must deduplicate by file identity.
-    [ -e "$context_test_dir/agent/AGENTS.MD" ] || ln "$context_test_dir/agent/AGENTS.md" "$context_test_dir/agent/AGENTS.MD"
-    [ -e "$context_test_dir/agent/CLAUDE.MD" ] || ln "$context_test_dir/agent/CLAUDE.md" "$context_test_dir/agent/CLAUDE.MD"
-    [ -e "$context_test_dir/CLAUDE.MD" ] || ln "$context_test_dir/CLAUDE.md" "$context_test_dir/CLAUDE.MD"
-    [ -e "$context_test_dir/home/CLAUDE.MD" ] || ln "$context_test_dir/home/CLAUDE.md" "$context_test_dir/home/CLAUDE.MD"
-    [ -e "$context_test_dir/home/dev/CLAUDE.MD" ] || ln "$context_test_dir/home/dev/CLAUDE.md" "$context_test_dir/home/dev/CLAUDE.MD"
-    [ -e "$context_test_dir/home/dev/project/AGENTS.MD" ] || ln "$context_test_dir/home/dev/project/AGENTS.md" "$context_test_dir/home/dev/project/AGENTS.MD"
-    [ -e "$context_test_dir/home/dev/project/CLAUDE.MD" ] || ln "$context_test_dir/home/dev/project/CLAUDE.md" "$context_test_dir/home/dev/project/CLAUDE.MD"
-    ${nodejs}/bin/node --input-type=module <<EOF
-    import { loadProjectContextFiles } from "$out/libexec/pi/node_modules/@earendil-works/pi-coding-agent/dist/core/resource-loader.js";
-    const root = process.env.context_test_dir;
-    const files = loadProjectContextFiles({
-      cwd: root + "/home/dev/project",
-      agentDir: root + "/agent",
-    }).map((file) => file.path.slice(root.length));
-    const expected = [
-      "/agent/AGENTS.md",
-      "/agent/CLAUDE.md",
-      "/CLAUDE.md",
-      "/home/CLAUDE.md",
-      "/home/dev/CLAUDE.md",
-      "/home/dev/project/AGENTS.md",
-      "/home/dev/project/CLAUDE.md",
-    ];
-    if (JSON.stringify(files) !== JSON.stringify(expected)) {
-      console.error("context file order mismatch");
-      console.error("got", JSON.stringify(files));
-      console.error("expected", JSON.stringify(expected));
-      process.exit(1);
-    }
-    EOF
+      ${nodejs}/bin/node ${./patch-context-files.mjs} $out/libexec/pi/node_modules/@earendil-works/pi-coding-agent
 
-    # Ghostty supports Kitty keyboard protocol, but does not currently answer
-    # pi-tui's protocol query. Enable it directly for pi sessions so modified
-    # Backspace keys are distinguishable without global terminal key remaps.
-    substituteInPlace $out/libexec/pi/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-tui/dist/terminal.js \
-      --replace-fail 'process.stdout.write(KITTY_KEYBOARD_PROTOCOL_QUERY);' 'if (process.env.TERM_PROGRAM === "ghostty") { this._kittyProtocolActive = true; setKittyProtocolActive(true); this.keyboardProtocolNegotiationPending = false; this.keyboardProtocolLateResponsePending = false; this.clearKeyboardProtocolNegotiationBuffer(); process.stdout.write("\x1b[>7u"); return; } process.stdout.write(KITTY_KEYBOARD_PROTOCOL_QUERY);'
+      # Verify pi loads every AGENTS.md/CLAUDE.md it finds while walking from
+      # filesystem root to cwd. In particular, an AGENTS.md in a project must not
+      # shadow ~/dev/CLAUDE.md or that project's own CLAUDE.md.
+      context_test_dir=$(mktemp -d)
+      export context_test_dir
+      mkdir -p "$context_test_dir/agent" "$context_test_dir/home/dev/project"
+      printf 'global agents' > "$context_test_dir/agent/AGENTS.md"
+      printf 'global claude' > "$context_test_dir/agent/CLAUDE.md"
+      printf 'root claude' > "$context_test_dir/CLAUDE.md"
+      printf 'home claude' > "$context_test_dir/home/CLAUDE.md"
+      printf 'dev claude' > "$context_test_dir/home/dev/CLAUDE.md"
+      printf 'project agents' > "$context_test_dir/home/dev/project/AGENTS.md"
+      printf 'project claude' > "$context_test_dir/home/dev/project/CLAUDE.md"
+      # On case-sensitive builders, hard links simulate the case aliases that
+      # APFS exposes automatically. The loader must deduplicate by file identity.
+      [ -e "$context_test_dir/agent/AGENTS.MD" ] || ln "$context_test_dir/agent/AGENTS.md" "$context_test_dir/agent/AGENTS.MD"
+      [ -e "$context_test_dir/agent/CLAUDE.MD" ] || ln "$context_test_dir/agent/CLAUDE.md" "$context_test_dir/agent/CLAUDE.MD"
+      [ -e "$context_test_dir/CLAUDE.MD" ] || ln "$context_test_dir/CLAUDE.md" "$context_test_dir/CLAUDE.MD"
+      [ -e "$context_test_dir/home/CLAUDE.MD" ] || ln "$context_test_dir/home/CLAUDE.md" "$context_test_dir/home/CLAUDE.MD"
+      [ -e "$context_test_dir/home/dev/CLAUDE.MD" ] || ln "$context_test_dir/home/dev/CLAUDE.md" "$context_test_dir/home/dev/CLAUDE.MD"
+      [ -e "$context_test_dir/home/dev/project/AGENTS.MD" ] || ln "$context_test_dir/home/dev/project/AGENTS.md" "$context_test_dir/home/dev/project/AGENTS.MD"
+      [ -e "$context_test_dir/home/dev/project/CLAUDE.MD" ] || ln "$context_test_dir/home/dev/project/CLAUDE.md" "$context_test_dir/home/dev/project/CLAUDE.MD"
+      ${nodejs}/bin/node --input-type=module <<EOF
+      import { loadProjectContextFiles } from "$out/libexec/pi/node_modules/@earendil-works/pi-coding-agent/dist/core/resource-loader.js";
+      const root = process.env.context_test_dir;
+      const files = loadProjectContextFiles({
+        cwd: root + "/home/dev/project",
+        agentDir: root + "/agent",
+      }).map((file) => file.path.slice(root.length));
+      const expected = [
+        "/agent/AGENTS.md",
+        "/agent/CLAUDE.md",
+        "/CLAUDE.md",
+        "/home/CLAUDE.md",
+        "/home/dev/CLAUDE.md",
+        "/home/dev/project/AGENTS.md",
+        "/home/dev/project/CLAUDE.md",
+      ];
+      if (JSON.stringify(files) !== JSON.stringify(expected)) {
+        console.error("context file order mismatch");
+        console.error("got", JSON.stringify(files));
+        console.error("expected", JSON.stringify(expected));
+        process.exit(1);
+      }
+      EOF
 
-    makeWrapper ${nodejs}/bin/node $out/bin/pi \
-      --add-flags $out/libexec/pi/node_modules/@earendil-works/pi-coding-agent/dist/cli.js \
-      --prefix PATH : ${
-        lib.makeBinPath [
-          git
-          nodejs
-          openssh
-        ]
-      } \
-      --set PI_SKIP_VERSION_CHECK 1 \
-      --set PI_TELEMETRY 0 \
-      --unset OPENAI_API_KEY \
-      --unset OPENAI_BASE_URL \
-      --unset OPENAI_ORG_ID \
-      --unset OPENAI_PROJECT \
-      --run 'export PI_CONFIG_DIR="''${PI_CONFIG_DIR:-$HOME/.pi}"'
+      # Ghostty supports Kitty keyboard protocol, but does not currently answer
+      # pi-tui's protocol query. Enable it directly for pi sessions so modified
+      # Backspace keys are distinguishable without global terminal key remaps.
+      substituteInPlace $out/libexec/pi/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-tui/dist/terminal.js \
+        --replace-fail 'process.stdout.write(KITTY_KEYBOARD_PROTOCOL_QUERY);' 'if (process.env.TERM_PROGRAM === "ghostty") { this._kittyProtocolActive = true; setKittyProtocolActive(true); this.keyboardProtocolNegotiationPending = false; this.keyboardProtocolLateResponsePending = false; this.clearKeyboardProtocolNegotiationBuffer(); process.stdout.write("\x1b[>7u"); return; } process.stdout.write(KITTY_KEYBOARD_PROTOCOL_QUERY);'
 
-    runHook postInstall
-  '';
+      makeWrapper ${nodejs}/bin/node $out/bin/pi \
+        --add-flags $out/libexec/pi/node_modules/@earendil-works/pi-coding-agent/dist/cli.js \
+        --prefix PATH : ${
+          lib.makeBinPath [
+            git
+            nodejs
+            openssh
+          ]
+        } \
+        --set PI_SKIP_VERSION_CHECK 1 \
+        --set PI_TELEMETRY 0 \
+        --unset OPENAI_API_KEY \
+        --unset OPENAI_BASE_URL \
+        --unset OPENAI_ORG_ID \
+        --unset OPENAI_PROJECT \
+        --run 'export PI_CONFIG_DIR="''${PI_CONFIG_DIR:-$HOME/.pi}"'
 
-  meta = {
-    description = "Pi Coding Agent CLI";
-    homepage = "https://pi.dev";
-    license = lib.licenses.mit;
-    mainProgram = "pi";
+      runHook postInstall
+    '';
+
+    meta = {
+      description = "Pi Coding Agent CLI";
+      homepage = "https://pi.dev";
+      license = lib.licenses.mit;
+      mainProgram = "pi";
+    };
   };
-}
+in
+package.overrideAttrs (finalAttrs: prevAttrs: {
+  passthru = (prevAttrs.passthru or { }) // {
+    tests.version = testers.testVersion {
+      package = finalAttrs.finalPackage;
+    };
+  };
+})

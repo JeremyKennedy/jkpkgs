@@ -7,6 +7,7 @@
   unzip,
   fzf,
   ripgrep,
+  testers,
 }:
 
 let
@@ -33,7 +34,7 @@ let
   platform = stdenv.hostPlatform.system;
   platformInfo = platformMap.${platform} or (throw "Unsupported: ${platform}");
 in
-stdenv.mkDerivation {
+stdenv.mkDerivation (finalAttrs: {
   pname = "opencode";
   inherit version;
 
@@ -64,10 +65,18 @@ stdenv.mkDerivation {
     wrapProgram $out/bin/opencode \
       --prefix PATH : ${lib.makeBinPath [ fzf ripgrep ]}
   '';
-
   meta = {
     description = "OpenCode AI coding assistant";
     platforms = builtins.attrNames platformMap;
     mainProgram = "opencode";
   };
-}
+
+  # opencode is a bun executable that creates XDG base directories
+  # (~/.local/share, ~/.cache, ~/.config, ~/.local/state) on startup.
+  # The build sandbox's HOME=/homeless-shelter is unwritable, so point
+  # every XDG base directory at /tmp for the smoke test.
+  passthru.tests.version = testers.testVersion {
+    package = finalAttrs.finalPackage;
+    command = "HOME=/tmp XDG_DATA_HOME=/tmp XDG_CACHE_HOME=/tmp XDG_STATE_HOME=/tmp XDG_CONFIG_HOME=/tmp opencode --version";
+  };
+})

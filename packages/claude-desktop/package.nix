@@ -192,4 +192,6 @@ in
       sourceProvenance = with sourceTypes; [binaryNativeCode];
       mainProgram = pname;
     };
+
+    passthru.tests = { };
   }
