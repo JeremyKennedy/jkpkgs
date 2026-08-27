@@ -2,6 +2,29 @@
 
 Personal binary packages for AI/LLM tools.
 
+## Package lifecycle
+
+The standard flow for adding or updating a package:
+
+1. Add `packages/<name>/package.nix` and version/hash metadata.
+2. Add the package output; derive checks from the package set.
+3. Register update metadata in dotman.
+4. Stage new files before Git-backed Nix evaluation.
+5. Run `just check` and `just build [name...]`.
+6. Commit and push jkpkgs.
+7. Use the existing dotman propagation workflow.
+8. Verify the active profile, not only `./result`.
+
+Notes:
+
+- `just build` with no names builds all current-system packages.
+- `dotman jkpkgs check` and `dotman jkpkgs list` are fully offline; only
+  `dotman jkpkgs update` touches the network.
+- An update may move several package versions at once — check the commit
+  contents before propagating.
+- Active dotfiles paths live under `~/dev/dotfiles-personal`, not
+  `~/dev/dotfiles`.
+
 ## Common commands
 
 ```bash
@@ -17,11 +40,9 @@ Use this when pi needs a model metadata update before the normal automated updat
 ### Normal released update
 
 Prefer this whenever `@earendil-works/pi-coding-agent` is already published on npm.
-
-1. Update the wrapper dependency:
+1. Check whether npm already has the version you need:
    ```bash
-   cd ~/dev/jkpkgs/packages/pi
-   npm install @earendil-works/pi-coding-agent@<version> --package-lock-only --ignore-scripts
+   npm view @earendil-works/pi-coding-agent version
    ```
 2. Update `packages/pi/hashes.json`:
    - `version` = the npm package version
@@ -37,7 +58,7 @@ Prefer this whenever `@earendil-works/pi-coding-agent` is already published on n
 4. Commit and push jkpkgs.
 5. Activate it on navi through dotfiles:
    ```bash
-   cd ~/dev/dotfiles
+   cd ~/dev/dotfiles-personal
    dotman flake update jkpkgs
    dotman deploy --local
    ```
