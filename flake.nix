@@ -9,6 +9,7 @@
       systems = [
         "x86_64-linux"
         "aarch64-linux"
+        "x86_64-darwin"
         "aarch64-darwin"
       ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
@@ -35,16 +36,16 @@
         }
       );
 
-      checks = forAllSystems (pkgs: {
-        claude-code = self.packages.${pkgs.stdenv.hostPlatform.system}.claude-code;
-        claude-desktop = self.packages.${pkgs.stdenv.hostPlatform.system}.claude-desktop;
-        opencode = self.packages.${pkgs.stdenv.hostPlatform.system}.opencode;
-        opencode2 = self.packages.${pkgs.stdenv.hostPlatform.system}.opencode2;
-        codex = self.packages.${pkgs.stdenv.hostPlatform.system}.codex;
-        ccstatusline = self.packages.${pkgs.stdenv.hostPlatform.system}.ccstatusline;
-        pi = self.packages.${pkgs.stdenv.hostPlatform.system}.pi;
-        oh-my-pi = self.packages.${pkgs.stdenv.hostPlatform.system}.oh-my-pi;
-        herdr = self.packages.${pkgs.stdenv.hostPlatform.system}.herdr;
-      });
+      checks = forAllSystems (
+        pkgs:
+        let
+          system = pkgs.stdenv.hostPlatform.system;
+          packages = self.packages.${system};
+        in
+        pkgs.lib.mapAttrs (
+          _: package:
+          pkgs.lib.attrByPath [ "passthru" "tests" "version" ] package package
+        ) packages
+      );
     };
 }

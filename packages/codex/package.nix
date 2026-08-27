@@ -3,6 +3,7 @@
   fetchzip,
   nodejs,
   makeWrapper,
+  testers,
 }:
 
 let
@@ -29,7 +30,7 @@ let
   platform = stdenv.hostPlatform.system;
   platformInfo = platformMap.${platform} or (throw "Unsupported codex platform: ${platform}");
 in
-stdenv.mkDerivation {
+stdenv.mkDerivation (finalAttrs: {
   pname = "codex";
   inherit version;
 
@@ -54,10 +55,13 @@ stdenv.mkDerivation {
     ln -s $out/bin/codex $out/bin/co
     runHook postInstall
   '';
-
   meta = {
     description = "OpenAI Codex CLI";
     mainProgram = "codex";
     platforms = builtins.attrNames platformMap;
   };
-}
+
+  passthru.tests.version = testers.testVersion {
+    package = finalAttrs.finalPackage;
+  };
+})

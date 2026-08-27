@@ -2,6 +2,7 @@
   lib,
   stdenv,
   fetchurl,
+  testers,
 }:
 
 let
@@ -16,7 +17,7 @@ let
   platform = stdenv.hostPlatform.system;
   asset = assetMap.${platform} or (throw "herdr: unsupported system ${platform}");
 in
-stdenv.mkDerivation {
+stdenv.mkDerivation (finalAttrs: {
   pname = "herdr";
   inherit version;
 
@@ -45,4 +46,8 @@ stdenv.mkDerivation {
     sourceProvenance = [ lib.sourceTypes.binaryNativeCode ];
     platforms = builtins.attrNames assetMap;
   };
-}
+
+  passthru.tests.version = testers.testVersion {
+    package = finalAttrs.finalPackage;
+  };
+})

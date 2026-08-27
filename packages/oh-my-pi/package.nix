@@ -4,6 +4,7 @@
   fetchurl,
   patchelf,
   makeWrapper,
+  testers,
 }:
 
 # oh-my-pi ships as a bun-compiled single-file executable per platform (the
@@ -47,7 +48,7 @@ let
     .${stdenv.hostPlatform.system}
       or (throw "oh-my-pi: unsupported system ${stdenv.hostPlatform.system}");
 in
-stdenv.mkDerivation {
+stdenv.mkDerivation (finalAttrs: {
   pname = "oh-my-pi";
   inherit version;
 
@@ -92,4 +93,17 @@ stdenv.mkDerivation {
       "x86_64-darwin"
     ];
   };
-}
+
+  # omp's ELF interpreter is the host nix-ld loader (see the packaging
+  # note above). /lib64 does not exist inside the build sandbox, so on
+  # Linux exec the binary through the stdenv glibc loader explicitly —
+  # bintools.dynamicLinker resolves to the right loader per architecture
+  # (ld-linux-x86-64.so.2 on x86_64, ld-linux-aarch64.so.1 on aarch64).
+  # Darwin's Mach-O binary runs natively.
+  passthru.tests.version = testers.testVersion {
+    package = finalAttrs.finalPackage;
+    command =
+      (lib.optionalString stdenv.hostPlatform.isLinux "${stdenv.cc.bintools.dynamicLinker} ")
+      + "${finalAttrs.finalPackage}/bin/omp --version";
+  };
+})

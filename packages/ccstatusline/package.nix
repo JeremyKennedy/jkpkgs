@@ -3,13 +3,14 @@
   stdenv,
   fetchzip,
   nodejs,
+  testers,
 }:
 
 let
   versionData = builtins.fromJSON (builtins.readFile ./hashes.json);
   inherit (versionData) version hashes;
 in
-stdenv.mkDerivation {
+stdenv.mkDerivation (finalAttrs: {
   pname = "ccstatusline";
   inherit version;
 
@@ -30,9 +31,12 @@ stdenv.mkDerivation {
       --replace-quiet "#!/usr/bin/env node" "#!${nodejs}/bin/node"
     runHook postInstall
   '';
-
   meta = {
     description = "Status line formatter for Claude Code CLI";
     mainProgram = "ccstatusline";
   };
-}
+
+  passthru.tests.version = testers.testVersion {
+    package = finalAttrs.finalPackage;
+  };
+})
