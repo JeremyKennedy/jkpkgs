@@ -46,7 +46,7 @@ Prefer this whenever `@earendil-works/pi-coding-agent` is already published on n
    ```
 2. Update `packages/pi/package.json` and regenerate its lockfile:
    ```bash
-   npm install @earendil-works/pi-coding-agent@<version> --package-lock-only --ignore-scripts
+   npm --prefix packages/pi install @earendil-works/pi-coding-agent@<version> --package-lock-only --ignore-scripts
    ```
 3. Update `packages/pi/hashes.json`:
    - `version` = the npm package version
@@ -101,7 +101,7 @@ When npm publishes a pi release containing the temporary backport:
 1. Remove any temporary patch, source pin, or backport script.
 2. Set `packages/pi/package.json` to the released `@earendil-works/pi-coding-agent` version.
 3. Regenerate `packages/pi/package-lock.json` with:
-   `npm install @earendil-works/pi-coding-agent@<version> --package-lock-only --ignore-scripts`.
+   npm --prefix packages/pi install @earendil-works/pi-coding-agent@<version> --package-lock-only --ignore-scripts
 4. Set `packages/pi/hashes.json.version` to the real release version, with no `unstable` suffix.
 5. Refresh `npmDepsHash` from `nix build .#pi` if needed.
 6. Check that no temporary backport remains:
