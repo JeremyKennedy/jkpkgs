@@ -44,10 +44,14 @@ Prefer this whenever `@earendil-works/pi-coding-agent` is already published on n
    ```bash
    npm view @earendil-works/pi-coding-agent version
    ```
-2. Update `packages/pi/hashes.json`:
+2. Update `packages/pi/package.json` and regenerate its lockfile:
+   ```bash
+   npm install @earendil-works/pi-coding-agent@<version> --package-lock-only --ignore-scripts
+   ```
+3. Update `packages/pi/hashes.json`:
    - `version` = the npm package version
    - `npmDepsHash` = the hash reported by a failed `nix build .#pi`, if it changed
-3. Verify the package:
+4. Verify the package:
    ```bash
    cd ~/dev/jkpkgs
    nix build .#pi
@@ -55,14 +59,14 @@ Prefer this whenever `@earendil-works/pi-coding-agent` is already published on n
    ./result/bin/pi --list-models | grep '<model-or-family>'
    just check
    ```
-4. Commit and push jkpkgs.
-5. Activate it on navi through dotfiles:
+5. Commit and push jkpkgs.
+6. Activate it on navi through dotfiles:
    ```bash
    cd ~/dev/dotfiles-personal
    dotman flake update jkpkgs
    dotman deploy --local
    ```
-6. Verify the active profile, not just `~/dev/jkpkgs/result`:
+7. Verify the active profile, not just `~/dev/jkpkgs/result`:
    ```bash
    hash -r
    command -v pi
@@ -96,7 +100,8 @@ When npm publishes a pi release containing the temporary backport:
 
 1. Remove any temporary patch, source pin, or backport script.
 2. Set `packages/pi/package.json` to the released `@earendil-works/pi-coding-agent` version.
-3. Regenerate `packages/pi/package-lock.json` with `npm install --package-lock-only --ignore-scripts`.
+3. Regenerate `packages/pi/package-lock.json` with:
+   `npm install @earendil-works/pi-coding-agent@<version> --package-lock-only --ignore-scripts`.
 4. Set `packages/pi/hashes.json.version` to the real release version, with no `unstable` suffix.
 5. Refresh `npmDepsHash` from `nix build .#pi` if needed.
 6. Check that no temporary backport remains:
