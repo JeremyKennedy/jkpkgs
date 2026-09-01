@@ -12,6 +12,10 @@
         "x86_64-darwin"
         "aarch64-darwin"
       ];
+      dshSystems = [
+        "x86_64-linux"
+        "aarch64-darwin"
+      ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
     in
     {
@@ -31,9 +35,11 @@
           codex = pkgs.callPackage ./packages/codex/package.nix { };
           ccstatusline = pkgs.callPackage ./packages/ccstatusline/package.nix { };
           pi = pkgs.callPackage ./packages/pi/package.nix { };
-          dsh = pkgs.callPackage ./packages/dsh/package.nix { };
           oh-my-pi = pkgs.callPackage ./packages/oh-my-pi/package.nix { };
           herdr = pkgs.callPackage ./packages/herdr/package.nix { };
+        }
+        // pkgs.lib.optionalAttrs (pkgs.lib.elem system dshSystems) {
+          dsh = pkgs.callPackage ./packages/dsh/package.nix { };
         }
       );
 
@@ -42,11 +48,20 @@
         let
           system = pkgs.stdenv.hostPlatform.system;
           packages = self.packages.${system};
+          dsh-platform-matrix =
+            assert self.packages.x86_64-linux ? dsh;
+            assert self.packages.aarch64-darwin ? dsh;
+            assert !(self.packages.aarch64-linux ? dsh);
+            assert !(self.packages.x86_64-darwin ? dsh);
+            pkgs.runCommand "dsh-platform-matrix" { } "touch $out";
         in
         pkgs.lib.mapAttrs (
           _: package:
           pkgs.lib.attrByPath [ "passthru" "tests" "version" ] package package
         ) packages
+        // {
+          inherit dsh-platform-matrix;
+        }
       );
     };
 }
