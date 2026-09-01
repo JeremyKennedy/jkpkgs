@@ -31,6 +31,7 @@
           codex = pkgs.callPackage ./packages/codex/package.nix { };
           ccstatusline = pkgs.callPackage ./packages/ccstatusline/package.nix { };
           pi = pkgs.callPackage ./packages/pi/package.nix { };
+          dsh = pkgs.callPackage ./packages/dsh/package.nix { };
           oh-my-pi = pkgs.callPackage ./packages/oh-my-pi/package.nix { };
           herdr = pkgs.callPackage ./packages/herdr/package.nix { };
         }
