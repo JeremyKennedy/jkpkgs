@@ -21,11 +21,16 @@
         pkgs:
         let
           system = pkgs.stdenv.hostPlatform.system;
-          patchy-cnb = pkgs.callPackage ./packages/claude-desktop/patchy-cnb.nix { };
         in
         {
           claude-code = pkgs.callPackage ./packages/claude-code/package.nix { };
-          claude-desktop = pkgs.callPackage ./packages/claude-desktop/package.nix { inherit patchy-cnb; };
+          claude-desktop =
+            if system == "x86_64-linux" then
+              pkgs.callPackage ./packages/claude-desktop/package.nix { }
+            else
+              pkgs.callPackage ./packages/claude-desktop/package-legacy.nix {
+                patchy-cnb = pkgs.callPackage ./packages/claude-desktop/patchy-cnb.nix { };
+              };
           opencode = pkgs.callPackage ./packages/opencode/package.nix { };
           opencode2 = pkgs.callPackage ./packages/opencode2/package.nix { };
           codex = pkgs.callPackage ./packages/codex/package.nix { };
