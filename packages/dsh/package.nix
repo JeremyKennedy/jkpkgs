@@ -28,6 +28,7 @@ let
       ${nodejs}/bin/node \
         $out/libexec/dsh/node_modules/@deepseek-ai/dsh-subprocess-local/scripts/ensure-spawn-helper.mjs
       makeWrapper ${nodejs}/bin/node $out/bin/dsh \
+        --add-flags "--expose-internals" \
         --add-flags $out/libexec/dsh/node_modules/@deepseek-ai/dsh/lib/bin.js \
         --prefix PATH : ${lib.makeBinPath [ bash git openssh fd ripgrep nodejs ]}
       runHook postInstall
@@ -64,6 +65,31 @@ package.overrideAttrs (finalAttrs: previousAttrs: {
         }
         EOF
         touch $out
+      '';
+    };
+    tests.webStartup = testers.runCommand {
+      name = "dsh-web-startup-test";
+      nativeBuildInputs = [ finalAttrs.finalPackage ];
+      script = ''
+        export DSH_HOME="$(mktemp -d)"
+        trap 'if [ -n "''${server_pid:-}" ]; then kill "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true; fi; rm -rf "$DSH_HOME"' EXIT
+
+        dsh web --no-open >"$DSH_HOME/web.log" 2>&1 &
+        server_pid=$!
+        for _ in $(seq 1 30); do
+          if grep -q '^dsh web: http://127\.0\.0\.1:' "$DSH_HOME/web.log"; then
+            break
+          fi
+          if ! kill -0 "$server_pid" 2>/dev/null; then
+            cat "$DSH_HOME/web.log"
+            exit 1
+          fi
+          sleep 1
+        done
+        grep -q '^dsh web: http://127\.0\.0\.1:' "$DSH_HOME/web.log"
+        kill "$server_pid"
+        wait "$server_pid" || test "$?" -eq 143
+        touch "$out"
       '';
     };
   };
