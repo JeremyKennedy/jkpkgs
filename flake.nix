@@ -6,10 +6,11 @@
   outputs =
     { self, nixpkgs }:
     let
+      # Nixpkgs 26.11 dropped x86_64-darwin; retain its package asset hashes
+      # for older consumers but do not evaluate that unsupported system here.
       systems = [
         "x86_64-linux"
         "aarch64-linux"
-        "x86_64-darwin"
         "aarch64-darwin"
       ];
       dshSystems = [
@@ -57,7 +58,7 @@
             assert self.packages.x86_64-linux ? dsh;
             assert self.packages.aarch64-darwin ? dsh;
             assert !(self.packages.aarch64-linux ? dsh);
-            assert !(self.packages.x86_64-darwin ? dsh);
+            assert !(self.packages ? "x86_64-darwin");
             pkgs.runCommand "dsh-platform-matrix" { } "touch $out";
         in
         pkgs.lib.mapAttrs (
