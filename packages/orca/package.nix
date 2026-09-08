@@ -2,6 +2,7 @@
   appimageTools,
   fetchurl,
   lib,
+  makeDesktopItem,
   makeWrapper,
   stdenv,
   symlinkJoin,
@@ -20,11 +21,24 @@ let
       hash = hashes.${platform};
     };
   };
+  desktopItem = makeDesktopItem {
+    name = "orca";
+    desktopName = "Orca";
+    genericName = "Agent Development Environment";
+    comment = "Run coding agents in parallel Git worktrees";
+    exec = "orca open";
+    categories = [ "Development" ];
+    startupNotify = true;
+    terminal = false;
+  };
 in
 assert platform == "x86_64-linux";
 symlinkJoin {
   name = "orca-${version}";
-  paths = [ base ];
+  paths = [
+    base
+    desktopItem
+  ];
   nativeBuildInputs = [ makeWrapper ];
 
   postBuild = ''
