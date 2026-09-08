@@ -44,6 +44,9 @@
           oh-my-pi = pkgs.callPackage ./packages/oh-my-pi/package.nix { };
           herdr = pkgs.callPackage ./packages/herdr/package.nix { };
         }
+        // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
+          orca = pkgs.callPackage ./packages/orca/package.nix { };
+        }
         // pkgs.lib.optionalAttrs (pkgs.lib.elem system dshSystems) {
           dsh = pkgs.callPackage ./packages/dsh/package.nix { };
         }
@@ -62,8 +65,7 @@
             pkgs.runCommand "dsh-platform-matrix" { } "touch $out";
         in
         pkgs.lib.mapAttrs (
-          _: package:
-          pkgs.lib.attrByPath [ "passthru" "tests" "version" ] package package
+          _: package: pkgs.lib.attrByPath [ "passthru" "tests" "version" ] package package
         ) packages
         // {
           inherit dsh-platform-matrix;
