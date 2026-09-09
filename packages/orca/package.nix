@@ -6,6 +6,7 @@
   makeWrapper,
   stdenv,
   symlinkJoin,
+  writeShellScript,
 }:
 
 let
@@ -21,12 +22,21 @@ let
       hash = hashes.${platform};
     };
   };
+  icon = fetchurl {
+    url = "https://raw.githubusercontent.com/stablyai/orca/v${version}/resources/build/icon.png";
+    hash = "sha256-M6r7Kdr+K3vuPKcdAC8YIbvpIK5FpWQ8J/ud3tN8EuY=";
+  };
+  desktopLauncher = writeShellScript "orca-desktop" ''
+    unset PI_CONFIG_FILES PI_CODING_AGENT_DIR
+    exec ${base}/bin/orca open "$@"
+  '';
   desktopItem = makeDesktopItem {
     name = "orca";
     desktopName = "Orca";
     genericName = "Agent Development Environment";
     comment = "Run coding agents in parallel Git worktrees";
-    exec = "orca open";
+    exec = desktopLauncher;
+    icon = "${icon}";
     categories = [ "Development" ];
     startupNotify = true;
     terminal = false;
