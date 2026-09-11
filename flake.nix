@@ -43,8 +43,10 @@
           pi = pkgs.callPackage ./packages/pi/package.nix { };
           oh-my-pi = pkgs.callPackage ./packages/oh-my-pi/package.nix { };
           herdr = pkgs.callPackage ./packages/herdr/package.nix { };
+          paseo = pkgs.callPackage ./packages/paseo/package.nix { };
         }
         // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
+          paseo-desktop = pkgs.callPackage ./packages/paseo-desktop/package.nix { };
           orca = pkgs.callPackage ./packages/orca/package.nix { };
         }
         // pkgs.lib.optionalAttrs (pkgs.lib.elem system dshSystems) {
