@@ -18,7 +18,8 @@ index f34ec2f6..343695e9 100644
 @@ -46,15 +55,182 @@ impl ConfigEdit<'_> {
      }
  }
- 
+-
++
 +fn config_lock_path(path: &Path) -> PathBuf {
 +    let mut lock_path = path.as_os_str().to_os_string();
 +    lock_path.push(".lock");
@@ -200,7 +201,7 @@ index f34ec2f6..343695e9 100644
      let content = match super::io::read_optional_config(path) {
          Ok(Some(content)) => content,
          Ok(None) => String::new(),
-@@ -64,7 +240,7 @@ pub(crate) fn update_file_at(
+@@ -64,46 +240,170 @@ pub(crate) fn update_file_at(
              ));
          }
      };
@@ -208,8 +209,48 @@ index f34ec2f6..343695e9 100644
 +    atomic_write(path, &update(&content))
          .map_err(|error| format!("failed to save {description}: {error}"))
  }
- 
-@@ -106,4 +282,128 @@ mod tests {
+-
++
+ pub(crate) fn write_edit(edit: ConfigEdit<'_>) -> Result<(), String> {
+     update_file_at(&super::config_path(), edit.description(), |content| {
+         edit.apply(content)
+     })
+ }
+-
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+-
++
+     #[test]
+     fn update_file_at_does_not_move_a_leading_bom_into_the_file() {
+         let dir = std::env::temp_dir().join(format!("herdr-config-bom-{}", std::process::id()));
+         std::fs::create_dir_all(&dir).unwrap();
+         let path = dir.join("config.toml");
+         std::fs::write(
+             &path,
+             b"\xEF\xBB\xBF[terminal]\ndefault_shell = \"pwsh.exe\"\n",
+         )
+         .unwrap();
+-
++
+         update_file_at(&path, "onboarding setting", |content| {
+             crate::config::upsert_top_level_bool(content, "onboarding", false)
+         })
+         .unwrap();
+-
++
+         let written = std::fs::read_to_string(&path).unwrap();
+         let _ = std::fs::remove_dir_all(dir);
+-
++
+         assert!(
+             !written.contains('\u{feff}'),
+             "unexpected BOM in {written:?}"
+         );
+         assert!(
+             toml::from_str::<toml::Value>(&written).is_ok(),
              "written config is not valid TOML: {written:?}"
          );
      }
