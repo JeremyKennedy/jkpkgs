@@ -15,5 +15,8 @@ let
       ./patches/config-writer-safety.patch
     ];
   };
+  basePackage = callPackage "${herdrSource}/nix/package.nix" { inherit rustPlatform; };
 in
-callPackage "${patchedSource}/nix/package.nix" { inherit rustPlatform; }
+basePackage.overrideAttrs (_: {
+  src = patchedSource;
+})
