@@ -3,7 +3,7 @@
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   inputs.herdr = {
-    url = "git+ssh://forgejo@git.jeremyk.net/jeremy/herdr.git?ref=master";
+    url = "github:herdrdev/herdr?ref=master";
     flake = false;
   };
   inputs.rust-overlay = {
