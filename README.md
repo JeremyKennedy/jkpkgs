@@ -25,6 +25,29 @@ Notes:
 - Active dotfiles paths live under `~/dev/dotfiles-personal`, not
   `~/dev/dotfiles`.
 
+## Herdr source lifecycle
+
+Herdr is source-backed: the package builds from the upstream
+`herdrdev/herdr` source (pinned by the `herdr` flake input in
+`flake.lock`) with the explicit local patch queue under
+`packages/herdr/patches` applied on top. Source packages carry no release
+hashes — the flake lock pins the exact upstream source, unlike the
+hash-pinned binary and npm packages.
+
+To change Herdr locally, edit the patch queue (or `package.nix`), verify
+with `nix build .#herdr`, then commit, push, and propagate as usual.
+
+The `jkpkgs-refresh` timer invokes `dotman jkpkgs update --package-only`
+for the automated refresh. The source updater compares the evaluated
+package version against the upstream release tag, updates the `herdr`
+flake input, and builds/evaluates the patched package (after the pending
+dotman fix lands). If the new source version does not match the release
+tag, or the patches or build fail to evaluate, the updater stops before
+any PR is created. On success it stages only the `flake.lock` change and
+proposes it through the same reviewed Forgejo PR and Buildbot path as
+other updates. Consumer lock propagation and host deployment remain a
+separate, manual workflow.
+
 ## Common commands
 
 ```bash
