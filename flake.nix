@@ -60,10 +60,7 @@
           ccstatusline = pkgs.callPackage ./packages/ccstatusline/package.nix { };
           pi = pkgs.callPackage ./packages/pi/package.nix { };
           oh-my-pi = pkgs.callPackage ./packages/oh-my-pi/package.nix { };
-          # Apply patches on the x86_64-linux build host so cross-system Herdr
-          # derivations do not coerce a target-system source derivation at eval time.
           herdr = pkgs.callPackage ./packages/herdr/package.nix {
-            applyPatches = nixpkgs.legacyPackages.x86_64-linux.applyPatches;
             herdrSource = herdr;
             rustPlatform = rustPlatformFor pkgs;
           };
