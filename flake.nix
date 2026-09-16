@@ -2,9 +2,17 @@
   description = "jkpkgs: personal binary packages for AI/LLM tools";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  inputs.herdr = {
+    url = "git+ssh://forgejo@git.jeremyk.net/jeremy/herdr.git?ref=master";
+    flake = false;
+  };
+  inputs.rust-overlay = {
+    url = "github:oxalica/rust-overlay";
+    inputs.nixpkgs.follows = "nixpkgs";
+  };
 
   outputs =
-    { self, nixpkgs }:
+    { self, nixpkgs, herdr, rust-overlay }:
     let
       # Nixpkgs 26.11 dropped x86_64-darwin; retain its package asset hashes
       # for older consumers but do not evaluate that unsupported system here.
@@ -18,6 +26,16 @@
         "aarch64-darwin"
       ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
+      rustPlatformFor =
+        pkgs:
+        let
+          rustPkgs = pkgs.extend rust-overlay.overlays.default;
+          rustToolchain = rustPkgs.rust-bin.fromRustupToolchainFile "${herdr}/rust-toolchain.toml";
+        in
+        pkgs.makeRustPlatform {
+          cargo = rustToolchain;
+          rustc = rustToolchain;
+        };
     in
     {
       overlays.default = import ./overlays/default.nix;
@@ -42,7 +60,10 @@
           ccstatusline = pkgs.callPackage ./packages/ccstatusline/package.nix { };
           pi = pkgs.callPackage ./packages/pi/package.nix { };
           oh-my-pi = pkgs.callPackage ./packages/oh-my-pi/package.nix { };
-          herdr = pkgs.callPackage ./packages/herdr/package.nix { };
+          herdr = pkgs.callPackage ./packages/herdr/package.nix {
+            herdrSource = herdr;
+            rustPlatform = rustPlatformFor pkgs;
+          };
           paseo = pkgs.callPackage ./packages/paseo/package.nix { };
         }
         // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
