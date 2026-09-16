@@ -1,0 +1,93 @@
+diff --git a/src/terminal/title.rs b/src/terminal/title.rs
+index 89b4fed2..a9272808 100644
+--- a/src/terminal/title.rs
++++ b/src/terminal/title.rs
+@@ -1,22 +1,46 @@
+ const CLAUDE_ACTIVITY_GLYPHS: &str = "·✢✳✶✻✽◐◓◑◒";
+-
++
++fn stripped_omp_marked_title(title: &str) -> Option<&str> {
++    let mut chars = title.char_indices();
++    if chars.next()?.1 != 'π' || !chars.next()?.1.is_whitespace() {
++        return None;
++    }
++
++    let (marker_offset, marker) = chars.find(|(_, character)| !character.is_whitespace())?;
++    let after_marker = &title[marker_offset + marker.len_utf8()..];
++    if (matches!(marker, '>' | '!' | '-')
++        || matches!(marker, '\u{2800}'..='\u{28ff}')
++        || CLAUDE_ACTIVITY_GLYPHS.contains(marker))
++        && after_marker.chars().next().is_some_and(char::is_whitespace)
++    {
++        Some(after_marker.trim())
++    } else {
++        None
++    }
++}
++
+ pub(crate) fn stripped_terminal_title(title: &str) -> Option<String> {
+     let title = crate::platform::terminal_title_for_presentation(title).trim();
+     if title.is_empty() {
+         return None;
+     }
+-
++
+-    let mut chars = title.char_indices();
+-    let (_, first) = chars.next()?;
+-    let after_first = &title[first.len_utf8()..];
+-    let recognized =
+-        matches!(first, '\u{2800}'..='\u{28ff}') || CLAUDE_ACTIVITY_GLYPHS.contains(first);
+-    let stripped = if recognized
+-        && (after_first.is_empty() || after_first.chars().next().is_some_and(char::is_whitespace))
+-    {
+-        after_first.trim()
++    let stripped = if let Some(stripped) = stripped_omp_marked_title(title) {
++        stripped
+     } else {
+-        title
++        let mut chars = title.char_indices();
++        let (_, first) = chars.next()?;
++        let after_first = &title[first.len_utf8()..];
++        let recognized =
++            matches!(first, '\u{2800}'..='\u{28ff}') || CLAUDE_ACTIVITY_GLYPHS.contains(first);
++        if recognized
++            && (after_first.is_empty()
++                || after_first.chars().next().is_some_and(char::is_whitespace))
++        {
++            after_first.trim()
++        } else {
++            title
++        }
+     };
+-
++
+     (!stripped.is_empty()).then(|| stripped.to_string())
+@@ -47,6 +71,27 @@ mod tests {
+         );
+     }
+-
++
++    #[test]
++    fn strips_omp_marked_title_prefix() {
++        for (title, expected) in [
++            ("π ⠋ task", "task"),
++            ("π ⠏ task", "task"),
++            ("π > task", "task"),
++            ("π ! task", "task"),
++            ("π - task", "task"),
++            ("  π ⠋   task  ", "task"),
++        ] {
++            assert_eq!(stripped_terminal_title(title).as_deref(), Some(expected));
++        }
++    }
++
++    #[test]
++    fn preserves_unmarked_pi_titles() {
++        for title in ["π task", "πproduction", "π  task"] {
++            assert_eq!(stripped_terminal_title(title).as_deref(), Some(title));
++        }
++    }
++
+     #[test]
+     fn preserves_unrecognized_or_unbounded_symbols() {
+         for (title, expected) in [

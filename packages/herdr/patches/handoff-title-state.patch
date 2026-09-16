@@ -1,0 +1,244 @@
+diff --git a/src/persist/restore.rs b/src/persist/restore.rs
+index 3c5775c9..28bf325e 100644
+--- a/src/persist/restore.rs
++++ b/src/persist/restore.rs
+@@ -528,6 +528,10 @@ fn restore_tab(
+             .unwrap_or_default();
+         let imported_runtime = old_pane_id.and_then(|old_id| imported_panes.remove(&old_id));
+         let was_imported = imported_runtime.is_some();
++        #[cfg(unix)]
++        let imported_terminal_title = imported_runtime
++            .as_ref()
++            .and_then(|imported| imported.state.terminal_title.clone());
+         let pending_native_agent_restore = if was_imported {
+             None
+         } else {
+@@ -629,6 +633,10 @@ fn restore_tab(
+             Ok(runtime) => {
+                 let terminal_id = TerminalId::alloc();
+                 let mut terminal = TerminalState::new(terminal_id.clone(), cwd.clone());
++                #[cfg(unix)]
++                if let Some(title) = imported_terminal_title {
++                    terminal.set_terminal_title(Some(title));
++                }
+                 if was_imported {
+                     if let Some(argv) = saved_launch_argv {
+                         terminal = terminal.with_launch_argv(argv).with_respawn_shell_on_exit();
+@@ -1719,4 +1727,108 @@ mod tests {
+         };
+         (snapshot, history)
+     }
++
++    #[cfg(unix)]
++    #[tokio::test]
++    async fn restore_handoff_preserves_first_terminal_and_agent_info() {
++        use portable_pty::{native_pty_system, PtySize};
++
++        let cwd = std::env::current_dir().unwrap();
++        let snapshot = SessionSnapshot {
++            version: super::super::snapshot::SNAPSHOT_VERSION,
++            workspaces: vec![WorkspaceSnapshot {
++                id: Some("workspace".into()),
++                custom_name: None,
++                identity_cwd: cwd.clone(),
++                worktree_space: None,
++                public_pane_numbers: HashMap::from([(0, 1)]),
++                next_public_pane_number: 2,
++                public_tab_numbers: vec![1],
++                next_public_tab_number: 2,
++                tabs: vec![TabSnapshot {
++                    custom_name: None,
++                    layout: LayoutSnapshot::Pane(0),
++                    panes: HashMap::from([(
++                        0,
++                        super::super::snapshot::PaneSnapshot {
++                            cwd,
++                            label: None,
++                            agent_name: Some("task".into()),
++                            managed_agent_kind: None,
++                            agent_session: None,
++                            launch_argv: None,
++                        },
++                    )]),
++                    zoomed: false,
++                    focused: Some(0),
++                    root_pane: Some(0),
++                }],
++                active_tab: 0,
++            }],
++            active: Some(0),
++            selected: 0,
++            sidebar_width: None,
++            sidebar_section_split: None,
++            collapsed_space_keys: Default::default(),
++        };
++
++        let pair = native_pty_system()
++            .openpty(PtySize {
++                rows: 24,
++                cols: 80,
++                pixel_width: 0,
++                pixel_height: 0,
++            })
++            .unwrap();
++        let master_fd = unsafe { libc::dup(pair.master.as_raw_fd().unwrap()) };
++        assert!(master_fd >= 0, "failed to duplicate test PTY master");
++        let mut imports = HashMap::from([(
++            0,
++            crate::handoff_runtime::ImportedHandoffRuntime {
++                master_fd,
++                state: crate::handoff_runtime::HandoffRuntimeState {
++                    pane_id: 0,
++                    child_pid: 0,
++                    rows: 24,
++                    cols: 80,
++                    cell_width_px: 0,
++                    cell_height_px: 0,
++                    keyboard_protocol_flags: 0,
++                    keyboard_protocol_ansi: None,
++                    input_state: None,
++                    terminal_title: Some("π > task".into()),
++                    initial_history_ansi: None,
++                },
++            },
++        )]);
++        let (events, _events_rx) = mpsc::channel(8);
++        let (workspaces, terminals, mut runtimes) = restore_handoff(
++            &snapshot,
++            4096,
++            test_restore_shell(),
++            crate::config::ShellModeConfig::NonLogin,
++            &mut imports,
++            events,
++            Arc::new(Notify::new()),
++            Arc::new(RenderSignal::new()),
++        )
++        .unwrap();
++
++        let workspace = workspaces.first().expect("handoff workspace");
++        let terminal_id = workspace.tabs[0]
++            .panes
++            .values()
++            .next()
++            .expect("handoff pane")
++            .attached_terminal_id
++            .clone();
++        let terminal = terminals.get(&terminal_id).expect("handoff terminal");
++        assert_eq!(terminal.terminal_title.as_deref(), Some("π > task"));
++        assert_eq!(terminal.terminal_title_stripped().as_deref(), Some("task"));
++        assert_eq!(terminal.agent_name.as_deref(), Some("task"));
++
++        for (_, runtime) in runtimes.drain() {
++            runtime.shutdown();
++        }
++    }
+ }
+diff --git a/src/server/headless/lifecycle.rs b/src/server/headless/lifecycle.rs
+index f7ad87dd..bad4098c 100644
+--- a/src/server/headless/lifecycle.rs
++++ b/src/server/headless/lifecycle.rs
+@@ -1,6 +1,21 @@
+ use super::*;
+-
++
+ const LIVE_HANDOFF_RESPONSE_WRITE_TIMEOUT: Duration = Duration::from_secs(6);
++#[cfg(unix)]
++fn handoff_terminal_title(
++    runtime_title: Option<String>,
++    terminal: Option<&crate::terminal::TerminalState>,
++) -> Option<String> {
++    terminal
++        .and_then(|terminal| {
++            terminal
++                .terminal_title
++                .as_ref()
++                .filter(|title| !title.trim().is_empty())
++                .cloned()
++        })
++        .or(runtime_title)
++}
+-
++
+ pub(super) fn wait_for_live_handoff_response_write(
+     response_write_complete: Option<std::sync::mpsc::Receiver<()>>,
+@@ -83,6 +98,9 @@ impl HeadlessServer {
+                 continue;
+             };
+             let mut handoff_runtime = runtime.handoff_runtime_state(pane_id);
++            let terminal = self.app.state.terminals.get(terminal_id);
++            handoff_runtime.terminal_title =
++                handoff_terminal_title(handoff_runtime.terminal_title.take(), terminal);
+             let has_agent_session = self
+                 .app
+                 .state
+@@ -387,3 +405,70 @@ pub(super) fn wait_for_old_public_sockets_to_close(timeout: Duration) -> io::Res
+         "old server sockets did not close before handoff import bind",
+     ))
+ }
++
++#[cfg(all(test, unix))]
++mod tests {
++    use super::*;
++
++    #[tokio::test]
++    async fn handoff_runtime_state_captures_saved_terminal_title() {
++        let runtime = crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b"");
++        let mut terminal = crate::terminal::TerminalState::new(
++            crate::terminal::TerminalId::alloc(),
++            std::path::PathBuf::from("/tmp"),
++        );
++        terminal.set_terminal_title(Some("⠋ saved server title".into()));
++        assert!(runtime.handoff_runtime_state(12).terminal_title.is_none());
++
++        assert_eq!(
++            handoff_terminal_title(
++                runtime.handoff_runtime_state(12).terminal_title,
++                Some(&terminal),
++            )
++            .as_deref(),
++            Some("⠋ saved server title")
++        );
++
++        terminal.set_terminal_title(Some("  saved server title  ".into()));
++        assert_eq!(
++            handoff_terminal_title(
++                runtime.handoff_runtime_state(12).terminal_title,
++                Some(&terminal),
++            )
++            .as_deref(),
++            Some("  saved server title  ")
++        );
++
++        runtime.test_process_pty_bytes(b"\x1b]0;runtime fallback\x07");
++
++        terminal.set_terminal_title(Some(String::new()));
++        assert_eq!(
++            handoff_terminal_title(
++                runtime.handoff_runtime_state(12).terminal_title,
++                Some(&terminal),
++            )
++            .as_deref(),
++            Some("runtime fallback")
++        );
++
++        terminal.set_terminal_title(Some(" \t ".into()));
++        assert_eq!(
++            handoff_terminal_title(
++                runtime.handoff_runtime_state(12).terminal_title,
++                Some(&terminal),
++            )
++            .as_deref(),
++            Some("runtime fallback")
++        );
++
++        terminal.set_terminal_title(None);
++        assert_eq!(
++            handoff_terminal_title(
++                runtime.handoff_runtime_state(12).terminal_title,
++                Some(&terminal),
++            )
++            .as_deref(),
++            Some("runtime fallback")
++        );
++    }
++}

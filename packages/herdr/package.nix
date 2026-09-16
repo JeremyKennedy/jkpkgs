@@ -1,13 +1,22 @@
 {
+  applyPatches,
   callPackage,
   herdrSource,
   rustPlatform,
 }:
 
 let
-  version = "0.9.0";
+  patchedSource = applyPatches {
+    name = "herdr-source-patched";
+    src = herdrSource;
+    patches = [
+      ./patches/omp-title-normalization.patch
+      ./patches/handoff-title-state.patch
+      ./patches/config-writer-safety.patch
+    ];
+  };
+  basePackage = callPackage "${herdrSource}/nix/package.nix" { inherit rustPlatform; };
 in
-(callPackage "${herdrSource}/nix/package.nix" { inherit rustPlatform; }).overrideAttrs (_: {
-  inherit version;
-  __intentionallyOverridingVersion = true;
+basePackage.overrideAttrs (_: {
+  src = patchedSource;
 })
