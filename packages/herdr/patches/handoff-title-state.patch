@@ -137,7 +137,7 @@ diff --git a/src/server/headless/lifecycle.rs b/src/server/headless/lifecycle.rs
 index f7ad87dd..bad4098c 100644
 --- a/src/server/headless/lifecycle.rs
 +++ b/src/server/headless/lifecycle.rs
-@@ -1,6 +1,21 @@
+@@ -1,6 +1,23 @@
  use super::*;
 -
 +
@@ -147,15 +147,17 @@ index f7ad87dd..bad4098c 100644
 +    runtime_title: Option<String>,
 +    terminal: Option<&crate::terminal::TerminalState>,
 +) -> Option<String> {
-+    terminal
-+        .and_then(|terminal| {
-+            terminal
-+                .terminal_title
-+                .as_ref()
-+                .filter(|title| !title.trim().is_empty())
-+                .cloned()
++    runtime_title
++        .filter(|title| !title.trim().is_empty())
++        .or_else(|| {
++            terminal.and_then(|terminal| {
++                terminal
++                    .terminal_title
++                    .as_ref()
++                    .filter(|title| !title.trim().is_empty())
++                    .cloned()
++            })
 +        })
-+        .or(runtime_title)
 +}
 -
 +
@@ -171,7 +173,7 @@ index f7ad87dd..bad4098c 100644
              let has_agent_session = self
                  .app
                  .state
-@@ -387,3 +405,70 @@ pub(super) fn wait_for_old_public_sockets_to_close(timeout: Duration) -> io::Res
+@@ -387,3 +405,79 @@ pub(super) fn wait_for_old_public_sockets_to_close(timeout: Duration) -> io::Result<()>
          "old server sockets did not close before handoff import bind",
      ))
  }
@@ -210,6 +212,15 @@ index f7ad87dd..bad4098c 100644
 +        );
 +
 +        runtime.test_process_pty_bytes(b"\x1b]0;runtime fallback\x07");
++        terminal.set_terminal_title(Some("saved server title".into()));
++        assert_eq!(
++            handoff_terminal_title(
++                runtime.handoff_runtime_state(12).terminal_title,
++                Some(&terminal),
++            )
++            .as_deref(),
++            Some("runtime fallback")
++        );
 +
 +        terminal.set_terminal_title(Some(String::new()));
 +        assert_eq!(
