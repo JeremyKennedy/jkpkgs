@@ -22,8 +22,8 @@ Notes:
   `dotman jkpkgs update` touches the network.
 - An update may move several package versions at once — check the commit
   contents before propagating.
-- Active dotfiles paths live under `~/dev/dotfiles-personal`, not
-  `~/dev/dotfiles`.
+- Active dotfiles paths live under `~/dev/dots/dotfiles-personal`, not
+  `~/dev/dots/dotfiles-personal`.
 
 ## Herdr source lifecycle
 
@@ -76,7 +76,7 @@ Prefer this whenever `@earendil-works/pi-coding-agent` is already published on n
    - `npmDepsHash` = the hash reported by a failed `nix build .#pi`, if it changed
 4. Verify the package:
    ```bash
-   cd ~/dev/jkpkgs
+   cd ~/dev/dots/jkpkgs
    nix build .#pi
    ./result/bin/pi --version
    ./result/bin/pi --list-models | grep '<model-or-family>'
@@ -85,11 +85,11 @@ Prefer this whenever `@earendil-works/pi-coding-agent` is already published on n
 5. Commit and push jkpkgs.
 6. Activate it on navi through dotfiles:
    ```bash
-   cd ~/dev/dotfiles-personal
+   cd ~/dev/dots/dotfiles-personal
    dotman flake update jkpkgs
    dotman deploy --local
    ```
-7. Verify the active profile, not just `~/dev/jkpkgs/result`:
+7. Verify the active profile, not just `~/dev/dots/jkpkgs/result`:
    ```bash
    hash -r
    command -v pi
