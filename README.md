@@ -22,8 +22,8 @@ Notes:
   `dotman jkpkgs update` touches the network.
 - An update may move several package versions at once — check the commit
   contents before propagating.
-- Active dotfiles paths live under `~/dev/dots/dotfiles-personal`, not
-  `~/dev/dots/dotfiles-personal`.
+- Active dotfiles paths live under `~/dev/dots/dotfiles-personal`; this
+  checkout is its sibling, `~/dev/dots/jkpkgs`.
 
 ## Herdr source lifecycle
 
@@ -55,6 +55,15 @@ just check
 just build
 nix build .#pi
 ```
+
+## CI
+
+Merges to `main` are gated on buildbot status contexts; the live list for
+this repo is the Forgejo branch-protection config (`status_check_contexts`)
+or `dotman buildbot status jeremy/jkpkgs`. CI evaluates all systems but
+builds only `x86_64-linux`, so darwin outputs (dsh, paseo on Cedar) are
+proven by evaluation here and by the actual download/build on the target
+machine at deploy time.
 
 ## Pi fast-track workflow
 
