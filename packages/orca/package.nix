@@ -22,6 +22,8 @@ let
       hash = hashes.${platform};
     };
   };
+  # Hand-pinned and outside the dotman updater: it only tracks the release
+  # AppImage. Re-hash manually when bumping orca if upstream touches the icon.
   icon = fetchurl {
     url = "https://raw.githubusercontent.com/stablyai/orca/v${version}/resources/build/icon.png";
     hash = "sha256-M6r7Kdr+K3vuPKcdAC8YIbvpIK5FpWQ8J/ud3tN8EuY=";
