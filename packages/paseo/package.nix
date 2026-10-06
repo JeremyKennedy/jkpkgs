@@ -109,7 +109,7 @@ package.overrideAttrs (
           }
           trap cleanup EXIT
 
-          paseo daemon start --foreground >"$PASEO_HOME/stdout.log" 2>&1 &
+          paseo daemon run >"$PASEO_HOME/stdout.log" 2>&1 &
           daemon_pid=$!
 
           for _ in $(seq 1 30); do
