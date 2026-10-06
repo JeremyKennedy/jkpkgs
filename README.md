@@ -48,6 +48,22 @@ proposes it through the same reviewed Forgejo PR and Buildbot path as
 other updates. Consumer lock propagation and host deployment remain a
 separate, manual workflow.
 
+## Herdr plugin: herdr-drovr
+
+`herdr-drovr` packages the upstream `AVGVSTVS96/herdr-drovr` plugin
+(fzf picker to move panes/tabs across workspaces; live agents survive)
+from the `drovr` flake input with one local patch
+(`packages/herdr-drovr/patches/all-spaces-default.patch`: the pane
+picker defaults to all workspaces instead of the current one). There is
+no fork; the patch queue carries the change exactly like Herdr's does.
+
+The store path *is* the plugin directory: activate with
+`herdr plugin link ${pkgs.herdr-drovr}` (idempotent; relinking repoints
+the running server at a new build). The install-check phase runs
+upstream's node test suite against the patched source, so patch drift
+fails the build like Herdr's queue does. Regenerate the patch against
+the pinned input with `git diff upstream/main -- pick-and-move.ts`.
+
 ## Common commands
 
 ```bash

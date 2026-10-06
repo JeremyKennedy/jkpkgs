@@ -1,0 +1,88 @@
+From 7dcaed653f1cc102f6f380a41c7feb1f7dbd3cbe Mon Sep 17 00:00:00 2001
+From: Jeremy Kennedy <me@jeremyk.net>
+Date: Tue, 6 Oct 2026 12:43:30 -0400
+Subject: [PATCH] Default the pane picker to all-spaces scope
+
+The default list is the current workspace's other tabs, which reads as
+an empty picker whenever the source workspace has a single tab. Flip the
+initial scope to cross-workspace (the point of the tool) and relabel
+ctrl-t to narrow back to the current space.
+---
+ package-lock.json |  8 ++++----
+ pick-and-move.ts  | 15 +++++++++------
+ 2 files changed, 13 insertions(+), 10 deletions(-)
+
+diff --git a/package-lock.json b/package-lock.json
+index c538732..edf8511 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -1,12 +1,12 @@
+ {
+-  "name": "herdr-tab-mover",
+-  "version": "0.1.0",
++  "name": "herdr-drovr",
++  "version": "0.4.8",
+   "lockfileVersion": 3,
+   "requires": true,
+   "packages": {
+     "": {
+-      "name": "herdr-tab-mover",
+-      "version": "0.1.0",
++      "name": "herdr-drovr",
++      "version": "0.4.8",
+       "license": "MIT",
+       "devDependencies": {
+         "@types/node": "^26.1.0",
+diff --git a/pick-and-move.ts b/pick-and-move.ts
+index d854151..610dff0 100755
+--- a/pick-and-move.ts
++++ b/pick-and-move.ts
+@@ -477,9 +477,11 @@ function movePaneFlow(srcPane: string): number {
+   const currentLines = paneDestLines(tabs, workspaces, src.tab_id, src.workspace_id, false);
+   const allLines = paneDestLines(tabs, workspaces, src.tab_id, src.workspace_id, true);
+ 
+-  // ctrl-t toggles between the scoped and cross-workspace lists: a marker
+-  // file carries the state, the search script picks the file per reload. The
+-  // candidate files hold only real tabs; the script owns the sentinels.
++  // ctrl-t toggles between the cross-workspace and current-workspace lists:
++  // a marker file carries the state, the search script picks the file per
++  // reload. The default is cross-workspace (marker created up front), since
++  // moves between spaces are the whole point. The candidate files hold only
++  // real tabs; the script owns the sentinels.
+   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "drovr-"));
+   const scopedPath = path.join(dir, "scoped.txt");
+   const allPath = path.join(dir, "all.txt");
+@@ -487,6 +489,7 @@ function movePaneFlow(srcPane: string): number {
+   const searchSh = path.join(dir, "search.sh");
+   fs.writeFileSync(scopedPath, currentLines.join("\n"));
+   fs.writeFileSync(allPath, allLines.join("\n"));
++  fs.writeFileSync(allOn, "");
+   fs.writeFileSync(
+     searchSh,
+     searchScript(`$(if test -e '${allOn}'; then echo '${allPath}'; else echo '${scopedPath}'; fi)`, [
+@@ -504,11 +507,11 @@ function movePaneFlow(srcPane: string): number {
+     fzf = runFzf(
+       [
+         ...FZF_STYLE,
+-        "--prompt", "move pane to › ",
++        "--prompt", "move pane anywhere › ",
+         ...hintArgs(
+           dir,
+           [["enter", "split right"], ["alt-d", "split down"]],
+-          [["esc", "cancel"], ["ctrl-t", "all spaces"]]
++          [["esc", "cancel"], ["ctrl-t", "this space"]],
+         ),
+         "--delimiter", "\t",
+         "--with-nth", "1",
+@@ -518,7 +521,7 @@ function movePaneFlow(srcPane: string): number {
+         ...reloadOnChange(searchSh),
+         "--bind", `ctrl-t:transform[${toggle}]+reload(sh '${searchSh}' {q})`,
+       ],
+-      [...currentLines, mutedRow("＋ new tab", NEW_TAB_TOKEN), mutedRow("＋ new workspace", NEW_WS_TOKEN)].join("\n")
++      [...allLines, mutedRow("＋ new tab", NEW_TAB_TOKEN), mutedRow("＋ new workspace", NEW_WS_TOKEN)].join("\n")
+     );
+   } finally {
+     fs.rmSync(dir, { recursive: true, force: true });
+-- 
+2.55.0
+

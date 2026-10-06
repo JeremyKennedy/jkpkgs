@@ -6,13 +6,17 @@
     url = "github:herdrdev/herdr?ref=master";
     flake = false;
   };
+  inputs.drovr = {
+    url = "github:AVGVSTVS96/herdr-drovr?ref=main";
+    flake = false;
+  };
   inputs.rust-overlay = {
     url = "github:oxalica/rust-overlay";
     inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs =
-    { self, nixpkgs, herdr, rust-overlay }:
+    { self, nixpkgs, herdr, drovr, rust-overlay }:
     let
       # Nixpkgs 26.11 dropped x86_64-darwin; retain its package asset hashes
       # for older consumers but do not evaluate that unsupported system here.
@@ -56,6 +60,9 @@
           herdr = pkgs.callPackage ./packages/herdr/package.nix {
             herdrSource = herdr;
             rustPlatform = rustPlatformFor pkgs;
+          };
+          herdr-drovr = pkgs.callPackage ./packages/herdr-drovr/package.nix {
+            drovrSource = drovr;
           };
           paseo = pkgs.callPackage ./packages/paseo/package.nix { };
         }
