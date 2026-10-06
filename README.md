@@ -52,10 +52,16 @@ separate, manual workflow.
 
 `herdr-drovr` packages the upstream `AVGVSTVS96/herdr-drovr` plugin
 (fzf picker to move panes/tabs across workspaces; live agents survive)
-from the `drovr` flake input with one local patch
-(`packages/herdr-drovr/patches/all-spaces-default.patch`: the pane
-picker defaults to all workspaces instead of the current one). There is
-no fork; the patch queue carries the change exactly like Herdr's does.
+from the `drovr` flake input (pinned to upstream GitHub `main`) with
+one local patch (`packages/herdr-drovr/patches/all-spaces-default.patch`:
+the pane picker defaults to all workspaces instead of the current one).
+The build has no fork dependency: the patch queue carries the change
+exactly like Herdr's does. `forgejo:jeremy/herdr-drovr` is a custody
+mirror only — its `main` is upstream plus the same patch commit, and a
+weekly Forgejo Action force-syncs its `upstream` branch so the patched
+lineage can never be orphaned by upstream force-pushes. Nothing builds
+from that mirror; it exists so the tree the patch queue produces has a
+durable, reviewable home.
 
 The store path *is* the plugin directory: activate with
 `herdr plugin link ${pkgs.herdr-drovr}` (idempotent; relinking repoints
