@@ -47,13 +47,6 @@
         in
         {
           claude-code = pkgs.callPackage ./packages/claude-code/package.nix { };
-          claude-desktop =
-            if system == "x86_64-linux" then
-              pkgs.callPackage ./packages/claude-desktop/package.nix { }
-            else
-              pkgs.callPackage ./packages/claude-desktop/package-legacy.nix {
-                patchy-cnb = pkgs.callPackage ./packages/claude-desktop/patchy-cnb.nix { };
-              };
           opencode = pkgs.callPackage ./packages/opencode/package.nix { };
           opencode2 = pkgs.callPackage ./packages/opencode2/package.nix { };
           codex = pkgs.callPackage ./packages/codex/package.nix { };
@@ -67,6 +60,7 @@
           paseo = pkgs.callPackage ./packages/paseo/package.nix { };
         }
         // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
+          claude-desktop = pkgs.callPackage ./packages/claude-desktop/package.nix { };
           paseo-desktop = pkgs.callPackage ./packages/paseo-desktop/package.nix { };
           orca = pkgs.callPackage ./packages/orca/package.nix { };
         }
