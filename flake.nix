@@ -74,6 +74,25 @@
         let
           system = pkgs.stdenv.hostPlatform.system;
           packages = self.packages.${system};
+          # Every runtime test a package declares runs in CI. The bare
+          # package name holds its version smoke test (the historical
+          # check); any other passthru.tests entry gets a sibling
+          # `<package>-<test>` key, so no flake edit is needed when a
+          # package adds its own tests.
+          #
+          # dsh-webStartup is temporarily excluded: dsh 0.2.1-alpha.1's
+          # `dsh web` fails deterministically under node 24
+          # (node-addon-require-builtin "Unsupported/no-getter"), inside
+          # the sandbox and on the desktop alike. The test stays in
+          # package.nix (it is correct — the product is broken); drop
+          # this entry once a dsh bump boots again.
+          excludedRuntimeTests = [ "dsh-webStartup" ];
+          extraTests = pkgs.lib.removeAttrs (pkgs.lib.concatMapAttrs (
+            name: package:
+              pkgs.lib.mapAttrs' (
+                test: drv: pkgs.lib.nameValuePair "${name}-${test}" drv
+              ) (pkgs.lib.filterAttrs (test: _: test != "version") (package.passthru.tests or { }))
+          ) packages) excludedRuntimeTests;
           dsh-platform-matrix =
             assert self.packages.x86_64-linux ? dsh;
             assert self.packages.aarch64-darwin ? dsh;
@@ -84,6 +103,7 @@
         pkgs.lib.mapAttrs (
           _: package: pkgs.lib.attrByPath [ "passthru" "tests" "version" ] package package
         ) packages
+        // extraTests
         // {
           inherit dsh-platform-matrix;
         }
