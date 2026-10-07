@@ -73,7 +73,8 @@ The store path *is* the plugin directory: activate with
 the running server at a new build). The install-check phase runs
 upstream's node test suite against the patched source, so patch drift
 fails the build like Herdr's queue does. Regenerate the patch against
-the pinned input with `git diff upstream/main -- pick-and-move.ts`.
+the pinned input with `git diff upstream/main -- package-lock.json pick-and-move.ts`
+(the lockfile hunk renames the stale upstream package name).
 
 ## Common commands
 
