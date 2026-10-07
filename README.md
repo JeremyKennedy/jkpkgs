@@ -38,15 +38,17 @@ To change Herdr locally, edit the patch queue (or `package.nix`), verify
 with `nix build .#herdr`, then commit, push, and propagate as usual.
 
 The `jkpkgs-refresh` timer invokes `dotman jkpkgs update --package-only`
-for the automated refresh. The source updater compares the evaluated
-package version against the upstream release tag, updates the `herdr`
-flake input, and builds/evaluates the patched package. If the new source
-version does not match the release
-tag, or the patches or build fail to evaluate, the updater stops before
-any PR is created. On success it stages only the `flake.lock` change and
-proposes it through the same reviewed Forgejo PR and Buildbot path as
-other updates. Consumer lock propagation and host deployment remain a
-separate, manual workflow.
+for the automated refresh. Source packages are tracked in one of two
+modes: Herdr follows upstream release tags (the evaluated package
+version must match the release), while release-less upstreams like
+herdr-drovr are commit-tracked — the flake input's locked rev is
+compared to the branch head and the patched build itself is the drift
+check. Either way the updater refreshes the flake input, builds the
+patched package, and stops before any PR is created if the version
+check, the patches, or the build fail. On success it stages only the
+`flake.lock` change and proposes it through the same reviewed Forgejo
+PR and Buildbot path as other updates. Consumer lock propagation and
+host deployment remain a separate, manual workflow.
 
 ## Herdr plugin: herdr-drovr
 
@@ -56,12 +58,15 @@ from the `drovr` flake input (pinned to upstream GitHub `main`) with
 one local patch (`packages/herdr-drovr/patches/all-spaces-default.patch`:
 the pane picker defaults to all workspaces instead of the current one).
 The build has no fork dependency: the patch queue carries the change
-exactly like Herdr's does. `forgejo:jeremy/herdr-drovr` is a custody
-mirror only — its `main` is upstream plus the same patch commit, and a
-weekly Forgejo Action force-syncs its `upstream` branch so the patched
-lineage can never be orphaned by upstream force-pushes. Nothing builds
-from that mirror; it exists so the tree the patch queue produces has a
-durable, reviewable home.
+exactly like Herdr's does. Upstream publishes no releases, so dotman
+tracks the `drovr` input by commit (`flake.lock` rev versus GitHub
+`main`'s head): the refresh timer proposes the pin bump and the
+install-check build rejects a broken patch queue before any PR lands.
+`forgejo:jeremy/herdr-drovr` is a custody mirror only — its `main` is
+upstream plus the same patch commit, and a weekly Forgejo Action
+force-syncs its `upstream` branch so the patched lineage can never be
+orphaned by upstream force-pushes. Nothing builds from that mirror, and
+it runs no drift detection; the timer owns that.
 
 The store path *is* the plugin directory: activate with
 `herdr plugin link ${pkgs.herdr-drovr}` (idempotent; relinking repoints
