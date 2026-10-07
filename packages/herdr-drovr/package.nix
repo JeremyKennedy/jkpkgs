@@ -21,8 +21,9 @@ stdenvNoCC.mkDerivation (finalAttrs: {
   # Upstream's pane picker defaults to the current workspace's tabs, which
   # reads as an empty picker from a single-tab workspace. Default the list to
   # cross-workspace and repurpose ctrl-t to narrow to the current space.
-  # Drift fails closed at build time; regenerate against the pinned input:
-  #   git diff upstream/main -- pick-and-move.ts > patches/all-spaces-default.patch
+  # Drift fails closed at build time; regenerate against the pinned input
+  # (the lockfile hunk renames the stale upstream package name):
+  #   git diff upstream/main -- package-lock.json pick-and-move.ts > patches/all-spaces-default.patch
   patches = [ ./patches/all-spaces-default.patch ];
 
   # No build step: herdr runs the TypeScript sources through node's native
