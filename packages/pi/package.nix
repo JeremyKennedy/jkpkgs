@@ -84,10 +84,13 @@ let
       # Patch the copy pi-coding-agent actually loads: npm nests pi-tui under it
       # when versions differ and hoists it to the top level when they agree
       # (pi 1.0.1 hoists), and node resolves the nested copy first.
+      # Since pi-tui 1.1.0 the query bundles a program-status and DA query, so
+      # the ghostty fast path skips negotiation entirely: it pushes flags 7
+      # itself and drops the pending-query bookkeeping upstream would wait on.
       pi_tui=$out/libexec/pi/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-tui
       [ -d "$pi_tui" ] || pi_tui=$out/libexec/pi/node_modules/@earendil-works/pi-tui
       substituteInPlace "$pi_tui/dist/terminal.js" \
-        --replace-fail 'process.stdout.write(KITTY_KEYBOARD_PROTOCOL_QUERY);' 'if (process.env.TERM_PROGRAM === "ghostty") { this._kittyProtocolActive = true; setKittyProtocolActive(true); this.keyboardProtocolNegotiationPending = false; this.keyboardProtocolLateResponsePending = false; this.clearKeyboardProtocolNegotiationBuffer(); process.stdout.write("\x1b[>7u"); return; } process.stdout.write(KITTY_KEYBOARD_PROTOCOL_QUERY);'
+        --replace-fail 'process.stdout.write(`''${KITTY_KEYBOARD_PROTOCOL_QUERY}''${programStatusQuery}''${DEVICE_ATTRIBUTES_QUERY}`);' 'if (process.env.TERM_PROGRAM === "ghostty") { this._kittyProtocolActive = true; setKittyProtocolActive(true); this.pendingKeyboardProtocolDeviceAttributes = 0; this.programStatusQueryPending = false; this.clearKeyboardProtocolNegotiationBuffer(); process.stdout.write("\x1b[>7u"); return; } process.stdout.write(`''${KITTY_KEYBOARD_PROTOCOL_QUERY}''${programStatusQuery}''${DEVICE_ATTRIBUTES_QUERY}`);'
 
       makeWrapper ${nodejs}/bin/node $out/bin/pi \
         --add-flags $out/libexec/pi/node_modules/@earendil-works/pi-coding-agent/dist/cli.js \
