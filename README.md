@@ -55,8 +55,11 @@ host deployment remain a separate, manual workflow.
 `herdr-drovr` packages the upstream `AVGVSTVS96/herdr-drovr` plugin
 (fzf picker to move panes/tabs across workspaces; live agents survive)
 from the `drovr` flake input (pinned to upstream GitHub `main`) with
-one local patch (`packages/herdr-drovr/patches/all-spaces-default.patch`:
-the pane picker defaults to all workspaces instead of the current one).
+two local patches (`packages/herdr-drovr/patches/`): the pane picker
+defaults to all workspaces instead of the current one
+(`all-spaces-default.patch`), and a finished move keeps focus at the
+source instead of jumping to the destination
+(`keep-focus-at-source.patch`).
 The build has no fork dependency: the patch queue carries the change
 exactly like Herdr's does. Upstream publishes no releases, so dotman
 tracks the `drovr` input by commit (`flake.lock` rev versus GitHub

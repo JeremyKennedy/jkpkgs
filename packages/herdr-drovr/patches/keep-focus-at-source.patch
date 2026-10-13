@@ -1,0 +1,63 @@
+From 785b9302837d7d040a524fad4e4a31028c47c809 Mon Sep 17 00:00:00 2001
+From: Jeremy Kennedy <me@jeremyk.net>
+Date: Tue, 13 Oct 2026 14:36:12 -0400
+Subject: [PATCH] Keep focus at the source after a move
+
+Every move already passes --no-focus; focusDestination then jumped the
+session to the destination the moment the picker closed. Drop it and its
+two call sites so the session stays where it was: moves are housekeeping
+for background agents, and yanking the view defeats that.
+---
+ pick-and-move.ts | 16 +---------------
+ 1 file changed, 1 insertion(+), 15 deletions(-)
+
+diff --git a/pick-and-move.ts b/pick-and-move.ts
+index 610dff0..5bd9454 100755
+--- a/pick-and-move.ts
++++ b/pick-and-move.ts
+@@ -237,15 +237,6 @@ function move(args: string[]): MovedPane {
+   return r.pane;
+ }
+ 
+-// Focus is a nicety on top of an already-completed move; if the server
+-// declines while the popup is up, the move still stands, so don't fail.
+-function focusDestination(pane: MovedPane): void {
+-  try {
+-    herdrJSON(["workspace", "focus", pane.workspace_id]);
+-    herdrJSON(["tab", "focus", pane.tab_id]);
+-  } catch {}
+-}
+-
+ // A failed label lookup falls back silently: the move matters more than the name.
+ function sourceTabLabel(srcTab: string): string {
+   try {
+@@ -438,10 +429,6 @@ function moveTabFlow(srcPane: string): number {
+   const newTab = first.tab_id;
+   const idMap: Record<string, string> = { [rootAnchor]: first.pane_id };
+ 
+-  // Focus the destination now: it appears the instant the popup closes, and
+-  // pane moves stay --no-focus so focus jumps exactly once.
+-  focusDestination(first);
+-
+   // For each split, carve the SECOND region out of the pane currently filling
+   // the node's region (the anchor of FIRST), then recurse. Herdr's --ratio is
+   // the fraction retained by the target (first) pane, which is exactly
+@@ -548,14 +535,13 @@ function movePaneFlow(srcPane: string): number {
+   // is the intuitive landing spot. A typed query names a new tab/workspace.
+   const name = queryRaw.trim();
+   const label = name ? ["--label", name] : [];
+-  const moved = move(
++  move(
+     choice.dest.kind === "tab"
+       ? ["pane", "move", src.pane_id, "--tab", choice.dest.tabId, "--split", choice.direction, "--no-focus"]
+       : choice.dest.kind === "new-tab"
+         ? ["pane", "move", src.pane_id, "--new-tab", "--workspace", src.workspace_id, ...label, "--no-focus"]
+         : ["pane", "move", src.pane_id, "--new-workspace", ...label, "--no-focus"]
+   );
+-  focusDestination(moved);
+   return 0;
+ }
+ 
+-- 
+2.55.0
+
