@@ -14,17 +14,31 @@ stdenvNoCC.mkDerivation (finalAttrs: {
   version = manifest.version;
 
   # The install-check suite filters candidate lists through the real fzf.
-  nativeBuildInputs = [ nodejs fzf ];
+  nativeBuildInputs = [
+    nodejs
+    fzf
+  ];
 
   src = drovrSource;
 
-  # Upstream's pane picker defaults to the current workspace's tabs, which
-  # reads as an empty picker from a single-tab workspace. Default the list to
-  # cross-workspace and repurpose ctrl-t to narrow to the current space.
-  # Drift fails closed at build time; regenerate against the pinned input
-  # (the lockfile hunk renames the stale upstream package name):
-  #   git diff upstream/main -- package-lock.json pick-and-move.ts > patches/all-spaces-default.patch
-  patches = [ ./patches/all-spaces-default.patch ];
+  # Two local patches, applied in order against the pinned input. Drift
+  # fails closed at build time.
+  #
+  # 1. all-spaces-default: upstream's pane picker defaults to the current
+  #    workspace's tabs, which reads as an empty picker from a single-tab
+  #    workspace. Default the list to cross-workspace and repurpose ctrl-t
+  #    to narrow to the current space.
+  # 2. keep-focus-at-source: every move already passes --no-focus; upstream
+  #    then jumps the session to the destination. Drop that so the session
+  #    stays where it was.
+  #
+  # Regenerate as ordered format-patch commits on a branch from the pinned
+  # rev (the lockfile hunk in 1 renames the stale upstream package name):
+  #   git format-patch -2 --suffix=.patch -o patches/
+  patches = [
+    ./patches/all-spaces-default.patch
+    ./patches/keep-focus-at-source.patch
+  ];
 
   # No build step: herdr runs the TypeScript sources through node's native
   # type stripping. Install is a copy of the manifest plus the entrypoints.
