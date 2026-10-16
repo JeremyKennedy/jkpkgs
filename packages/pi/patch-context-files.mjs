@@ -76,13 +76,21 @@ const newGlobal = `    for (const globalContext of loadContextFilesFromDir(resol
     }`;
 
 const oldAncestor = `        const contextFile = loadContextFileFromDir(currentDir);
-        const isShadowed = shadowedContextFile !== undefined && canonicalizePath(contextFile?.path ?? "") === shadowedContextFile;
+        // Compare the directory's real path, not the file's: a worktree AGENTS.md that
+        // symlinks to the main repo's file resolves to the shadowed path itself.
+        const isShadowed = shadowedContextFile !== undefined &&
+            contextFile !== null &&
+            join(canonicalizePath(currentDir), basename(contextFile.path)) === shadowedContextFile;
         if (contextFile && !isShadowed && !seenPaths.has(contextFile.path)) {
             ancestorContextFiles.unshift(contextFile);
             seenPaths.add(contextFile.path);
         }`;
-const newAncestor = `        const dirContextFiles = loadContextFilesFromDir(currentDir).filter((contextFile) => {
-            const isShadowed = shadowedContextFile !== undefined && canonicalizePath(contextFile.path) === shadowedContextFile;
+const newAncestor = `        // Compare the directory's real path, not the file's: a worktree AGENTS.md that
+        // symlinks to the main repo's file resolves to the shadowed path itself.
+        const canonicalDir = canonicalizePath(currentDir);
+        const dirContextFiles = loadContextFilesFromDir(currentDir).filter((contextFile) => {
+            const isShadowed = shadowedContextFile !== undefined &&
+                join(canonicalDir, basename(contextFile.path)) === shadowedContextFile;
             return !isShadowed && !seenPaths.has(contextFile.path);
         });
         if (dirContextFiles.length > 0) {
