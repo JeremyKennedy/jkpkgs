@@ -1,0 +1,116 @@
+diff --git a/src/client/shell/agent_sidebar.rs b/src/client/shell/agent_sidebar.rs
+index e43ab8cc..1f4503a9 100644
+--- a/src/client/shell/agent_sidebar.rs
++++ b/src/client/shell/agent_sidebar.rs
+@@ -325,8 +325,13 @@ pub(super) fn render_agent_row(
+     config: &ClientShellConfig,
+ ) {
+     let palette = &config.palette;
++    let focused_bg = if palette.selection_bg == ratatui::style::Color::Reset {
++        palette.active_row_bg
++    } else {
++        palette.selection_bg
++    };
+     let row_style = if row.focused {
+-        Style::default().bg(palette.active_row_bg)
++        Style::default().bg(focused_bg)
+     } else {
+         Style::default()
+     };
+@@ -371,6 +376,21 @@ pub(super) fn render_agent_row(
+             buffer,
+         );
+     }
++    if row.focused && rect.width > 0 {
++        for index in 0..rows.len().min(rect.height as usize) {
++            put_text(
++                buffer,
++                rect.x,
++                rect.y + index as u16,
++                1,
++                "\u{258e}",
++                Style::default()
++                    .fg(palette.accent)
++                    .bg(focused_bg)
++                    .add_modifier(Modifier::BOLD),
++            );
++        }
++    }
+ }
+
+ fn put_text(buffer: &mut Buffer, x: u16, y: u16, width: u16, text: &str, style: Style) {
+diff --git a/src/client/shell/tests/agents_worktrees_notifications.rs b/src/client/shell/tests/agents_worktrees_notifications.rs
+index df09f464..0bf8ca29 100644
+--- a/src/client/shell/tests/agents_worktrees_notifications.rs
++++ b/src/client/shell/tests/agents_worktrees_notifications.rs
+@@ -1682,3 +1682,70 @@ fn semantic_notifications_use_client_policy_and_stable_navigation_targets() {
+     assert!(state.visible_notification.is_none());
+     assert_eq!(state.pending_notifications.len(), 1);
+ }
++
++#[test]
++fn focused_agent_row_draws_accent_bar_on_selection_background() {
++    let mut projected = snapshot();
++    projected.agents = vec![ClientShellAgent {
++        pane_id: "pane_1".into(),
++        workspace_id: "ws_1".into(),
++        tab_id: "tab_1".into(),
++        name: Some("reviewer".into()),
++        display_agent: None,
++        agent: Some("pi".into()),
++        title: None,
++        terminal_title: None,
++        terminal_title_stripped: None,
++        agent_status: AgentStatus::Working,
++        state_change_seq: 1,
++        state_labels: Vec::new(),
++        tokens: Vec::new(),
++        focused: true,
++    }];
++    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
++    state.set_snapshot(Box::new(projected));
++    state.set_pane_surface(surface());
++    let frame = state.compose(106, 30).expect("agent sidebar frame");
++    let row = state.hits.agents.first().expect("agent row hit").0;
++    let buffer = frame.to_ratatui_buffer().expect("agent sidebar buffer");
++    let palette = &state.config.palette;
++
++    let bar = buffer.cell((row.x, row.y)).expect("focused row first cell");
++    assert_eq!(
++        bar.symbol(),
++        "▎",
++        "focused row should lead with an accent bar"
++    );
++    assert_eq!(bar.fg, palette.accent, "accent bar uses the theme accent");
++    assert_eq!(
++        bar.bg, palette.selection_bg,
++        "focused row background should match the Navigate-mode selection color"
++    );
++
++    let (name_x, name_y) = cell_symbol_position(&frame, row, "reviewer");
++    assert_eq!(
++        buffer.cell((name_x, name_y)).expect("agent name cell").bg,
++        palette.selection_bg,
++        "row background spans the entry text"
++    );
++
++    let mut unfocused = state.snapshot.as_deref().expect("snapshot").clone();
++    unfocused.revision = 2;
++    unfocused.agents[0].focused = false;
++    state.set_snapshot(Box::new(unfocused));
++    let mut unfocused_surface = surface();
++    unfocused_surface.projection_revision = 2;
++    state.set_pane_surface(unfocused_surface);
++    let frame = state
++        .compose(106, 30)
++        .expect("unfocused agent sidebar frame");
++    let row = state.hits.agents.first().expect("agent row hit").0;
++    let buffer = frame
++        .to_ratatui_buffer()
++        .expect("unfocused agent sidebar buffer");
++    let first = buffer
++        .cell((row.x, row.y))
++        .expect("unfocused row first cell");
++    assert_ne!(first.symbol(), "▎", "unfocused rows keep no accent bar");
++    assert_eq!(first.bg, ratatui::style::Color::Reset);
++}
