@@ -12,5 +12,6 @@ basePackage.overrideAttrs (old: {
     ./patches/omp-title-normalization.patch
     ./patches/handoff-title-state.patch
     ./patches/config-writer-safety.patch
+    ./patches/agent-row-highlight.patch
   ];
 })
