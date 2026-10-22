@@ -69,6 +69,7 @@
         // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
           claude-desktop = pkgs.callPackage ./packages/claude-desktop/package.nix { };
           paseo-desktop = pkgs.callPackage ./packages/paseo-desktop/package.nix { };
+          openchamber-desktop = pkgs.callPackage ./packages/openchamber-desktop/package.nix { };
           orca = pkgs.callPackage ./packages/orca/package.nix { };
         }
         // pkgs.lib.optionalAttrs (pkgs.lib.elem system dshSystems) {
