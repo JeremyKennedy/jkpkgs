@@ -52,7 +52,6 @@
         {
           claude-code = pkgs.callPackage ./packages/claude-code/package.nix { };
           opencode = pkgs.callPackage ./packages/opencode/package.nix { };
-          opencode2 = pkgs.callPackage ./packages/opencode2/package.nix { };
           codex = pkgs.callPackage ./packages/codex/package.nix { };
           ccstatusline = pkgs.callPackage ./packages/ccstatusline/package.nix { };
           pi = pkgs.callPackage ./packages/pi/package.nix { };
