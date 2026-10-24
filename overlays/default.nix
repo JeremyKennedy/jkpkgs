@@ -23,6 +23,16 @@ final: prev: {
         tag = "v2.4.2";
         hash = "sha256-gUwLC0XkeohEdL0EScdOrA8MWXGuR8kUfezoQsk9i/A=";
       };
+      # Make Orca's GL context current before rendering plate thumbnails.
+      # Without this, WebKitGTK can leave a foreign context bound and Slice
+      # or Save crashes in Mesa. Drop when the pinned release includes #15873.
+      patches = (old.patches or [ ]) ++ [
+        (final.fetchpatch {
+          name = "orca-slicer-thumbnail-gl-context.patch";
+          url = "https://github.com/OrcaSlicer/OrcaSlicer/commit/42009cf385381216d86b724c2c8532a497463b61.patch";
+          hash = "sha256-9GpG8S6PgaAylW/sI3mriRdZ+2sck381pVewN6xVNmE=";
+        })
+      ];
     });
 
     # GStreamer plugins needed at runtime for H.264 video decode in the
