@@ -1,7 +1,11 @@
 # Package overrides and wrappers for reusable fixes.
 # Consumed via `inputs.jkpkgs.overlays.default`.
 final: prev: {
-  # OrcaSlicer 2.4.2 — bump from nixpkgs' 2.4.1
+  # OrcaSlicer wrapper. Version and patches come from nixpkgs and must not be
+  # re-pinned here: nixpkgs carries the Mesa 26.2.4 GL-context fix (OrcaSlicer
+  # #15873) since 2026-10-18, and a local copy would both double-apply that
+  # patch and hold Navi back from later nixpkgs version bumps.
+  #
   # nixpkgs' wrapper omits the GTK3 gsettings schemas, so the
   # app SIGABRTs ("Settings schema 'org.gtk.Settings.FileChooser' is not
   # installed") the instant it opens any file-chooser dialog. Every other
@@ -15,25 +19,7 @@ final: prev: {
   # are already linked at build time but need to be in the runtime
   # GST_PLUGIN_SYSTEM_PATH_1_0 for the plugin scanner to find them.
   orca-slicer = let
-    base = prev.orca-slicer.overrideAttrs (old: {
-      version = "2.4.2";
-      src = final.fetchFromGitHub {
-        owner = "OrcaSlicer";
-        repo = "OrcaSlicer";
-        tag = "v2.4.2";
-        hash = "sha256-gUwLC0XkeohEdL0EScdOrA8MWXGuR8kUfezoQsk9i/A=";
-      };
-      # Make Orca's GL context current before rendering plate thumbnails.
-      # Without this, WebKitGTK can leave a foreign context bound and Slice
-      # or Save crashes in Mesa. Drop when the pinned release includes #15873.
-      patches = (old.patches or [ ]) ++ [
-        (final.fetchpatch {
-          name = "orca-slicer-thumbnail-gl-context.patch";
-          url = "https://github.com/OrcaSlicer/OrcaSlicer/commit/42009cf385381216d86b724c2c8532a497463b61.patch";
-          hash = "sha256-9GpG8S6PgaAylW/sI3mriRdZ+2sck381pVewN6xVNmE=";
-        })
-      ];
-    });
+    base = prev.orca-slicer;
 
     # GStreamer plugins needed at runtime for H.264 video decode in the
     # WebKitGTK webview. gst-libav provides the software avdec_h264 decoder;
