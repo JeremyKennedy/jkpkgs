@@ -54,6 +54,7 @@
           opencode = pkgs.callPackage ./packages/opencode/package.nix { };
           codex = pkgs.callPackage ./packages/codex/package.nix { };
           ccstatusline = pkgs.callPackage ./packages/ccstatusline/package.nix { };
+          rea = pkgs.callPackage ./packages/rea/package.nix { };
           pi = pkgs.callPackage ./packages/pi/package.nix { };
           oh-my-pi = pkgs.callPackage ./packages/oh-my-pi/package.nix { };
           herdr = pkgs.callPackage ./packages/herdr/package.nix {
