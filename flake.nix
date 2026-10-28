@@ -10,13 +10,17 @@
     url = "github:AVGVSTVS96/herdr-drovr?ref=main";
     flake = false;
   };
+  inputs.openchamber = {
+    url = "github:openchamber/openchamber/v2.5.3";
+    flake = false;
+  };
   inputs.rust-overlay = {
     url = "github:oxalica/rust-overlay";
     inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs =
-    { self, nixpkgs, herdr, drovr, rust-overlay }:
+    { self, nixpkgs, herdr, drovr, openchamber, rust-overlay }:
     let
       # Nixpkgs 26.11 dropped x86_64-darwin; retain its package asset hashes
       # for older consumers but do not evaluate that unsupported system here.
@@ -48,6 +52,7 @@
         pkgs:
         let
           system = pkgs.stdenv.hostPlatform.system;
+          packages = self.packages.${system};
         in
         {
           claude-code = pkgs.callPackage ./packages/claude-code/package.nix { };
@@ -65,7 +70,10 @@
             drovrSource = drovr;
           };
           paseo = pkgs.callPackage ./packages/paseo/package.nix { };
-          openchamber = pkgs.callPackage ./packages/openchamber/package.nix { };
+          openchamber = pkgs.callPackage ./packages/openchamber/package.nix {
+            openchamberSource = openchamber;
+            inherit (packages) opencode;
+          };
         }
         // pkgs.lib.optionalAttrs (pkgs.lib.elem system [ "x86_64-linux" "aarch64-linux" ]) {
           # Upstream ships Linux-only release binaries.
@@ -75,7 +83,9 @@
         // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
           claude-desktop = pkgs.callPackage ./packages/claude-desktop/package.nix { };
           paseo-desktop = pkgs.callPackage ./packages/paseo-desktop/package.nix { };
-          openchamber-desktop = pkgs.callPackage ./packages/openchamber-desktop/package.nix { };
+          openchamber-desktop = pkgs.callPackage ./packages/openchamber-desktop/package.nix {
+            inherit (packages) openchamber opencode;
+          };
           orca = pkgs.callPackage ./packages/orca/package.nix { };
         }
         // pkgs.lib.optionalAttrs (pkgs.lib.elem system dshSystems) {
