@@ -55,6 +55,7 @@ let
     patches = [
       ./patches/commandcode-quota.patch
       ./patches/question-indicator-purple.patch
+      ./patches/chat-width.patch
     ];
   };
 in
