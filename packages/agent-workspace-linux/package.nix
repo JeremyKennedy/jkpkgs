@@ -6,6 +6,14 @@
   makeWrapper,
   autoPatchelfHook,
   libxkbcommon,
+  wayland,
+  mesa,
+  libglvnd,
+  vulkan-loader,
+  libxcb,
+  fontconfig,
+  freetype,
+  xorg,
   xvfb,
   openbox,
   xdotool,
@@ -61,8 +69,31 @@ stdenv.mkDerivation (finalAttrs: {
   # The runtime launches its own Xvfb display, window manager, session bus and
   # sandbox, so every helper it shells out to has to be on PATH. xterm is only
   # there so `workspace launch -- xterm` works without extra setup.
+  # The GPUI host viewer (a Rust/zed GUI) dlopens libwayland-client,
+  # libEGL and libvulkan at runtime, so autoPatchelf never sees them in
+  # DT_NEEDED and they land nowhere on RPATH. Without LD_LIBRARY_PATH the
+  # viewer dies with "The wayland library could not be loaded" and then
+  # "Failed to create surface for any enabled backend", leaving the agent
+  # with a workspace nobody can watch.
   postFixup = ''
     wrapProgram $out/bin/agent-workspace-linux \
+      --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath [
+        wayland
+        libxkbcommon
+        mesa
+        libglvnd
+        vulkan-loader
+        libxcb
+        fontconfig
+        freetype
+        xorg.libX11
+        xorg.libXcursor
+        xorg.libXi
+        xorg.libXrandr
+        xorg.libXext
+        xorg.libXrender
+        xorg.libxcb
+      ]} \
       --prefix PATH : ${
         lib.makeBinPath [
           xvfb
