@@ -73,6 +73,12 @@ let
         mkdir -p "$out/$(dirname "$dir")"
         cp -a "$dir" "$out/$dir"
       done
+      # bun links dependency bins inside store entries inconsistently across
+      # platforms (one browserslist link exists on Linux only), which breaks
+      # the shared hash. Nothing resolves them: builds use the workspace
+      # .bin directories, which stay.
+      find "$out/node_modules/.bun" -mindepth 3 -maxdepth 3 -type d -name .bin \
+        -path '*/node_modules/.bin' -exec rm -rf {} +
     '';
 
     outputHashMode = "recursive";
