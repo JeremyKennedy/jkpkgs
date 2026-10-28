@@ -66,6 +66,9 @@
           };
           paseo = pkgs.callPackage ./packages/paseo/package.nix { };
           openchamber = pkgs.callPackage ./packages/openchamber/package.nix { };
+        }
+        // pkgs.lib.optionalAttrs (pkgs.lib.elem system [ "x86_64-linux" "aarch64-linux" ]) {
+          # Upstream ships Linux-only release binaries.
           computer-use-linux = pkgs.callPackage ./packages/computer-use-linux/package.nix { };
         }
         // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
