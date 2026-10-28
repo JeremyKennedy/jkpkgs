@@ -52,7 +52,9 @@ let
   src = applyPatches {
     name = "openchamber-${version}-source";
     src = openchamberSource;
-    patches = [ ];
+    patches = [
+      ./patches/chat-width.patch
+    ];
   };
 in
 # An upstream bun bump changes the lockfile contract and the server runtime,
