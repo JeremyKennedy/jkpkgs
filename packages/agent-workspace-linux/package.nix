@@ -94,7 +94,7 @@ stdenv.mkDerivation (finalAttrs: {
   # that it runs and reports the linux platform, not that a display exists.
   passthru.tests.version = pkgs.runCommand "agent-workspace-linux-smoke" { } ''
     ${finalAttrs.finalPackage}/bin/agent-workspace-linux doctor --json > doctor.json || true
-    ${pkgs.jq}/bin/jq -e '.ready_for_host_viewer == true' doctor.json > /dev/null
+    ${pkgs.jq}/bin/jq -e '.blockers == []' doctor.json > /dev/null
     touch $out
   '';
 })
