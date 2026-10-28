@@ -66,6 +66,7 @@
           };
           paseo = pkgs.callPackage ./packages/paseo/package.nix { };
           openchamber = pkgs.callPackage ./packages/openchamber/package.nix { };
+          computer-use-linux = pkgs.callPackage ./packages/computer-use-linux/package.nix { };
         }
         // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
           claude-desktop = pkgs.callPackage ./packages/claude-desktop/package.nix { };
