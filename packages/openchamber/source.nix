@@ -52,7 +52,7 @@ let
   src = applyPatches {
     name = "openchamber-${version}-source";
     src = openchamberSource;
-    patches = [ ];
+    patches = [ ./patches/commandcode-quota.patch ];
   };
 in
 # An upstream bun bump changes the lockfile contract and the server runtime,
