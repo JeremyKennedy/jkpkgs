@@ -1,0 +1,16 @@
+diff --git a/packages/ui/src/components/views/FilesView.tsx b/packages/ui/src/components/views/FilesView.tsx
+--- a/packages/ui/src/components/views/FilesView.tsx
++++ b/packages/ui/src/components/views/FilesView.tsx
+@@ -1745,7 +1745,11 @@
+       const options = resolveFileReadOptions(path);
+       const result = await files.statFile(path, { ...options, directory: root || undefined });
+       return {
+-        path: result.path,
++        // The poll compares this snapshot with the path on screen, so it must
++        // be the requested path, not the server's realpath. A file opened
++        // through a symlinked folder or a symlink itself never matched, and
++        // every poll only re-baselined instead of re-reading an external edit.
++        path: normalizePath(path),
+         size: result.size,
+         mtimeMs: result.mtimeMs,
+       };
