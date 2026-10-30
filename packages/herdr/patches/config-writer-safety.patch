@@ -1,5 +1,5 @@
 diff --git a/src/config/write.rs b/src/config/write.rs
-index f34ec2f6..343695e9 100644
+index 97e81f07..023987a4 100644
 --- a/src/config/write.rs
 +++ b/src/config/write.rs
 @@ -1,3 +1,12 @@
@@ -189,7 +189,7 @@ index f34ec2f6..343695e9 100644
 -    path: &std::path::Path,
 +    path: &Path,
      description: &str,
-     update: impl FnOnce(&str) -> String,
+     update: impl FnOnce(&str) -> Result<String, String>,
  ) -> Result<(), String> {
      if let Some(parent) = path.parent() {
 -        std::fs::create_dir_all(parent)
@@ -200,16 +200,17 @@ index f34ec2f6..343695e9 100644
      let content = match super::io::read_optional_config(path) {
          Ok(Some(content)) => content,
          Ok(None) => String::new(),
-@@ -64,7 +240,7 @@ pub(crate) fn update_file_at(
-             ));
+@@ -65,7 +241,8 @@ pub(crate) fn update_file_at(
          }
      };
--    std::fs::write(path, update(&content))
-+    atomic_write(path, &update(&content))
-         .map_err(|error| format!("failed to save {description}: {error}"))
+     let updated = update(&content)?;
+-    std::fs::write(path, updated).map_err(|error| format!("failed to save {description}: {error}"))
++    atomic_write(path, &updated)
++        .map_err(|error| format!("failed to save {description}: {error}"))
  }
  
-@@ -106,4 +282,128 @@ mod tests {
+ pub(crate) fn write_edit(edit: ConfigEdit<'_>) -> Result<(), String> {
+@@ -110,4 +287,128 @@ mod tests {
              "written config is not valid TOML: {written:?}"
          );
      }
@@ -258,7 +259,7 @@ index f34ec2f6..343695e9 100644
 +            update_file_at(&worker_path, "test setting", |content| {
 +                entered_tx.send(()).unwrap();
 +                continue_rx.recv().unwrap();
-+                format!("{content}after = true\n")
++                Ok(format!("{content}after = true\n"))
 +            })
 +        });
 +
@@ -313,7 +314,7 @@ index f34ec2f6..343695e9 100644
 +        symlink("target.toml", &path).unwrap();
 +
 +        update_file_at(&path, "test setting", |content| {
-+            format!("{content}after = true\n")
++            Ok(format!("{content}after = true\n"))
 +        })
 +        .unwrap();
 +
