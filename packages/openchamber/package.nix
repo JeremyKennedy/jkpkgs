@@ -51,9 +51,10 @@ let
 
   # The whole workspace dependency tree, fixed-output. Upstream installs
   # only the host platform's optional dependencies and bakes a hash per
-  # host; installing every platform's makes the tree identical on Linux and
-  # Darwin, so one hash in hashes.json covers both. The core prunes it back
-  # to the host.
+  # host; installing every platform's (every os, cpu and libc: bun still
+  # skips musl variants on glibc Linux without --libc) makes the tree
+  # identical on Linux and Darwin, so one hash in hashes.json covers both.
+  # The core prunes it back to the host.
   bunDeps = stdenv.mkDerivation {
     pname = "openchamber-bun-deps";
     inherit version src;
@@ -64,7 +65,7 @@ let
     buildPhase = ''
       export HOME="$PWD/.bun-home"
       mkdir -p "$HOME"
-      bun install --frozen-lockfile --ignore-scripts --os='*' --cpu='*'
+      bun install --frozen-lockfile --ignore-scripts --os='*' --cpu='*' --libc='*'
     '';
     installPhase = ''
       mkdir -p "$out"
