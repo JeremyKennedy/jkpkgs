@@ -57,6 +57,7 @@ let
       ./patches/question-indicator-purple.patch
       ./patches/chat-width.patch
       ./patches/symlink-file-refresh.patch
+      ./patches/move-session-to-project.patch
     ];
   };
 in

@@ -1,0 +1,76 @@
+diff --git a/packages/ui/src/components/layout/Header.tsx b/packages/ui/src/components/layout/Header.tsx
+index a3354c5..f5b04fd 100644
+--- a/packages/ui/src/components/layout/Header.tsx
++++ b/packages/ui/src/components/layout/Header.tsx
+@@ -930,7 +930,9 @@ export const Header: React.FC = () => {
+   const renderSessionTabMenu = React.useCallback(({ session, open, isActive, select, closeOtherTabs, components }: SessionTabMenuArgs) => {
+     const { Item, Separator } = components;
+     const canMoveToWorktree = isActive && !isVSCode && !isChatContext && currentSession && !currentSession.parentId;
+-    const canMoveToProject = isActive && !isVSCode && isChatContext && currentSession && !currentSession.parentId && hasProjects;
++    // Local patch: a session that already belongs to a project can move to a
++    // different project too; the dialog leaves its own project out.
++    const canMoveToProject = isActive && !isVSCode && currentSession && !currentSession.parentId && hasProjects;
+     return (
+       <>
+         <SessionMenuItemHint hint={t('sessions.sidebar.session.menuHint.rename')}>
+@@ -1210,7 +1212,7 @@ export const Header: React.FC = () => {
+                         </span>
+                       </SessionMenuItemHint>
+                     ) : null}
+-                    {!isVSCode && isChatContext && currentSession && !currentSession.parentId && hasProjects ? (
++                    {!isVSCode && currentSession && !currentSession.parentId && hasProjects ? (
+                       <SessionMenuItemHint hint={isCurrentSessionActive
+                         ? t('sessions.sidebar.session.moveToWorktree.tooltipBusy')
+                         : t('sessions.moveChatToProject.hint')}>
+@@ -1374,6 +1376,7 @@ export const Header: React.FC = () => {
+         open={moveChatDialogOpen}
+         onOpenChange={setMoveChatDialogOpen}
+         onPick={moveCurrentChatToProject}
++        currentDirectory={sessionDirectory}
+       />
+       <Dialog open={pendingHeaderRetentionAction !== null} onOpenChange={(open) => { if (!open) setPendingHeaderRetentionAction(null); }}>
+         <DialogContent showCloseButton={false} className="max-w-sm gap-5">
+diff --git a/packages/ui/src/components/session/MoveChatToProjectDialog.tsx b/packages/ui/src/components/session/MoveChatToProjectDialog.tsx
+index 90d8a43..e39b5f6 100644
+--- a/packages/ui/src/components/session/MoveChatToProjectDialog.tsx
++++ b/packages/ui/src/components/session/MoveChatToProjectDialog.tsx
+@@ -7,20 +7,29 @@ import { formatDirectoryName, formatPathForDisplay } from '@/lib/utils';
+ import { useProjectsStore } from '@/stores/useProjectsStore';
+ import { useProjectsInSidebarOrder } from '@/components/session/sidebar/list/useProjectsInSidebarOrder';
+ import { useDirectoryStore } from '@/stores/useDirectoryStore';
++import { normalizePath } from '@/lib/pathNormalization';
+ 
+ /**
+  * Picks the project a chat moves into. The conversation goes to the project's
+  * root folder; nothing the chat wrote on disk moves with it, which the
+  * description says before anything happens.
++ *
++ * Local patch: a session that already belongs to a project can move to another
++ * one, so the project it is already in is not offered.
+  */
+ export const MoveChatToProjectDialog: React.FC<{
+   open: boolean;
+   onOpenChange: (open: boolean) => void;
+   onPick: (projectDirectory: string) => void;
+-}> = ({ open, onOpenChange, onPick }) => {
++  currentDirectory?: string | null;
++}> = ({ open, onOpenChange, onPick, currentDirectory }) => {
+   const { t } = useI18n();
+   const projects = useProjectsInSidebarOrder(useProjectsStore((state) => state.projects), open);
+   const homeDirectory = useDirectoryStore((state) => state.homeDirectory);
++  const normalizedCurrentDirectory = currentDirectory ? normalizePath(currentDirectory) : null;
++  const destinations = normalizedCurrentDirectory
++    ? projects.filter((project) => normalizePath(project.path) !== normalizedCurrentDirectory)
++    : projects;
+ 
+   return (
+     <Dialog open={open} onOpenChange={onOpenChange}>
+@@ -30,7 +39,7 @@ export const MoveChatToProjectDialog: React.FC<{
+           <DialogDescription>{t('sessions.moveChatToProject.description')}</DialogDescription>
+         </DialogHeader>
+         <div className="flex max-h-[50vh] flex-col gap-0.5 overflow-y-auto">
+-          {projects.map((project) => (
++          {destinations.map((project) => (
+             <button
+               key={project.id}
+               type="button"
