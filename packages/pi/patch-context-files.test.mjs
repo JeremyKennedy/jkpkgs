@@ -8,6 +8,7 @@ import { join } from "node:path";
 const source = `const sep = "/";
 function stripBom(text) { return text; }
 function canonicalizePath(p) { return p; }
+function pathsEqual(a, b) { return a === b; }
 function findGitPaths(cwd) { return null; }
 function loadContextFileFromDir(dir) {
     const candidates = ["AGENTS.override.md", "AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"];
@@ -63,7 +64,7 @@ export function loadProjectContextFiles(options) {
         // symlinks to the main repo's file resolves to the shadowed path itself.
         const isShadowed = shadowedContextFile !== undefined &&
             contextFile !== null &&
-            join(canonicalizePath(currentDir), basename(contextFile.path)) === shadowedContextFile;
+            pathsEqual(join(canonicalizePath(currentDir), basename(contextFile.path)), shadowedContextFile);
         if (contextFile && !isShadowed && !seenPaths.has(contextFile.path)) {
             ancestorContextFiles.unshift(contextFile);
             seenPaths.add(contextFile.path);
