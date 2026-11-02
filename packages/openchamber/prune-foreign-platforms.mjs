@@ -1,8 +1,8 @@
 // Drop the dependency store entries the host cannot use.
 //
-// The fixed-output bun install runs with --os='*' --cpu='*' so its hash is
-// the same on every platform, which leaves every platform's native optional
-// dependency in node_modules/.bun. This applies the selection bun itself
+// The fixed-output bun install runs with --os='*' --cpu='*' --libc='*' so its
+// hash is the same on every platform, which leaves every platform's native
+// optional dependency (musl variants included) in node_modules/.bun. This applies the selection bun itself
 // makes from each package's os/cpu/libc fields, then removes the symlinks
 // that pointed at a dropped entry, so the runtime tree is host-only.
 //
