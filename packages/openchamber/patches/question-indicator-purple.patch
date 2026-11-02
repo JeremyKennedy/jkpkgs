@@ -1,12 +1,12 @@
 diff --git a/packages/ui/src/apps/MobileSessionStateBadges.tsx b/packages/ui/src/apps/MobileSessionStateBadges.tsx
-index e223ec7..f742691 100644
+index c499071d..dddc147d 100644
 --- a/packages/ui/src/apps/MobileSessionStateBadges.tsx
 +++ b/packages/ui/src/apps/MobileSessionStateBadges.tsx
 @@ -40,10 +40,10 @@ export const MobileSessionPendingBadges: React.FC<PendingRequests> = ({ hasPermi
        ) : null}
        {hasForm ? (
          <span
--          className="inline-flex shrink-0 items-center rounded bg-status-info/10 px-1 py-0.5 text-status-info"
+-          className="inline-flex shrink-0 items-center text-status-warning"
 +          className="inline-flex shrink-0 items-center rounded border border-status-question-border bg-status-question px-1.5 text-status-question-foreground"
            aria-label={t('sessions.sidebar.session.status.questionPending')}
          >
@@ -16,7 +16,7 @@ index e223ec7..f742691 100644
        ) : null}
      </>
 diff --git a/packages/ui/src/components/multirun/LaneStatusIcon.tsx b/packages/ui/src/components/multirun/LaneStatusIcon.tsx
-index 9cd1322..d10c782 100644
+index 9cd1322b..d10c782e 100644
 --- a/packages/ui/src/components/multirun/LaneStatusIcon.tsx
 +++ b/packages/ui/src/components/multirun/LaneStatusIcon.tsx
 @@ -11,7 +11,7 @@ import { cn } from '@/lib/utils';
@@ -29,10 +29,10 @@ index 9cd1322..d10c782 100644
    failed: { name: 'error-warning', className: 'text-[var(--status-error)]' },
    stopped: { name: 'stop', className: 'text-muted-foreground' },
 diff --git a/packages/ui/src/components/overview/OverviewView.tsx b/packages/ui/src/components/overview/OverviewView.tsx
-index 62552fb..e972123 100644
+index 8fe77a85..ecaba92d 100644
 --- a/packages/ui/src/components/overview/OverviewView.tsx
 +++ b/packages/ui/src/components/overview/OverviewView.tsx
-@@ -47,7 +47,7 @@ type Mark = { icon: IconName; color: string; tint?: boolean };
+@@ -48,7 +48,7 @@ type Mark = { icon: IconName; color: string; tint?: boolean };
  
  const WAITING_MARK = {
    permission: { icon: 'shield', color: 'var(--status-error)', tint: true },
@@ -42,14 +42,14 @@ index 62552fb..e972123 100644
    conflict: { icon: 'git-pull-request', color: 'var(--pr-blocked)' },
    checks: { icon: 'git-pull-request', color: 'var(--pr-blocked)' },
 diff --git a/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.tsx b/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.tsx
-index 1800b04..e0a5210 100644
+index e7b5fdb5..6930c085 100644
 --- a/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.tsx
 +++ b/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.tsx
-@@ -1553,8 +1553,8 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode
+@@ -1575,8 +1575,8 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode
        ) : null}
        {hasPendingForm ? (
          <RowMarkTooltip label={pendingFormLabel}>
--          <span className="inline-flex flex-shrink-0 items-center rounded bg-status-info/10 px-1 py-0.5 text-status-info" aria-label={pendingFormLabel}>
+-          <span className="inline-flex flex-shrink-0 items-center text-status-warning" aria-label={pendingFormLabel}>
 -            <Icon name="question" className="h-3 w-3" />
 +          <span className="inline-flex flex-shrink-0 items-center rounded border border-status-question-border bg-status-question px-1.5 text-status-question-foreground" aria-label={pendingFormLabel}>
 +            <Icon name="question" className="h-3.5 w-3.5" />
@@ -57,7 +57,7 @@ index 1800b04..e0a5210 100644
          </RowMarkTooltip>
        ) : null}
 diff --git a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.tsx b/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.tsx
-index 8aef348..1e596bd 100644
+index 83752e67..06803e8d 100644
 --- a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.tsx
 +++ b/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.tsx
 @@ -20,17 +20,25 @@ export function CollapsedActivityIndicator({
@@ -72,7 +72,7 @@ index 8aef348..1e596bd 100644
 +    const label = t('sessions.sidebar.session.status.permissionRequired');
 +    return (
 +      <RowMarkTooltip label={label}>
-+        <span className={cn('inline-flex shrink-0 items-center text-destructive', className)} aria-label={label}>
++        <span className={cn('inline-flex shrink-0 items-center text-status-warning', className)} aria-label={label}>
 +          <Icon name="shield" className="h-3 w-3" />
 +        </span>
 +      </RowMarkTooltip>
@@ -83,7 +83,7 @@ index 8aef348..1e596bd 100644
      return (
        <RowMarkTooltip label={label}>
          <span
--          className={cn('inline-flex shrink-0 items-center', state === 'permission' ? 'text-destructive' : 'text-status-info', className)}
+-          className={cn('inline-flex shrink-0 items-center text-status-warning', className)}
 +          className={cn('inline-flex shrink-0 items-center rounded border border-status-question-border bg-status-question px-1.5 text-status-question-foreground', className)}
            aria-label={label}
          >
@@ -93,7 +93,7 @@ index 8aef348..1e596bd 100644
        </RowMarkTooltip>
      );
 diff --git a/packages/ui/src/lib/theme/cssGenerator.ts b/packages/ui/src/lib/theme/cssGenerator.ts
-index a9f6361..c816e3e 100644
+index a9f6361c..c816e3ed 100644
 --- a/packages/ui/src/lib/theme/cssGenerator.ts
 +++ b/packages/ui/src/lib/theme/cssGenerator.ts
 @@ -2,7 +2,7 @@ import type { Theme } from '@/types/theme';
@@ -138,7 +138,7 @@ index a9f6361..c816e3e 100644
      const vars: string[] = [];
      const pr = theme.colors.pr;
 diff --git a/packages/ui/src/lib/theme/definition.test.ts b/packages/ui/src/lib/theme/definition.test.ts
-index 8d7797e..63e838e 100644
+index 8d7797ec..63e838ea 100644
 --- a/packages/ui/src/lib/theme/definition.test.ts
 +++ b/packages/ui/src/lib/theme/definition.test.ts
 @@ -263,6 +263,19 @@ describe('rendered theme color pairs', () => {
@@ -162,10 +162,10 @@ index 8d7797e..63e838e 100644
      for (const theme of themes) {
        const css = new CSSVariableGenerator().generate(theme);
 diff --git a/packages/ui/src/styles/design-system.css b/packages/ui/src/styles/design-system.css
-index 67d26ca..0ba6153 100644
+index 85f73335..4caa6d17 100644
 --- a/packages/ui/src/styles/design-system.css
 +++ b/packages/ui/src/styles/design-system.css
-@@ -899,6 +899,10 @@ html[data-glass-redraw-guard] body::before {
+@@ -985,6 +985,10 @@ html[data-glass-redraw-guard] body::before {
    --color-status-warning: var(--status-warning);
    --color-status-error: var(--status-error);
    --color-status-info: var(--status-info);
