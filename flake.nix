@@ -11,7 +11,7 @@
     flake = false;
   };
   inputs.openchamber = {
-    url = "github:openchamber/openchamber/v2.6.0";
+    url = "github:openchamber/openchamber/v2.6.1";
     flake = false;
   };
   inputs.rust-overlay = {

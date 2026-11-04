@@ -50,6 +50,22 @@ check, the patches, or the build fail. On success it stages only the
 PR and Buildbot path as other updates. Consumer lock propagation and
 host deployment remain a separate, manual workflow.
 
+## Openchamber source lifecycle
+
+`openchamber` and `openchamber-desktop` build from the `openchamber` flake
+input pinned to an upstream release tag, with the local patch queue under
+`packages/openchamber/patches/`. Upstream v2.6.1 absorbed the
+move-session-to-project patch (upstream #6207 now moves any session to
+another folder), so only that patch's idle-coverage half survives as
+`move-idle-coverage.patch`: a session living outside the directory being
+watched reads as `unknown` and would refuse the move.
+
+`openchamber-desktop` takes its Electron major from upstream's
+`packages/electron/package.json` and fails evaluation by name when this
+nixpkgs has no matching `electron_<major>`. A desktop bump can therefore
+require a nixpkgs bump before the package evaluates at all — v2.6.1 pins
+electron ^45, which nixos-unstable gained on 2026-10-31.
+
 ## Herdr plugin: herdr-drovr
 
 `herdr-drovr` packages the upstream `AVGVSTVS96/herdr-drovr` plugin
