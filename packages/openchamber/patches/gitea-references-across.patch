@@ -1,0 +1,1002 @@
+diff --git a/packages/web/server/lib/gitea/DOCUMENTATION.md b/packages/web/server/lib/gitea/DOCUMENTATION.md
+index bbe5f9ec7..537c87054 100644
+--- a/packages/web/server/lib/gitea/DOCUMENTATION.md
++++ b/packages/web/server/lib/gitea/DOCUMENTATION.md
+@@ -31,7 +31,8 @@ Target: Gitea 1.21 or newer, verified against live 1.21.11 and 1.27.3 (see *Veri
+ - Labels are set as a whole set by name; names are turned into the repository's label ids (`PUT /issues/{n}/labels`). A name the repository does not have is a 422. Organization labels are not looked up.
+ - Reviewers are set as a whole set by numeric user id, like GitLab's. Ids are turned into usernames through the collaborators and the current review requests, then the difference is sent as `POST` (add) and `DELETE` (remove) on `requested_reviewers`. The two calls are not atomic; reconciliation succeeds only when the current set matches. Gitea lists in `requested_reviewers` everyone with a standing review, not only open requests, and a `DELETE` for someone who already reviewed answers 204 and changes nothing. So before any write, a removal reads `/pulls/{n}/reviews` and refuses with `400 GITEA_REVIEWER_HAS_REVIEWED`, naming the logins, when someone to remove has a submitted review (`APPROVED`, `REQUEST_CHANGES` or `COMMENT`, not dismissed). 1.21 answers an empty set as `null`, read as empty.
+ - `head.label` is the bare branch name even for a fork's branch, so `headLabel` is built as `owner:branch` from `head.repo`, the form the worktree flow reads an owner from.
+-- Capabilities off: review threads (no reply or resolve API), uploads (attachments are served to a browser session), stacks, the reference picker.
++- The reference picker's per-repository lists stay list-backed (`referenceSearch`, `referenceDetail` and `listStatuses` off): the client reads them through `listIssues` and `listChangeRequests` and previews them through `getIssue`, `issueComments` and `changeRequestContext`. The one provider-owned read is the search across a folder's repositories (`references/across`, `referencesAcross`): Gitea has no search that names a set of repositories, so `references-across.js` reads the newest page of each folder's repository (`/pulls` for an unfiltered pull list, `/issues?type=pulls` for a filtered or merged one, `/repos/issues/search` for review requests) and merges them by activity. A pull request from the issue search carries no head or base, so only the items that land on the page are read as `/pulls/{n}` before they are mapped; one that moved away is dropped from the page, not failed. A page covers at most four pages per repository (200 items at the 50-item cap), and per-repository pages are cached for 30 s so paging does not read every repository again. A folder with no repository on the instance answers `no-repo`, a stale binding `invalid-context`, a signed-out account `disconnected`; the other folders still answer.
++- Capabilities off: review threads (no reply or resolve API), uploads (attachments are served to a browser session), stacks, discussions.
+ 
+ ## Enterprise mode
+ 
+diff --git a/packages/web/server/lib/gitea/descriptor.js b/packages/web/server/lib/gitea/descriptor.js
+index d8b86ee84..9268a0034 100644
+--- a/packages/web/server/lib/gitea/descriptor.js
++++ b/packages/web/server/lib/gitea/descriptor.js
+@@ -45,7 +45,9 @@ export const giteaDescriptor = Object.freeze({
+     stacks: false,
+     changeRequestPatch: true,
+     liveSummaries: true,
+-    referencePicker: false,
++    // The picker's lists stay list-backed (`referenceSearch` off); the search
++    // across a folder's repositories is the one provider-owned read.
++    referencePicker: true,
+     multipleAccounts: true,
+   }),
+   authMethods: Object.freeze({ device: false, pat: true, cli: false }),
+@@ -103,7 +105,7 @@ export const giteaDescriptor = Object.freeze({
+       user: Object.freeze(['/{user}']),
+     }),
+     features: Object.freeze({
+-      referenceSearch: false, referenceDetail: false, listStatuses: false, referencesAcross: false,
++      referenceSearch: false, referenceDetail: false, listStatuses: false, referencesAcross: true,
+       // Gitea refuses a review of your own pull request.
+       startThread: false, reviewDrafts: true, reviewDraftFileComments: false, authorCanReview: false, projectUploads: false, issueCloseReason: false,
+       changeRequestTemplates: Object.freeze([
+diff --git a/packages/web/server/lib/gitea/provider.js b/packages/web/server/lib/gitea/provider.js
+index ea5d5a2a1..9555253e7 100644
+--- a/packages/web/server/lib/gitea/provider.js
++++ b/packages/web/server/lib/gitea/provider.js
+@@ -2,6 +2,7 @@ import { createPatAccountAuth } from '../source-control/pat-account-auth.js';
+ import { createStandardMutations } from '../source-control/standard-mutations.js';
+ import { classifyGiteaFailure, createGiteaClient } from './client.js';
+ import { giteaDescriptor } from './descriptor.js';
++import { readReferencesAcross, readReferencesAcrossRequest } from './references-across.js';
+ import { createGiteaResourceService } from './resources.js';
+ import { normalizeSshUrl, parseSshUrl } from '../source-control/ssh-url.js';
+ import { isForgejoVersion, probeGiteaVersion, verifyGiteaToken } from './verify.js';
+@@ -232,6 +233,38 @@ export function createGiteaFamilyProvider({
+       readChangeRequestFile: ({ session, directory, number, sourceRepo, remote, path, previousPath, status, linked }) => serviceFor(session)
+         .changeRequestFileContents(directory, number, { project: projectSelector(sourceRepo), remote, path, previousPath, status, linked }),
+       liveSummaries: ({ session, refs, issueRefs }) => serviceFor(session).liveSummaries({ refs, issueRefs }),
++      /**
++       * The picker's search across a folder's repositories. One request spans
++       * folders and so more than one session; each folder is validated and
++       * read with its own account, as the GitHub search does.
++       */
++      referencesAcross: ({ body, validateReadContext }) => {
++        const input = readReferencesAcrossRequest(body, descriptor.id);
++        if (!input) {
++          throw Object.assign(new Error('Invalid references request; at most 100 unique contexts are allowed'), { status: 400 });
++        }
++        return readReferencesAcross({
++          input,
++          providerId: descriptor.id,
++          validateReadContext,
++          resolveService: async (trusted) => {
++            const session = await accounts.auth.resolveAccount({
++              instance: trusted.instance,
++              accountId: trusted.accountId,
++            });
++            return serviceFor(session);
++          },
++          // A token the host refuses is written off here too, as a refused
++          // per-repository read does through the shell.
++          onFolderFailure: async (error, identity) => {
++            const status = error?.status ?? error?.response?.status;
++            if (status !== 401 || error?.sourceControlAccountUnavailable) return;
++            const account = error?.sourceControlIdentity ?? identity;
++            if (!account?.accountId) return;
++            await accounts.auth.invalidateAccount({ instance: account.instance, accountId: account.accountId });
++          },
++        });
++      },
+       /** A pull request's head on the context's primary repository network, for a worktree made from it. */
+       readChangeRequestHead: async ({ session, directory, remote, number }) => {
+         const { request, headProject } = await serviceFor(session).findChangeRequest(directory, number, null, remote);
+diff --git a/packages/web/server/lib/gitea/provider.test.js b/packages/web/server/lib/gitea/provider.test.js
+index d4c30d216..c26fa342b 100644
+--- a/packages/web/server/lib/gitea/provider.test.js
++++ b/packages/web/server/lib/gitea/provider.test.js
+@@ -264,19 +264,88 @@ describe('Gitea behind the route shell', () => {
+     expect(events.invalidated).toHaveBeenCalledWith({ provider: 'gitea', instance: ORIGIN, accountId });
+   });
+ 
+-  it('answers 501 for review threads, uploads and the reference picker', async () => {
++  it('answers 501 for review threads, uploads and the searched reference list', async () => {
+     const { app } = await appWith();
+     for (const [method, url] of [
+       ['post', '/api/source-control/gitea/pr/thread/reply'],
+       ['post', '/api/source-control/gitea/pr/thread/resolve'],
+       ['get', '/api/source-control/gitea/uploads/0123456789abcdef0123456789abcdef/a.png'],
+-      ['get', '/api/source-control/gitea/references'],
+       ['post', '/api/source-control/gitea/auth/start'],
+       ['post', '/api/source-control/gitea/auth/cli'],
+     ]) {
+       const response = await request(app)[method](url);
+       expect(response.status, url).toBe(501);
+     }
++    // The picker's lists stay list-backed (`referenceSearch` off), so nothing
++    // serves the searched list; the across search is the provider's own read.
++    const references = await request(app).get('/api/source-control/gitea/references')
++      .query({ directory: '/repo', kind: 'issue' });
++    expect(references.status).toBe(500);
++  });
++
++  it('searches across a folder\'s bound repositories through the across route', async () => {
++    const issue = { ...fixtures.issue, html_url: `${ORIGIN}/bob/app/issues/6` };
++    const { app, impl, calls } = await appWith(forkNetworkRoutes({
++      'GET /repos/bob/app/issues': [issue],
++    }));
++    await impl.auth.connectToken({ instance: ORIGIN, token: 'pat-1' });
++    const accountId = await impl.auth.readCurrentAccountId({ instance: ORIGIN });
++    calls.length = 0;
++
++    const response = await request(app).post('/api/source-control/gitea/references/across').send({
++      contexts: [{
++        directory: '/repo', repositoryId: 'repo-1', provider: 'gitea', instance: ORIGIN,
++        accountId, bindingRevision: 1, primaryRemote: 'origin',
++      }],
++      kind: 'issue',
++    });
++
++    expect(response.status).toBe(200);
++    expect(response.body.items).toEqual([expect.objectContaining({
++      kind: 'issue',
++      number: 6,
++      title: 'Crash on start',
++      directory: '/repo',
++      sourceRepo: { owner: 'bob', repo: 'app', source: 'origin' },
++    })]);
++    expect(response.body.repositories).toEqual([
++      { directory: '/repo', status: 'included', repo: { owner: 'bob', repo: 'app', url: `${ORIGIN}/bob/app` } },
++    ]);
++    const paths = calls.map((call) => `${call.method} ${call.url.pathname}`);
++    expect(paths).toEqual(expect.arrayContaining(['GET /api/v1/repos/bob/app/issues']));
++  });
++
++  it('reports a folder whose token was refused and writes the account off', async () => {
++    const { app, impl, events } = await appWith(forkNetworkRoutes({
++      'GET /repos/bob/app/issues': () => new Response(JSON.stringify({ message: 'invalid token' }), { status: 401 }),
++    }));
++    await impl.auth.connectToken({ instance: ORIGIN, token: 'pat-1' });
++    const accountId = await impl.auth.readCurrentAccountId({ instance: ORIGIN });
++
++    const response = await request(app).post('/api/source-control/gitea/references/across').send({
++      contexts: [{
++        directory: '/repo', repositoryId: 'repo-1', provider: 'gitea', instance: ORIGIN,
++        accountId, bindingRevision: 1, primaryRemote: 'origin',
++      }],
++      kind: 'issue',
++    });
++
++    expect(response.status).toBe(200);
++    expect(response.body.repositories).toEqual([{ directory: '/repo', status: 'disconnected' }]);
++    expect(events.invalidated).toHaveBeenCalledWith({ provider: 'gitea', instance: ORIGIN, accountId });
++  });
++
++  it('refuses an across request that names another provider or more than 100 folders', async () => {
++    const { app } = await appWith();
++    const base = { directory: '/repo', repositoryId: 'repo-1', provider: 'gitea', instance: ORIGIN, accountId: 'acct', bindingRevision: 1, primaryRemote: 'origin' };
++
++    const otherProvider = await request(app).post('/api/source-control/gitea/references/across')
++      .send({ contexts: [{ ...base, provider: 'forgejo' }], kind: 'issue' });
++    expect(otherProvider.status).toBe(400);
++
++    const tooMany = await request(app).post('/api/source-control/gitea/references/across')
++      .send({ contexts: Array.from({ length: 101 }, (_value, index) => ({ ...base, directory: `/folder/${index}` })), kind: 'issue' });
++    expect(tooMany.status).toBe(400);
+   });
+ });
+ 
+diff --git a/packages/web/server/lib/gitea/references-across.js b/packages/web/server/lib/gitea/references-across.js
+new file mode 100644
+index 000000000..095befe25
+--- /dev/null
++++ b/packages/web/server/lib/gitea/references-across.js
+@@ -0,0 +1,349 @@
++/**
++ * The reference picker's search across a folder's repositories, for Gitea and
++ * Forgejo. The board asks one provider for every repository under a project
++ * folder; each folder arrives as its own bound read context.
++ *
++ * Gitea has no search that names a set of repositories, so a page is built by
++ * reading the newest page of each folder's repository and merging them by
++ * activity. That bounds a page to `MAX_PAGES_PER_REPO` pages per repository
++ * (`4`, 200 items at Gitea's 50-item cap); deeper pages stop there rather than
++ * pretend the folder holds nothing older. Pages are cached briefly so paging
++ * does not read every repository again for each page.
++ *
++ * A pull request read through Gitea's issue search carries no head or base, so
++ * only the items that land on the page are read as pull requests before they
++ * are mapped. A repository with no remote on the instance is reported as
++ * `no-repo`, a folder whose binding changed as `invalid-context`, and a gone
++ * account as `disconnected`, the same statuses the GitHub search answers.
++ */
++
++import { z } from 'zod';
++import { isPlainObject, isString } from '../shared/guards.js';
++import { mapLimited } from '../shared/map-limited.js';
++
++const PAGE_SIZE = 30;
++// Gitea caps a page at `[api] MAX_RESPONSE_ITEMS` (50 by default).
++const REPO_PAGE_LIMIT = 50;
++const MAX_PAGES_PER_REPO = 4;
++const ACROSS_CONCURRENCY = 4;
++const DETAIL_CONCURRENCY = 4;
++const BODY_PREVIEW_MAX = 20_000;
++const CACHE_TTL_MS = 30_000;
++const CACHE_MAX_ENTRIES = 400;
++const MAX_CONTEXTS = 100;
++
++const integer = (value) => (Number.isInteger(value) ? value : null);
++const text = (value) => (isString(value) && value.trim() ? value : null);
++
++const contextSchema = z.strictObject({
++  directory: z.string().trim().min(1),
++  repositoryId: z.string().min(1),
++  provider: z.string().min(1),
++  instance: z.string().min(1),
++  accountId: z.string().min(1),
++  bindingRevision: z.number().int().nonnegative(),
++  primaryRemote: z.string().min(1),
++});
++
++const requestSchema = z.strictObject({
++  contexts: z.array(contextSchema),
++  kind: z.enum(['issue', 'pull', 'discussion']),
++  state: z.enum(['open', 'closed', 'merged', 'all', 'unanswered']).optional(),
++  people: z.enum(['any', 'assigned', 'created', 'reviewRequested']).optional(),
++  query: z.string().optional(),
++  // The first page sends no cursor as null, like the single-repository list.
++  cursor: z.string().max(100_000).nullable().optional(),
++});
++
++const invalidCursor = () => Object.assign(new Error('Invalid references cursor'), {
++  status: 400, code: 'INVALID_REFERENCES_CURSOR',
++});
++
++/** Validate the JSON read request before any folder or credential access. */
++export function readReferencesAcrossRequest(body, providerId) {
++  const parsed = requestSchema.safeParse(body);
++  if (!parsed.success) return null;
++  // One request goes to one provider; a context of another one is a caller bug.
++  if (parsed.data.contexts.some((context) => context.provider !== providerId)) return null;
++  const folders = new Map();
++  for (const context of parsed.data.contexts) {
++    if (!folders.has(context.directory)) folders.set(context.directory, context);
++  }
++  if (folders.size > MAX_CONTEXTS) return null;
++  return {
++    ...parsed.data,
++    contexts: [...folders.values()],
++    directories: parsed.data.contexts.map((context) => context.directory),
++  };
++}
++
++const readCursor = (value) => {
++  if (value === null || value === undefined || value === '') return 0;
++  if (!/^\d+$/.test(value)) throw invalidCursor();
++  const offset = Number(value);
++  if (!Number.isSafeInteger(offset)) throw invalidCursor();
++  return offset;
++};
++
++const previewBody = (body) => {
++  const value = isString(body) ? body : '';
++  return value.length > BODY_PREVIEW_MAX
++    ? { body: value.slice(0, BODY_PREVIEW_MAX), bodyTruncated: true }
++    : { body: value, bodyTruncated: false };
++};
++
++const authorOf = (raw) => {
++  const login = text(raw?.user?.login);
++  if (!login) return null;
++  const avatarUrl = text(raw.user.avatar_url);
++  return avatarUrl ? { login, avatarUrl } : { login };
++};
++
++const labelsOf = (raw) => {
++  if (!Array.isArray(raw?.labels)) return [];
++  return raw.labels.flatMap((label) => {
++    if (!isPlainObject(label) || !text(label.name)) return [];
++    const mapped = { name: label.name };
++    const color = text(label.color);
++    if (color) mapped.color = color.replace(/^#/, '');
++    return [mapped];
++  });
++};
++
++const sourceRepoOf = (repo) => ({ owner: repo.owner, repo: repo.name, source: 'origin' });
++
++/** One issue of the folder's repository as a picker item, or null when it does not map. */
++export function issueReference(raw, repo, directory) {
++  if (!isPlainObject(raw) || integer(raw.number) === null || !text(raw.title) || !text(raw.html_url)) return null;
++  if (raw.pull_request != null) return null;
++  if (raw.state !== 'open' && raw.state !== 'closed') return null;
++  return {
++    kind: 'issue',
++    number: raw.number,
++    title: raw.title,
++    url: raw.html_url,
++    ...previewBody(raw.body),
++    createdAt: text(raw.created_at),
++    updatedAt: text(raw.updated_at),
++    author: authorOf(raw),
++    labels: labelsOf(raw),
++    commentCount: integer(raw.comments) ?? 0,
++    sourceRepo: sourceRepoOf(repo),
++    // Gitea sends no close reason, so a closed issue reads as done.
++    state: raw.state === 'open' ? 'open' : 'completed',
++    directory,
++  };
++}
++
++const headRepoOf = (raw) => {
++  const head = raw?.head?.repo;
++  if (!isPlainObject(head)) return null;
++  const owner = text(head.owner?.login);
++  const name = text(head.name);
++  if (!owner || !name || !text(head.html_url)) return null;
++  const mapped = { owner, repo: name, url: head.html_url };
++  const cloneUrl = text(head.clone_url);
++  if (cloneUrl) mapped.cloneUrl = cloneUrl;
++  const sshUrl = text(head.ssh_url);
++  if (sshUrl) mapped.sshUrl = sshUrl;
++  return mapped;
++};
++
++/** One pull request of the folder's repository as a picker item, or null when it does not map. */
++export function pullReference(raw, repo, directory) {
++  if (!isPlainObject(raw) || integer(raw.number) === null || !text(raw.title) || !text(raw.html_url)) return null;
++  if (!text(raw.head?.ref) || !text(raw.base?.ref) || !text(raw.head?.sha)) return null;
++  const state = raw.merged === true ? 'merged' : raw.state;
++  if (state !== 'open' && state !== 'closed' && state !== 'merged') return null;
++  // Gitea's own work-in-progress prefixes (`[repository.pull-request] WORK_IN_PROGRESS_PREFIXES`).
++  const draft = raw.draft === true || /^\s*(?:wip:|\[wip\])\s*/i.test(raw.title);
++  return {
++    kind: 'pull',
++    number: raw.number,
++    title: raw.title,
++    url: raw.html_url,
++    ...previewBody(raw.body),
++    createdAt: text(raw.created_at),
++    updatedAt: text(raw.updated_at),
++    author: authorOf(raw),
++    labels: labelsOf(raw),
++    commentCount: integer(raw.comments) ?? 0,
++    sourceRepo: sourceRepoOf(repo),
++    state,
++    draft,
++    head: raw.head.ref,
++    base: raw.base.ref,
++    headSha: raw.head.sha,
++    headRepo: headRepoOf(raw),
++    directory,
++  };
++}
++
++const failureStatus = (error) => {
++  if (error?.sourceControlAccountUnavailable) return 'disconnected';
++  if ((error?.status ?? error?.response?.status) === 401) return 'disconnected';
++  if (error?.code === 'SOURCE_CONTROL_NO_REPOSITORY') return 'no-repo';
++  if (error?.code?.startsWith('SOURCE_CONTROL_BINDING_') || error?.code?.startsWith('SOURCE_CONTROL_LOCK_')
++    || error?.code === 'INVALID_SOURCE_CONTROL_READ_CONTEXT' || error?.code === 'INVALID_SOURCE_CONTROL_BINDING') {
++    return 'invalid-context';
++  }
++  return 'error';
++};
++
++// Per-repository pages are read again for the next page of the same search;
++// a short cache keeps paging from re-reading every repository each time.
++const pageCache = new Map();
++
++/** Drop every cached page; tests use it between cases. */
++export const resetReferencePageCache = () => pageCache.clear();
++
++const cachedPage = async (key, read) => {
++  const now = Date.now();
++  const held = pageCache.get(key);
++  if (held && now - held.at < CACHE_TTL_MS) return held.value;
++  const value = await read();
++  pageCache.delete(key);
++  pageCache.set(key, { at: now, value });
++  while (pageCache.size > CACHE_MAX_ENTRIES) {
++    pageCache.delete(pageCache.keys().next().value);
++  }
++  return value;
++};
++
++const activity = (raw) => Date.parse(raw?.updated_at) || 0;
++
++/**
++ * The board's search across the folder's repositories. `input` is
++ * `readReferencesAcrossRequest`'s answer; `validateReadContext` returns the
++ * trusted context for a folder, and `resolveService` the resource service
++ * that reads it. `onFolderFailure` sees every folder failure with the
++ * identity it was read under, so a refused account can be marked invalid.
++ */
++export async function readReferencesAcross({
++  input, providerId, validateReadContext, resolveService, onFolderFailure,
++}) {
++  const offset = readCursor(input.cursor);
++  const kind = input.kind;
++  const state = input.state ?? 'open';
++  const people = input.people ?? 'any';
++  const query = input.query?.trim() ?? '';
++
++  // No Gitea discussion search: the tab is absent on these providers, and an
++  // asked-for one answers empty rather than failing the page.
++  if (kind === 'discussion') {
++    return {
++      items: [],
++      cursor: null,
++      hasMore: false,
++      total: 0,
++      repositories: input.directories.map((directory) => ({ directory, status: 'included', repo: null })),
++    };
++  }
++
++  const folders = new Map();
++  const services = new Map();
++
++  // A folder's failure is its own: the caller may mark a refused account, and
++  // the status keeps the rest of the page answering.
++  const failed = async (error, identity) => {
++    if (onFolderFailure) await onFolderFailure(error, identity);
++    return failureStatus(error);
++  };
++
++  await mapLimited(input.contexts, ACROSS_CONCURRENCY, async (context) => {
++    const directory = context.directory;
++    let trusted;
++    try {
++      trusted = await validateReadContext({ ...context, provider: providerId });
++    } catch (error) {
++      folders.set(directory, { status: await failed(error, context) });
++      return;
++    }
++    if (!trusted) {
++      folders.set(directory, { status: 'invalid-context' });
++      return;
++    }
++    try {
++      const accountKey = `${trusted.instance ?? ''}|${trusted.accountId ?? ''}`;
++      let service = services.get(accountKey);
++      if (!service) {
++        service = await resolveService(trusted);
++        services.set(accountKey, service);
++      }
++      folders.set(directory, { trusted, service });
++    } catch (error) {
++      folders.set(directory, { status: await failed(error, trusted) });
++    }
++  });
++
++  // Enough pages per repository that the next window can be told to have
++  // more, within the cap: one more page than the offset itself needs.
++  const pages = Math.min(MAX_PAGES_PER_REPO, Math.floor((offset + PAGE_SIZE) / REPO_PAGE_LIMIT) + 1);
++  const candidates = [];
++
++  await mapLimited([...folders.entries()], ACROSS_CONCURRENCY, async ([directory, entry]) => {
++    if (entry.status) return;
++    try {
++      for (let page = 1; page <= pages; page += 1) {
++        const key = JSON.stringify([
++          providerId, entry.trusted.instance ?? '', entry.trusted.accountId ?? '',
++          directory, entry.trusted.primaryRemote ?? '', kind, state, people, query, page,
++        ]);
++        const result = await cachedPage(key, () => entry.service.listReferenceCandidates(directory, {
++          kind, state, people, query, page, remote: entry.trusted.primaryRemote,
++        }));
++        entry.repo ??= result.repo;
++        for (const raw of result.items) {
++          candidates.push({ raw, repo: result.repo, needsDetail: result.needsDetail === true, directory, entry });
++        }
++        if (!result.hasMore) break;
++      }
++      if (!entry.repo) entry.status = 'no-repo';
++    } catch (error) {
++      entry.status = await failed(error, entry.trusted);
++    }
++  });
++
++  candidates.sort((a, b) => {
++    const byActivity = activity(b.raw) - activity(a.raw);
++    return byActivity !== 0 ? byActivity : (integer(b.raw?.number) ?? 0) - (integer(a.raw?.number) ?? 0);
++  });
++
++  const window = candidates.slice(offset, offset + PAGE_SIZE);
++  const items = (await mapLimited(window, DETAIL_CONCURRENCY, async (candidate) => {
++    let raw = candidate.raw;
++    if (candidate.needsDetail) {
++      try {
++        raw = await candidate.entry.service.readPullDetail(
++          candidate.directory, candidate.raw.number, candidate.entry.trusted.primaryRemote,
++        );
++      } catch (error) {
++        // The pull request moved or went away between the list and this read;
++        // the rest of the page still answers.
++        return null;
++      }
++    }
++    return kind === 'pull'
++      ? pullReference(raw, candidate.repo, candidate.directory)
++      : issueReference(raw, candidate.repo, candidate.directory);
++  })).filter(Boolean);
++
++  const hasMore = candidates.length > offset + PAGE_SIZE;
++  const repositories = input.directories.map((directory) => {
++    const entry = folders.get(directory);
++    if (!entry || entry.status || !entry.repo) return { directory, status: entry?.status ?? 'error' };
++    return {
++      directory,
++      status: 'included',
++      repo: { owner: entry.repo.owner, repo: entry.repo.name, url: entry.repo.url },
++    };
++  });
++
++  return {
++    items,
++    cursor: hasMore ? String(offset + PAGE_SIZE) : null,
++    hasMore,
++    total: candidates.length,
++    repositories,
++  };
++}
+diff --git a/packages/web/server/lib/gitea/references-across.test.js b/packages/web/server/lib/gitea/references-across.test.js
+new file mode 100644
+index 000000000..6de80702a
+--- /dev/null
++++ b/packages/web/server/lib/gitea/references-across.test.js
+@@ -0,0 +1,349 @@
++import { beforeEach, describe, expect, it, vi } from 'vitest';
++import {
++  issueReference, pullReference, readReferencesAcross, readReferencesAcrossRequest, resetReferencePageCache,
++} from './references-across.js';
++
++const ORIGIN = 'https://gitea.example.com';
++const REPO = { id: '1', owner: 'acme', name: 'app', url: `${ORIGIN}/acme/app` };
++
++const context = (directory, accountId = 'acct-1') => ({
++  directory,
++  repositoryId: `repo-${directory}`,
++  provider: 'gitea',
++  instance: ORIGIN,
++  accountId,
++  bindingRevision: 1,
++  primaryRemote: 'origin',
++});
++
++const request = (contexts, extra = {}) => readReferencesAcrossRequest({ contexts, kind: 'issue', ...extra }, 'gitea');
++
++const rawIssue = (number, updated, extra = {}) => ({
++  number,
++  title: `Issue ${number}`,
++  html_url: `${ORIGIN}/acme/app/issues/${number}`,
++  state: 'open',
++  user: { login: 'alice', avatar_url: `${ORIGIN}/avatars/alice` },
++  labels: [{ name: 'bug', color: '#d73a4a' }, { name: 'task' }, { bogus: true }],
++  comments: 2,
++  body: 'Steps to reproduce',
++  created_at: '2026-01-01T00:00:00Z',
++  updated_at: updated,
++  ...extra,
++});
++
++const rawPull = (number, updated, extra = {}) => ({
++  number,
++  title: `PR ${number}`,
++  html_url: `${ORIGIN}/acme/app/pulls/${number}`,
++  state: 'open',
++  user: { login: 'alice' },
++  labels: [],
++  comments: 1,
++  body: 'A change',
++  head: {
++    ref: 'feature',
++    sha: 'a'.repeat(40),
++    repo: {
++      name: 'app', owner: { login: 'acme' }, html_url: `${ORIGIN}/acme/app`,
++      clone_url: `${ORIGIN}/acme/app.git`, ssh_url: 'git@gitea.example.com:acme/app.git',
++    },
++  },
++  base: { ref: 'main' },
++  created_at: '2026-01-01T00:00:00Z',
++  updated_at: updated,
++  ...extra,
++});
++
++/** A resource service whose pages are given per page number. */
++const serviceWith = (pages, { repo = REPO, detail } = {}) => ({
++  listReferenceCandidates: vi.fn(async (_directory, options) => {
++    const page = pages[options.page] ?? { items: [], hasMore: false };
++    return { repo, items: page.items, hasMore: page.hasMore, needsDetail: page.needsDetail };
++  }),
++  readPullDetail: vi.fn(async (_directory, number) => detail(number)),
++});
++
++const healthy = async (context) => ({ ...context, primaryRemote: 'origin' });
++
++beforeEach(() => resetReferencePageCache());
++
++describe('readReferencesAcrossRequest', () => {
++  it('keeps one context per folder, in the order asked, and remembers every directory', () => {
++    const first = context('/a');
++    const second = context('/b');
++    const input = readReferencesAcrossRequest({
++      contexts: [first, { ...first }, second],
++      kind: 'pull',
++      state: 'closed',
++      people: 'created',
++      query: ' crash ',
++      cursor: null,
++    }, 'gitea');
++
++    expect(input.contexts).toEqual([first, second]);
++    expect(input.directories).toEqual(['/a', '/a', '/b']);
++    expect(input).toMatchObject({ kind: 'pull', state: 'closed', people: 'created', query: ' crash ' });
++  });
++
++  it('refuses another provider, an unknown field, a bad kind and more than 100 folders', () => {
++    expect(readReferencesAcrossRequest({
++      contexts: [{ ...context('/a'), provider: 'forgejo' }], kind: 'issue',
++    }, 'gitea')).toBeNull();
++    expect(readReferencesAcrossRequest({ contexts: [context('/a')], kind: 'issue', extra: true }, 'gitea')).toBeNull();
++    expect(readReferencesAcrossRequest({ contexts: [context('/a')], kind: 'commit' }, 'gitea')).toBeNull();
++    expect(readReferencesAcrossRequest({ contexts: [{ ...context('/a'), bindingRevision: -1 }], kind: 'issue' }, 'gitea')).toBeNull();
++    expect(readReferencesAcrossRequest({
++      contexts: Array.from({ length: 101 }, (_value, index) => context(`/folder/${index}`)), kind: 'issue',
++    }, 'gitea')).toBeNull();
++  });
++});
++
++describe('Gitea reference mapping', () => {
++  it('maps an issue with its author, labels, comments and body preview', () => {
++    expect(issueReference(rawIssue(7, '2026-10-01T00:00:00Z'), REPO, '/repo')).toEqual({
++      kind: 'issue',
++      number: 7,
++      title: 'Issue 7',
++      url: `${ORIGIN}/acme/app/issues/7`,
++      body: 'Steps to reproduce',
++      bodyTruncated: false,
++      createdAt: '2026-01-01T00:00:00Z',
++      updatedAt: '2026-10-01T00:00:00Z',
++      author: { login: 'alice', avatarUrl: `${ORIGIN}/avatars/alice` },
++      labels: [{ name: 'bug', color: 'd73a4a' }, { name: 'task' }],
++      commentCount: 2,
++      sourceRepo: { owner: 'acme', repo: 'app', source: 'origin' },
++      // Gitea sends no close reason, so a closed issue reads as done.
++      state: 'open',
++      directory: '/repo',
++    });
++    expect(issueReference(rawIssue(8, '2026-10-01T00:00:00Z', { state: 'closed' }), REPO, '/repo'))
++      .toMatchObject({ state: 'completed' });
++  });
++
++  it('skips a pull request in the issue list, and an unmappable issue', () => {
++    expect(issueReference(rawIssue(9, '2026-10-01T00:00:00Z', { pull_request: { merged: false } }), REPO, '/repo')).toBeNull();
++    expect(issueReference(rawIssue(10, '2026-10-01T00:00:00Z', { html_url: undefined }), REPO, '/repo')).toBeNull();
++    expect(issueReference(rawIssue(11, '2026-10-01T00:00:00Z', { state: 'draft' }), REPO, '/repo')).toBeNull();
++  });
++
++  it('cuts a long body at the preview size', () => {
++    const mapped = issueReference(rawIssue(12, '2026-10-01T00:00:00Z', { body: 'x'.repeat(20_001) }), REPO, '/repo');
++    expect(mapped.body).toHaveLength(20_000);
++    expect(mapped.bodyTruncated).toBe(true);
++  });
++
++  it('maps a pull request with its branches, head repository and state', () => {
++    expect(pullReference(rawPull(3, '2026-10-02T00:00:00Z'), REPO, '/repo')).toEqual({
++      kind: 'pull',
++      number: 3,
++      title: 'PR 3',
++      url: `${ORIGIN}/acme/app/pulls/3`,
++      body: 'A change',
++      bodyTruncated: false,
++      createdAt: '2026-01-01T00:00:00Z',
++      updatedAt: '2026-10-02T00:00:00Z',
++      author: { login: 'alice' },
++      labels: [],
++      commentCount: 1,
++      sourceRepo: { owner: 'acme', repo: 'app', source: 'origin' },
++      state: 'open',
++      draft: false,
++      head: 'feature',
++      base: 'main',
++      headSha: 'a'.repeat(40),
++      headRepo: {
++        owner: 'acme',
++        repo: 'app',
++        url: `${ORIGIN}/acme/app`,
++        cloneUrl: `${ORIGIN}/acme/app.git`,
++        sshUrl: 'git@gitea.example.com:acme/app.git',
++      },
++      directory: '/repo',
++    });
++    expect(pullReference(rawPull(4, '2026-10-02T00:00:00Z', { merged: true }), REPO, '/repo')).toMatchObject({ state: 'merged' });
++    expect(pullReference(rawPull(5, '2026-10-02T00:00:00Z', { draft: true }), REPO, '/repo')).toMatchObject({ draft: true });
++    expect(pullReference(rawPull(6, '2026-10-02T00:00:00Z', { title: 'WIP: half done' }), REPO, '/repo')).toMatchObject({ draft: true });
++  });
++
++  it('skips a pull request without a head commit or base branch, and one with a gone head repository', () => {
++    expect(pullReference(rawPull(7, '2026-10-02T00:00:00Z', { head: { ref: 'feature', repo: null } }), REPO, '/repo')).toBeNull();
++    expect(pullReference(rawPull(8, '2026-10-02T00:00:00Z', { base: {} }), REPO, '/repo')).toBeNull();
++    expect(pullReference(rawPull(9, '2026-10-02T00:00:00Z', { head: { ref: 'feature', sha: 'b'.repeat(40), repo: null } }), REPO, '/repo'))
++      .toMatchObject({ headRepo: null });
++  });
++});
++
++describe('readReferencesAcross', () => {
++  it('merges the folders newest first and pages through them', async () => {
++    const pages = {
++      '/a': { 1: { items: Array.from({ length: 20 }, (_value, index) => rawIssue(index + 1, `2026-10-${String(index + 1).padStart(2, '0')}T00:00:00Z`)), hasMore: false } },
++      '/b': { 1: { items: Array.from({ length: 20 }, (_value, index) => rawIssue(index + 101, `2026-09-${String(index + 1).padStart(2, '0')}T00:00:00Z`)), hasMore: false } },
++    };
++    const services = {
++      '/a': serviceWith(pages['/a']),
++      '/b': serviceWith(pages['/b']),
++    };
++    const input = request([context('/a'), context('/b')]);
++    const read = (cursor) => readReferencesAcross({
++      input: { ...input, cursor },
++      providerId: 'gitea',
++      validateReadContext: healthy,
++      resolveService: async (trusted) => services[trusted.directory],
++    });
++
++    const first = await read(null);
++    expect(first.items).toHaveLength(30);
++    expect(first.items[0]).toMatchObject({ number: 20, directory: '/a' });
++    expect(first.items.at(-1)).toMatchObject({ number: 111, directory: '/b' });
++    expect(first).toMatchObject({ cursor: '30', hasMore: true, total: 40 });
++    expect(first.repositories).toEqual([
++      { directory: '/a', status: 'included', repo: { owner: 'acme', repo: 'app', url: `${ORIGIN}/acme/app` } },
++      { directory: '/b', status: 'included', repo: { owner: 'acme', repo: 'app', url: `${ORIGIN}/acme/app` } },
++    ]);
++
++    const second = await read('30');
++    expect(second.items).toHaveLength(10);
++    expect(second.items[0]).toMatchObject({ number: 110, directory: '/b' });
++    expect(second.items.at(-1)).toMatchObject({ number: 101, directory: '/b' });
++    expect(second).toMatchObject({ cursor: null, hasMore: false, total: 40 });
++    // The first page of each folder is cached, so paging reads nothing again.
++    expect(services['/a'].listReferenceCandidates).toHaveBeenCalledTimes(1);
++    expect(services['/b'].listReferenceCandidates).toHaveBeenCalledTimes(1);
++  });
++
++  it('keeps reading a folder until the window is covered, and stops at the per-folder cap', async () => {
++    const items = (from, to) => Array.from({ length: to - from }, (_value, index) => rawIssue(from + index, '2026-10-01T00:00:00Z'));
++    const pages = {
++      1: { items: items(1, 51), hasMore: true },
++      2: { items: items(51, 101), hasMore: true },
++      3: { items: items(101, 151), hasMore: true },
++      4: { items: items(151, 201), hasMore: false },
++    };
++    const service = serviceWith(pages);
++    const input = request([context('/a')]);
++    const read = (cursor) => readReferencesAcross({
++      input: { ...input, cursor }, providerId: 'gitea', validateReadContext: healthy, resolveService: async () => service,
++    });
++
++    const first = await read(null);
++    expect(first).toMatchObject({ total: 50, cursor: '30', hasMore: true });
++    const second = await read('30');
++    expect(second).toMatchObject({ total: 100, cursor: '60', hasMore: true });
++    expect(service.listReferenceCandidates.mock.calls.map((call) => call[1].page)).toEqual([1, 2]);
++    const third = await read('60');
++    expect(third).toMatchObject({ total: 100, cursor: '90', hasMore: true });
++    const fourth = await read('90');
++    expect(fourth).toMatchObject({ total: 150, cursor: '120', hasMore: true });
++    const fifth = await read('120');
++    expect(fifth).toMatchObject({ total: 200, cursor: '150', hasMore: true });
++    expect(service.listReferenceCandidates.mock.calls.map((call) => call[1].page)).toEqual([1, 2, 3, 4]);
++    const sixth = await read('150');
++    expect(sixth).toMatchObject({ total: 200, cursor: '180', hasMore: true });
++    // The cap holds: page 4 is the deepest page read, and the search ends there.
++    const last = await read('180');
++    expect(last.items).toHaveLength(20);
++    expect(last).toMatchObject({ total: 200, cursor: null, hasMore: false });
++    expect(service.listReferenceCandidates.mock.calls.map((call) => call[1].page)).toEqual([1, 2, 3, 4]);
++  });
++
++  it('reports each folder it could not read and still answers the others', async () => {
++    const failures = {
++      '/signed-out': Object.assign(new Error('signed out'), { status: 401 }),
++      '/stale': Object.assign(new Error('stale'), { code: 'SOURCE_CONTROL_BINDING_STALE' }),
++    };
++    const failureCalls = [];
++    // One account reads every folder, so one service answers them all; a
++    // folder without a repository on the instance fails its own read.
++    const service = {
++      listReferenceCandidates: vi.fn(async (directory) => {
++        if (directory === '/no-repo') throw Object.assign(new Error('no repo'), { code: 'SOURCE_CONTROL_NO_REPOSITORY' });
++        if (directory === '/broken') throw new Error('boom');
++        return { repo: REPO, items: [rawIssue(1, '2026-10-01T00:00:00Z')], hasMore: false };
++      }),
++      readPullDetail: vi.fn(async () => null),
++    };
++    const input = request([context('/ok'), context('/signed-out'), context('/no-repo'), context('/stale'), context('/broken'), context('/empty')]);
++    const page = await readReferencesAcross({
++      input,
++      providerId: 'gitea',
++      validateReadContext: async (candidate) => {
++        if (failures[candidate.directory]) throw failures[candidate.directory];
++        if (candidate.directory === '/empty') return null;
++        return { ...candidate, primaryRemote: 'origin' };
++      },
++      resolveService: async () => service,
++      onFolderFailure: async (error, identity) => failureCalls.push({ error, identity }),
++    });
++
++    expect(page.items.map((item) => item.number)).toEqual([1]);
++    // The refused account is reported with the identity it was read under.
++    expect(failureCalls).toContainEqual({
++      error: expect.objectContaining({ status: 401 }),
++      identity: expect.objectContaining({ directory: '/signed-out', instance: ORIGIN, accountId: 'acct-1' }),
++    });
++    expect(page.repositories).toEqual([
++      { directory: '/ok', status: 'included', repo: { owner: 'acme', repo: 'app', url: `${ORIGIN}/acme/app` } },
++      { directory: '/signed-out', status: 'disconnected' },
++      { directory: '/no-repo', status: 'no-repo' },
++      { directory: '/stale', status: 'invalid-context' },
++      { directory: '/broken', status: 'error' },
++      { directory: '/empty', status: 'invalid-context' },
++    ]);
++  });
++
++  it('reads the pull requests that land on the page and drops one that moved away', async () => {
++    const listed = [
++      rawIssue(1, '2026-10-03T00:00:00Z', { pull_request: { merged: false } }),
++      rawIssue(2, '2026-10-02T00:00:00Z', { pull_request: { merged: false } }),
++      rawIssue(3, '2026-10-01T00:00:00Z', { pull_request: { merged: false } }),
++    ];
++    const service = serviceWith(
++      { 1: { items: listed, hasMore: false, needsDetail: true } },
++      { detail: (number) => {
++        if (number === 2) throw Object.assign(new Error('gone'), { status: 404 });
++        return rawPull(number, number === 1 ? '2026-10-03T00:00:00Z' : '2026-10-01T00:00:00Z');
++      } },
++    );
++    const input = request([context('/a')], { kind: 'pull' });
++    const page = await readReferencesAcross({
++      input, providerId: 'gitea', validateReadContext: healthy, resolveService: async () => service,
++    });
++
++    expect(service.readPullDetail.mock.calls.map((call) => call[1])).toEqual([1, 2, 3]);
++    expect(page.items.map((item) => [item.number, item.head, item.base, item.headSha])).toEqual([
++      [1, 'feature', 'main', 'a'.repeat(40)],
++      [3, 'feature', 'main', 'a'.repeat(40)],
++    ]);
++  });
++
++  it('answers an empty page for discussions, which these providers do not keep', async () => {
++    const input = request([context('/a'), context('/b')], { kind: 'discussion' });
++    const page = await readReferencesAcross({
++      input,
++      providerId: 'gitea',
++      validateReadContext: () => { throw new Error('should not be read'); },
++      resolveService: () => { throw new Error('should not be read'); },
++    });
++    expect(page).toEqual({
++      items: [],
++      cursor: null,
++      hasMore: false,
++      total: 0,
++      repositories: [
++        { directory: '/a', status: 'included', repo: null },
++        { directory: '/b', status: 'included', repo: null },
++      ],
++    });
++  });
++
++  it('refuses a cursor that is not an offset', async () => {
++    const input = request([context('/a')]);
++    for (const cursor of ['abc', '-1', '1.5', '9007199254740992']) {
++      await expect(readReferencesAcross({
++        input: { ...input, cursor }, providerId: 'gitea', validateReadContext: healthy, resolveService: async () => serviceWith({}),
++      })).rejects.toMatchObject({ status: 400, code: 'INVALID_REFERENCES_CURSOR' });
++    }
++  });
++});
+diff --git a/packages/web/server/lib/gitea/resources.js b/packages/web/server/lib/gitea/resources.js
+index 986cc9502..55a341a80 100644
+--- a/packages/web/server/lib/gitea/resources.js
++++ b/packages/web/server/lib/gitea/resources.js
+@@ -67,7 +67,11 @@ export function createGiteaResourceService({
+       const item = await showRepo({ owner: candidate.owner, name: candidate.name }, candidate.remoteName);
+       if (!repos.some((known) => known.project.id === item.project.id)) repos.push(item);
+     }
+-    if (!repos.length) throw malformed(`No ${providerLabel} repository found for the repository remotes`);
++    if (!repos.length) {
++      throw Object.assign(new Error(`No ${providerLabel} repository found for the repository remotes`), {
++        code: 'SOURCE_CONTROL_NO_REPOSITORY',
++      });
++    }
+     return repos;
+   };
+ 
+@@ -449,6 +453,64 @@ export function createGiteaResourceService({
+       return { items, page, hasMore: result.hasMore };
+     },
+ 
++    /**
++     * One page of raw issues or pull requests of the folder's repository, for
++     * the reference picker's search across repositories. Unlike the neutral
++     * lists above this keeps the host's own fields, so the picker's rows and
++     * preview get their branches, draft flag and comment count.
++     *
++     * Gitea's issue search answers a pull request without its head or base;
++     * `needsDetail` says the page has to read those pull requests before
++     * mapping them. The unfiltered pull list already carries them.
++     */
++    async listReferenceCandidates(directory, options = {}) {
++      const page = options.page ?? 1;
++      const { primary } = await network(directory, null, options.remote);
++      const repo = primary.project;
++      const state = LIST_STATES[options.state] ?? 'open';
++      if (options.kind === 'issue') {
++        const query = { type: 'issues', state, q: options.query };
++        if (options.people === 'created') query.created_by = await readCurrentLogin();
++        if (options.people === 'assigned') query.assigned_by = await readCurrentLogin();
++        const result = await client.page(`${repoPath(repo)}/issues`, query, { page, limit: PAGE_LIMIT });
++        return {
++          repo,
++          items: result.items.filter((raw) => isPlainObject(raw) && raw.pull_request == null),
++          hasMore: result.hasMore,
++        };
++      }
++      if (options.people === 'any' && !options.query && options.state !== 'merged') {
++        const result = await client.page(`${repoPath(repo)}/pulls`, { state, sort: 'recentupdate' }, { page, limit: PAGE_LIMIT });
++        return { repo, items: result.items.filter(isPlainObject), hasMore: result.hasMore };
++      }
++      let result;
++      if (options.people === 'reviewRequested') {
++        // Only the cross-repository search filters on review requests; it is
++        // narrowed to the owner here and to the repository below.
++        result = await client.page('/repos/issues/search', {
++          type: 'pulls', state, q: options.query, owner: repo.owner, review_requested: true,
++        }, { page, limit: PAGE_LIMIT });
++        result.items = result.items.filter((item) => isPlainObject(item?.repository)
++          && Number(item.repository.id) === primary.raw.id);
++      } else {
++        const query = { type: 'pulls', state, q: options.query };
++        if (options.people === 'created') query.created_by = await readCurrentLogin();
++        if (options.people === 'assigned') query.assigned_by = await readCurrentLogin();
++        result = await client.page(`${repoPath(repo)}/issues`, query, { page, limit: PAGE_LIMIT });
++        result.items = result.items.filter((raw) => isPlainObject(raw) && raw.pull_request != null);
++      }
++      if (options.state === 'merged') {
++        result.items = result.items.filter((raw) => raw.pull_request?.merged === true);
++      }
++      return { repo, items: result.items, hasMore: result.hasMore, needsDetail: true };
++    },
++
++    /** One pull request of the folder's repository, for a search hit that needs its head and base. */
++    async readPullDetail(directory, number, remote) {
++      const { primary } = await network(directory, null, remote);
++      return client.get(`${repoPath(primary.project)}/pulls/${number}`);
++    },
++
+     async getIssue(directory, number, selector, remote, { linked } = {}) {
+       const { target } = await network(directory, selector, remote, { linked });
+       return requireIssue(await client.get(`${repoPath(target.project)}/issues/${number}`), target.project);
+diff --git a/packages/web/server/lib/source-control/provider-descriptors.test.js b/packages/web/server/lib/source-control/provider-descriptors.test.js
+index 433e3f545..125c7e61d 100644
+--- a/packages/web/server/lib/source-control/provider-descriptors.test.js
++++ b/packages/web/server/lib/source-control/provider-descriptors.test.js
+@@ -75,7 +75,7 @@ describe('source control provider descriptors', () => {
+     expect(gitea.capabilities).toMatchObject({
+       merge: { methods: ['merge', 'squash', 'rebase'] },
+       reviewThreads: { start: false, reply: false, resolve: false },
+-      uploads: false, stacks: false, referencePicker: false,
++      uploads: false, stacks: false, referencePicker: true,
+     });
+     const published = publicProviderDescriptor(gitea, 2);
+     expect(published).toMatchObject({ id: 'gitea', auth: { methods: ['pat'] }, instances: { defaultInstance: null } });
+diff --git a/packages/web/server/lib/source-control/provider-publication-freeze.json b/packages/web/server/lib/source-control/provider-publication-freeze.json
+index 6a9921cb3..cdc95d9b6 100644
+--- a/packages/web/server/lib/source-control/provider-publication-freeze.json
++++ b/packages/web/server/lib/source-control/provider-publication-freeze.json
+@@ -269,7 +269,7 @@
+         "referenceSearch": false,
+         "referenceDetail": false,
+         "listStatuses": false,
+-        "referencesAcross": false,
++        "referencesAcross": true,
+         "reviewDraftFileComments": false,
+         "reviewDrafts": true,
+         "startThread": false,
