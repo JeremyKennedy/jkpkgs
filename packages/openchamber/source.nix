@@ -58,6 +58,7 @@ let
       ./patches/chat-width.patch
       ./patches/symlink-file-refresh.patch
       ./patches/move-idle-coverage.patch
+      ./patches/gitea-references-across.patch
     ];
   };
 in
