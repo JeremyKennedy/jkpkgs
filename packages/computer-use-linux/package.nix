@@ -72,11 +72,13 @@ stdenv.mkDerivation (finalAttrs: {
     platforms = builtins.attrNames platformMap;
   };
 
-  # Upstream has no --version flag; `doctor --json` is the closest
-  # self-report. It must run headless in the sandbox, so only the platform
-  # fields are asserted, not session readiness.
+  # Upstream has no --version flag; `doctor` prints a JSON readiness report
+  # and is the closest self-report. It always emits JSON, and since 0.7.47
+  # rejects an explicit `--json` flag, so do not pass one. It must run
+  # headless in the sandbox, so only the platform fields are asserted, not
+  # session readiness.
   passthru.tests.version = pkgs.runCommand "computer-use-linux-smoke" { } ''
-    ${finalAttrs.finalPackage}/bin/computer-use-linux doctor --json > doctor.json || true
+    ${finalAttrs.finalPackage}/bin/computer-use-linux doctor > doctor.json || true
     ${pkgs.jq}/bin/jq -e '.platform.os == "linux"' doctor.json > /dev/null
     touch $out
   '';
