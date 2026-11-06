@@ -59,6 +59,12 @@ stdenv.mkDerivation (finalAttrs: {
     install -Dm755 package/bin/opencode $out/bin/opencode
     runHook postInstall
   '';
+  # The bundled file-watcher addon (@parcel/watcher, extracted from the bun
+  # trailer and dlopen'd at runtime) links libstdc++.so.6, which a store
+  # binary cannot find on NixOS. Without it every directory watch fails with
+  # "watcher backend not supported" and config/skill/plugin changes never
+  # hot-reload. RPATH is not an option: patchelf resizing corrupts the bun
+  # trailer (see postPatch), so prefix the loader path instead.
   postFixup = ''
     wrapProgram $out/bin/opencode \
       --prefix PATH : ${
@@ -66,7 +72,7 @@ stdenv.mkDerivation (finalAttrs: {
           fzf
           ripgrep
         ]
-      }
+      }${lib.optionalString stdenv.hostPlatform.isLinux " --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath [ stdenv.cc.cc.lib ]}"}
   '';
 
   meta = {
