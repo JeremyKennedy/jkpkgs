@@ -277,10 +277,10 @@ index f61a31e84..2d83f1d8d 100644
      'sourceBoard.actions.checkoutWorktree': 'בצע checkout בעץ עבודה…',
      'sourceBoard.actions.newSession': 'הפעלה חדשה',
 diff --git a/packages/web/server/lib/gitea/DOCUMENTATION.md b/packages/web/server/lib/gitea/DOCUMENTATION.md
-index bbe5f9ec7..537c87054 100644
+index 29585d90e..1adcea68c 100644
 --- a/packages/web/server/lib/gitea/DOCUMENTATION.md
 +++ b/packages/web/server/lib/gitea/DOCUMENTATION.md
-@@ -31,7 +31,8 @@ Target: Gitea 1.21 or newer, verified against live 1.21.11 and 1.27.3 (see *Veri
+@@ -33,7 +33,8 @@ Target: Gitea 1.21 or newer, verified against live 1.21.11 and 1.27.3 (see *Veri
  - Labels are set as a whole set by name; names are turned into the repository's label ids (`PUT /issues/{n}/labels`). A name the repository does not have is a 422. Organization labels are not looked up.
  - Reviewers are set as a whole set by numeric user id, like GitLab's. Ids are turned into usernames through the collaborators and the current review requests, then the difference is sent as `POST` (add) and `DELETE` (remove) on `requested_reviewers`. The two calls are not atomic; reconciliation succeeds only when the current set matches. Gitea lists in `requested_reviewers` everyone with a standing review, not only open requests, and a `DELETE` for someone who already reviewed answers 204 and changes nothing. So before any write, a removal reads `/pulls/{n}/reviews` and refuses with `400 GITEA_REVIEWER_HAS_REVIEWED`, naming the logins, when someone to remove has a submitted review (`APPROVED`, `REQUEST_CHANGES` or `COMMENT`, not dismissed). 1.21 answers an empty set as `null`, read as empty.
  - `head.label` is the bare branch name even for a fork's branch, so `headLabel` is built as `owner:branch` from `head.repo`, the form the worktree flow reads an owner from.
@@ -291,10 +291,10 @@ index bbe5f9ec7..537c87054 100644
  ## Enterprise mode
  
 diff --git a/packages/web/server/lib/gitea/descriptor.js b/packages/web/server/lib/gitea/descriptor.js
-index d8b86ee84..9268a0034 100644
+index 4eb2323de..a92b512eb 100644
 --- a/packages/web/server/lib/gitea/descriptor.js
 +++ b/packages/web/server/lib/gitea/descriptor.js
-@@ -45,7 +45,9 @@ export const giteaDescriptor = Object.freeze({
+@@ -46,7 +46,9 @@ export const giteaDescriptor = Object.freeze({
      stacks: false,
      changeRequestPatch: true,
      liveSummaries: true,
@@ -304,8 +304,8 @@ index d8b86ee84..9268a0034 100644
 +    referencePicker: true,
      multipleAccounts: true,
    }),
-   authMethods: Object.freeze({ device: false, pat: true, cli: false }),
-@@ -103,7 +105,7 @@ export const giteaDescriptor = Object.freeze({
+   authMethods: Object.freeze({ device: false, pat: true, cli: Object.freeze({ tool: 'gt' }) }),
+@@ -105,7 +107,7 @@ export const giteaDescriptor = Object.freeze({
        user: Object.freeze(['/{user}']),
      }),
      features: Object.freeze({
@@ -315,20 +315,20 @@ index d8b86ee84..9268a0034 100644
        startThread: false, reviewDrafts: true, reviewDraftFileComments: false, authorCanReview: false, projectUploads: false, issueCloseReason: false,
        changeRequestTemplates: Object.freeze([
 diff --git a/packages/web/server/lib/gitea/provider.js b/packages/web/server/lib/gitea/provider.js
-index ea5d5a2a1..9555253e7 100644
+index 611a390bd..ddac9f1bf 100644
 --- a/packages/web/server/lib/gitea/provider.js
 +++ b/packages/web/server/lib/gitea/provider.js
-@@ -2,6 +2,7 @@ import { createPatAccountAuth } from '../source-control/pat-account-auth.js';
- import { createStandardMutations } from '../source-control/standard-mutations.js';
+@@ -3,6 +3,7 @@ import { createStandardMutations } from '../source-control/standard-mutations.js
  import { classifyGiteaFailure, createGiteaClient } from './client.js';
  import { giteaDescriptor } from './descriptor.js';
+ import { createGtCli } from './gt-cli.js';
 +import { readReferencesAcross, readReferencesAcrossRequest } from './references-across.js';
  import { createGiteaResourceService } from './resources.js';
  import { normalizeSshUrl, parseSshUrl } from '../source-control/ssh-url.js';
  import { isForgejoVersion, probeGiteaVersion, verifyGiteaToken } from './verify.js';
-@@ -232,6 +233,38 @@ export function createGiteaFamilyProvider({
-       readChangeRequestFile: ({ session, directory, number, sourceRepo, remote, path, previousPath, status, linked }) => serviceFor(session)
-         .changeRequestFileContents(directory, number, { project: projectSelector(sourceRepo), remote, path, previousPath, status, linked }),
+@@ -235,6 +236,38 @@ export function createGiteaFamilyProvider({
+       readChangeRequestFile: ({ session, directory, number, sourceRepo, remote, path, previousPath, status, binary, linked }) => serviceFor(session)
+         .changeRequestFileContents(directory, number, { project: projectSelector(sourceRepo), remote, path, previousPath, status, binary, linked }),
        liveSummaries: ({ session, refs, issueRefs }) => serviceFor(session).liveSummaries({ refs, issueRefs }),
 +      /**
 +       * The picker's search across a folder's repositories. One request spans
@@ -366,10 +366,10 @@ index ea5d5a2a1..9555253e7 100644
        readChangeRequestHead: async ({ session, directory, remote, number }) => {
          const { request, headProject } = await serviceFor(session).findChangeRequest(directory, number, null, remote);
 diff --git a/packages/web/server/lib/gitea/provider.test.js b/packages/web/server/lib/gitea/provider.test.js
-index d4c30d216..c26fa342b 100644
+index 2076afe8a..ac8f0c4ed 100644
 --- a/packages/web/server/lib/gitea/provider.test.js
 +++ b/packages/web/server/lib/gitea/provider.test.js
-@@ -264,19 +264,88 @@ describe('Gitea behind the route shell', () => {
+@@ -427,18 +427,87 @@ describe('Gitea behind the route shell', () => {
      expect(events.invalidated).toHaveBeenCalledWith({ provider: 'gitea', instance: ORIGIN, accountId });
    });
  
@@ -382,7 +382,6 @@ index d4c30d216..c26fa342b 100644
        ['get', '/api/source-control/gitea/uploads/0123456789abcdef0123456789abcdef/a.png'],
 -      ['get', '/api/source-control/gitea/references'],
        ['post', '/api/source-control/gitea/auth/start'],
-       ['post', '/api/source-control/gitea/auth/cli'],
      ]) {
        const response = await request(app)[method](url);
        expect(response.status, url).toBe(501);
@@ -1171,10 +1170,10 @@ index 000000000..6de80702a
 +  });
 +});
 diff --git a/packages/web/server/lib/gitea/resources.js b/packages/web/server/lib/gitea/resources.js
-index 986cc9502..55a341a80 100644
+index b5e56b044..b3151367a 100644
 --- a/packages/web/server/lib/gitea/resources.js
 +++ b/packages/web/server/lib/gitea/resources.js
-@@ -67,7 +67,11 @@ export function createGiteaResourceService({
+@@ -68,7 +68,11 @@ export function createGiteaResourceService({
        const item = await showRepo({ owner: candidate.owner, name: candidate.name }, candidate.remoteName);
        if (!repos.some((known) => known.project.id === item.project.id)) repos.push(item);
      }
@@ -1187,7 +1186,7 @@ index 986cc9502..55a341a80 100644
      return repos;
    };
  
-@@ -449,6 +453,64 @@ export function createGiteaResourceService({
+@@ -450,6 +454,64 @@ export function createGiteaResourceService({
        return { items, page, hasMore: result.hasMore };
      },
  
@@ -1253,10 +1252,10 @@ index 986cc9502..55a341a80 100644
        const { target } = await network(directory, selector, remote, { linked });
        return requireIssue(await client.get(`${repoPath(target.project)}/issues/${number}`), target.project);
 diff --git a/packages/web/server/lib/source-control/provider-descriptors.test.js b/packages/web/server/lib/source-control/provider-descriptors.test.js
-index 433e3f545..125c7e61d 100644
+index fbb10b3cc..5f81056f1 100644
 --- a/packages/web/server/lib/source-control/provider-descriptors.test.js
 +++ b/packages/web/server/lib/source-control/provider-descriptors.test.js
-@@ -75,7 +75,7 @@ describe('source control provider descriptors', () => {
+@@ -76,7 +76,7 @@ describe('source control provider descriptors', () => {
      expect(gitea.capabilities).toMatchObject({
        merge: { methods: ['merge', 'squash', 'rebase'] },
        reviewThreads: { start: false, reply: false, resolve: false },
@@ -1264,12 +1263,12 @@ index 433e3f545..125c7e61d 100644
 +      uploads: false, stacks: false, referencePicker: true,
      });
      const published = publicProviderDescriptor(gitea, 2);
-     expect(published).toMatchObject({ id: 'gitea', auth: { methods: ['pat'] }, instances: { defaultInstance: null } });
+     expect(published).toMatchObject({ id: 'gitea', auth: { methods: ['pat', 'cli'], cliName: 'gt', cliTransport: false }, instances: { defaultInstance: null } });
 diff --git a/packages/web/server/lib/source-control/provider-publication-freeze.json b/packages/web/server/lib/source-control/provider-publication-freeze.json
-index 6a9921cb3..cdc95d9b6 100644
+index 19c450905..ed637d541 100644
 --- a/packages/web/server/lib/source-control/provider-publication-freeze.json
 +++ b/packages/web/server/lib/source-control/provider-publication-freeze.json
-@@ -269,7 +269,7 @@
+@@ -271,7 +271,7 @@
          "referenceSearch": false,
          "referenceDetail": false,
          "listStatuses": false,

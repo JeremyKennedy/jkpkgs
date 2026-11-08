@@ -1,8 +1,8 @@
 diff --git a/packages/ui/src/lib/quota/providers/index.ts b/packages/ui/src/lib/quota/providers/index.ts
-index 1943eb7..a45729d 100644
+index 08ee5d062..48670b229 100644
 --- a/packages/ui/src/lib/quota/providers/index.ts
 +++ b/packages/ui/src/lib/quota/providers/index.ts
-@@ -8,6 +8,7 @@ interface QuotaProviderMeta {
+@@ -14,6 +14,7 @@ export interface QuotaProviderMeta {
  export const QUOTA_PROVIDERS: QuotaProviderMeta[] = [
    { id: 'claude', name: 'Claude' },
    { id: 'cline-pass', name: 'ClinePass' },
@@ -11,10 +11,10 @@ index 1943eb7..a45729d 100644
    { id: 'cursor', name: 'Cursor' },
    { id: 'github-copilot', name: 'GitHub Copilot' },
 diff --git a/packages/ui/src/types/quota.ts b/packages/ui/src/types/quota.ts
-index 781177a..6e566ae 100644
+index 0ef378cd1..49593b6e8 100644
 --- a/packages/ui/src/types/quota.ts
 +++ b/packages/ui/src/types/quota.ts
-@@ -4,6 +4,7 @@ export type QuotaProviderId =
+@@ -5,6 +5,7 @@ type BuiltInQuotaProviderId =
    | 'cursor'
    | 'claude'
    | 'cline-pass'
@@ -23,30 +23,29 @@ index 781177a..6e566ae 100644
    | 'github-copilot-addon'
    | 'google'
 diff --git a/packages/web/server/lib/quota/DOCUMENTATION.md b/packages/web/server/lib/quota/DOCUMENTATION.md
-index e21a45f..c8ed759 100644
+index 5a04dcb98..38d14a232 100644
 --- a/packages/web/server/lib/quota/DOCUMENTATION.md
 +++ b/packages/web/server/lib/quota/DOCUMENTATION.md
-@@ -35,7 +35,7 @@ asked, `/api/quota/providers` answers 500 instead of an empty list.
+@@ -40,6 +40,7 @@ the list loses its usage card with no error.
  | `claude` | Claude | `providers/claude/` | Claude Code Keychain entry, Claude Code credentials file, OpenCode `auth.json` (`anthropic`, `claude`), `CLAUDE_CODE_OAUTH_TOKEN` |
  | `cline-pass` | ClinePass | `providers/cline-pass.js` | `cline-pass` (API key under `key` or `token`) |
  | `codex` | Codex | `providers/codex.js` | `openai`, `codex`, `chatgpt` |
--| `command-code` | Command Code | `providers/command-code.js` | `command-code` OAuth/API credential in OpenCode `auth.json`, or `COMMAND_CODE_API_KEY` |
 +| `command-code` | Command Code | `providers/command-code.js` | `COMMANDCODE_COOKIE` session token, or a `command-code` entry in OpenCode `auth.json` holding one |
  | `cursor` | Cursor | `providers/cursor.js` | Environment/token files, OpenChamber-managed credentials, or explicit one-time Cursor import |
  | `deepinfra` | DeepInfra | `providers/deepinfra.js` | `deepinfra`, `deep-infra`, `deep_infra` (API key under `key` or `token`) |
  | `deepseek` | DeepSeek | `providers/deepseek.js` | `deepseek` (API key under `key` or `token`) |
-@@ -73,7 +73,7 @@ Provider modules must export `providerId`, `providerName`, `aliases`, `isConfigu
+@@ -83,6 +84,8 @@ Provider modules must export `providerId`, `providerName`, `aliases`, `isConfigu
  
  exe.dev, Cursor, and ZenMux credentials are explicitly managed through Settings. exe.dev usage uses a separately generated HTTPS API token restricted to `billing credits usage` and aggregates every `exe-*` model provider into one monthly credit window. Generate the token with `ssh exe.dev "ssh-key generate-api-key --label=openchamber --exp=30d --cmds='billing credits usage'"`. ZenMux usage uses an optional Platform API key pasted on the Usage page; the OpenCode chat key is never used, and a missing Platform API key means ZenMux quota is not fetched. The server validates managed credentials before atomic `0600` writes and never returns secrets through its API. OpenChamber never scans browser cookie stores or automatically reads Cursor storage; Cursor import is an explicit one-time user action and never modifies Cursor's database.
  
--Command Code usage resolves account scope through `GET /alpha/whoami`, then reads server-backed credit balances and five-hour/weekly limits from `GET /alpha/billing/credits?orgId=...`. Personal accounts return `org: null` and use `/alpha/billing/credits` without an `orgId`; organization accounts include their organization id. Web/Electron and VS Code read the standard `command-code` OpenCode auth entry (including OAuth `access`) or `COMMAND_CODE_API_KEY`; credentials remain in the owning runtime and are never returned to shared UI.
 +Command Code usage reads the billing routes the Command Code web app itself uses: `GET /internal/billing/credits` for the five-hour, weekly and monthly figures, and `GET /internal/billing/subscriptions` (best-effort) for the plan label and the monthly reset. Both are session-backed and undocumented, so the credential is the browser session token, not the inference key — `CMD_API_KEY` is accepted by `/provider/v1/models` but answers 401 on these routes. `COMMANDCODE_COOKIE` carries the token (a bare value is sent as `__Secure-commandcode_prod_.session_token`), and an OpenCode `command-code` auth entry holding one is accepted as a fallback. Monthly credits are reported as consumption against `monthlyCreditsGranted`, not as a balance. The session expires and must be refreshed; an expired token reports "Command Code session expired" rather than zero usage.
++
+ ## Extension usage providers
  
- ## OpenCode Go credential and quota semantics
- 
+ An installed extension with `provides: ["quota"]` and `contributes.quota` (the SDK role, `packages/sdk/GUEST_SERVICES.md`, *Usage provider*) is one more registry entry, `ext-<guestId>`, attached after the built-ins by `extension-quotas.js` and answered by `extension-quota.js`.
 diff --git a/packages/web/server/lib/quota/providers/command-code.js b/packages/web/server/lib/quota/providers/command-code.js
 new file mode 100644
-index 0000000..f6293bd
+index 000000000..f6293bddf
 --- /dev/null
 +++ b/packages/web/server/lib/quota/providers/command-code.js
 @@ -0,0 +1,187 @@
@@ -238,10 +237,10 @@ index 0000000..f6293bd
 +  }
 +};
 diff --git a/packages/web/server/lib/quota/providers/index.js b/packages/web/server/lib/quota/providers/index.js
-index 4603971..cc7b9b1 100644
+index f9070b2f8..dcbc2993e 100644
 --- a/packages/web/server/lib/quota/providers/index.js
 +++ b/packages/web/server/lib/quota/providers/index.js
-@@ -10,6 +10,7 @@ import { buildResult } from '../utils/index.js';
+@@ -12,6 +12,7 @@ import { buildResult } from '../utils/index.js';
  
  import * as claude from './claude/index.js';
  import * as clinePass from './cline-pass.js';
@@ -249,7 +248,7 @@ index 4603971..cc7b9b1 100644
  import * as codex from './codex.js';
  import * as copilot from './copilot.js';
  import * as cursor from './cursor.js';
-@@ -48,6 +49,12 @@ const registry = {
+@@ -51,6 +52,12 @@ const registry = {
      isConfigured: clinePass.isConfigured,
      fetchQuota: clinePass.fetchQuota
    },

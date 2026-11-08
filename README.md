@@ -54,11 +54,13 @@ host deployment remain a separate, manual workflow.
 
 `openchamber` and `openchamber-desktop` build from the `openchamber` flake
 input pinned to an upstream release tag, with the local patch queue under
-`packages/openchamber/patches/`. Upstream v2.6.1 absorbed the
-move-session-to-project patch (upstream #6207 now moves any session to
-another folder), so only that patch's idle-coverage half survives as
-`move-idle-coverage.patch`: a session living outside the directory being
-watched reads as `unknown` and would refuse the move.
+`packages/openchamber/patches/`. Upstream v2.7.0 absorbed the last two
+patch-queue behaviours that tracked its refactors: #6137 polls an open file
+by the path on screen (retiring `symlink-file-refresh.patch`), and #6275
+settles a session move's idle check through `readSessionsLiveActivity`
+(retiring `move-idle-coverage.patch`). What remains local is the Command
+Code quota provider (upstream removed it in 1.21.0) and the Gitea/Forgejo
+across-repository reference picker.
 
 `openchamber-desktop` takes its Electron major from upstream's
 `packages/electron/package.json` and fails evaluation by name when this
