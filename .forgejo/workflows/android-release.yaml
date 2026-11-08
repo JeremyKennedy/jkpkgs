@@ -1,0 +1,88 @@
+# Auto-build the patched OpenChamber Android app.
+#
+# The APK is built from jkpkgs' patched source (`openchamber.passthru.source.src`)
+# and its fixed-output dependency tree (`bunDeps`), never from an upstream
+# release. A patch that no longer applies fails `nix build` before anything is
+# published. The release is signed with the agenix-held key, so future builds
+# update the installed app in place.
+name: Android release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - packages/openchamber/**
+      - flake.lock
+      - flake.nix
+      - .forgejo/workflows/android-release.yaml
+      - scripts/build-android.sh
+      - scripts/prepare-android-tree.sh
+      - scripts/publish-android-release.sh
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish a Forgejo release
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+concurrency:
+  group: openchamber-android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    runs-on: bee
+    container:
+      image: runner:latest
+      volumes:
+        - /run/agenix/openchamber_android_signing:/run/secrets/openchamber_android_signing:ro
+    steps:
+      # Plain git against our own Forgejo; never actions/checkout, which fetches
+      # from github.com on every run. Full history is required: versionCode is
+      # the jkpkgs commit count, so an update always exceeds the previous build.
+      - name: Checkout
+        run: |
+          set -eu
+          cd "${GITHUB_WORKSPACE:-/workspace}"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          git init -q .
+          git remote add origin "https://git.jeremyk.net/${GITHUB_REPOSITORY}.git"
+          git config --local http.https://git.jeremyk.net/.extraheader \
+            "AUTHORIZATION: basic $(printf 'x:%s' "$GITHUB_TOKEN" | base64 -w0)"
+          git fetch -q --no-tags --prune --no-recurse-submodules origin "${GITHUB_REF}" \
+            || git fetch -q --no-tags --prune --no-recurse-submodules origin "${GITHUB_REF_NAME:-main}"
+          git checkout -q --force FETCH_HEAD
+          git log --oneline -1
+          test -f flake.nix
+
+      - name: Prepare patched tree
+        run: |
+          set -eu
+          build_dir="${RUNNER_TEMP}/openchamber-android"
+          rm -rf "$build_dir"
+          bash scripts/prepare-android-tree.sh "$build_dir"
+          echo "BUILD_DIR=$build_dir" >> "$GITHUB_ENV"
+
+      - name: Build signed APK
+        run: |
+          set -eu
+          cd "$BUILD_DIR"
+          export JKPKGS_SHA="$(git -C "$GITHUB_WORKSPACE" rev-parse --short HEAD)"
+          export OPENCHAMBER_ANDROID_VERSION_CODE="$(git -C "$GITHUB_WORKSPACE" rev-list --count HEAD)"
+          version="$(node -p "require('./package.json').version")"
+          export OPENCHAMBER_ANDROID_VERSION_NAME="${version}-jk${JKPKGS_SHA}.${GITHUB_RUN_NUMBER}"
+          export OPENCHAMBER_ANDROID_SIGNING_FILE=/run/secrets/openchamber_android_signing
+          nix develop "$GITHUB_WORKSPACE#android" \
+            -c bash "$GITHUB_WORKSPACE/scripts/build-android.sh" release
+
+      - name: Publish release
+        if: github.event_name == 'push' || inputs.publish == 'true'
+        run: |
+          set -eu
+          cd "$GITHUB_WORKSPACE"
+          nix develop "$GITHUB_WORKSPACE#android" \
+            -c bash "$GITHUB_WORKSPACE/scripts/publish-android-release.sh"

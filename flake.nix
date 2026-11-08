@@ -93,6 +93,46 @@
         }
       );
 
+      devShells = nixpkgs.lib.genAttrs systems (
+        system:
+        let
+          # Android is the only consumer that needs unfree packages and the
+          # SDK licence accepted. Keep that config out of the package set so
+          # evaluating another system's packages never trips over it.
+          androidPkgs = import nixpkgs {
+            inherit system;
+            config = {
+              allowUnfree = true;
+              android_sdk.accept_license = true;
+            };
+          };
+          androidSdk = androidPkgs.androidenv.composeAndroidPackages {
+            platformVersions = [ "35" ];
+            buildToolsVersions = [ "35.0.0" ];
+            includeEmulator = false;
+            includeSystemImages = false;
+            includeNDK = false;
+          };
+        in
+        {
+          android = androidPkgs.mkShell {
+            packages = [
+              self.packages.${system}.openchamber.passthru.source.bun
+              androidPkgs.nodejs_24
+              androidPkgs.jdk21
+              androidSdk.androidsdk
+              androidPkgs.git
+              androidPkgs.curl
+              androidPkgs.bashInteractive
+              androidPkgs.coreutils
+            ];
+            JAVA_HOME = "${androidPkgs.jdk21.home}";
+            ANDROID_HOME = "${androidSdk.androidsdk}/libexec/android-sdk";
+            ANDROID_SDK_ROOT = "${androidSdk.androidsdk}/libexec/android-sdk";
+          };
+        }
+      );
+
       checks = forAllSystems (
         pkgs:
         let
