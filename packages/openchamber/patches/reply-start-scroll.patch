@@ -1,5 +1,5 @@
 diff --git a/packages/ui/src/components/chat/ChatContainer.tsx b/packages/ui/src/components/chat/ChatContainer.tsx
-index 3701cf6e6..4e2425d8a 100644
+index 3701cf6e6..30a9be6d0 100644
 --- a/packages/ui/src/components/chat/ChatContainer.tsx
 +++ b/packages/ui/src/components/chat/ChatContainer.tsx
 @@ -74,6 +74,7 @@ import { useChatTurnNavigation } from './hooks/useChatTurnNavigation';
@@ -10,39 +10,51 @@ index 3701cf6e6..4e2425d8a 100644
  import { loadQuoteSource as loadQuoteSourceMessage, scrollToQuoteSource as scrollToQuoteSourceMessage } from './quoteNavigation';
  import { useChatSurfaceMode } from './useChatSurfaceMode';
  import { useMessageTTS } from '@/hooks/useMessageTTS';
-@@ -1552,6 +1553,49 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
+@@ -1552,6 +1553,61 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
          });
      }, [checkLinkedMessage, controllerLoadHistoryUntilMessage, currentSessionKey, handleLinkedMessageMissing, onManualNavigation]);
      const scrollToTimelineMessage = timelineController.scrollToMessage;
-+    // The newest reply in the rendered window: where the pill's up arrow takes
-+    // a reader who scrolled into the middle of a long answer.
-+    const latestReplyMessageId = React.useMemo(() => {
++    // Replies in the rendered window: the pill's up arrow walks back to the
++    // nearest one whose start sits above the viewport.
++    const replyMessageIds = React.useMemo(() => {
 +        const records = timelineController.renderedMessages;
-+        for (let index = records.length - 1; index >= 0; index -= 1) {
-+            const record = records[index];
++        const ids: string[] = [];
++        for (const record of records) {
 +            if (record && deriveMessageRole(record.info).role === 'assistant') {
-+                return record.info.id;
++                ids.push(record.info.id);
 +            }
 +        }
-+        return null;
++        return ids;
 +    }, [timelineController.renderedMessages]);
-+    // The newest reply's start sits above the transcript's top edge, so part of
-+    // it is out of sight above. Measured here because the pill's down arrow is
-+    // hidden at the live edge, where the way back to that start matters most.
-+    const [replyStartAboveViewport, setReplyStartAboveViewport] = React.useState(false);
++    // The nearest reply start above the transcript's top edge. Measured on
++    // scroll so the arrow always moves up: the reply it lands on is the one
++    // the reader has already scrolled past.
++    const [replyJumpTargetId, setReplyJumpTargetId] = React.useState<string | null>(null);
 +    React.useEffect(() => {
-+        if (!scrollNode || !latestReplyMessageId) {
-+            setReplyStartAboveViewport(false);
++        if (!scrollNode || replyMessageIds.length === 0) {
++            setReplyJumpTargetId(null);
 +            return;
 +        }
 +        let frame = 0;
 +        const measure = () => {
 +            frame = 0;
-+            const element = scrollNode.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(latestReplyMessageId)}"]`);
-+            const above = element
-+                ? element.getBoundingClientRect().top < scrollNode.getBoundingClientRect().top
-+                : false;
-+            setReplyStartAboveViewport((current) => (current === above ? current : above));
++            const containerTop = scrollNode.getBoundingClientRect().top;
++            let target: string | null = null;
++            let closest = Number.NEGATIVE_INFINITY;
++            for (const id of replyMessageIds) {
++                const element = scrollNode.querySelector<HTMLElement>(
++                    `[data-message-id="${CSS.escape(id)}"]:not([data-message-slice])`,
++                );
++                if (!element) {
++                    continue;
++                }
++                const top = element.getBoundingClientRect().top - containerTop;
++                if (top < 0 && top > closest) {
++                    closest = top;
++                    target = id;
++                }
++            }
++            setReplyJumpTargetId((current) => (current === target ? current : target));
 +        };
 +        const schedule = () => {
 +            if (frame) {
@@ -56,39 +68,39 @@ index 3701cf6e6..4e2425d8a 100644
 +            window.cancelAnimationFrame(frame);
 +            scrollNode.removeEventListener('scroll', schedule);
 +        };
-+    }, [scrollNode, latestReplyMessageId]);
++    }, [scrollNode, replyMessageIds]);
      const scrollToQuoteSource = React.useCallback(async (
          messageId: string,
          options?: { behavior?: ScrollBehavior },
-@@ -1570,6 +1614,14 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
+@@ -1570,6 +1626,14 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
      const scrollToUiPageRow = React.useCallback((messageId: string) => (
          messageListRef.current?.scrollToUiPageRow(messageId) ?? false
      ), []);
-+    const scrollToLatestReplyStart = React.useCallback(() => {
-+        if (!latestReplyMessageId) {
++    const scrollToPreviousReplyStart = React.useCallback(() => {
++        if (!replyJumpTargetId) {
 +            return;
 +        }
 +        // Instant, like the prompt navigator: a long smooth scroll through a
 +        // virtualized timeline is cancelled by row remounts and lands mid-way.
-+        void scrollToQuoteSource(latestReplyMessageId, { behavior: 'auto' });
-+    }, [latestReplyMessageId, scrollToQuoteSource]);
++        void scrollToQuoteSource(replyJumpTargetId, { behavior: 'auto' });
++    }, [replyJumpTargetId, scrollToQuoteSource]);
  
      const navigation = useChatTurnNavigation({
          sessionId: currentSessionId,
-@@ -2043,8 +2095,10 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
+@@ -2043,8 +2107,10 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                         when the slot resizes (see mobileComposerMorph). */
                      <div className="oc-composer-riders absolute bottom-full inset-x-0" data-composer-riders="true">
                          <ScrollToBottomButton
 -                            visible={timelineController.showScrollToBottom}
-+                            visible={timelineController.showScrollToBottom || replyStartAboveViewport}
++                            visible={timelineController.showScrollToBottom || replyJumpTargetId !== null}
 +                            awayFromLiveEdge={timelineController.showScrollToBottom}
                              working={sessionIsWorking}
-+                            onScrollToReplyStart={latestReplyMessageId && replyStartAboveViewport ? scrollToLatestReplyStart : undefined}
++                            onScrollToReplyStart={replyJumpTargetId ? scrollToPreviousReplyStart : undefined}
                              onClick={navigation.resumeToLatest}
                          />
                          {/* Same anchor and column as the pill, so the status
 diff --git a/packages/ui/src/components/chat/components/ScrollToBottomButton.tsx b/packages/ui/src/components/chat/components/ScrollToBottomButton.tsx
-index 18dac21da..220ed6a1e 100644
+index 18dac21da..8af9276fb 100644
 --- a/packages/ui/src/components/chat/components/ScrollToBottomButton.tsx
 +++ b/packages/ui/src/components/chat/components/ScrollToBottomButton.tsx
 @@ -41,6 +41,25 @@ const ScrollAction: React.FC<{ onClick: () => void; children?: React.ReactNode }
@@ -96,9 +108,9 @@ index 18dac21da..220ed6a1e 100644
  };
  
 +/**
-+ * The pill's other end: back to the start of the newest reply, for a reader
-+ * who scrolled into the middle of a long answer. Sits beside the down arrow
-+ * in the same surface so both jumps stay one floating control.
++ * The pill's other end: back to the start of the previous reply, for a reader
++ * who scrolled past it. Sits beside the down arrow in the same surface so both
++ * jumps stay one floating control.
 + */
 +const ScrollToReplyStartAction: React.FC<{ onClick: () => void }> = ({ onClick }) => {
 +    const { t } = useI18n();
@@ -130,8 +142,8 @@ index 18dac21da..220ed6a1e 100644
      /** The session is still streaming: the pill carries the status label
          while the floating status row is hidden away from the live edge. */
      working?: boolean;
-+    /** Absent when there is no reply to jump back to, or the reply's start is
-+        not above the viewport: pressing it would move the reader down. */
++    /** Absent when no reply start sits above the viewport: the arrow always
++        moves up, landing on the reply the reader has already scrolled past. */
 +    onScrollToReplyStart?: () => void;
      onClick: () => void;
  }
