@@ -1,0 +1,340 @@
+diff --git a/packages/ui/src/components/chat/ChatContainer.tsx b/packages/ui/src/components/chat/ChatContainer.tsx
+index 3701cf6e6..18e3e69bf 100644
+--- a/packages/ui/src/components/chat/ChatContainer.tsx
++++ b/packages/ui/src/components/chat/ChatContainer.tsx
+@@ -74,6 +74,7 @@ import { useChatTurnNavigation } from './hooks/useChatTurnNavigation';
+ import { ChatQuoteHighlightContext, useChatQuoteHighlightStore } from './hooks/chatQuoteHighlightStore';
+ import { ChatQuoteHighlightLayer } from './message/ChatQuoteHighlightLayer';
+ import { TextSelectionMenu } from './message/TextSelectionMenu';
++import { deriveMessageRole } from './message/messageRole';
+ import { loadQuoteSource as loadQuoteSourceMessage, scrollToQuoteSource as scrollToQuoteSourceMessage } from './quoteNavigation';
+ import { useChatSurfaceMode } from './useChatSurfaceMode';
+ import { useMessageTTS } from '@/hooks/useMessageTTS';
+@@ -1552,6 +1553,49 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
+         });
+     }, [checkLinkedMessage, controllerLoadHistoryUntilMessage, currentSessionKey, handleLinkedMessageMissing, onManualNavigation]);
+     const scrollToTimelineMessage = timelineController.scrollToMessage;
++    // The newest reply in the rendered window: where the pill's up arrow takes
++    // a reader who scrolled into the middle of a long answer.
++    const latestReplyMessageId = React.useMemo(() => {
++        const records = timelineController.renderedMessages;
++        for (let index = records.length - 1; index >= 0; index -= 1) {
++            const record = records[index];
++            if (record && deriveMessageRole(record.info).role === 'assistant') {
++                return record.info.id;
++            }
++        }
++        return null;
++    }, [timelineController.renderedMessages]);
++    // The newest reply's start sits above the transcript's top edge, so part of
++    // it is out of sight above. Measured here because the pill's down arrow is
++    // hidden at the live edge, where the way back to that start matters most.
++    const [replyStartAboveViewport, setReplyStartAboveViewport] = React.useState(false);
++    React.useEffect(() => {
++        if (!scrollNode || !latestReplyMessageId) {
++            setReplyStartAboveViewport(false);
++            return;
++        }
++        let frame = 0;
++        const measure = () => {
++            frame = 0;
++            const element = scrollNode.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(latestReplyMessageId)}"]`);
++            const above = element
++                ? element.getBoundingClientRect().top < scrollNode.getBoundingClientRect().top
++                : false;
++            setReplyStartAboveViewport((current) => (current === above ? current : above));
++        };
++        const schedule = () => {
++            if (frame) {
++                return;
++            }
++            frame = window.requestAnimationFrame(measure);
++        };
++        measure();
++        scrollNode.addEventListener('scroll', schedule, { passive: true });
++        return () => {
++            window.cancelAnimationFrame(frame);
++            scrollNode.removeEventListener('scroll', schedule);
++        };
++    }, [scrollNode, latestReplyMessageId]);
+     const scrollToQuoteSource = React.useCallback(async (
+         messageId: string,
+         options?: { behavior?: ScrollBehavior },
+@@ -1570,6 +1614,14 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
+     const scrollToUiPageRow = React.useCallback((messageId: string) => (
+         messageListRef.current?.scrollToUiPageRow(messageId) ?? false
+     ), []);
++    const scrollToLatestReplyStart = React.useCallback(() => {
++        if (!latestReplyMessageId) {
++            return;
++        }
++        // Instant, like the prompt navigator: a long smooth scroll through a
++        // virtualized timeline is cancelled by row remounts and lands mid-way.
++        void scrollToQuoteSource(latestReplyMessageId, { behavior: 'auto' });
++    }, [latestReplyMessageId, scrollToQuoteSource]);
+ 
+     const navigation = useChatTurnNavigation({
+         sessionId: currentSessionId,
+@@ -2043,8 +2095,10 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
+                        when the slot resizes (see mobileComposerMorph). */
+                     <div className="oc-composer-riders absolute bottom-full inset-x-0" data-composer-riders="true">
+                         <ScrollToBottomButton
+-                            visible={timelineController.showScrollToBottom}
++                            visible={timelineController.showScrollToBottom || replyStartAboveViewport}
++                            awayFromLiveEdge={timelineController.showScrollToBottom}
+                             working={sessionIsWorking}
++                            onScrollToReplyStart={latestReplyMessageId ? scrollToLatestReplyStart : undefined}
+                             onClick={navigation.resumeToLatest}
+                         />
+                         {/* Same anchor and column as the pill, so the status
+diff --git a/packages/ui/src/components/chat/components/ScrollToBottomButton.tsx b/packages/ui/src/components/chat/components/ScrollToBottomButton.tsx
+index 18dac21da..6b29ec6ae 100644
+--- a/packages/ui/src/components/chat/components/ScrollToBottomButton.tsx
++++ b/packages/ui/src/components/chat/components/ScrollToBottomButton.tsx
+@@ -41,6 +41,25 @@ const ScrollAction: React.FC<{ onClick: () => void; children?: React.ReactNode }
+     );
+ };
+ 
++/**
++ * The pill's other end: back to the start of the newest reply, for a reader
++ * who scrolled into the middle of a long answer. Sits beside the down arrow
++ * in the same surface so both jumps stay one floating control.
++ */
++const ScrollToReplyStartAction: React.FC<{ onClick: () => void }> = ({ onClick }) => {
++    const { t } = useI18n();
++    return (
++        <button
++            type="button"
++            onClick={onClick}
++            aria-label={t('chat.scrollToReplyStart.aria')}
++            className="inline-flex h-[calc(1.75rem-2px)] w-7 shrink-0 items-center justify-center rounded-full [corner-shape:round] text-muted-foreground"
++        >
++            <Icon name="arrow-up" className="h-4 w-4" />
++        </button>
++    );
++};
++
+ /**
+  * Compact one-line mirror of the status row for the pill: same label and
+  * background action, none of the status row's animation machinery (which does
+@@ -76,14 +95,27 @@ const WorkingPillBody: React.FC<{ onClick: () => void }> = ({ onClick }) => {
+ };
+ 
+ interface ScrollToBottomButtonProps {
++    /** The pill is on screen: the reader left the live edge, or the newest
++        reply's start sits out of sight above the viewport. */
+     visible: boolean;
++    /** The reader left the live edge, so the down arrow and its status label
++        apply. At the live edge the floating status row still carries them. */
++    awayFromLiveEdge: boolean;
+     /** The session is still streaming: the pill carries the status label
+         while the floating status row is hidden away from the live edge. */
+     working?: boolean;
++    /** Absent while the session has no reply to jump back to. */
++    onScrollToReplyStart?: () => void;
+     onClick: () => void;
+ }
+ 
+-const ScrollToBottomButton: React.FC<ScrollToBottomButtonProps> = ({ visible, working = false, onClick }) => {
++const ScrollToBottomButton: React.FC<ScrollToBottomButtonProps> = ({
++    visible,
++    awayFromLiveEdge,
++    working = false,
++    onScrollToReplyStart,
++    onClick,
++}) => {
+     return (
+         <div
+             ref={registerFloatingPanelClearanceReader}
+@@ -110,7 +142,10 @@ const ScrollToBottomButton: React.FC<ScrollToBottomButtonProps> = ({ visible, wo
+                         visible ? 'pointer-events-auto' : 'pointer-events-none',
+                     )}
+                 >
+-                    {working && visible ? <WorkingPillBody onClick={onClick} /> : <ScrollAction onClick={onClick} />}
++                    {onScrollToReplyStart ? <ScrollToReplyStartAction onClick={onScrollToReplyStart} /> : null}
++                    {awayFromLiveEdge
++                        ? (working ? <WorkingPillBody onClick={onClick} /> : <ScrollAction onClick={onClick} />)
++                        : null}
+                 </div>
+                 </div>
+             </div>
+diff --git a/packages/ui/src/lib/i18n/messages/ar.ts b/packages/ui/src/lib/i18n/messages/ar.ts
+index a267cccaa..4f1f4969d 100644
+--- a/packages/ui/src/lib/i18n/messages/ar.ts
++++ b/packages/ui/src/lib/i18n/messages/ar.ts
+@@ -2370,6 +2370,7 @@ export const dict = {
+   'chat.draftStarters.share': 'نقل إلى إعدادات المستودع',
+   'chat.draftStarters.makePersonal': 'نقل إلى إعداداتي',
+   'chat.scrollToBottom.aria': 'التمرير إلى الأسفل',
++  'chat.scrollToReplyStart.aria': 'التمرير إلى بداية الرد',
+   'chat.promptNavigator.aria': 'التنقل بين الطلبات',
+   'chat.promptNavigator.currentPrompt': 'الطلب الحالي',
+   'chat.promptNavigator.loadMore': 'تحميل المزيد من الطلبات',
+diff --git a/packages/ui/src/lib/i18n/messages/de.ts b/packages/ui/src/lib/i18n/messages/de.ts
+index a13bdf3d4..b396763a4 100644
+--- a/packages/ui/src/lib/i18n/messages/de.ts
++++ b/packages/ui/src/lib/i18n/messages/de.ts
+@@ -2188,6 +2188,7 @@ export const dict = {
+   'chat.draftStarters.share': 'In die Repository-Konfiguration verschieben',
+   'chat.draftStarters.makePersonal': 'In meine Einstellungen verschieben',
+   'chat.scrollToBottom.aria': 'Zum Ende scrollen',
++  'chat.scrollToReplyStart.aria': 'Zum Anfang der Antwort scrollen',
+   'chat.promptNavigator.aria': 'Prompt-Navigation',
+   'chat.promptNavigator.currentPrompt': 'Aktueller Prompt',
+   'chat.promptNavigator.loadMore': 'Weitere Prompts laden',
+diff --git a/packages/ui/src/lib/i18n/messages/en.ts b/packages/ui/src/lib/i18n/messages/en.ts
+index bd80aa836..b07aca147 100644
+--- a/packages/ui/src/lib/i18n/messages/en.ts
++++ b/packages/ui/src/lib/i18n/messages/en.ts
+@@ -2457,6 +2457,7 @@ export const dict = {
+   'chat.draftStarters.share': 'Move to repository config',
+   'chat.draftStarters.makePersonal': 'Move to my settings',
+   'chat.scrollToBottom.aria': 'Scroll to bottom',
++  'chat.scrollToReplyStart.aria': 'Scroll to start of reply',
+   'chat.promptNavigator.aria': 'Prompt navigation',
+   'chat.promptNavigator.currentPrompt': 'Current prompt',
+   'chat.promptNavigator.loadMore': 'Load more prompts',
+diff --git a/packages/ui/src/lib/i18n/messages/es.ts b/packages/ui/src/lib/i18n/messages/es.ts
+index 572af872b..7ac0659b9 100644
+--- a/packages/ui/src/lib/i18n/messages/es.ts
++++ b/packages/ui/src/lib/i18n/messages/es.ts
+@@ -2425,6 +2425,7 @@ export const dict: Record<I18nKey, string> = {
+   "chat.draftStarters.share": "Mover a la configuración del repositorio",
+   "chat.draftStarters.makePersonal": "Mover a mis ajustes",
+   "chat.scrollToBottom.aria": "Ir al final",
++  "chat.scrollToReplyStart.aria": "Ir al inicio de la respuesta",
+   "chat.promptNavigator.aria": "Navegación de prompts",
+   "chat.promptNavigator.currentPrompt": "Prompt actual",
+   "chat.promptNavigator.loadMore": "Cargar más prompts",
+diff --git a/packages/ui/src/lib/i18n/messages/fr.ts b/packages/ui/src/lib/i18n/messages/fr.ts
+index a8528675d..5366d75c3 100644
+--- a/packages/ui/src/lib/i18n/messages/fr.ts
++++ b/packages/ui/src/lib/i18n/messages/fr.ts
+@@ -2185,6 +2185,7 @@ export const dict = {
+   'chat.emptyState.draftTitle': 'Sur quoi travaillons-nous ?',
+   'chat.emptyState.draftTitleWithProject': 'Sur quoi travaillons-nous dans {project} ?',
+   'chat.scrollToBottom.aria': 'Faire défiler vers le bas',
++  'chat.scrollToReplyStart.aria': 'Faire défiler au début de la réponse',
+   'chat.promptNavigator.aria': 'Navigation des prompts',
+   'chat.promptNavigator.currentPrompt': 'Prompt actuel',
+   'chat.promptNavigator.loadMore': 'Charger plus de prompts',
+diff --git a/packages/ui/src/lib/i18n/messages/he.ts b/packages/ui/src/lib/i18n/messages/he.ts
+index 6e18140db..a016a2a4e 100644
+--- a/packages/ui/src/lib/i18n/messages/he.ts
++++ b/packages/ui/src/lib/i18n/messages/he.ts
+@@ -2370,6 +2370,7 @@ export const dict = {
+   'chat.draftStarters.share': 'העבר לתצורת המאגר',
+   'chat.draftStarters.makePersonal': 'העבר להגדרות שלי',
+   'chat.scrollToBottom.aria': 'גלול לתחתית',
++  'chat.scrollToReplyStart.aria': 'גלול לתחילת התשובה',
+   'chat.promptNavigator.aria': 'ניווט בין הנחיות',
+   'chat.promptNavigator.currentPrompt': 'ההנחיה הנוכחית',
+   'chat.promptNavigator.loadMore': 'טען הנחיות נוספות',
+diff --git a/packages/ui/src/lib/i18n/messages/ja.ts b/packages/ui/src/lib/i18n/messages/ja.ts
+index 8f551becd..ec63c69b9 100644
+--- a/packages/ui/src/lib/i18n/messages/ja.ts
++++ b/packages/ui/src/lib/i18n/messages/ja.ts
+@@ -2453,6 +2453,7 @@ export const dict: Record<I18nKey, string> = {
+   'chat.draftStarters.share': 'リポジトリ設定へ移動',
+   'chat.draftStarters.makePersonal': '自分の設定へ移動',
+   'chat.scrollToBottom.aria': '一番下にスクロール',
++  'chat.scrollToReplyStart.aria': '返信の先頭にスクロール',
+   'chat.promptNavigator.aria': 'プロンプトナビゲーション',
+   'chat.promptNavigator.currentPrompt': '現在のプロンプト',
+   'chat.promptNavigator.loadMore': 'さらにプロンプトを読み込む',
+diff --git a/packages/ui/src/lib/i18n/messages/ko.ts b/packages/ui/src/lib/i18n/messages/ko.ts
+index 74465027a..d45d38772 100644
+--- a/packages/ui/src/lib/i18n/messages/ko.ts
++++ b/packages/ui/src/lib/i18n/messages/ko.ts
+@@ -2457,6 +2457,7 @@ export const dict: Record<I18nKey, string> = {
+   'chat.draftStarters.share': '저장소 설정으로 이동',
+   'chat.draftStarters.makePersonal': '내 설정으로 이동',
+   'chat.scrollToBottom.aria': '맨 아래로 스크롤',
++  'chat.scrollToReplyStart.aria': '답변 시작 부분으로 스크롤',
+   'chat.promptNavigator.aria': '프롬프트 탐색',
+   'chat.promptNavigator.currentPrompt': '현재 프롬프트',
+   'chat.promptNavigator.loadMore': '더 많은 프롬프트 불러오기',
+diff --git a/packages/ui/src/lib/i18n/messages/nl.ts b/packages/ui/src/lib/i18n/messages/nl.ts
+index 1f0d29ed4..1a8b42943 100644
+--- a/packages/ui/src/lib/i18n/messages/nl.ts
++++ b/packages/ui/src/lib/i18n/messages/nl.ts
+@@ -2457,6 +2457,7 @@ export const dict = {
+   'chat.draftStarters.share': 'Naar repositoryconfig verplaatsen',
+   'chat.draftStarters.makePersonal': 'Naar mijn instellingen verplaatsen',
+   'chat.scrollToBottom.aria': 'Naar beneden scrollen',
++  'chat.scrollToReplyStart.aria': 'Naar het begin van het antwoord scrollen',
+   'chat.promptNavigator.aria': 'Promptnavigatie',
+   'chat.promptNavigator.currentPrompt': 'Huidige prompt',
+   'chat.promptNavigator.loadMore': 'Meer prompts laden',
+diff --git a/packages/ui/src/lib/i18n/messages/pl.ts b/packages/ui/src/lib/i18n/messages/pl.ts
+index 43795866c..7fd0de2d8 100644
+--- a/packages/ui/src/lib/i18n/messages/pl.ts
++++ b/packages/ui/src/lib/i18n/messages/pl.ts
+@@ -1021,6 +1021,7 @@ export const dict: Record<I18nKey, string> = {
+   'chat.draftStarters.share': 'Przenieś do konfiguracji repozytorium',
+   'chat.draftStarters.makePersonal': 'Przenieś do moich ustawień',
+   'chat.scrollToBottom.aria': 'Przewiń na dół',
++  'chat.scrollToReplyStart.aria': 'Przewiń do początku odpowiedzi',
+   'chat.promptNavigator.aria': 'Nawigacja promptów',
+   'chat.promptNavigator.currentPrompt': 'Bieżący prompt',
+   'chat.promptNavigator.loadMore': 'Wczytaj więcej promptów',
+diff --git a/packages/ui/src/lib/i18n/messages/pt-BR.ts b/packages/ui/src/lib/i18n/messages/pt-BR.ts
+index 8e0829947..68a8e1624 100644
+--- a/packages/ui/src/lib/i18n/messages/pt-BR.ts
++++ b/packages/ui/src/lib/i18n/messages/pt-BR.ts
+@@ -2425,6 +2425,7 @@ export const dict: Record<I18nKey, string> = {
+   "chat.draftStarters.share": "Mover para a configuração do repositório",
+   "chat.draftStarters.makePersonal": "Mover para minhas configurações",
+   "chat.scrollToBottom.aria": "Ir ao final",
++  "chat.scrollToReplyStart.aria": "Ir ao início da resposta",
+   "chat.promptNavigator.aria": "Navegação de prompts",
+   "chat.promptNavigator.currentPrompt": "Prompt atual",
+   "chat.promptNavigator.loadMore": "Carregar mais prompts",
+diff --git a/packages/ui/src/lib/i18n/messages/tr.ts b/packages/ui/src/lib/i18n/messages/tr.ts
+index e6432deee..31676c83c 100644
+--- a/packages/ui/src/lib/i18n/messages/tr.ts
++++ b/packages/ui/src/lib/i18n/messages/tr.ts
+@@ -2316,6 +2316,7 @@ export const dict = {
+   'chat.draftStarters.share': 'Depo yapılandırmasına taşı',
+   'chat.draftStarters.makePersonal': 'Ayarlarıma taşı',
+   'chat.scrollToBottom.aria': 'En alta kaydır',
++  'chat.scrollToReplyStart.aria': 'Yanıtın başına kaydır',
+   'chat.promptNavigator.aria': 'Prompt gezinmesi',
+   'chat.promptNavigator.currentPrompt': 'Mevcut prompt',
+   'chat.promptNavigator.loadMore': 'Daha fazla prompt yükle',
+diff --git a/packages/ui/src/lib/i18n/messages/uk.ts b/packages/ui/src/lib/i18n/messages/uk.ts
+index 8aa448891..ca6da0ba1 100644
+--- a/packages/ui/src/lib/i18n/messages/uk.ts
++++ b/packages/ui/src/lib/i18n/messages/uk.ts
+@@ -2425,6 +2425,7 @@ export const dict: Record<I18nKey, string> = {
+   "chat.draftStarters.share": "Перенести в конфіг репозиторію",
+   "chat.draftStarters.makePersonal": "Перенести в мої налаштування",
+   "chat.scrollToBottom.aria": "Прокрутити вниз",
++  "chat.scrollToReplyStart.aria": "Прокрутити до початку відповіді",
+   "chat.promptNavigator.aria": "Навігація за промптами",
+   "chat.promptNavigator.currentPrompt": "Поточний промпт",
+   "chat.promptNavigator.loadMore": "Завантажити більше промптів",
+diff --git a/packages/ui/src/lib/i18n/messages/zh-CN.ts b/packages/ui/src/lib/i18n/messages/zh-CN.ts
+index aa97512b9..12f8057fe 100644
+--- a/packages/ui/src/lib/i18n/messages/zh-CN.ts
++++ b/packages/ui/src/lib/i18n/messages/zh-CN.ts
+@@ -2423,6 +2423,7 @@ export const dict: Record<I18nKey, string> = {
+   'chat.draftStarters.share': '移至仓库配置',
+   'chat.draftStarters.makePersonal': '移至我的设置',
+   'chat.scrollToBottom.aria': '滚动到底部',
++  'chat.scrollToReplyStart.aria': '滚动到回复开头',
+   'chat.promptNavigator.aria': '提示词导航',
+   'chat.promptNavigator.currentPrompt': '当前提示',
+   'chat.promptNavigator.loadMore': '加载更多提示',
+diff --git a/packages/ui/src/lib/i18n/messages/zh-TW.ts b/packages/ui/src/lib/i18n/messages/zh-TW.ts
+index 1c4ea4802..053b99d65 100644
+--- a/packages/ui/src/lib/i18n/messages/zh-TW.ts
++++ b/packages/ui/src/lib/i18n/messages/zh-TW.ts
+@@ -2434,6 +2434,7 @@ export const dict: Record<I18nKey, string> = {
+   'chat.draftStarters.share': '移至儲存庫設定',
+   'chat.draftStarters.makePersonal': '移至我的設定',
+   'chat.scrollToBottom.aria': '捲動到底部',
++  'chat.scrollToReplyStart.aria': '捲動到回覆開頭',
+   'chat.promptNavigator.aria': '提示詞導覽',
+   'chat.promptNavigator.currentPrompt': '目前提示',
+   'chat.promptNavigator.loadMore': '載入更多提示',
