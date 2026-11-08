@@ -1,0 +1,986 @@
+diff --git a/packages/ui/src/apps/DOCUMENTATION.md b/packages/ui/src/apps/DOCUMENTATION.md
+index 6e1374275..6928c42ab 100644
+--- a/packages/ui/src/apps/DOCUMENTATION.md
++++ b/packages/ui/src/apps/DOCUMENTATION.md
+@@ -26,6 +26,7 @@
+ - Every route entry written while a layer is open goes through `pushRouteEntry` or `updateBrowserURL`, so it lands under the back guard. A direct `pushState` would bury the guard between two routes. A replacement keeps the guard and changes its URL; the route under it normalizes to the same place when Back reaches it.
+ - Inside the mobile shell the Settings stages write no history. A `SettingsView` given `registerBackHandler` steps through its stages in state only.
+ - Settings uses the existing persistence and broadcast protocol. Moving its host changes no stored format, registry key or runtime availability.
++- The mobile shell loads the extension catalog itself (`useGuestCatalogSync`) because it has no rail: the phone's Status tab renders extension status sections and the workspace drawer offers one tab per installed extension panel (`guest:<id>`). Extension message/session menu entries, slash commands, attach items and guest pages remain desktop-only.
+ - Notification commands and initial session tabs in VS Code use the shared session opener, so a `/btw` fork opens its parent and expands the panel mounted in the shared composer. Notification commands also reveal the chat view.
+ 
+ ## Decisions
+diff --git a/packages/ui/src/apps/MobileApp.tsx b/packages/ui/src/apps/MobileApp.tsx
+index 5e68fe568..fd17eace6 100644
+--- a/packages/ui/src/apps/MobileApp.tsx
++++ b/packages/ui/src/apps/MobileApp.tsx
+@@ -81,6 +81,9 @@ import { OverviewPage } from '@/components/overview/OverviewView';
+ import { ScheduledTasksView, type ScheduledTasksLeaveReason } from '@/components/session/ScheduledTasksDialog';
+ import { MobileWorkspaceDrawer } from './MobileWorkspaceDrawer';
+ import { shownMobileWorkspaceTabs, type MobileWorkspaceTab } from '@/lib/mobileWorkspaceTabs';
++import { guestPanelTabIds } from '@/lib/guests/surfaces';
++import { useGuestsStore } from '@/lib/guests/store';
++import { useGuestCatalogSync } from '@/hooks/useGuestCatalogSync';
+ import { DedicatedMobileAppProvider, type MobileAppActions } from './mobileAppContext';
+ import { autoConnectLastInstance, getAutoConnectTargetLabel, logMobileConnectEvent, reprobeActiveConnection, suppressAutoConnectUntilManualConnect, type AutoConnectOutcome } from './mobileConnections';
+ import { isCapacitorMobileApp, useMobileWebBackButton, useNativeAndroidBackButton, useNativeMobileChrome, useNativeMobileLifecycle } from './mobileNativeChrome';
+@@ -117,6 +120,7 @@ const MOBILE_SETTINGS_PAGES = [
+   'commands',
+   'mcp',
+   'plugins',
++  'extensions',
+   'skills.installed',
+   'skills.catalog',
+   'providers',
+@@ -145,6 +149,9 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
+   // keepalive: without it, background PTYs (running project actions included)
+   // are idle-reaped by the server while the workspace drawer is closed.
+   useTerminalSessionKeepalive();
++  // No rail on the phone: this loads the extension catalog its Status sections
++  // and workspace tabs read, and keeps it current.
++  useGuestCatalogSync();
+   const [sessionsSheetOpen, setSessionsSheetOpen] = React.useState(false);
+   // The run overview covers the chat; selecting any session returns to it.
+   React.useEffect(() => useSessionUIStore.subscribe((state, prev) => {
+@@ -162,14 +169,22 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
+   const [workspaceOpen, setWorkspaceOpen] = React.useState(false);
+   const [workspaceTab, setWorkspaceTab] = React.useState<MobileWorkspaceTab>(() => {
+     const { mobileWorkspaceTabOrder, mobileWorkspaceHiddenTabs } = useUIStore.getState();
+-    return shownMobileWorkspaceTabs(mobileWorkspaceTabOrder, mobileWorkspaceHiddenTabs)[0];
++    return shownMobileWorkspaceTabs(
++      mobileWorkspaceTabOrder,
++      mobileWorkspaceHiddenTabs,
++      guestPanelTabIds(useGuestsStore.getState().guests),
++    )[0];
+   });
+   // Opening the drawer itself lands on the last tab, unless the user has since
+   // hidden it in Settings; then on their first tab. A trigger that asks for a
+   // tab (a changed file in the chat) sets it on its own and opens it hidden or not.
+   const openWorkspace = React.useCallback(() => {
+     const { mobileWorkspaceTabOrder, mobileWorkspaceHiddenTabs } = useUIStore.getState();
+-    const shown = shownMobileWorkspaceTabs(mobileWorkspaceTabOrder, mobileWorkspaceHiddenTabs);
++    const shown = shownMobileWorkspaceTabs(
++      mobileWorkspaceTabOrder,
++      mobileWorkspaceHiddenTabs,
++      guestPanelTabIds(useGuestsStore.getState().guests),
++    );
+     setWorkspaceTab((current) => (shown.includes(current) ? current : shown[0]));
+     setWorkspaceOpen(true);
+   }, []);
+diff --git a/packages/ui/src/apps/MobileWorkspaceDrawer.tsx b/packages/ui/src/apps/MobileWorkspaceDrawer.tsx
+index 61461ac68..c7a3d4247 100644
+--- a/packages/ui/src/apps/MobileWorkspaceDrawer.tsx
++++ b/packages/ui/src/apps/MobileWorkspaceDrawer.tsx
+@@ -4,13 +4,25 @@ import { arrayMove } from '@dnd-kit/sortable';
+ import { isIMECompositionEvent } from '@/lib/ime';
+ 
+ import { Icon } from '@/components/icon/Icon';
++import { GuestIcon } from '@/components/layout/GuestRailIcon';
+ import { ProjectContextPanel } from '@/components/layout/RightSidebarTabs';
+ import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
+ import { SortableTabsStrip, type SortableTabsStripItem } from '@/components/ui/sortable-tabs-strip';
+ import { TerminalView } from '@/components/views/TerminalView';
+-import { useI18n } from '@/lib/i18n';
+-import { orderMobileWorkspaceTabs, stripMobileWorkspaceTabs, type MobileWorkspaceTab } from '@/lib/mobileWorkspaceTabs';
++import { guestPackageIconSrc, resolveGuestIconName } from '@/lib/guests/icon';
++import { useGuestPanelTabs } from '@/hooks/useGuestSurfaces';
++import { useI18n, type I18nKey } from '@/lib/i18n';
++import {
++  guestMobileWorkspaceTabId,
++  isBuiltInMobileWorkspaceTab,
++  orderMobileWorkspaceTabs,
++  stripMobileWorkspaceTabs,
++  type BuiltInMobileWorkspaceTab,
++  type MobileWorkspaceTab,
++} from '@/lib/mobileWorkspaceTabs';
+ import type { ProjectRef } from '@/lib/projectContextApi';
++import { getRuntimeUrlResolver } from '@/lib/runtime-url';
++import { pluginModeFromId } from '@/lib/surfaces/modes';
+ import { cn } from '@/lib/utils';
+ import { useUIStore } from '@/stores/useUIStore';
+ 
+@@ -28,7 +40,17 @@ const ENTER_DELAY_MS = 16;
+ const ENTER_DURATION_MS = 320;
+ const DRAWER_EASING = 'cubic-bezier(0.22, 1, 0.36, 1)';
+ 
+-/** The workspace surfaces as tabs (Status / Changes / Files / Terminal / Notes).
++const GuestSurfacePanel = React.lazy(() => import('@/components/layout/GuestSurfacePanel').then((module) => ({ default: module.GuestSurfacePanel })));
++
++const BUILT_IN_TAB_DEFINITIONS = {
++  status: { id: 'status', labelKey: 'chat.workStatus.ariaLabel', icon: <Icon name="list-indefinite" className="h-3.5 w-3.5" /> },
++  changes: { id: 'changes', labelKey: 'mobile.menu.git', icon: <Icon name="git-branch" className="h-3.5 w-3.5" /> },
++  files: { id: 'files', labelKey: 'mobile.menu.files', icon: <Icon name="file-text" className="h-3.5 w-3.5" /> },
++  terminal: { id: 'terminal', labelKey: 'mobile.menu.terminal', icon: <Icon name="terminal" className="h-3.5 w-3.5" /> },
++  notes: { id: 'notes', labelKey: 'contextRail.surface.notes', icon: <Icon name="sticky-note" className="h-3.5 w-3.5" /> },
++} as const satisfies Record<BuiltInMobileWorkspaceTab, { id: BuiltInMobileWorkspaceTab; labelKey: I18nKey; icon: React.ReactNode }>;
++
++/** The workspace surfaces as tabs (Status / Changes / Files / Terminal / Notes, plus one per installed extension panel).
+ 
+     Two hosts, same content and same state:
+      - `drawer` (default) covers the app and slides in from the right edge —
+@@ -65,12 +87,27 @@ export const MobileWorkspaceDrawer: React.FC<{
+   const tabOrder = useUIStore((state) => state.mobileWorkspaceTabOrder);
+   const hiddenTabs = useUIStore((state) => state.mobileWorkspaceHiddenTabs);
+   const setTabOrder = useUIStore((state) => state.setMobileWorkspaceTabOrder);
++  const guestTabs = useGuestPanelTabs();
++  const guestTabIds = React.useMemo(
++    () => guestTabs.map((guest) => guestMobileWorkspaceTabId(guest.id)),
++    [guestTabs],
++  );
++  const guestTabsById = React.useMemo(
++    () => new Map(guestTabs.map((guest) => [guestMobileWorkspaceTabId(guest.id), guest])),
++    [guestTabs],
++  );
++  // The user's tabs in their order (Settings > General), plus a hidden one
++  // while something opened it. An extension tab whose package is gone (a
++  // catalog change while the drawer is open) falls back to the first tab the
++  // drawer still offers; the stored tab is normalized on the next open.
++  const stripTabs = stripMobileWorkspaceTabs(tabOrder, hiddenTabs, tab, guestTabIds);
++  const shownTab = stripTabs.includes(tab) ? tab : stripTabs[0];
+   // The Status tab's section picker opens from the tab row, beside the close button.
+   const [statusSectionsOpen, setStatusSectionsOpen] = React.useState(false);
+-  const tabRef = React.useRef(tab);
++  const tabRef = React.useRef(shownTab);
+   React.useEffect(() => {
+-    tabRef.current = tab;
+-  }, [tab]);
++    tabRef.current = shownTab;
++  }, [shownTab]);
+ 
+   // Swipe from the drawer's start edge back toward its end = close, the
+   // reverse of the end-edge swipe that opened it from the chat. Only the
+@@ -87,12 +124,12 @@ export const MobileWorkspaceDrawer: React.FC<{
+   React.useEffect(() => {
+     if (!open) return;
+     setVisitedTabs((current) => {
+-      if (current.has(tab)) return current;
++      if (current.has(shownTab)) return current;
+       const next = new Set(current);
+-      next.add(tab);
++      next.add(shownTab);
+       return next;
+     });
+-  }, [open, tab]);
++  }, [open, shownTab]);
+ 
+   if (typeof document !== 'undefined' && !rootRef.current) {
+     let root = document.getElementById(DRAWER_ROOT_ID);
+@@ -140,21 +177,26 @@ export const MobileWorkspaceDrawer: React.FC<{
+ 
+   if (variant === 'drawer' && !rootRef.current) return null;
+ 
+-  const tabDefinitions = {
+-    status: { id: 'status', label: t('chat.workStatus.ariaLabel'), icon: <Icon name="list-indefinite" className="h-3.5 w-3.5" /> },
+-    changes: { id: 'changes', label: t('mobile.menu.git'), icon: <Icon name="git-branch" className="h-3.5 w-3.5" /> },
+-    files: { id: 'files', label: t('mobile.menu.files'), icon: <Icon name="file-text" className="h-3.5 w-3.5" /> },
+-    terminal: { id: 'terminal', label: t('mobile.menu.terminal'), icon: <Icon name="terminal" className="h-3.5 w-3.5" /> },
+-    notes: { id: 'notes', label: t('contextRail.surface.notes'), icon: <Icon name="sticky-note" className="h-3.5 w-3.5" /> },
+-  } satisfies Record<MobileWorkspaceTab, SortableTabsStripItem>;
+-  // The user's tabs in their order (Settings > General), plus a hidden one
+-  // while something opened it.
+-  const stripTabs = stripMobileWorkspaceTabs(tabOrder, hiddenTabs, tab);
+-  const tabItems = stripTabs.map((id) => tabDefinitions[id]);
+-  const soleTab = tabItems.length === 1 ? tabItems[0] : null;
++  const tabDefinitions = stripTabs.map((id): SortableTabsStripItem => {
++    if (isBuiltInMobileWorkspaceTab(id)) {
++      const definition = BUILT_IN_TAB_DEFINITIONS[id];
++      return { id, label: t(definition.labelKey), icon: definition.icon };
++    }
++    const guest = guestTabsById.get(id);
++    // stripTabs carries only guest ids the catalog offered, so it is there.
++    const authenticatedAsset = getRuntimeUrlResolver().authenticatedAsset;
++    return {
++      id,
++      label: guest?.name ?? '',
++      icon: guest
++        ? <GuestIcon icon={resolveGuestIconName(guest.icon)} iconSrc={guestPackageIconSrc(guest.id, guest.icon, authenticatedAsset)} className="h-3.5 w-3.5" />
++        : undefined,
++    };
++  });
++  const soleTab = tabDefinitions.length === 1 ? tabDefinitions[0] : null;
+   // A long press on a tab drags it; the new order covers hidden tabs too.
+   const reorderTabs = (activeId: string, overId: string) => {
+-    const all = orderMobileWorkspaceTabs(tabOrder);
++    const all = orderMobileWorkspaceTabs(tabOrder, guestTabIds);
+     const from = all.findIndex((id) => id === activeId);
+     const to = all.findIndex((id) => id === overId);
+     if (from < 0 || to < 0) return;
+@@ -176,8 +218,8 @@ export const MobileWorkspaceDrawer: React.FC<{
+             </h2>
+           ) : visible ? (
+             <SortableTabsStrip
+-              items={tabItems}
+-              activeId={tab}
++              items={tabDefinitions}
++              activeId={shownTab}
+               onSelect={(id) => {
+                 const next = stripTabs.find((entry) => entry === id);
+                 if (next) onTabChange(next);
+@@ -188,12 +230,12 @@ export const MobileWorkspaceDrawer: React.FC<{
+               nonCompositedIndicator
+               // More than three tabs don't fit with labels: the active tab
+               // keeps icon + label, the rest collapse to icons.
+-              inactiveTabsIconOnly={tabItems.length > 3}
++              inactiveTabsIconOnly={tabDefinitions.length > 3}
+               className="h-full"
+             />
+           ) : null}
+         </div>
+-        {tab === 'status' ? (
++        {shownTab === 'status' ? (
+           <button
+             type="button"
+             className={MOBILE_HEADER_BUTTON_CLASS}
+@@ -219,10 +261,10 @@ export const MobileWorkspaceDrawer: React.FC<{
+             reopening the drawer lands exactly where the user left off — an
+             open diff, an edited file, an attached terminal. */}
+         {visitedTabs.has('status') ? (
+-          <div className={cn('h-full', tab !== 'status' && 'hidden')}>
++          <div className={cn('h-full', shownTab !== 'status' && 'hidden')}>
+             <ErrorBoundary>
+               <MobileStatusPane
+-                visible={open && tab === 'status'}
++                visible={open && shownTab === 'status'}
+                 onLeave={onClose}
+                 sectionsDialogOpen={statusSectionsOpen}
+                 onSectionsDialogOpenChange={setStatusSectionsOpen}
+@@ -235,11 +277,11 @@ export const MobileWorkspaceDrawer: React.FC<{
+             // A newly requested per-file diff remounts the pane so
+             // initialDiff applies; plain reopens keep the state.
+             key={pendingChangesDiff ? `changes:${pendingChangesDiff.path}:${pendingChangesDiff.staged}` : 'changes'}
+-            className={cn('h-full', tab !== 'changes' && 'hidden')}
++            className={cn('h-full', shownTab !== 'changes' && 'hidden')}
+           >
+             <ErrorBoundary>
+               <MobileChangesSurface
+-                visible={open && tab === 'changes'}
++                visible={open && shownTab === 'changes'}
+                 initialDiff={pendingChangesDiff}
+                 onNavigatedToChat={onClose}
+               />
+@@ -247,26 +289,45 @@ export const MobileWorkspaceDrawer: React.FC<{
+           </div>
+         ) : null}
+         {visitedTabs.has('files') ? (
+-          <div className={cn('h-full', tab !== 'files' && 'hidden')}>
++          <div className={cn('h-full', shownTab !== 'files' && 'hidden')}>
+             <ErrorBoundary>
+-              <MobileFilesSurface visible={open && tab === 'files'} />
++              <MobileFilesSurface visible={open && shownTab === 'files'} />
+             </ErrorBoundary>
+           </div>
+         ) : null}
+         {visitedTabs.has('terminal') ? (
+-          <div className={cn('h-full', tab !== 'terminal' && 'hidden')}>
++          <div className={cn('h-full', shownTab !== 'terminal' && 'hidden')}>
+             <ErrorBoundary>
+-              <TerminalView visible={open && tab === 'terminal'} />
++              <TerminalView visible={open && shownTab === 'terminal'} />
+             </ErrorBoundary>
+           </div>
+         ) : null}
+         {visitedTabs.has('notes') ? (
+-          <div className={cn('h-full', tab !== 'notes' && 'hidden')}>
++          <div className={cn('h-full', shownTab !== 'notes' && 'hidden')}>
+             <ErrorBoundary>
+-              <ProjectContextPanel visible={open && tab === 'notes'} onActionComplete={onClose} onOpenPlan={onOpenPlan} />
++              <ProjectContextPanel visible={open && shownTab === 'notes'} onActionComplete={onClose} onOpenPlan={onOpenPlan} />
+             </ErrorBoundary>
+           </div>
+         ) : null}
++        {/* One pane per installed extension panel, the same slot the desktop
++            rail gives it. A shared surface's picture mounts only while its tab
++            is on screen; its own page stays mounted once visited. */}
++        {guestTabs.map((guest) => {
++          const id = guestMobileWorkspaceTabId(guest.id);
++          if (!visitedTabs.has(id)) return null;
++          return (
++            <div key={id} className={cn('h-full', shownTab !== id && 'hidden')}>
++              <ErrorBoundary>
++                <React.Suspense fallback={null}>
++                  <GuestSurfacePanel
++                    mode={pluginModeFromId(guest.id)}
++                    surfaceMounted={open && shownTab === id}
++                  />
++                </React.Suspense>
++              </ErrorBoundary>
++            </div>
++          );
++        })}
+       </div>
+     </>
+   );
+diff --git a/packages/ui/src/components/chat/work-status/DOCUMENTATION.md b/packages/ui/src/components/chat/work-status/DOCUMENTATION.md
+index 608a34b95..c19a5c6a0 100644
+--- a/packages/ui/src/components/chat/work-status/DOCUMENTATION.md
++++ b/packages/ui/src/components/chat/work-status/DOCUMENTATION.md
+@@ -582,10 +582,9 @@ The section sits among the app's own sections and follows the theme, light and d
+ `createGuestStatusViewReader` returns the previous view untouched when the answer's body is byte-identical, and otherwise reuses each row object, and the header controls, whose JSON did not change. Rows are memoized by identity and the header binding follows the controls' identity, so a sample that moves one number redraws one row instead of the section and its header.
+ 
+ `useWorkStatusExtensionSections` lists active guests with a `statusEntry` or `statusSource` from
+-the catalog store (`useGuestStatusSections`). It is empty on VS Code and
+-mobile, which load no guests; the panel is hidden there anyway, but the empty
+-list is explicit rather than an accident of visibility. The rail owns loading
+-the catalog.
++the catalog store (`useGuestStatusSections`). It is empty on VS Code, which loads no guests. The
++mobile shell loads the catalog and renders these sections in its Status tab. On desktop the rail
++owns loading the catalog; the mobile shell's `useGuestCatalogSync` owns it there.
+ 
+ Section ids are `ext:<extension id>` and share the persisted order and hidden
+ lists with built-in ids. Sanitizing keeps well-formed `ext:` ids even when that
+diff --git a/packages/ui/src/components/layout/ContextSurfacePanes.tsx b/packages/ui/src/components/layout/ContextSurfacePanes.tsx
+index 69c440914..ad92c5d0e 100644
+--- a/packages/ui/src/components/layout/ContextSurfacePanes.tsx
++++ b/packages/ui/src/components/layout/ContextSurfacePanes.tsx
+@@ -19,8 +19,7 @@ import { pickLiveBrowserTabs, touchRecentBrowserTab } from '@/lib/browser/liveTa
+ import { subscribeOpenchamberEvents } from '@/lib/openchamberEvents';
+ import { useGuestsStore } from '@/lib/guests/store';
+ import { guestHasSharedSurface, guestSurfaceDocking, type GuestSurfaceDocking } from '@/lib/guests/surfaces';
+-import { GUEST_SURFACE_DOCK_SIZE_MIN } from '@openchamber/sdk';
+-import { isPluginContextPanelMode, pluginIdFromMode, type PluginContextPanelMode } from '@/lib/surfaces/modes';
++import { isPluginContextPanelMode, pluginIdFromMode } from '@/lib/surfaces/modes';
+ import {
+   getZoneView,
+   resolveZoneActiveTab,
+@@ -51,43 +50,7 @@ import { DockedPanelSurfaceContext } from '@/hooks/usePageColors';
+ const WalkthroughView = lazyWithChunkRecovery(() => import('@/components/views/walkthrough/WalkthroughView').then((m) => ({ default: m.WalkthroughView })));
+ const DiffView = lazyWithChunkRecovery(() => import('@/components/views/DiffView').then((m) => ({ default: m.DiffView })));
+ const FilesView = lazyWithChunkRecovery(() => import('@/components/views/FilesView').then((m) => ({ default: m.FilesView })));
+-const PluginPane = React.lazy(() => import('./PluginPane').then((module) => ({ default: module.PluginPane })));
+-const GuestSurfacePane = React.lazy(() => import('./GuestSurfacePane').then((module) => ({ default: module.GuestSurfacePane })));
+-
+-// How an extension page sits beside its shared surface: flex direction puts
+-// the page first on top/left and last on bottom/right; the page's size is
+-// fixed across the docked edge and the picture takes the rest.
+-const DOCK_LAYOUT = {
+-  top: { container: 'flex-col', page: 'border-b border-border', vertical: true },
+-  bottom: { container: 'flex-col-reverse', page: 'border-t border-border', vertical: true },
+-  left: { container: 'flex-row', page: 'border-e border-border', vertical: false },
+-  right: { container: 'flex-row-reverse', page: 'border-s border-border', vertical: false },
+-} as const;
+-
+-/**
+- * A shared-surface extension's own page, docked to one edge of the picture.
+- * It starts at the manifest's `panel.size` and follows the page's
+- * `host.setHeight` after that (the thickness across its edge, so a width
+- * for a left or right dock), never below the manifest minimum and never past
+- * half the panel, so the picture always stays in view.
+- */
+-const DockedGuestPage: React.FC<{ mode: PluginContextPanelMode; docking: GuestSurfaceDocking }> = ({ mode, docking }) => {
+-  const [requested, setRequested] = React.useState<number | null>(null);
+-  const layout = DOCK_LAYOUT[docking.dock];
+-  const size = Math.max(GUEST_SURFACE_DOCK_SIZE_MIN, requested ?? docking.size);
+-  return (
+-    <div
+-      className={cn(
+-        'shrink-0 overflow-hidden duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+-        layout.vertical ? 'max-h-[50%] transition-[height]' : 'max-w-[50%] transition-[width]',
+-        layout.page,
+-      )}
+-      style={layout.vertical ? { height: size } : { width: size }}
+-    >
+-      <PluginPane mode={mode} onResize={setRequested} />
+-    </div>
+-  );
+-};
++const GuestSurfacePanel = React.lazy(() => import('./GuestSurfacePanel').then((module) => ({ default: module.GuestSurfacePanel })));
+ 
+ /** A browser tab with the project it belongs to, which may not be the one on screen. */
+ type PanelBrowserTab = {
+@@ -774,18 +737,7 @@ export const ContextSurfacePanes: React.FC = () => {
+             className={cn('absolute inset-0', shown ? 'block' : 'hidden')}
+           >
+             <React.Suspense fallback={null}>
+-              {!sharedSurface ? (
+-                <PluginPane mode={tab.mode} />
+-              ) : !docking ? (
+-                <GuestSurfacePane mode={tab.mode} />
+-              ) : (
+-                <div className={cn('flex h-full', DOCK_LAYOUT[docking.dock].container)}>
+-                  <DockedGuestPage mode={tab.mode} docking={docking} />
+-                  <div className="min-h-0 min-w-0 flex-1">
+-                    {surfaceMounted ? <GuestSurfacePane mode={tab.mode} /> : null}
+-                  </div>
+-                </div>
+-              )}
++              <GuestSurfacePanel mode={tab.mode} surfaceMounted={surfaceMounted} />
+             </React.Suspense>
+           </ZonePane>
+         );
+diff --git a/packages/ui/src/components/layout/GuestSurfacePanel.tsx b/packages/ui/src/components/layout/GuestSurfacePanel.tsx
+new file mode 100644
+index 000000000..2cfca3b45
+--- /dev/null
++++ b/packages/ui/src/components/layout/GuestSurfacePanel.tsx
+@@ -0,0 +1,71 @@
++import React from 'react';
++import { GUEST_SURFACE_DOCK_SIZE_MIN } from '@openchamber/sdk';
++
++import { guestHasSharedSurface, guestSurfaceDocking, type GuestSurfaceDocking } from '@/lib/guests/surfaces';
++import { useGuestsStore } from '@/lib/guests/store';
++import { pluginIdFromMode, type PluginContextPanelMode } from '@/lib/surfaces/modes';
++import { cn } from '@/lib/utils';
++
++const PluginPane = React.lazy(() => import('./PluginPane').then((module) => ({ default: module.PluginPane })));
++const GuestSurfacePane = React.lazy(() => import('./GuestSurfacePane').then((module) => ({ default: module.GuestSurfacePane })));
++
++// How an extension page sits beside its shared surface: flex direction puts
++// the page first on top/left and last on bottom/right; the page's size is
++// fixed across the docked edge and the picture takes the rest.
++const DOCK_LAYOUT = {
++  top: { container: 'flex-col', page: 'border-b border-border', vertical: true },
++  bottom: { container: 'flex-col-reverse', page: 'border-t border-border', vertical: true },
++  left: { container: 'flex-row', page: 'border-e border-border', vertical: false },
++  right: { container: 'flex-row-reverse', page: 'border-s border-border', vertical: false },
++} as const;
++
++/**
++ * A shared-surface extension's own page, docked to one edge of the picture.
++ * It starts at the manifest's `panel.size` and follows the page's
++ * `host.setHeight` after that (the thickness across its edge, so a width
++ * for a left or right dock), never below the manifest minimum and never past
++ * half the panel, so the picture always stays in view.
++ */
++const DockedGuestPage: React.FC<{ mode: PluginContextPanelMode; docking: GuestSurfaceDocking }> = ({ mode, docking }) => {
++  const [requested, setRequested] = React.useState<number | null>(null);
++  const layout = DOCK_LAYOUT[docking.dock];
++  const size = Math.max(GUEST_SURFACE_DOCK_SIZE_MIN, requested ?? docking.size);
++  return (
++    <div
++      className={cn(
++        'shrink-0 overflow-hidden duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
++        layout.vertical ? 'max-h-[50%] transition-[height]' : 'max-w-[50%] transition-[width]',
++        layout.page,
++      )}
++      style={layout.vertical ? { height: size } : { width: size }}
++    >
++      <PluginPane mode={mode} onResize={setRequested} />
++    </div>
++  );
++};
++
++/**
++ * An extension's panel: its own page, or the host-drawn shared surface with
++ * the page docked to it. The desktop rail and the phone's workspace drawer
++ * share this composition so both show the same thing.
++ *
++ * `surfaceMounted` keeps the host-drawn picture down until the panel is on
++ * screen; a docked page stays mounted beside it.
++ */
++export const GuestSurfacePanel: React.FC<{ mode: PluginContextPanelMode; surfaceMounted?: boolean }> = ({
++  mode,
++  surfaceMounted = true,
++}) => {
++  const guest = useGuestsStore((state) => state.guests.find((entry) => entry.id === pluginIdFromMode(mode)) ?? null);
++  if (!guest || !guestHasSharedSurface(guest)) return <PluginPane mode={mode} />;
++  const docking = guestSurfaceDocking(guest);
++  if (!docking) return surfaceMounted ? <GuestSurfacePane mode={mode} /> : null;
++  return (
++    <div className={cn('flex h-full', DOCK_LAYOUT[docking.dock].container)}>
++      <DockedGuestPage mode={mode} docking={docking} />
++      <div className="min-h-0 min-w-0 flex-1">
++        {surfaceMounted ? <GuestSurfacePane mode={mode} /> : null}
++      </div>
++    </div>
++  );
++};
+diff --git a/packages/ui/src/components/sections/openchamber/MobileWorkspaceTabsSettings.tsx b/packages/ui/src/components/sections/openchamber/MobileWorkspaceTabsSettings.tsx
+index d8fcf18e1..a078e021e 100644
+--- a/packages/ui/src/components/sections/openchamber/MobileWorkspaceTabsSettings.tsx
++++ b/packages/ui/src/components/sections/openchamber/MobileWorkspaceTabsSettings.tsx
+@@ -1,8 +1,16 @@
+ import React from 'react';
+ import { SettingsSection } from '@/components/sections/shared/SettingsSection';
+ import { SettingsSortableVisibilityList } from '@/components/sections/shared/SettingsSortableVisibilityList';
++import { useGuestPanelTabs } from '@/hooks/useGuestSurfaces';
+ import { useI18n, type I18nKey } from '@/lib/i18n';
+-import { orderMobileWorkspaceTabs, shownMobileWorkspaceTabs, type MobileWorkspaceTab } from '@/lib/mobileWorkspaceTabs';
++import {
++  guestMobileWorkspaceTabId,
++  isBuiltInMobileWorkspaceTab,
++  isMobileWorkspaceTab,
++  orderMobileWorkspaceTabs,
++  shownMobileWorkspaceTabs,
++  type BuiltInMobileWorkspaceTab,
++} from '@/lib/mobileWorkspaceTabs';
+ import { useUIStore } from '@/stores/useUIStore';
+ 
+ const TAB_LABEL_KEYS = {
+@@ -11,12 +19,12 @@ const TAB_LABEL_KEYS = {
+   files: 'mobile.menu.files',
+   terminal: 'mobile.menu.terminal',
+   notes: 'contextRail.surface.notes',
+-} satisfies Record<MobileWorkspaceTab, I18nKey>;
++} satisfies Record<BuiltInMobileWorkspaceTab, I18nKey>;
+ 
+ /**
+- * Order and visibility of the phone's workspace panel tabs. Stored per
+- * device: a phone and a laptop are set up apart. The last tab shown cannot be
+- * hidden.
++ * Order and visibility of the phone's workspace panel tabs, including the tabs
++ * installed extensions add. Stored per device: a phone and a laptop are set up
++ * apart. The last tab shown cannot be hidden.
+  */
+ export const MobileWorkspaceTabsSettings: React.FC = () => {
+   const { t } = useI18n();
+@@ -24,16 +32,25 @@ export const MobileWorkspaceTabsSettings: React.FC = () => {
+   const hidden = useUIStore((state) => state.mobileWorkspaceHiddenTabs);
+   const setOrder = useUIStore((state) => state.setMobileWorkspaceTabOrder);
+   const setVisible = useUIStore((state) => state.setMobileWorkspaceTabVisible);
++  const guestTabs = useGuestPanelTabs();
++  const guestTabIds = React.useMemo(
++    () => guestTabs.map((guest) => guestMobileWorkspaceTabId(guest.id)),
++    [guestTabs],
++  );
++  const guestLabels = React.useMemo(
++    () => new Map(guestTabs.map((guest) => [guestMobileWorkspaceTabId(guest.id), guest.name])),
++    [guestTabs],
++  );
+ 
+   const items = React.useMemo(() => {
+-    const shown = shownMobileWorkspaceTabs(order, hidden);
+-    return orderMobileWorkspaceTabs(order).map((id) => ({
++    const shown = shownMobileWorkspaceTabs(order, hidden, guestTabIds);
++    return orderMobileWorkspaceTabs(order, guestTabIds).map((id) => ({
+       id,
+-      label: t(TAB_LABEL_KEYS[id]),
++      label: isBuiltInMobileWorkspaceTab(id) ? t(TAB_LABEL_KEYS[id]) : guestLabels.get(id) ?? id,
+       visible: shown.includes(id),
+       locked: shown.length === 1 && shown.includes(id),
+     }));
+-  }, [hidden, order, t]);
++  }, [guestLabels, guestTabIds, hidden, order, t]);
+ 
+   return (
+     <SettingsSection
+@@ -44,8 +61,7 @@ export const MobileWorkspaceTabsSettings: React.FC = () => {
+       <SettingsSortableVisibilityList
+         items={items}
+         onVisibleChange={(id, visible) => {
+-          const tab = items.find((item) => item.id === id)?.id;
+-          if (tab) setVisible(tab, visible);
++          if (isMobileWorkspaceTab(id)) setVisible(id, visible);
+         }}
+         onReorder={setOrder}
+         settingsItemPrefix="layout.mobile-workspace-tabs."
+diff --git a/packages/ui/src/hooks/useGuestCatalogSync.ts b/packages/ui/src/hooks/useGuestCatalogSync.ts
+index 7b8409b2d..31abe7368 100644
+--- a/packages/ui/src/hooks/useGuestCatalogSync.ts
++++ b/packages/ui/src/hooks/useGuestCatalogSync.ts
+@@ -1,7 +1,7 @@
+ /**
+  * Keeps the extension catalog current while the app runs.
+  *
+- * The rail reads the catalog on mount and on a runtime switch, but another
++ * The rail loads the catalog on mount and on a runtime switch, but another
+  * window, another device, or an author rebuilding a folder install can change
+  * it at any time. The server announces each change on the control stream; this
+  * hook reads the catalog again then, and when the stream reconnects, since a
+@@ -15,8 +15,13 @@ import { loadGuestCatalog, reloadGuestCatalog } from '@/lib/guests/load-catalog'
+ import { subscribeOpenchamberEvents } from '@/lib/openchamberEvents';
+ 
+ export const useGuestCatalogSync = (): void => {
+-  React.useEffect(() => subscribeOpenchamberEvents((event) => {
+-    if (event.type === 'guests-changed') void reloadGuestCatalog();
+-    else if (event.type === 'event-stream-ready') void loadGuestCatalog();
+-  }), []);
++  React.useEffect(() => {
++    // The rail loads on mount on desktop; the phone has no rail, so this is
++    // where its catalog comes from before anything asks for a guest tab.
++    void loadGuestCatalog();
++    return subscribeOpenchamberEvents((event) => {
++      if (event.type === 'guests-changed') void reloadGuestCatalog();
++      else if (event.type === 'event-stream-ready') void loadGuestCatalog();
++    });
++  }, []);
+ };
+diff --git a/packages/ui/src/hooks/useGuestSurfaces.ts b/packages/ui/src/hooks/useGuestSurfaces.ts
+index cfe7b0010..62252f86a 100644
+--- a/packages/ui/src/hooks/useGuestSurfaces.ts
++++ b/packages/ui/src/hooks/useGuestSurfaces.ts
+@@ -8,7 +8,7 @@ import { guestActionEntries, type GuestActionEntry } from '@/lib/guests/actions'
+ import { isGuestActive } from '@/lib/guests/capabilities';
+ import { guestCommandEntries, type GuestCommandEntry } from '@/lib/guests/commands';
+ import { guestPackageIconSrc, resolveGuestIconName } from '@/lib/guests/icon';
+-import { enabledGuestSurfaces } from '@/lib/guests/surfaces';
++import { enabledGuestSurfaces, guestPanelGuests } from '@/lib/guests/surfaces';
+ import { loadGuestCatalog } from '@/lib/guests/load-catalog';
+ import { useGuestsStore } from '@/lib/guests/store';
+ import type { InstalledGuest } from '@/lib/guests/types';
+@@ -64,25 +64,41 @@ export const useGuestPages = () => {
+ const EMPTY_STATUS_SECTIONS: InstalledGuest[] = [];
+ 
+ /**
+- * Active guests that contribute a Work Status section. Empty on VS Code and
+- * mobile, which never mount guests (the panel itself is web/desktop only).
+- * Reads the store only; the rail owns loading the catalog.
++ * Active guests that contribute a Work Status section. Empty on VS Code, which
++ * never mounts guests. The phone's Status tab renders these sections too, so
++ * the mobile shell loads the catalog (its catalog sync) even though it has no
++ * rail. Reads the store only.
+  */
+ export const useGuestStatusSections = (): InstalledGuest[] => {
+   const guests = useGuestsStore((state) => state.guests);
+   return React.useMemo(() => {
+-    if (isVSCodeRuntime() || isMobileSurfaceRuntime()) return EMPTY_STATUS_SECTIONS;
++    if (isVSCodeRuntime()) return EMPTY_STATUS_SECTIONS;
+     const sections = guests.filter((guest) => (guest.statusEntry || guest.statusSource) && isGuestActive(guest));
+     return sections.length > 0 ? sections : EMPTY_STATUS_SECTIONS;
+   }, [guests]);
+ };
+ 
++const EMPTY_PANEL_GUESTS: InstalledGuest[] = [];
++
++/**
++ * Active guests whose own panel the phone's workspace drawer shows as a tab.
++ * Reads the store only; the mobile shell's catalog sync loads it.
++ */
++export const useGuestPanelTabs = (): InstalledGuest[] => {
++  const guests = useGuestsStore((state) => state.guests);
++  return React.useMemo(() => {
++    const panels = guestPanelGuests(guests);
++    return panels.length > 0 ? panels : EMPTY_PANEL_GUESTS;
++  }, [guests]);
++};
++
+ /**
+  * Message and session menu entries from active guests. Empty on VS Code and
+- * mobile, which never mount guests. Reads the store only: every transcript
+- * row and sidebar row calls this, and the rail (`useGuestSurfaces`) already
+- * owns loading the catalog and following runtime switches. The store is
+- * emptied on a switch, so a memo on `guests` alone stays current.
++ * mobile, which render no guest entries in their sidebars. Reads the store
++ * only: every transcript row and sidebar row calls this, and the rail
++ * (`useGuestSurfaces`) already owns loading the catalog and following runtime
++ * switches. The store is emptied on a switch, so a memo on `guests` alone
++ * stays current.
+  */
+ export const useGuestActions = (): GuestActionEntry[] => {
+   const guests = useGuestsStore((state) => state.guests);
+@@ -97,7 +113,8 @@ export const useGuestActions = (): GuestActionEntry[] => {
+ /**
+  * Slash commands from active guests, minus any name in `reservedNames` (the
+  * composer's own commands, OpenCode commands, skills). Empty on VS Code and
+- * mobile. Store read only, like `useGuestActions`.
++ * mobile, which offer no guest slash commands. Store read only, like
++ * `useGuestActions`.
+  */
+ export const useGuestCommands = (reservedNames: ReadonlySet<string>): GuestCommandEntry[] => {
+   const guests = useGuestsStore((state) => state.guests);
+diff --git a/packages/ui/src/lib/guests/load-catalog.ts b/packages/ui/src/lib/guests/load-catalog.ts
+index 84ea63153..7114c6a15 100644
+--- a/packages/ui/src/lib/guests/load-catalog.ts
++++ b/packages/ui/src/lib/guests/load-catalog.ts
+@@ -1,6 +1,5 @@
+ import { isVSCodeRuntime } from '@/lib/desktop';
+ import { runtimeFetch } from '@/lib/runtime-fetch';
+-import { isMobileSurfaceRuntime } from '@/lib/runtimeSurface';
+ import { getRuntimeKey } from '@/lib/runtime-switch';
+ 
+ import { useGuestBadgeStore } from './badge-store.ts';
+@@ -50,7 +49,7 @@ const loadGuestCatalogOnce = async (runtimeKey: string): Promise<void> => {
+   alignCatalogRuntime(runtimeKey);
+ 
+   const store = useGuestsStore.getState();
+-  if (isVSCodeRuntime() || isMobileSurfaceRuntime()) {
++  if (isVSCodeRuntime()) {
+     store.markUnsupported(runtimeKey);
+     return;
+   }
+diff --git a/packages/ui/src/lib/guests/surfaces.ts b/packages/ui/src/lib/guests/surfaces.ts
+index ec335f95d..edaafccbf 100644
+--- a/packages/ui/src/lib/guests/surfaces.ts
++++ b/packages/ui/src/lib/guests/surfaces.ts
+@@ -1,6 +1,7 @@
+ import { GUEST_SURFACE_DOCK_DEFAULT, GUEST_SURFACE_DOCK_SIZE_DEFAULT, hasGuestPage, type GuestSurfaceDock } from '@openchamber/sdk';
+ 
+ import type { ContextSurfaceDescriptor } from '@/lib/surfaces/registry';
++import { guestMobileWorkspaceTabId } from '@/lib/mobileWorkspaceTabs';
+ import { pluginModeFromId } from '@/lib/surfaces/modes';
+ 
+ import { isGuestActive } from './capabilities.ts';
+@@ -24,16 +25,23 @@ export const guestSurfaceDocking = (guest: Pick<InstalledGuest, 'service' | 'ent
+ };
+ 
+ /**
+- * Rail surfaces for the enabled guests with a page or a shared surface, in
+- * catalog order. The rail and the digit shortcuts must agree on this list.
+- * Background-only and tools-only extensions have no visible panel and get
+- * no surface.
++ * Active guests whose panel exists: their own page, or a shared surface. The
++ * rail, the phone's workspace drawer and the digit shortcuts must agree on
++ * this list. Background-only and tools-only extensions have no visible panel
++ * and get no surface.
+  */
++export const guestPanelGuests = (guests: readonly InstalledGuest[]): InstalledGuest[] => guests
++  .filter((guest) => isGuestActive(guest) && (hasGuestPage({ panel: guest }) || guestHasSharedSurface(guest)));
++
++/** The workspace-drawer tab ids the phone offers for these guests. */
++export const guestPanelTabIds = (guests: readonly InstalledGuest[]): string[] =>
++  guestPanelGuests(guests).map((guest) => guestMobileWorkspaceTabId(guest.id));
++
++/** Rail surfaces for the enabled guests with a page or a shared surface, in catalog order. */
+ export const enabledGuestSurfaces = (
+   guests: readonly InstalledGuest[],
+   authenticatedAsset: (path: string) => string,
+-): ContextSurfaceDescriptor[] => guests
+-  .filter((guest) => isGuestActive(guest) && (hasGuestPage({ panel: guest }) || guestHasSharedSurface(guest)))
++): ContextSurfaceDescriptor[] => guestPanelGuests(guests)
+   .map((guest) => guestSurfaceFromInstalled(guest, authenticatedAsset));
+ 
+ const guestSurfaceFromInstalled = (
+diff --git a/packages/ui/src/lib/mobileWorkspaceTabs.test.ts b/packages/ui/src/lib/mobileWorkspaceTabs.test.ts
+index af263ff4d..2e48417cc 100644
+--- a/packages/ui/src/lib/mobileWorkspaceTabs.test.ts
++++ b/packages/ui/src/lib/mobileWorkspaceTabs.test.ts
+@@ -1,6 +1,12 @@
+ import { describe, expect, test } from 'bun:test';
+ 
+-import { orderMobileWorkspaceTabs, shownMobileWorkspaceTabs, stripMobileWorkspaceTabs } from './mobileWorkspaceTabs';
++import {
++  guestMobileWorkspaceTabId,
++  orderMobileWorkspaceTabs,
++  sanitizeMobileWorkspaceTabOrder,
++  shownMobileWorkspaceTabs,
++  stripMobileWorkspaceTabs,
++} from './mobileWorkspaceTabs';
+ 
+ describe('mobile workspace tabs', () => {
+   test('a saved order keeps its tabs and places tabs it does not name where they go by default', () => {
+@@ -21,4 +27,23 @@ describe('mobile workspace tabs', () => {
+     expect(stripMobileWorkspaceTabs([], ['files', 'terminal'], 'files')).toEqual(['status', 'changes', 'files', 'notes']);
+     expect(stripMobileWorkspaceTabs([], ['files', 'terminal'], 'notes')).toEqual(['status', 'changes', 'notes']);
+   });
++
++  test('extension panels are tabs after the built-ins, and keep a saved place', () => {
++    const spark = guestMobileWorkspaceTabId('spark');
++    expect(orderMobileWorkspaceTabs([], [spark])).toEqual(['status', 'changes', 'files', 'terminal', 'notes', spark]);
++    expect(orderMobileWorkspaceTabs(['notes', spark, 'files'], [spark])).toEqual(['status', 'changes', 'terminal', 'notes', spark, 'files']);
++  });
++
++  test('an extension tab can be hidden, and the drawer still shows the built-ins', () => {
++    const spark = guestMobileWorkspaceTabId('spark');
++    expect(shownMobileWorkspaceTabs([], ['guest:spark'], [spark])).toEqual(['status', 'changes', 'files', 'terminal', 'notes']);
++    expect(stripMobileWorkspaceTabs([], ['guest:spark'], spark, [spark])).toEqual(['status', 'changes', 'files', 'terminal', 'notes', spark]);
++    expect(shownMobileWorkspaceTabs([], ['status', 'changes', 'files', 'terminal', 'notes'], [spark])).toEqual([spark]);
++  });
++
++  test('the stored order keeps extension ids it does not currently show', () => {
++    expect(sanitizeMobileWorkspaceTabOrder(['files', 'guest:spark', 'guest:spark', 'guest:Bad Id', 'mcp', 'notes']))
++      .toEqual(['files', 'guest:spark', 'notes']);
++    expect(orderMobileWorkspaceTabs(['files', 'guest:spark'])).toEqual(['status', 'changes', 'files', 'terminal', 'notes']);
++  });
+ });
+diff --git a/packages/ui/src/lib/mobileWorkspaceTabs.ts b/packages/ui/src/lib/mobileWorkspaceTabs.ts
+index 985d8ccac..1bed43202 100644
+--- a/packages/ui/src/lib/mobileWorkspaceTabs.ts
++++ b/packages/ui/src/lib/mobileWorkspaceTabs.ts
+@@ -4,22 +4,75 @@
+  * device in `useUIStore`; both hold plain ids so a tab added in a later
+  * release shows up for everyone, in its default place within a saved order.
+  * An id no longer listed (the old `mcp` tab, now a Status section) drops out.
++ *
++ * An installed extension's own panel is a `guest:<id>` tab, the same slot the
++ * desktop rail gives it. The catalog decides which guest tabs exist; a saved
++ * order keeps their ids so a reinstall comes back where the user put it.
+  */
+ const MOBILE_WORKSPACE_TABS = ['status', 'changes', 'files', 'terminal', 'notes'] as const;
+ 
+-export type MobileWorkspaceTab = (typeof MOBILE_WORKSPACE_TABS)[number];
++export type BuiltInMobileWorkspaceTab = (typeof MOBILE_WORKSPACE_TABS)[number];
++type GuestMobileWorkspaceTab = `guest:${string}`;
++export type MobileWorkspaceTab = BuiltInMobileWorkspaceTab | GuestMobileWorkspaceTab;
+ 
+-const isMobileWorkspaceTab = (id: string): id is MobileWorkspaceTab =>
++const GUEST_TAB_PREFIX = 'guest:';
++/** Guest ids are the plugin mode ids (`lib/surfaces/modes.ts`). */
++const GUEST_ID = /^[a-z][a-z0-9-]*$/;
++
++export const isBuiltInMobileWorkspaceTab = (id: string): id is BuiltInMobileWorkspaceTab =>
+   (MOBILE_WORKSPACE_TABS as readonly string[]).includes(id);
+ 
++export const guestMobileWorkspaceTabId = (guestId: string): GuestMobileWorkspaceTab => `${GUEST_TAB_PREFIX}${guestId}`;
++
++export const isGuestMobileWorkspaceTab = (id: string): id is GuestMobileWorkspaceTab =>
++  id.startsWith(GUEST_TAB_PREFIX) && GUEST_ID.test(id.slice(GUEST_TAB_PREFIX.length));
++
++export const isMobileWorkspaceTab = (id: string): id is MobileWorkspaceTab =>
++  isBuiltInMobileWorkspaceTab(id) || isGuestMobileWorkspaceTab(id);
++
++/**
++ * The stored order, cleaned: only ids this build understands, first occurrence
++ * wins. Guest ids stay even when that extension is not installed, so a paused
++ * or reinstalled extension keeps its place.
++ */
++export const sanitizeMobileWorkspaceTabOrder = (order: readonly string[]): string[] => {
++  const seen = new Set<string>();
++  const cleaned: string[] = [];
++  for (const id of order) {
++    if (!isMobileWorkspaceTab(id) || seen.has(id)) continue;
++    seen.add(id);
++    cleaned.push(id);
++  }
++  return cleaned;
++};
++
++/** The guest tabs the catalog offers, cleaned and de-duplicated. */
++const guestTabIdsOf = (guestTabIds: readonly string[]): GuestMobileWorkspaceTab[] => {
++  const seen = new Set<string>();
++  const cleaned: GuestMobileWorkspaceTab[] = [];
++  for (const id of guestTabIds) {
++    if (!isGuestMobileWorkspaceTab(id) || seen.has(id)) continue;
++    seen.add(id);
++    cleaned.push(id);
++  }
++  return cleaned;
++};
++
+ /**
+  * Every tab in the user's order. A tab the saved order does not name goes
+  * before every saved tab that follows it by default, so a new first tab
+  * (Status) is first for people who reordered the others too. Saved orders are
+  * always complete, so in practice only a tab a release added is missing.
++ * Extension tabs the saved order does not name go last.
+  */
+-export const orderMobileWorkspaceTabs = (order: readonly string[]): MobileWorkspaceTab[] => {
+-  const ordered = order.filter(isMobileWorkspaceTab).filter((id, index, all) => all.indexOf(id) === index);
++export const orderMobileWorkspaceTabs = (
++  order: readonly string[],
++  guestTabIds: readonly string[] = [],
++): MobileWorkspaceTab[] => {
++  const guests = guestTabIdsOf(guestTabIds);
++  const ordered = sanitizeMobileWorkspaceTabOrder(order).filter(
++    (id): id is MobileWorkspaceTab => isBuiltInMobileWorkspaceTab(id) || (isGuestMobileWorkspaceTab(id) && guests.includes(id)),
++  );
+   MOBILE_WORKSPACE_TABS.forEach((id, index) => {
+     if (ordered.includes(id)) return;
+     const followers = MOBILE_WORKSPACE_TABS.slice(index + 1)
+@@ -27,6 +80,9 @@ export const orderMobileWorkspaceTabs = (order: readonly string[]): MobileWorksp
+       .filter((position) => position >= 0);
+     ordered.splice(followers.length > 0 ? Math.min(...followers) : ordered.length, 0, id);
+   });
++  for (const id of guests) {
++    if (!ordered.includes(id)) ordered.push(id);
++  }
+   return ordered;
+ };
+ 
+@@ -34,8 +90,12 @@ export const orderMobileWorkspaceTabs = (order: readonly string[]): MobileWorksp
+  * The tabs the user keeps, in order. Never empty: a saved set that hides every
+  * tab (written by hand or by an older build) shows them all.
+  */
+-export const shownMobileWorkspaceTabs = (order: readonly string[], hidden: readonly string[]): MobileWorkspaceTab[] => {
+-  const all = orderMobileWorkspaceTabs(order);
++export const shownMobileWorkspaceTabs = (
++  order: readonly string[],
++  hidden: readonly string[],
++  guestTabIds: readonly string[] = [],
++): MobileWorkspaceTab[] => {
++  const all = orderMobileWorkspaceTabs(order, guestTabIds);
+   const shown = all.filter((id) => !hidden.includes(id));
+   return shown.length > 0 ? shown : all;
+ };
+@@ -50,8 +110,9 @@ export const stripMobileWorkspaceTabs = (
+   order: readonly string[],
+   hidden: readonly string[],
+   active: MobileWorkspaceTab,
++  guestTabIds: readonly string[] = [],
+ ): MobileWorkspaceTab[] => {
+-  const shown = shownMobileWorkspaceTabs(order, hidden);
++  const shown = shownMobileWorkspaceTabs(order, hidden, guestTabIds);
+   if (shown.includes(active)) return shown;
+-  return orderMobileWorkspaceTabs(order).filter((id) => id === active || shown.includes(id));
++  return orderMobileWorkspaceTabs(order, guestTabIds).filter((id) => id === active || shown.includes(id));
+ };
+diff --git a/packages/ui/src/lib/settings/metadata.ts b/packages/ui/src/lib/settings/metadata.ts
+index dab813ce8..19b67a721 100644
+--- a/packages/ui/src/lib/settings/metadata.ts
++++ b/packages/ui/src/lib/settings/metadata.ts
+@@ -245,7 +245,7 @@ export const SETTINGS_PAGE_METADATA: readonly SettingsPageMeta[] = [
+     group: 'general',
+     kind: 'single',
+     keywords: ['extension', 'extensions', 'guest', 'panel', 'rail', 'folder', 'zip', 'git', 'url'],
+-    isAvailable: (ctx) => !ctx.isVSCode && !ctx.isMobile,
++    isAvailable: (ctx) => !ctx.isVSCode,
+   },
+ ] as const;
+ 
+diff --git a/packages/ui/src/lib/surfaces/DOCUMENTATION.md b/packages/ui/src/lib/surfaces/DOCUMENTATION.md
+index 84e575e74..bd9a13310 100644
+--- a/packages/ui/src/lib/surfaces/DOCUMENTATION.md
++++ b/packages/ui/src/lib/surfaces/DOCUMENTATION.md
+@@ -66,7 +66,8 @@ Full-screen extension pages are separate from this rail registry. `contributes.p
+   `ContextRailSurfacesDialog` edits this same order with drag handles beside
+   the visibility checkboxes (`SettingsSortableVisibilityList`, which the phone's
+   workspace tab settings also use; those tabs keep their own per-device order
+-  and hidden set, `lib/mobileWorkspaceTabs.ts`), including hidden panels. Mouse, touch and keyboard
++  and hidden set, `lib/mobileWorkspaceTabs.ts`, including one `guest:<id>` tab
++  per installed extension panel), including hidden panels. Mouse, touch and keyboard
+   drops update the rail immediately; visibility changes and "Show all" preserve
+   the order. Dialog reorders retain saved ids of unavailable extensions at the
+   end of the preference. Escape cancels a drag before closing the dialog.
+@@ -293,7 +294,10 @@ chat/palette go through the `openContext*` actions in `useUIStore`.
+   field, the editor, the terminal), and a stray press while dismissing one of
+   those used to take the whole panel with it.
+ - Runtime scope: desktop/web `MainLayout` only. VS Code and the dedicated
+-  mobile shell have their own layouts and do not consume this registry.
++  mobile shell have their own layouts and do not consume this registry. The
++  mobile workspace drawer builds its extension tabs from the catalog directly
++  (`lib/guests/surfaces.ts`, `guestPanelTabIds`) and renders the same panel
++  composition through `components/layout/GuestSurfacePanel.tsx`.
+   Trackers have no rail surface: their items list on the issues and PRs board
+   (`components/sourceBoard`). A Linear tab persisted by an older version is
+   dropped on load, like any unknown mode.
+diff --git a/packages/ui/src/stores/useUIStore.mobileWorkspaceTabs.test.ts b/packages/ui/src/stores/useUIStore.mobileWorkspaceTabs.test.ts
+index 80774fbd0..ad1447c62 100644
+--- a/packages/ui/src/stores/useUIStore.mobileWorkspaceTabs.test.ts
++++ b/packages/ui/src/stores/useUIStore.mobileWorkspaceTabs.test.ts
+@@ -23,4 +23,9 @@ describe('useUIStore mobile workspace tabs', () => {
+     useUIStore.getState().setMobileWorkspaceTabOrder(['notes', 'unknown', 'notes', 'mcp', 'files']);
+     expect(useUIStore.getState().mobileWorkspaceTabOrder).toEqual(['status', 'changes', 'terminal', 'notes', 'files']);
+   });
++
++  test('keeps extension tabs in the stored order', () => {
++    useUIStore.getState().setMobileWorkspaceTabOrder(['notes', 'guest:spark', 'files']);
++    expect(useUIStore.getState().mobileWorkspaceTabOrder).toEqual(['status', 'changes', 'terminal', 'notes', 'guest:spark', 'files']);
++  });
+ });
+diff --git a/packages/ui/src/stores/useUIStore.ts b/packages/ui/src/stores/useUIStore.ts
+index 63fbc1f4b..350cd480e 100644
+--- a/packages/ui/src/stores/useUIStore.ts
++++ b/packages/ui/src/stores/useUIStore.ts
+@@ -19,7 +19,9 @@ import { isVSCodeRuntime } from '@/lib/desktop';
+ import { noteBrowserTabOpenedWithAddress, requestBrowserTabLoad } from '@/lib/browser/devServerWait';
+ import { clampLiveBrowserTabs, LIVE_BROWSER_TABS_DEFAULT } from '@/lib/browser/liveTabs';
+ import { isContextPanelMode, type ContextPanelMode } from '@/lib/surfaces/modes';
+-import { orderMobileWorkspaceTabs, shownMobileWorkspaceTabs, type MobileWorkspaceTab } from '@/lib/mobileWorkspaceTabs';
++import { isGuestMobileWorkspaceTab, orderMobileWorkspaceTabs, shownMobileWorkspaceTabs, type MobileWorkspaceTab } from '@/lib/mobileWorkspaceTabs';
++import { guestPanelTabIds } from '@/lib/guests/surfaces';
++import { useGuestsStore } from '@/lib/guests/store';
+ import {
+   carrySurfaceToZone,
+   getZoneView,
+@@ -2461,7 +2463,12 @@ export const useUIStore = create<UIStore>()(
+         },
+ 
+         setMobileWorkspaceTabOrder: (order) => {
+-          set({ mobileWorkspaceTabOrder: orderMobileWorkspaceTabs(order) });
++          set({
++            mobileWorkspaceTabOrder: orderMobileWorkspaceTabs(
++              order,
++              order.filter(isGuestMobileWorkspaceTab),
++            ),
++          });
+         },
+ 
+         setMobileWorkspaceTabVisible: (tab, visible) => {
+@@ -2472,7 +2479,8 @@ export const useUIStore = create<UIStore>()(
+             }
+             if (hidden.includes(tab)) return state;
+             // The last tab the user keeps stays: the drawer would have nothing to show.
+-            const shown = shownMobileWorkspaceTabs(state.mobileWorkspaceTabOrder, hidden);
++            const guestTabIds = guestPanelTabIds(useGuestsStore.getState().guests);
++            const shown = shownMobileWorkspaceTabs(state.mobileWorkspaceTabOrder, hidden, guestTabIds);
+             if (shown.length <= 1) return state;
+             return { mobileWorkspaceHiddenTabs: [...hidden, tab] };
+           });

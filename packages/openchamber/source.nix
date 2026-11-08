@@ -61,6 +61,7 @@ let
       ./patches/gitea-references-across.patch
       ./patches/reply-start-scroll.patch
       ./patches/dictation-thread-count.patch
+      ./patches/mobile-guest-extensions.patch
     ];
   };
 in
