@@ -1,0 +1,49 @@
+diff --git a/packages/web/server/lib/quota/providers/codex.js b/packages/web/server/lib/quota/providers/codex.js
+index 0c6b0be..4145f59 100644
+--- a/packages/web/server/lib/quota/providers/codex.js
++++ b/packages/web/server/lib/quota/providers/codex.js
+@@ -7,7 +7,8 @@ import {
+   toNumber,
+   toTimestamp,
+   resolveWindowLabel,
+-  asNonEmptyString
++  asNonEmptyString,
++  formatCredits
+ } from '../utils/index.js';
+ import { readCodexCliLogin, signInEmailOf } from './codex-cli.js';
+ 
+@@ -58,10 +59,13 @@ const usageWindowsOf = (payload) => {
+   if (credits) {
+     const balance = toNumber(credits.balance);
+     const unlimited = Boolean(credits.unlimited);
++    // `credits.balance` arrives as an unrounded float (38538.5254395). The
++    // credits row is a count, so render it the way Copilot's credits are
++    // rendered: one decimal at most, thousands separated.
+     const label = unlimited
+       ? 'Unlimited'
+       : balance !== null
+-        ? String(balance)
++        ? formatCredits(balance)
+         : null;
+     windows.credits_balance = toUsageWindow({
+       usedPercent: null,
+diff --git a/packages/web/server/lib/quota/providers/codex.test.js b/packages/web/server/lib/quota/providers/codex.test.js
+index ef3ee83..372b1c5 100644
+--- a/packages/web/server/lib/quota/providers/codex.test.js
++++ b/packages/web/server/lib/quota/providers/codex.test.js
+@@ -32,10 +32,11 @@ const mockUsage = (rateLimit) => {
+ 
+ describe('Codex quota windows', () => {
+   it.each([
+-    { balance: 62500, unlimited: false, expected: '62500' },
+-    { balance: '62500.00', unlimited: false, expected: '62500' },
+-    { balance: 12.3456, unlimited: false, expected: '12.3456' },
+-    { balance: '12.3456', unlimited: false, expected: '12.3456' },
++    { balance: 62500, unlimited: false, expected: '62,500' },
++    { balance: '62500.00', unlimited: false, expected: '62,500' },
++    { balance: 12.3456, unlimited: false, expected: '12.3' },
++    { balance: '12.3456', unlimited: false, expected: '12.3' },
++    { balance: 38538.5254395, unlimited: false, expected: '38,538.5' },
+     { balance: 0, unlimited: false, expected: '0' },
+     { balance: null, unlimited: true, expected: 'Unlimited' },
+     { balance: 62500, unlimited: true, expected: 'Unlimited' },
