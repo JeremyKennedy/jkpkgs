@@ -60,6 +60,7 @@ let
       ./patches/chat-width.patch
       ./patches/gitea-references-across.patch
       ./patches/reply-start-scroll.patch
+      ./patches/mobile-boot-overlay.patch
       ./patches/dictation-thread-count.patch
       ./patches/mobile-guest-extensions.patch
     ];

@@ -1,0 +1,24 @@
+diff --git a/packages/ui/src/apps/MobileApp.tsx b/packages/ui/src/apps/MobileApp.tsx
+index 5e68fe5..fcfb9a7 100644
+--- a/packages/ui/src/apps/MobileApp.tsx
++++ b/packages/ui/src/apps/MobileApp.tsx
+@@ -1225,11 +1225,17 @@ function MobileAppContent({ apis }: MobileAppProps) {
+   // intermediate auto-opened draft before the restore decision lands.
+   const [lastSessionRestorePending, setLastSessionRestorePending] = React.useState(isNativeMobileApp);
+   React.useEffect(() => {
+-    if (!isNativeMobileApp || !isConnected || lastSessionRestoreDoneRef.current) return;
++    if (!isNativeMobileApp || lastSessionRestoreDoneRef.current) return;
+     let cancelled = false;
+     // Safety valve: the overlay must never strand the user on the splash if
+-    // the snapshot hangs — fall through to the draft after a bounded wait.
++    // the snapshot hangs — fall through to the draft after a bounded wait. It
++    // also has to run when the launch connection never lands: an unreachable
++    // saved instance drops to the connect screen, where this restore never
++    // starts, and the splash would otherwise stay up over it forever.
+     const overlayTimeoutId = window.setTimeout(() => setLastSessionRestorePending(false), 6000);
++    if (!isConnected) {
++      return () => window.clearTimeout(overlayTimeoutId);
++    }
+     void (async () => {
+       const result = await restoreLastActiveSession({ refresh: true });
+       if (cancelled) return;
