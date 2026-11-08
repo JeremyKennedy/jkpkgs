@@ -1,0 +1,39 @@
+diff --git a/packages/web/server/lib/dictation/local/worker-process.js b/packages/web/server/lib/dictation/local/worker-process.js
+--- a/packages/web/server/lib/dictation/local/worker-process.js
++++ b/packages/web/server/lib/dictation/local/worker-process.js
+@@ -23,9 +23,17 @@
+ import { getLocalSttModelDir, getLocalSttModelSpec } from './model-catalog.js';
+ import { resolveModelLanguage } from './model-language.js';
+ import { pcm16ToWav } from '../audio.js';
++import { availableParallelism } from 'os';
+ 
+ process.title = 'OpenChamber Dictation';
+ 
++// ONNX Runtime threads for the sherpa engines. Upstream pins 2, which leaves
++// most of a workstation idle while the tail of a dictation decodes: on a
++// 32-core host the same 7.4s clip decodes in 195ms at 8 threads instead of
++// 409ms at 2. The worker exits after its idle TTL, so this does not hold
++// cores while dictation is unused.
++const ENGINE_THREADS = Math.max(1, Math.min(8, availableParallelism()));
++
+ const engines = new Map();
+ const ttsEngines = new Map();
+ const sessions = new Map();
+@@ -75,7 +83,7 @@
+     modelDir: getLocalSttModelDir(modelsDir, modelId),
+     files: spec.files,
+     language,
+-    numThreads: 2,
++    numThreads: ENGINE_THREADS,
+   });
+   engines.set(key, created);
+   return created;
+@@ -116,7 +124,7 @@
+     type: spec.type,
+     files: spec.files,
+     lexicon: spec.lexicon,
+-    numThreads: 2,
++    numThreads: ENGINE_THREADS,
+   });
+   ttsEngines.set(key, created);
+   return created;

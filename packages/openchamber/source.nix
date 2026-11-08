@@ -60,6 +60,7 @@ let
       ./patches/chat-width.patch
       ./patches/gitea-references-across.patch
       ./patches/reply-start-scroll.patch
+      ./patches/dictation-thread-count.patch
     ];
   };
 in
