@@ -61,7 +61,19 @@ if ! grep -Rq 'status-question' packages/mobile/dist; then
   exit 1
 fi
 
-./packages/mobile/android/gradlew -p packages/mobile/android "assemble${mode^}"
+# AGP downloads a dynamically linked aapt2 from Maven, whose ELF interpreter is
+# /lib64/ld-linux-x86-64.so.2. NixOS provides that through nix-ld; the Forgejo
+# runner container does not, so the daemon dies with "Daemon startup failed".
+# Use the SDK's aapt2 (autoPatchelf'd against the Nix store) instead. It is
+# passed as a project property so the patched upstream tree stays unmodified.
+aapt2="$ANDROID_HOME/build-tools/35.0.0/aapt2"
+if [[ ! -x "$aapt2" ]]; then
+  echo "error: no aapt2 at $aapt2" >&2
+  exit 1
+fi
+./packages/mobile/android/gradlew -p packages/mobile/android \
+  "-Pandroid.aapt2FromMavenOverride=$aapt2" \
+  "assemble${mode^}"
 
 apk="packages/mobile/android/app/build/outputs/apk/${mode}/app-${mode}.apk"
 if [[ ! -f "$apk" ]]; then
