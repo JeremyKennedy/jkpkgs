@@ -1,59 +1,50 @@
 diff --git a/packages/ui/src/components/chat/ChatContainer.tsx b/packages/ui/src/components/chat/ChatContainer.tsx
-index 3701cf6e6..30a9be6d0 100644
+index 3701cf6e6..8175a5766 100644
 --- a/packages/ui/src/components/chat/ChatContainer.tsx
 +++ b/packages/ui/src/components/chat/ChatContainer.tsx
-@@ -74,6 +74,7 @@ import { useChatTurnNavigation } from './hooks/useChatTurnNavigation';
+@@ -74,6 +74,8 @@ import { useChatTurnNavigation } from './hooks/useChatTurnNavigation';
  import { ChatQuoteHighlightContext, useChatQuoteHighlightStore } from './hooks/chatQuoteHighlightStore';
  import { ChatQuoteHighlightLayer } from './message/ChatQuoteHighlightLayer';
  import { TextSelectionMenu } from './message/TextSelectionMenu';
 +import { deriveMessageRole } from './message/messageRole';
++import { isEmptyTextPart } from './message/partUtils';
  import { loadQuoteSource as loadQuoteSourceMessage, scrollToQuoteSource as scrollToQuoteSourceMessage } from './quoteNavigation';
  import { useChatSurfaceMode } from './useChatSurfaceMode';
  import { useMessageTTS } from '@/hooks/useMessageTTS';
-@@ -1552,6 +1553,61 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
+@@ -1552,6 +1554,51 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
          });
      }, [checkLinkedMessage, controllerLoadHistoryUntilMessage, currentSessionKey, handleLinkedMessageMissing, onManualNavigation]);
      const scrollToTimelineMessage = timelineController.scrollToMessage;
 +    // Replies in the rendered window: the pill's up arrow walks back to the
-+    // nearest one whose start sits above the viewport.
-+    const replyMessageIds = React.useMemo(() => {
++    // nearest one whose prose start sits above the viewport. Steps that only
++    // ran tools are not replies a reader wants to land on.
++    const replyStartMessageIds = React.useMemo(() => {
 +        const records = timelineController.renderedMessages;
 +        const ids: string[] = [];
 +        for (const record of records) {
-+            if (record && deriveMessageRole(record.info).role === 'assistant') {
-+                ids.push(record.info.id);
++            if (!record || deriveMessageRole(record.info).role !== 'assistant') {
++                continue;
 +            }
++            if (!record.parts.some((part) => part.type === 'text' && !isEmptyTextPart(part))) {
++                continue;
++            }
++            ids.push(record.info.id);
 +        }
 +        return ids;
 +    }, [timelineController.renderedMessages]);
-+    // The nearest reply start above the transcript's top edge. Measured on
++    // The nearest reply start above the visible content top. Measured on
 +    // scroll so the arrow always moves up: the reply it lands on is the one
-+    // the reader has already scrolled past.
++    // the reader has already scrolled past. Tool-only steps are not replies.
 +    const [replyJumpTargetId, setReplyJumpTargetId] = React.useState<string | null>(null);
 +    React.useEffect(() => {
-+        if (!scrollNode || replyMessageIds.length === 0) {
++        if (!scrollNode || replyStartMessageIds.length === 0) {
 +            setReplyJumpTargetId(null);
 +            return;
 +        }
 +        let frame = 0;
 +        const measure = () => {
 +            frame = 0;
-+            const containerTop = scrollNode.getBoundingClientRect().top;
-+            let target: string | null = null;
-+            let closest = Number.NEGATIVE_INFINITY;
-+            for (const id of replyMessageIds) {
-+                const element = scrollNode.querySelector<HTMLElement>(
-+                    `[data-message-id="${CSS.escape(id)}"]:not([data-message-slice])`,
-+                );
-+                if (!element) {
-+                    continue;
-+                }
-+                const top = element.getBoundingClientRect().top - containerTop;
-+                if (top < 0 && top > closest) {
-+                    closest = top;
-+                    target = id;
-+                }
-+            }
++            const target = messageListRef.current?.findPreviousReplyStart(replyStartMessageIds) ?? null;
 +            setReplyJumpTargetId((current) => (current === target ? current : target));
 +        };
 +        const schedule = () => {
@@ -68,11 +59,11 @@ index 3701cf6e6..30a9be6d0 100644
 +            window.cancelAnimationFrame(frame);
 +            scrollNode.removeEventListener('scroll', schedule);
 +        };
-+    }, [scrollNode, replyMessageIds]);
++    }, [scrollNode, replyStartMessageIds]);
      const scrollToQuoteSource = React.useCallback(async (
          messageId: string,
          options?: { behavior?: ScrollBehavior },
-@@ -1570,6 +1626,14 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
+@@ -1570,6 +1617,19 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
      const scrollToUiPageRow = React.useCallback((messageId: string) => (
          messageListRef.current?.scrollToUiPageRow(messageId) ?? false
      ), []);
@@ -82,12 +73,17 @@ index 3701cf6e6..30a9be6d0 100644
 +        }
 +        // Instant, like the prompt navigator: a long smooth scroll through a
 +        // virtualized timeline is cancelled by row remounts and lands mid-way.
-+        void scrollToQuoteSource(replyJumpTargetId, { behavior: 'auto' });
++        // The quote-source path releases live follow; the reply-start aligner
++        // then puts the prose itself under the top edge, past the tool rows.
++        void (async () => {
++            await scrollToQuoteSource(replyJumpTargetId, { behavior: 'auto' });
++            messageListRef.current?.scrollToReplyStart(replyJumpTargetId, { behavior: 'auto' });
++        })();
 +    }, [replyJumpTargetId, scrollToQuoteSource]);
  
      const navigation = useChatTurnNavigation({
          sessionId: currentSessionId,
-@@ -2043,8 +2107,10 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
+@@ -2043,8 +2103,10 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                         when the slot resizes (see mobileComposerMorph). */
                      <div className="oc-composer-riders absolute bottom-full inset-x-0" data-composer-riders="true">
                          <ScrollToBottomButton
@@ -99,6 +95,244 @@ index 3701cf6e6..30a9be6d0 100644
                              onClick={navigation.resumeToLatest}
                          />
                          {/* Same anchor and column as the pill, so the status
+diff --git a/packages/ui/src/components/chat/MessageList.tsx b/packages/ui/src/components/chat/MessageList.tsx
+index 6ca4f5129..0dfcf3713 100644
+--- a/packages/ui/src/components/chat/MessageList.tsx
++++ b/packages/ui/src/components/chat/MessageList.tsx
+@@ -14,6 +14,7 @@ import { TurnFold, TurnPagesRow } from './components/LiveTurnActivity';
+ import { useTurnFoldContexts } from './components/useTurnFold';
+ import { LiveFinalActivityContext, LiveTurnHoistedPagesContext } from './components/liveActivityContext';
+ import { MessageSliceContext } from './message/messageSliceContext';
++import { findReplyProseElement } from './message/replyProse';
+ import { PendingWorkflowApprovals } from './workflows/PendingWorkflowApprovals';
+ import { getTurnsWithLaterAssistant, uiPageMessageId } from './lib/turns/liveActivity';
+ import type { ChatMessageEntry, TurnRecord, TurnGroupingContext } from './lib/turns/types';
+@@ -36,6 +37,7 @@ import type { ReviewTransferDirection } from '@/lib/reviewFlow';
+ import { resolveTimelineIsAtEnd } from './lib/scroll/timelineScrollAnchoring';
+ import { estimateTimelineRowSize, type RowSizeMetrics } from './lib/turns/rowSizeEstimate';
+ import { onNavigationRelease } from './lib/scroll/timelineScrollIntent';
++import { REPLY_START_GAP_PX } from '@/hooks/useChatTimelineScroll';
+ import { isReasoningRevealTarget } from './search/reasoningReveal';
+ import {
+     ANCHOR_HOLD_MAX_FRAMES,
+@@ -63,6 +65,33 @@ const EMPTY_ROW_MESSAGE_IDS: readonly string[] = [];
+ //     quiet-window prepend deferral.
+ const TIMELINE_ESTIMATED_ENTRY_SIZE = 320;
+ 
++// The sticky prompt covers the top of the viewport when the setting is on.
++// Every position below it counts as hidden content.
++const readStuckHeaderHeight = (container: HTMLElement): number => {
++    const containerTop = container.getBoundingClientRect().top;
++    let height = 0;
++    for (const header of container.querySelectorAll<HTMLElement>('[data-turn-sticky-header]')) {
++        const rect = header.getBoundingClientRect();
++        if (rect.top <= containerTop + 1 && rect.bottom > containerTop) {
++            height = Math.max(height, rect.height);
++        }
++    }
++    return height;
++};
++
++// A reply whose turn has a sticky prompt starts below it, not at the raw top
++// edge. Without a prompt header the navigation gap stays the 50px used for
++// message jumps.
++const replyTopInset = (container: HTMLElement, element: HTMLElement): number => {
++    const turnId = element.closest<HTMLElement>('[data-turn-row]')?.dataset.turnRow
++        ?? element.closest<HTMLElement>('[data-turn-id]')?.dataset.turnId;
++    if (!turnId) {
++        return 50;
++    }
++    const header = container.querySelector<HTMLElement>(`[data-turn-id="${CSS.escape(turnId)}"] > [data-turn-sticky-header]`);
++    return header ? header.getBoundingClientRect().height + REPLY_START_GAP_PX : 50;
++};
++
+ // Presentation-only props forwarded to the scroll container the list renders.
+ // Deliberately narrow: the list owns scroll and layout callbacks on that
+ // element, so only styling, focus and click-through are caller-controlled.
+@@ -145,6 +174,12 @@ export interface MessageListHandle {
+     scrollToUiPageRow: (messageId: string) => boolean;
+     scrollToTurnId: (turnId: string, options?: { behavior?: ScrollBehavior }) => boolean;
+     scrollToMessageId: (messageId: string, options?: { behavior?: ScrollBehavior }) => boolean;
++    // Lands on the reply's own prose rather than the step's first row: a step
++    // that opens with tool calls would otherwise put its text off screen.
++    scrollToReplyStart: (messageId: string, options?: { behavior?: ScrollBehavior }) => boolean;
++    // The nearest reply among `candidateMessageIds` whose prose starts above
++    // the visible content top (under a sticky prompt header when one covers it).
++    findPreviousReplyStart: (candidateMessageIds: readonly string[]) => string | null;
+     captureViewportAnchor: () => MessageViewportAnchor | null;
+     restoreViewportAnchor: (anchor: MessageViewportAnchor) => boolean;
+     // One step toward showing the anchor at its offset: `moved` when the
+@@ -1284,6 +1319,16 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
+         return container.querySelector(`[data-message-id="${messageId}"]:not([data-message-slice])`);
+     }, [resolveScrollContainer]);
+ 
++    const findReplyStartElement = React.useCallback((messageId: string): HTMLElement | null => {
++        const messageElement = findMessageElement(messageId);
++        if (!messageElement) {
++            return null;
++        }
++        // A step with no prose (tool calls only) is not a reply start; its
++        // caller filters those out, so the message row is a safe fallback.
++        return findReplyProseElement(messageElement) ?? messageElement;
++    }, [findMessageElement]);
++
+     // A slice that no longer exists (the message is cut elsewhere now: the
+     // reasoning was hidden) falls back to the message's first row, as its index does.
+     const findAnchorElement = React.useCallback((anchor: MessageViewportAnchor): HTMLElement | null => (
+@@ -1324,8 +1369,12 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
+     }, [sessionKey]);
+     const settleNavigationTarget = React.useCallback((
+         findElement: () => HTMLElement | null,
+-        desiredOffsetTop: number,
++        desiredOffsetTop: number | (() => number),
++        options?: { throughList?: boolean },
+     ) => {
++        const readDesiredOffset = typeof desiredOffsetTop === 'function'
++            ? desiredOffsetTop
++            : () => desiredOffsetTop;
+         cancelNavigationRef.current?.();
+         const container = resolveScrollContainer();
+         if (!container || typeof window === 'undefined') {
+@@ -1354,9 +1403,17 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
+             if (element) {
+                 const delta = element.getBoundingClientRect().top
+                     - container.getBoundingClientRect().top
+-                    - desiredOffsetTop;
++                    - readDesiredOffset();
+                 if (Math.abs(delta) > 0.5) {
+-                    container.scrollTop += delta;
++                    const list = options?.throughList ? listRef.current : null;
++                    if (list) {
++                        // A raw scrollTop write leaves the list holding its own
++                        // pending target and it corrects back; going through the
++                        // list's offset API hands it this position instead.
++                        void list.scrollToOffset({ offset: container.scrollTop + delta, animated: false });
++                    } else {
++                        container.scrollTop += delta;
++                    }
+                     stable = 0;
+                 } else {
+                     stable += 1;
+@@ -1485,6 +1542,110 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
+                 return didScroll;
+             },
+ 
++            findPreviousReplyStart: (candidateMessageIds: readonly string[]) => {
++                const container = resolveScrollContainer();
++                if (!container || candidateMessageIds.length === 0) {
++                    return null;
++                }
++
++                const containerTop = container.getBoundingClientRect().top;
++                const contentTop = readStuckHeaderHeight(container);
++                const mounted = new Map<string, HTMLElement>();
++                let boundaryIndex: number | undefined;
++                let boundaryTop = Number.NEGATIVE_INFINITY;
++                for (const element of container.querySelectorAll<HTMLElement>('[data-message-id]:not([data-message-slice])')) {
++                    const id = element.getAttribute('data-message-id');
++                    if (!id) continue;
++                    mounted.set(id, element);
++                    const top = element.getBoundingClientRect().top - containerTop;
++                    if (top <= contentTop && top > boundaryTop) {
++                        boundaryTop = top;
++                        boundaryIndex = messageIndexMap.get(id);
++                    }
++                }
++
++                // Only rows the list renders can be landed on; messages before
++                // the loaded window have no row and are skipped. Newest first,
++                // so the first reply above the content top is the nearest one.
++                const ordered = candidateMessageIds
++                    .map((id) => ({ id, index: messageIndexMap.get(id) }))
++                    .filter((candidate): candidate is { id: string; index: number } => candidate.index !== undefined)
++                    .sort((a, b) => b.index - a.index);
++                for (const { id, index } of ordered) {
++                    if (boundaryIndex !== undefined && index > boundaryIndex) {
++                        continue;
++                    }
++                    const element = mounted.get(id);
++                    if (element) {
++                        const start = findReplyProseElement(element) ?? element;
++                        if (start.getBoundingClientRect().top - containerTop < contentTop) {
++                            return id;
++                        }
++                        continue;
++                    }
++                    // Unmounted but ahead of the row at the content top: the
++                    // whole reply is above the viewport.
++                    if (boundaryIndex !== undefined && index < boundaryIndex) {
++                        return id;
++                    }
++                }
++                return null;
++            },
++
++            scrollToReplyStart: (messageId: string, options?: { behavior?: ScrollBehavior }) => {
++                cancelNavigationRef.current?.();
++                const behavior = options?.behavior ?? 'auto';
++                const container = resolveScrollContainer();
++                if (!container) {
++                    return false;
++                }
++
++                revealFoldedMessage(messageId);
++                const readInset = () => {
++                    const start = findReplyStartElement(messageId);
++                    return start ? replyTopInset(container, start) : 50;
++                };
++                const element = findReplyStartElement(messageId);
++                if (element) {
++                    const inset = replyTopInset(container, element);
++                    const containerRect = container.getBoundingClientRect();
++                    const elementRect = element.getBoundingClientRect();
++                    const top = elementRect.top - containerRect.top + container.scrollTop - inset;
++                    const list = listRef.current;
++                    if (list && behavior !== 'smooth') {
++                        // The list owns the scroll position: a raw scrollTop
++                        // write is undone by its pending index target, leaving
++                        // the prose short of the inset.
++                        void list.scrollToOffset({ offset: Math.max(0, top), animated: false });
++                    } else {
++                        container.scrollTo({ top, behavior });
++                    }
++                    if (behavior !== 'smooth') {
++                        settleNavigationTarget(
++                            () => findReplyStartElement(messageId),
++                            readInset,
++                            { throughList: true },
++                        );
++                    }
++                    return true;
++                }
++
++                const index = messageIndexMap.get(messageId);
++                if (index === undefined || !scrollHistoryIndexIntoView(index)) {
++                    return false;
++                }
++                if (behavior !== 'smooth') {
++                    // The target row and its sticky header mount during the
++                    // settle, so the inset is read as they appear.
++                    settleNavigationTarget(
++                        () => findReplyStartElement(messageId),
++                        readInset,
++                        { throughList: true },
++                    );
++                }
++                return true;
++            },
++
+             holdViewportAnchor: (anchor) => {
+                 settleNavigationTarget(() => findAnchorElement(anchor), anchor.offsetTop);
+             },
+@@ -1528,7 +1689,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
+         return () => {
+             if (objectRef.current === handle) objectRef.current = null;
+         };
+-    }, [alignViewportAnchor, findAnchorElement, findMessageElement, messageIndexMap, resolveScrollContainer, revealFoldedMessage, rowIndexByKey, scrollHistoryIndexIntoView, scrollMessageElementIntoView, settleNavigationTarget, turnIndexMap, ref]);
++    }, [alignViewportAnchor, findAnchorElement, findMessageElement, findReplyStartElement, messageIndexMap, resolveScrollContainer, revealFoldedMessage, rowIndexByKey, scrollHistoryIndexIntoView, scrollMessageElementIntoView, settleNavigationTarget, turnIndexMap, ref]);
+ 
+     const rowContext = React.useMemo(() => ({
+         scrollToBottom: stableScrollToBottom,
 diff --git a/packages/ui/src/components/chat/components/ScrollToBottomButton.tsx b/packages/ui/src/components/chat/components/ScrollToBottomButton.tsx
 index 18dac21da..8af9276fb 100644
 --- a/packages/ui/src/components/chat/components/ScrollToBottomButton.tsx
@@ -171,6 +405,72 @@ index 18dac21da..8af9276fb 100644
                  </div>
                  </div>
              </div>
+diff --git a/packages/ui/src/components/chat/hooks/useChatTimelineController.test.ts b/packages/ui/src/components/chat/hooks/useChatTimelineController.test.ts
+index c50ed5859..3e439d57d 100644
+--- a/packages/ui/src/components/chat/hooks/useChatTimelineController.test.ts
++++ b/packages/ui/src/components/chat/hooks/useChatTimelineController.test.ts
+@@ -194,6 +194,8 @@ describe('useChatTimelineController identity lifecycle', () => {
+             scrollToUiPageRow: () => false,
+             captureViewportAnchor: () => null, restoreViewportAnchor: () => false, alignViewportAnchor: () => 'missing',
+             isHistoryVirtualized: () => false, scrollToTurnId: () => false, scrollToMessageId: () => false,
++            scrollToReplyStart: () => false,
++            findPreviousReplyStart: () => null,
+             holdViewportAnchor: () => {}, scrollToBottom: () => {},
+         };
+         const Harness = () => {
+diff --git a/packages/ui/src/components/chat/message/replyProse.ts b/packages/ui/src/components/chat/message/replyProse.ts
+new file mode 100644
+index 000000000..9138b2adc
+--- /dev/null
++++ b/packages/ui/src/components/chat/message/replyProse.ts
+@@ -0,0 +1,21 @@
++/**
++ * The first block of an assistant message's own prose. A step may open with
++ * tool rows (or a reasoning trace) before it says anything, and the pill's
++ * "back to the reply start" jump should land on the text a reader means, not
++ * on the work that led to it.
++ *
++ * Text parts render as `[data-message-text-export-source]`; the plain answer
++ * block carries the AssistantTextPart class. Reasoning blocks reuse the export
++ * attribute, so their descendants are skipped.
++ */
++const REPLY_PROSE_SELECTOR = '[data-message-text-export-source], [class~="group/assistant-text"]';
++
++export function findReplyProseElement(messageElement: HTMLElement): HTMLElement | null {
++    for (const element of messageElement.querySelectorAll<HTMLElement>(REPLY_PROSE_SELECTOR)) {
++        if (element.closest('[data-reasoning-block-id]')) {
++            continue;
++        }
++        return element;
++    }
++    return null;
++}
+diff --git a/packages/ui/src/components/chat/quoteNavigation.test.ts b/packages/ui/src/components/chat/quoteNavigation.test.ts
+index e534a2d7c..adb2cc570 100644
+--- a/packages/ui/src/components/chat/quoteNavigation.test.ts
++++ b/packages/ui/src/components/chat/quoteNavigation.test.ts
+@@ -33,6 +33,8 @@ test('falls back to the rendered message list when the timeline index misses', a
+             scrolls.push(messageId);
+             return true;
+         },
++        scrollToReplyStart: () => false,
++        findPreviousReplyStart: () => null,
+         captureViewportAnchor: () => null,
+         restoreViewportAnchor: () => false,
+         alignViewportAnchor: () => 'missing',
+diff --git a/packages/ui/src/hooks/useChatTimelineScroll.ts b/packages/ui/src/hooks/useChatTimelineScroll.ts
+index cd18799f0..da787c91a 100644
+--- a/packages/ui/src/hooks/useChatTimelineScroll.ts
++++ b/packages/ui/src/hooks/useChatTimelineScroll.ts
+@@ -188,7 +188,7 @@ const MESSAGE_LINK_GAP_PX = 12;
+ // Matches the animation length in typography.css.
+ const MESSAGE_LINK_HIGHLIGHT_MS = 1200;
+ // Room left above a reply whose start the follow stopped at.
+-const REPLY_START_GAP_PX = 16;
++export const REPLY_START_GAP_PX = 16;
+ // How long after a send growth glides before the session reports working.
+ const SEND_GLIDE_WINDOW_MS = 2000;
+ // How long after a turn ends its growth still follows with the follow stops.
 diff --git a/packages/ui/src/lib/i18n/messages/ar.ts b/packages/ui/src/lib/i18n/messages/ar.ts
 index a267cccaa..4f1f4969d 100644
 --- a/packages/ui/src/lib/i18n/messages/ar.ts
