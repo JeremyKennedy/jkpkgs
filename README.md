@@ -59,8 +59,32 @@ patch-queue behaviours that tracked its refactors: #6137 polls an open file
 by the path on screen (retiring `symlink-file-refresh.patch`), and #6275
 settles a session move's idle check through `readSessionsLiveActivity`
 (retiring `move-idle-coverage.patch`). What remains local is the Command
-Code quota provider (upstream removed it in 1.21.0) and the Gitea/Forgejo
+Code quota provider (upstream removed it in 1.21.0), the violet
+pending-question indicator, the wider chat column, and the Gitea/Forgejo
 across-repository reference picker.
+
+## Android app
+
+The Capacitor Android app is built from the same patched source as the web
+and desktop packages. `.forgejo/workflows/android-release.yaml` runs on a
+push that changes the patch queue or the source pin, materializes
+`openchamber.passthru.source.src` plus `bunDeps`, builds a signed release APK
+in the `android` devShell, verifies the purple-question marker and the
+signature, and publishes the APK as a versioned Forgejo release.
+
+Local parity:
+
+```sh
+just android          # signed release APK in result-android.apk
+just android-debug    # debug APK in result-android-debug.apk
+just android-install  # adb install -r result-android.apk
+```
+
+The release key is the agenix secret `openchamber_android_signing` (base64
+keystore plus passwords). Keep a backup of the `.jks` outside agenix: losing
+it means future builds cannot update an installed app without another
+uninstall. The first patched install must replace the upstream-signed APK
+once; later builds signed with this key update in place.
 
 `openchamber-desktop` takes its Electron major from upstream's
 `packages/electron/package.json` and fails evaluation by name when this
