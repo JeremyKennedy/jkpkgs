@@ -56,6 +56,7 @@ let
       ./patches/commandcode-quota.patch
       ./patches/codex-credits-balance.patch
       ./patches/question-indicator-purple.patch
+      ./patches/question-indicator-switcher.patch
       ./patches/chat-width.patch
       ./patches/gitea-references-across.patch
     ];
