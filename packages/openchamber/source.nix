@@ -59,6 +59,7 @@ let
       ./patches/question-indicator-switcher.patch
       ./patches/chat-width.patch
       ./patches/gitea-references-across.patch
+      ./patches/reply-start-scroll.patch
     ];
   };
 in
