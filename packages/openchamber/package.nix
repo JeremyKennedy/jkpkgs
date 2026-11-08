@@ -16,6 +16,7 @@
   openchamberSource,
   opencode,
   openssh,
+  patchelf,
   python3,
   testers,
 }:
@@ -100,6 +101,7 @@ let
     nativeBuildInputs = [
       bun
       nodejs
+      patchelf
     ];
 
     configurePhase = ''
@@ -133,6 +135,19 @@ let
       cp -a packages/web/dist "$appRoot/packages/web/dist"
       cp packages/sdk/package.json "$appRoot/packages/sdk/package.json"
       cp -a packages/sdk/dist "$appRoot/packages/sdk/dist"
+
+      # sherpa-onnx ships prebuilt ELF files whose RUNPATH carries only
+      # $ORIGIN (plus an upstream CI path), and they link the system
+      # libstdc++. NixOS does not expose it at /usr/lib, so the addon fails
+      # to dlopen with "libstdc++.so.6: cannot open shared object file"
+      # whenever LD_LIBRARY_PATH does not happen to include a gcc lib dir.
+      # The systemd unit's environment is exactly that case, which is why
+      # dictation failed there while it worked inside a desktop session.
+      # Patch the RUNPATH so the native module loads in any environment.
+      chmod -R u+w "$appRoot/node_modules"
+      find "$appRoot/node_modules/.bun" \
+        \( -name '*.node' -o -name '*.so' \) -path '*sherpa-onnx-*' -type f \
+        -exec patchelf --add-rpath "${stdenv.cc.cc.lib}/lib" {} \;
     '';
 
     passthru = {
@@ -262,6 +277,25 @@ package.overrideAttrs (
             let out = "";
             p.onData((d) => { out += d; });
             p.onExit(() => { process.exit(out.includes("pty-ok") ? 0 : 1); });
+          '
+          touch "$out"
+        '';
+      };
+
+      # Dictation's native inference runs in a worker under the server's own
+      # environment, which has no desktop session's LD_LIBRARY_PATH. Load the
+      # addon with that variable unset: the prebuilt links libstdc++, so a
+      # missing RUNPATH entry fails here instead of at the first dictation.
+      tests.sherpaAddon = testers.runCommand {
+        name = "openchamber-sherpa-addon-test";
+        nativeBuildInputs = [ source.bun ];
+        script = ''
+          cd ${finalAttrs.finalPackage.passthru.core}/lib/openchamber/packages/web
+          env -u LD_LIBRARY_PATH bun -e '
+            const sherpa = require("sherpa-onnx-node");
+            if (typeof sherpa.readWave !== "function") {
+              throw new Error("sherpa-onnx-node loaded without its native addon");
+            }
           '
           touch "$out"
         '';
