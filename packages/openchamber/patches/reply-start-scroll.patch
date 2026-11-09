@@ -339,10 +339,10 @@ index 6ca4f51..9e1af19 100644
      const rowContext = React.useMemo(() => ({
          scrollToBottom: stableScrollToBottom,
 diff --git a/packages/ui/src/components/chat/components/ScrollToBottomButton.tsx b/packages/ui/src/components/chat/components/ScrollToBottomButton.tsx
-index 18dac21..8af9276 100644
+index 18dac21..078cf12 100644
 --- a/packages/ui/src/components/chat/components/ScrollToBottomButton.tsx
 +++ b/packages/ui/src/components/chat/components/ScrollToBottomButton.tsx
-@@ -41,6 +41,25 @@ const ScrollAction: React.FC<{ onClick: () => void; children?: React.ReactNode }
+@@ -41,6 +41,30 @@ const ScrollAction: React.FC<{ onClick: () => void; children?: React.ReactNode }
      );
  };
  
@@ -354,21 +354,26 @@ index 18dac21..8af9276 100644
 +const ScrollToReplyStartAction: React.FC<{ onClick: () => void }> = ({ onClick }) => {
 +    const { t } = useI18n();
 +    return (
-+        <button
-+            type="button"
-+            onClick={onClick}
-+            aria-label={t('chat.scrollToReplyStart.aria')}
-+            className="inline-flex h-[calc(1.75rem-2px)] w-7 shrink-0 items-center justify-center rounded-full [corner-shape:round] text-muted-foreground"
-+        >
-+            <Icon name="arrow-up" className="h-4 w-4" />
-+        </button>
++        <Tooltip>
++            <TooltipTrigger asChild>
++                <button
++                    type="button"
++                    onClick={onClick}
++                    aria-label={t('chat.scrollToReplyStart.aria')}
++                    className="inline-flex h-[calc(1.75rem-2px)] w-7 shrink-0 items-center justify-center rounded-full [corner-shape:round] text-muted-foreground"
++                >
++                    <Icon name="arrow-up" className="h-4 w-4" />
++                </button>
++            </TooltipTrigger>
++            <TooltipContent side="top" sideOffset={6}>{t('chat.scrollToReplyStart.aria')}</TooltipContent>
++        </Tooltip>
 +    );
 +};
 +
  /**
   * Compact one-line mirror of the status row for the pill: same label and
   * background action, none of the status row's animation machinery (which does
-@@ -76,14 +95,28 @@ const WorkingPillBody: React.FC<{ onClick: () => void }> = ({ onClick }) => {
+@@ -76,14 +100,28 @@ const WorkingPillBody: React.FC<{ onClick: () => void }> = ({ onClick }) => {
  };
  
  interface ScrollToBottomButtonProps {
@@ -398,7 +403,7 @@ index 18dac21..8af9276 100644
      return (
          <div
              ref={registerFloatingPanelClearanceReader}
-@@ -110,7 +143,10 @@ const ScrollToBottomButton: React.FC<ScrollToBottomButtonProps> = ({ visible, wo
+@@ -110,7 +148,10 @@ const ScrollToBottomButton: React.FC<ScrollToBottomButtonProps> = ({ visible, wo
                          visible ? 'pointer-events-auto' : 'pointer-events-none',
                      )}
                  >
