@@ -5,6 +5,10 @@
 # release. A patch that no longer applies fails `nix build` before anything is
 # published. The release is signed with the agenix-held key, so future builds
 # update the installed app in place.
+#
+# Pull requests run the same build as a debug APK, without the signing secret,
+# so a patch that only breaks the mobile bundle fails before merge instead of
+# after. Release publishing stays on `main` pushes.
 name: Android release
 
 on:
@@ -15,6 +19,18 @@ on:
       - flake.lock
       - flake.nix
       - .forgejo/workflows/android-release.yaml
+      - scripts/assert-patch-markers.sh
+      - scripts/build-android.sh
+      - scripts/prepare-android-tree.sh
+      - scripts/publish-android-release.sh
+  pull_request:
+    branches: [main]
+    paths:
+      - packages/openchamber/**
+      - flake.lock
+      - flake.nix
+      - .forgejo/workflows/android-release.yaml
+      - scripts/assert-patch-markers.sh
       - scripts/build-android.sh
       - scripts/prepare-android-tree.sh
       - scripts/publish-android-release.sh
@@ -35,6 +51,7 @@ concurrency:
 
 jobs:
   android:
+    if: github.event_name != 'pull_request'
     runs-on: bee
     container:
       image: runner:latest
@@ -86,3 +103,44 @@ jobs:
           cd "$GITHUB_WORKSPACE"
           nix develop "$GITHUB_WORKSPACE#android" \
             -c bash "$GITHUB_WORKSPACE/scripts/publish-android-release.sh"
+
+  android-smoke:
+    if: github.event_name == 'pull_request'
+    runs-on: bee
+    container:
+      image: runner:latest
+    steps:
+      - name: Checkout
+        run: |
+          set -eu
+          cd "${GITHUB_WORKSPACE:-/workspace}"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          git init -q .
+          git remote add origin "https://git.jeremyk.net/${GITHUB_REPOSITORY}.git"
+          git config --local http.https://git.jeremyk.net/.extraheader \
+            "AUTHORIZATION: basic $(printf 'x:%s' "$GITHUB_TOKEN" | base64 -w0)"
+          git fetch -q --no-tags --prune --no-recurse-submodules origin "${GITHUB_REF}" \
+            || git fetch -q --no-tags --prune --no-recurse-submodules origin "${GITHUB_REF_NAME:-main}"
+          git checkout -q --force FETCH_HEAD
+          git log --oneline -1
+          test -f flake.nix
+
+      - name: Prepare patched tree
+        run: |
+          set -eu
+          build_dir="${RUNNER_TEMP}/openchamber-android-smoke"
+          rm -rf "$build_dir"
+          bash scripts/prepare-android-tree.sh "$build_dir"
+          echo "BUILD_DIR=$build_dir" >> "$GITHUB_ENV"
+
+      # Debug signing needs no secret, so a fork PR can run this too.
+      - name: Build debug APK
+        run: |
+          set -eu
+          cd "$BUILD_DIR"
+          export JKPKGS_SHA="$(git -C "$GITHUB_WORKSPACE" rev-parse --short HEAD)"
+          export OPENCHAMBER_ANDROID_VERSION_CODE="$(git -C "$GITHUB_WORKSPACE" rev-list --count HEAD)"
+          version="$(node -p "require('./package.json').version")"
+          export OPENCHAMBER_ANDROID_VERSION_NAME="${version}-jk${JKPKGS_SHA}-debug"
+          nix develop "$GITHUB_WORKSPACE#android" \
+            -c bash "$GITHUB_WORKSPACE/scripts/build-android.sh" debug

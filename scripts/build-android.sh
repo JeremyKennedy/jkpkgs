@@ -18,6 +18,13 @@ esac
 : "${JAVA_HOME:?JAVA_HOME must be set (nix develop .#android)}"
 : "${ANDROID_HOME:?ANDROID_HOME must be set (nix develop .#android)}"
 
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+
+# The release key is one keystore, backed up outside agenix. If a build signs
+# with anything else, every installed app refuses the update, so pin the
+# certificate instead of only printing it.
+expected_cert_sha256="4ac37b2e0b897ed80c85a019cac08ceb329538cc6ec1f4fbac1583ad6cb60e2e"
+
 if [[ -n "${OPENCHAMBER_ANDROID_SIGNING_FILE:-}" ]]; then
   set -a
   # shellcheck disable=SC1090
@@ -54,12 +61,10 @@ bun run --cwd packages/sdk build
 bun run --cwd packages/mobile sync
 
 # Belt-and-suspenders for the patch queue: applyPatches already fails when a
-# patch does not apply, but the marker proves the patched UI reached the
-# bundle that Capacitor packages into the APK.
-if ! grep -Rq 'status-question' packages/mobile/dist; then
-  echo "error: purple question patch is absent from packages/mobile/dist" >&2
-  exit 1
-fi
+# patch does not apply, but the markers prove the patched UI reached the
+# bundle that Capacitor packages into the APK. markers.json classifies every
+# patch, so this also fails when a new patch is added without a marker.
+bash "$script_dir/assert-patch-markers.sh" packages/mobile/dist
 
 # AGP downloads a dynamically linked aapt2 from Maven, whose ELF interpreter is
 # /lib64/ld-linux-x86-64.so.2. NixOS provides that through nix-ld; the Forgejo
@@ -85,7 +90,16 @@ if [[ ! -f "$apk" ]]; then
 fi
 
 build_tools="$ANDROID_HOME/build-tools/35.0.0"
-"$build_tools/apksigner" verify --print-certs "$apk"
+cert_output=$("$build_tools/apksigner" verify --print-certs "$apk")
+printf '%s\n' "$cert_output"
+if [[ "$mode" == "release" ]]; then
+  actual_cert_sha256=$(printf '%s\n' "$cert_output" |
+    sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1)
+  if [[ "$actual_cert_sha256" != "$expected_cert_sha256" ]]; then
+    echo "error: APK is signed with $actual_cert_sha256, expected $expected_cert_sha256" >&2
+    exit 1
+  fi
+fi
 "$build_tools/aapt" dump badging "$apk" | sed -n '1,5p'
 
 printf '%s\n' "$apk"
