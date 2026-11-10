@@ -96,7 +96,7 @@ index 3701cf6..8175a57 100644
                          />
                          {/* Same anchor and column as the pill, so the status
 diff --git a/packages/ui/src/components/chat/MessageList.tsx b/packages/ui/src/components/chat/MessageList.tsx
-index 6ca4f51..9e1af19 100644
+index 6ca4f51..7e05ad1 100644
 --- a/packages/ui/src/components/chat/MessageList.tsx
 +++ b/packages/ui/src/components/chat/MessageList.tsx
 @@ -14,6 +14,7 @@ import { TurnFold, TurnPagesRow } from './components/LiveTurnActivity';
@@ -111,45 +111,11 @@ index 6ca4f51..9e1af19 100644
  import { resolveTimelineIsAtEnd } from './lib/scroll/timelineScrollAnchoring';
  import { estimateTimelineRowSize, type RowSizeMetrics } from './lib/turns/rowSizeEstimate';
  import { onNavigationRelease } from './lib/scroll/timelineScrollIntent';
-+import { REPLY_START_GAP_PX } from '@/hooks/useChatTimelineScroll';
++import { readStuckHeaderHeight, replyTopInset } from './lib/scroll/replyTopInset';
  import { isReasoningRevealTarget } from './search/reasoningReveal';
  import {
      ANCHOR_HOLD_MAX_FRAMES,
-@@ -63,6 +65,33 @@ const EMPTY_ROW_MESSAGE_IDS: readonly string[] = [];
- //     quiet-window prepend deferral.
- const TIMELINE_ESTIMATED_ENTRY_SIZE = 320;
- 
-+// The sticky prompt covers the top of the viewport when the setting is on.
-+// Every position below it counts as hidden content.
-+const readStuckHeaderHeight = (container: HTMLElement): number => {
-+    const containerTop = container.getBoundingClientRect().top;
-+    let height = 0;
-+    for (const header of container.querySelectorAll<HTMLElement>('[data-turn-sticky-header]')) {
-+        const rect = header.getBoundingClientRect();
-+        if (rect.top <= containerTop + 1 && rect.bottom > containerTop) {
-+            height = Math.max(height, rect.height);
-+        }
-+    }
-+    return height;
-+};
-+
-+// A reply whose turn has a sticky prompt starts below it, not at the raw top
-+// edge. Without a prompt header the navigation gap stays the 50px used for
-+// message jumps.
-+const replyTopInset = (container: HTMLElement, element: HTMLElement): number => {
-+    const turnId = element.closest<HTMLElement>('[data-turn-row]')?.dataset.turnRow
-+        ?? element.closest<HTMLElement>('[data-turn-id]')?.dataset.turnId;
-+    if (!turnId) {
-+        return 50;
-+    }
-+    const header = container.querySelector<HTMLElement>(`[data-turn-id="${CSS.escape(turnId)}"] > [data-turn-sticky-header]`);
-+    return header ? header.getBoundingClientRect().height + REPLY_START_GAP_PX : 50;
-+};
-+
- // Presentation-only props forwarded to the scroll container the list renders.
- // Deliberately narrow: the list owns scroll and layout callbacks on that
- // element, so only styling, focus and click-through are caller-controlled.
-@@ -145,6 +174,12 @@ export interface MessageListHandle {
+@@ -145,6 +147,12 @@ export interface MessageListHandle {
      scrollToUiPageRow: (messageId: string) => boolean;
      scrollToTurnId: (turnId: string, options?: { behavior?: ScrollBehavior }) => boolean;
      scrollToMessageId: (messageId: string, options?: { behavior?: ScrollBehavior }) => boolean;
@@ -162,7 +128,7 @@ index 6ca4f51..9e1af19 100644
      captureViewportAnchor: () => MessageViewportAnchor | null;
      restoreViewportAnchor: (anchor: MessageViewportAnchor) => boolean;
      // One step toward showing the anchor at its offset: `moved` when the
-@@ -1284,6 +1319,16 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
+@@ -1284,6 +1292,16 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
          return container.querySelector(`[data-message-id="${messageId}"]:not([data-message-slice])`);
      }, [resolveScrollContainer]);
  
@@ -179,7 +145,7 @@ index 6ca4f51..9e1af19 100644
      // A slice that no longer exists (the message is cut elsewhere now: the
      // reasoning was hidden) falls back to the message's first row, as its index does.
      const findAnchorElement = React.useCallback((anchor: MessageViewportAnchor): HTMLElement | null => (
-@@ -1324,8 +1369,12 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
+@@ -1324,8 +1342,12 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
      }, [sessionKey]);
      const settleNavigationTarget = React.useCallback((
          findElement: () => HTMLElement | null,
@@ -193,7 +159,7 @@ index 6ca4f51..9e1af19 100644
          cancelNavigationRef.current?.();
          const container = resolveScrollContainer();
          if (!container || typeof window === 'undefined') {
-@@ -1354,9 +1403,17 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
+@@ -1354,9 +1376,17 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
              if (element) {
                  const delta = element.getBoundingClientRect().top
                      - container.getBoundingClientRect().top
@@ -213,7 +179,7 @@ index 6ca4f51..9e1af19 100644
                      stable = 0;
                  } else {
                      stable += 1;
-@@ -1485,6 +1542,115 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
+@@ -1485,6 +1515,115 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
                  return didScroll;
              },
  
@@ -329,7 +295,7 @@ index 6ca4f51..9e1af19 100644
              holdViewportAnchor: (anchor) => {
                  settleNavigationTarget(() => findAnchorElement(anchor), anchor.offsetTop);
              },
-@@ -1528,7 +1694,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
+@@ -1528,7 +1667,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
          return () => {
              if (objectRef.current === handle) objectRef.current = null;
          };
@@ -428,6 +394,167 @@ index c50ed58..3e439d5 100644
              holdViewportAnchor: () => {}, scrollToBottom: () => {},
          };
          const Harness = () => {
+diff --git a/packages/ui/src/components/chat/lib/scroll/replyTopInset.test.ts b/packages/ui/src/components/chat/lib/scroll/replyTopInset.test.ts
+new file mode 100644
+index 0000000..efb78c3
+--- /dev/null
++++ b/packages/ui/src/components/chat/lib/scroll/replyTopInset.test.ts
+@@ -0,0 +1,113 @@
++import { describe, expect, test } from 'bun:test';
++import { Window } from 'happy-dom';
++
++import { REPLY_START_GAP_PX } from '@/hooks/useChatTimelineScroll';
++import { readStuckHeaderHeight, replyTopInset } from './replyTopInset';
++
++const window = new Window();
++const document = window.document as unknown as Document;
++globalThis.CSS = window.CSS as unknown as typeof CSS;
++
++const rect = (top: number, height: number): DOMRect => ({
++    top,
++    bottom: top + height,
++    height,
++    left: 0,
++    right: 0,
++    width: 0,
++    x: 0,
++    y: top,
++    toJSON: () => ({}),
++}) as DOMRect;
++
++const stubRect = (element: Element, box: DOMRect): void => {
++    Object.defineProperty(element, 'getBoundingClientRect', { value: () => box, configurable: true });
++};
++
++const container = (): HTMLElement => {
++    document.body.innerHTML = '';
++    const root = document.createElement('div');
++    document.body.append(root);
++    stubRect(root, rect(48, 600));
++    return root as unknown as HTMLElement;
++};
++
++const addTurnHead = (root: HTMLElement, turnId: string, headerHeight: number): HTMLElement => {
++    const head = document.createElement('section');
++    head.dataset.turnId = turnId;
++    const header = document.createElement('div');
++    header.dataset.turnStickyHeader = '';
++    head.append(header);
++    stubRect(header, rect(48, headerHeight));
++    root.append(head);
++    return header;
++};
++
++const addReply = (root: HTMLElement, turnId: string, proseTop: number): HTMLElement => {
++    const row = document.createElement('div');
++    row.dataset.turnRow = turnId;
++    const prose = document.createElement('div');
++    prose.textContent = 'Answer';
++    row.append(prose);
++    stubRect(prose, rect(proseTop, 40));
++    root.append(row);
++    return prose;
++};
++
++describe('readStuckHeaderHeight', () => {
++    test('counts only a header pinned at the container top', () => {
++        const root = container();
++        const pinned = addTurnHead(root, 'turn_1', 132);
++        const below = document.createElement('div');
++        below.dataset.turnStickyHeader = '';
++        stubRect(below, rect(500, 160));
++        root.append(below);
++
++        expect(readStuckHeaderHeight(root)).toBe(132);
++        expect(pinned.dataset.turnId).toBeUndefined();
++    });
++
++    test('is zero when no header covers the top', () => {
++        const root = container();
++        const below = document.createElement('div');
++        below.dataset.turnStickyHeader = '';
++        stubRect(below, rect(300, 160));
++        root.append(below);
++
++        expect(readStuckHeaderHeight(root)).toBe(0);
++    });
++});
++
++describe('replyTopInset', () => {
++    test('clears the reply turn own sticky header', () => {
++        const root = container();
++        addTurnHead(root, 'turn_1', 132);
++        const prose = addReply(root, 'turn_1', 400);
++
++        expect(replyTopInset(root, prose)).toBe(132 + REPLY_START_GAP_PX);
++    });
++
++    test('falls back to the header stuck over the viewport when the reply turn head is not mounted', () => {
++        const root = container();
++        addTurnHead(root, 'turn_0', 132);
++        const prose = addReply(root, 'turn_1', 400);
++
++        expect(replyTopInset(root, prose)).toBe(132 + REPLY_START_GAP_PX);
++    });
++
++    test('falls back when the reply turn header has no height yet', () => {
++        const root = container();
++        addTurnHead(root, 'turn_0', 132);
++        addTurnHead(root, 'turn_1', 0);
++        const prose = addReply(root, 'turn_1', 400);
++
++        expect(replyTopInset(root, prose)).toBe(132 + REPLY_START_GAP_PX);
++    });
++
++    test('keeps the plain message gap when nothing sticks', () => {
++        const root = container();
++        const prose = addReply(root, 'turn_1', 400);
++
++        expect(replyTopInset(root, prose)).toBe(50);
++    });
++});
+diff --git a/packages/ui/src/components/chat/lib/scroll/replyTopInset.ts b/packages/ui/src/components/chat/lib/scroll/replyTopInset.ts
+new file mode 100644
+index 0000000..3ebe1c3
+--- /dev/null
++++ b/packages/ui/src/components/chat/lib/scroll/replyTopInset.ts
+@@ -0,0 +1,36 @@
++import { REPLY_START_GAP_PX } from '@/hooks/useChatTimelineScroll';
++
++// The sticky prompt covers the top of the viewport when the setting is on.
++// Every position below it counts as hidden content.
++export const readStuckHeaderHeight = (container: HTMLElement): number => {
++    const containerTop = container.getBoundingClientRect().top;
++    let height = 0;
++    for (const header of container.querySelectorAll<HTMLElement>('[data-turn-sticky-header]')) {
++        const rect = header.getBoundingClientRect();
++        if (rect.top <= containerTop + 1 && rect.bottom > containerTop) {
++            height = Math.max(height, rect.height);
++        }
++    }
++    return height;
++};
++
++// A reply whose turn has a sticky prompt starts below it, not at the raw top
++// edge. The reply can be grouped under a turn whose own head is not mounted
++// (for example an answer appended to a turn whose prompt row is virtualized
++// out): the prompt pinned over the viewport is then a different turn's header,
++// and it still covers the reply. Fall back to the header actually stuck at the
++// top, not the 50px used for message jumps. Without any header the gap stays
++// 50px.
++export const replyTopInset = (container: HTMLElement, element: HTMLElement): number => {
++    const turnId = element.closest<HTMLElement>('[data-turn-row]')?.dataset.turnRow
++        ?? element.closest<HTMLElement>('[data-turn-id]')?.dataset.turnId;
++    if (turnId) {
++        const header = container.querySelector<HTMLElement>(`[data-turn-id="${CSS.escape(turnId)}"] > [data-turn-sticky-header]`);
++        const headerHeight = header?.getBoundingClientRect().height ?? 0;
++        if (headerHeight > 0) {
++            return headerHeight + REPLY_START_GAP_PX;
++        }
++    }
++    const stuckHeaderHeight = readStuckHeaderHeight(container);
++    return stuckHeaderHeight > 0 ? stuckHeaderHeight + REPLY_START_GAP_PX : 50;
++};
 diff --git a/packages/ui/src/components/chat/message/MessageBody.tsx b/packages/ui/src/components/chat/message/MessageBody.tsx
 index 0ce3779..8798a04 100644
 --- a/packages/ui/src/components/chat/message/MessageBody.tsx
