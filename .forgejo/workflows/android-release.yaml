@@ -57,6 +57,11 @@ jobs:
       image: runner:latest
       volumes:
         - /run/agenix/openchamber_android_signing:/run/secrets/openchamber_android_signing:ro
+        # Gradle/Maven cache created by hosts/bee/default.nix; without it every
+        # run re-downloads Gradle, AGP and the Maven artifacts.
+        - /var/cache/forgejo-runner/openchamber-android:/cache/openchamber-android
+    env:
+      GRADLE_USER_HOME: /cache/openchamber-android/gradle
     steps:
       # Plain git against our own Forgejo; never actions/checkout, which fetches
       # from github.com on every run. Full history is required: versionCode is
@@ -109,6 +114,10 @@ jobs:
     runs-on: bee
     container:
       image: runner:latest
+      volumes:
+        - /var/cache/forgejo-runner/openchamber-android:/cache/openchamber-android
+    env:
+      GRADLE_USER_HOME: /cache/openchamber-android/gradle
     steps:
       - name: Checkout
         run: |
