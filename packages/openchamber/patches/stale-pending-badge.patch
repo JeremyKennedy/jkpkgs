@@ -1,5 +1,5 @@
 diff --git a/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx b/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx
-index f5442a1..7234083 100644
+index f5442a1..5e79570 100644
 --- a/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx
 +++ b/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx
 @@ -3,11 +3,10 @@ import { Icon } from '@/components/icon/Icon';
@@ -7,7 +7,7 @@ index f5442a1..7234083 100644
  import { SessionActivityIndicator } from '@/components/session/SessionActivityIndicator';
  import { useSessionAiRenameAction } from '@/components/session/useSessionAiRenameAction';
 -import { resolveTooltipBranchLabel } from '@/components/session/sidebar/sessions/sessionNodeItemUtils';
-+import { resolveTooltipBranchLabel, selectBlockingBadgeSessionScopes } from '@/components/session/sidebar/sessions/sessionNodeItemUtils';
++import { resolveTooltipBranchLabel, selectBlockingBadgeSessionIds } from '@/components/session/sidebar/sessions/sessionNodeItemUtils';
  import { useSessionRefLines } from '@/components/session/sidebar/sessions/useSessionRefLines';
  import { refTintStyle } from '@/lib/source-control/prVisualState';
  import { isMultiLineTimelineContext, sessionExpansionKey, type SessionSidebarRow } from '@/components/session/sidebar/sessionSidebarRowModel';
@@ -15,15 +15,6 @@ index f5442a1..7234083 100644
  import { isChatDirectoryPath } from '@/lib/chatDirectories';
  import { useI18n } from '@/lib/i18n';
  import { isSessionPinned } from '@/lib/sessionPins';
-@@ -29,7 +28,7 @@ import { MobileSessionRenameForm } from '../MobileSessionRenameForm';
- import { MobileSessionGoalGlyph, MobileSessionPendingBadges } from '../MobileSessionStateBadges';
- import { MobileSessionRowActions, MobileSwipeActionsRow, ROW_ACTION_SLOT_WIDTH, ROW_ACTIONS_WIDTH } from '../MobileSessionSwipe';
- import { mobileSessionTitleClass } from '../mobileSessionTitle';
--import { usePendingRequests } from '../usePendingRequests';
-+import { useSessionBlockingRequests } from '@/sync/sync-context';
- import { renameMobileSession, runMobileSubtreeAction, selectMobileSession, toggleMobileSessionPin, toggleMobileSessionWork } from './mobileSessionActions';
- import type { MobileTreeGeometry } from './mobileSidebarGeometry';
- import { useMobileRowSwipe, useMobileSidebarActions, useMobileSidebarRowsStore } from './mobileSidebarState';
 @@ -37,8 +36,6 @@ import { MOBILE_ACTIVE_ROW_CLASS, MobileRowChevron, MobileSlotChevron, MobileTwo
  
  type SessionRowModel = Extract<SessionSidebarRow, { kind: 'session' }>;
@@ -42,23 +33,23 @@ index f5442a1..7234083 100644
 -    () => (hasChildren && !expanded ? [session.id, ...collectDescendantIds(node)] : [session.id]),
 -    [expanded, hasChildren, node, session.id],
 +  // A folded row stands for its subsessions too: their waiting requests count
-+  // here, grouped by the directory each lives in. Once a chat's directory has
-+  // bootstrapped, its store answers instead of the additive index, so a form
-+  // the index kept after a lost settlement stops showing.
-+  const pendingScopes = React.useMemo(
-+    () => selectBlockingBadgeSessionScopes(node, expanded, directory || null),
-+    [directory, expanded, node],
++  // here. Once a chat's directory has bootstrapped, its store answers instead
++  // of the additive index, so a form the index kept after a lost settlement
++  // stops showing; a session with no known directory still counts from it.
++  const pendingSessionIds = React.useMemo(
++    () => selectBlockingBadgeSessionIds(node, expanded),
++    [expanded, node],
    );
 -  const pendingRequests = usePendingRequests(familyIds);
-+  const pendingRequests = useSessionBlockingRequests(pendingScopes);
++  const pendingRequests = usePendingRequests(pendingSessionIds);
    const topLevel = !session.parentID;
    const sessionWorkEnabled = useUIStore((state) => state.sessionWorkEnabled);
    // Only a work's own row tracks it, for every session of it: what nests in
 diff --git a/packages/ui/src/apps/usePendingRequests.test.tsx b/packages/ui/src/apps/usePendingRequests.test.tsx
-index 4337ea3..fc5d33b 100644
+index 4337ea3..00ab8e0 100644
 --- a/packages/ui/src/apps/usePendingRequests.test.tsx
 +++ b/packages/ui/src/apps/usePendingRequests.test.tsx
-@@ -1,36 +1,112 @@
+@@ -1,36 +1,113 @@
 -import { describe, expect, test } from 'bun:test';
 +import { describe, expect, spyOn, test } from 'bun:test';
  import React, { act } from 'react';
@@ -81,6 +72,7 @@ index 4337ea3..fc5d33b 100644
 +const CHILD_DIR = '/worktrees/feature';
  const FAMILY = ['parent', 'child'] as const;
  
++// SAFETY: the row lookup reads only id, title and directory, which the fixture sets.
 +const session = (id: string, directory?: string): Session => ({
 +  id,
 +  title: id,
@@ -188,7 +180,7 @@ index 4337ea3..fc5d33b 100644
          { type: 'permission.asked', properties: { id: 'p1', sessionID: 'child', action: 'bash', resources: [] } },
          { type: 'form.created', properties: { form: { id: 'q1', sessionID: 'parent', title: 'Pick', fields: [{ key: 'answer', type: 'boolean' }] } } },
        ]));
-@@ -38,21 +114,59 @@ describe('usePendingRequests', () => {
+@@ -38,21 +115,59 @@ describe('usePendingRequests', () => {
  
        // A second request of the same kind changes nothing the row shows.
        const pendingRenders = capture.renders;
@@ -256,10 +248,10 @@ index 4337ea3..fc5d33b 100644
    });
  });
 diff --git a/packages/ui/src/apps/usePendingRequests.ts b/packages/ui/src/apps/usePendingRequests.ts
-index 16593da..0a689a4 100644
+index 16593da..7a7484f 100644
 --- a/packages/ui/src/apps/usePendingRequests.ts
 +++ b/packages/ui/src/apps/usePendingRequests.ts
-@@ -1,27 +1,76 @@
+@@ -1,27 +1,78 @@
  import React from 'react';
  
  import { useGlobalBlockingRequestsStore } from '@/sync/global-blocking-requests';
@@ -317,6 +309,8 @@ index 16593da..0a689a4 100644
 +  const { scopes, unplacedSessionIds } = React.useMemo(() => {
 +    const sessionIDsByDirectory = new Map<string, string[]>();
 +    const unplaced: string[] = [];
++    // SAFETY: the signature is JSON this file wrote from `entries` above, so
++    // parsing it returns the same string pairs.
 +    const entries = JSON.parse(directorySignature) as [string, string][];
 +    for (const [sessionId, directory] of entries) {
 +      if (!directory) {
@@ -354,7 +348,7 @@ index 16593da..0a689a4 100644
 +  };
  };
 diff --git a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-index 04675f7..de8f38e 100644
+index 04675f7..9aabaed 100644
 --- a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
 +++ b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
 @@ -268,7 +268,7 @@ bootstrap work. Selection and activity subscriptions stay session-scoped so a
@@ -362,7 +356,7 @@ index 04675f7..de8f38e 100644
  updates.
  
 -Session-row permission and form badges read the relevant directory-store buckets and show only whether something waits, without a count: one form can hold many questions, and a number that does not drop as the user answers them reads as wrong. A collapsed row covers its own pending requests and those of the descendants it hides; an expanded row covers only its own. The lookup never bootstraps a directory, so an unbootstrapped directory's store holds only live requests; until that store completes a bootstrap, the row lookup also reads forms from the cross-directory index, which the host seed fills at load, so a question already waiting in a project this client never opened still shows after a reload. Mobile rows show the same icon-only badges from the cross-directory index (`apps/usePendingRequests.ts`). A page an agent shows that waits for the user's answer has no directory-store bucket, so the row lookup also reads it from the cross-directory index and shows it as a form.
-+Session-row permission and form badges read the relevant directory-store buckets and show only whether something waits, without a count: one form can hold many questions, and a number that does not drop as the user answers them reads as wrong. A collapsed row covers its own pending requests and those of the descendants it hides; an expanded row covers only its own. Collapsed worktree, folder, group and run headers count their hidden sessions the same way, through `useCollapsedSessionActivityState`. The lookup never bootstraps a directory, so an unbootstrapped directory's store holds only live requests; until that store completes a bootstrap, the row lookup also reads permissions and forms from the cross-directory index, which the host seed fills at load, so a request already waiting in a project this client never opened still shows after a reload. Once the store completes, it answers alone, so a form the index kept after a lost settlement stops showing. Mobile rows and switcher rows use the same lookup and icon-only badges (`MobileSessionRow` through `useSessionBlockingRequests`, `usePendingRequests` for the switcher). A session with no known directory has no store to answer for it, so the index still counts there. A page an agent shows that waits for the user's answer has no directory-store bucket, so the row lookup also reads it from the cross-directory index and shows it as a form.
++Session-row permission and form badges read the relevant directory-store buckets and show only whether something waits, without a count: one form can hold many questions, and a number that does not drop as the user answers them reads as wrong. A collapsed row covers its own pending requests and those of the descendants it hides; an expanded row covers only its own. Collapsed worktree, folder, group and run headers count their hidden sessions the same way, through `useCollapsedSessionActivityState`. The lookup never bootstraps a directory, so an unbootstrapped directory's store holds only live requests; until that store completes a bootstrap, the row lookup also reads permissions and forms from the cross-directory index, which the host seed fills at load, so a request already waiting in a project this client never opened still shows after a reload. Once the store completes, it answers alone, so a form the index kept after a lost settlement stops showing. Mobile rows use the same lookup and icon-only badges through `usePendingRequests` (`MobileSessionRow`). A session with no known directory has no store to answer for it, so the index still counts there. A page an agent shows that waits for the user's answer has no directory-store bucket, so the row lookup also reads it from the cross-directory index and shows it as a form.
  
  Session menus share `SessionAiRenameMenuItem` with header tabs and the
  single-session header. AI renaming uses the same leading spinner as a worktree
@@ -623,7 +617,7 @@ index ba70b51..b5c9c67 100644
    });
  });
 diff --git a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityState.ts b/packages/ui/src/components/session/sidebar/sessions/collapsedActivityState.ts
-index 8a45cfc..91972cc 100644
+index 8a45cfc..435ccb2 100644
 --- a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityState.ts
 +++ b/packages/ui/src/components/session/sidebar/sessions/collapsedActivityState.ts
 @@ -5,13 +5,22 @@ import { useGlobalBlockingRequestsStore } from '@/sync/global-blocking-requests'
@@ -650,26 +644,27 @@ index 8a45cfc..91972cc 100644
  const mergeCollapsedActivityStates = (
    current: CollapsedActivityState,
    next: CollapsedActivityState,
-@@ -89,6 +98,18 @@ export const useCollapsedSessionActivityState = ({
+@@ -89,6 +98,19 @@ export const useCollapsedSessionActivityState = ({
      () => (blockingSessionIds && blockingSessionIds.length > 0 ? new Set([...ids.active, ...blockingSessionIds]) : ids.active),
      [blockingSessionIds, ids.active],
    );
-+  // Where each counted session lives. A string keeps the subscription on the
-+  // resolved directories instead of the session map identity, so an unrelated
-+  // session update does not rebuild the scopes of a collapsed header.
++  // Where each counted session lives, as JSON: the subscription follows the
++  // resolved directories instead of the session map identity, so a change to an
++  // unrelated session does not rebuild the scopes of a collapsed header, and a
++  // directory containing any separator still encodes unambiguously.
 +  const blockingDirectorySignature = useGlobalSessionsStore(React.useCallback((state) => {
-+    if (!enabled) return '';
-+    const parts: string[] = [];
++    if (!enabled || blockingIds.size === 0) return '';
++    const entries: [string, string][] = [];
 +    for (const sessionId of blockingIds) {
 +      const session = state.entityById.get(sessionId);
-+      parts.push(`${sessionId}:${session ? resolveGlobalSessionDirectory(session) ?? '' : ''}`);
++      entries.push([sessionId, session ? resolveGlobalSessionDirectory(session) ?? '' : '']);
 +    }
-+    return parts.join('|');
++    return JSON.stringify(entries);
 +  }, [blockingIds, enabled]));
    const active = useGlobalSessionStatusStore(React.useCallback((state): CollapsedActivityState => {
      if (!enabled) return null;
      for (const sessionId of ids.active) {
-@@ -128,21 +149,65 @@ export const useCollapsedSessionActivityState = ({
+@@ -128,21 +150,65 @@ export const useCollapsedSessionActivityState = ({
      }
      return null;
    }, [enabled, ids.unread]));
@@ -747,18 +742,139 @@ index 8a45cfc..91972cc 100644
 +        : null;
    return blocked ?? active ?? waitingOnShell ?? waitingOnImage ?? waitingOnPullRequest ?? unread;
  };
-diff --git a/packages/ui/src/sync/DOCUMENTATION.md b/packages/ui/src/sync/DOCUMENTATION.md
-index 65b82b1..93eed94 100644
---- a/packages/ui/src/sync/DOCUMENTATION.md
-+++ b/packages/ui/src/sync/DOCUMENTATION.md
-@@ -838,7 +838,7 @@ Cross-directory selectors subscribe to the narrow child-store field they aggrega
+diff --git a/packages/ui/src/components/session/sidebar/sessions/sessionNodeItemUtils.test.ts b/packages/ui/src/components/session/sidebar/sessions/sessionNodeItemUtils.test.ts
+index 2d2112a..1195aca 100644
+--- a/packages/ui/src/components/session/sidebar/sessions/sessionNodeItemUtils.test.ts
++++ b/packages/ui/src/components/session/sidebar/sessions/sessionNodeItemUtils.test.ts
+@@ -13,6 +13,7 @@ import {
+   resolveSessionPrLookup,
+   resolveTooltipBranchLabel,
+   selectFolderRootNodes,
++  selectBlockingBadgeSessionIds,
+   selectBlockingBadgeSessionScopes,
+ } from './sessionNodeItemUtils';
+ import type { SessionNode } from '../types';
+@@ -94,6 +95,36 @@ describe('selectBlockingBadgeSessionScopes', () => {
+   });
+ });
  
- Directories that are not bootstrapped get their initial activity from the host instead: `host-session-status-seed.ts` fetches `/api/sessions/status`, the cross-project map the OpenChamber host keeps from its single upstream event stream, after each global session load. One request, no OpenCode instance creation. The seed is additive only. It adds busy entries (retry collapses to busy; the next live event restores details) for sessions the client has not observed itself, resolves each session's directory from the global session cache, skips entries the host last updated more than 30 minutes ago because nothing reconciles the host map after a stream gap, and never clears anything: the host payload carries no directory, so absence proves nothing. A live event that arrived first wins. In VS Code the webview shim answers the same route from the extension host's activity watcher, whose phases collapse busy and retry and settle themselves, so every entry it reports is current. The host also reads OpenCode's running list each time its event stream connects and marks those sessions busy, so a turn that started before the host (an external OpenCode, or a host restarted mid-turn) is seeded too. The seed also applies the host's turn starts (`buildHostTurnStarts`): a busy entry's start is its running turn's; an idle entry's is its last turn's and is applied only to a session this device does not see running itself, which is a parent whose subagent or background command keeps that turn open here.
++describe('selectBlockingBadgeSessionIds', () => {
++  test('counts the hidden subtree of a collapsed row', () => {
++    const grandchild: SessionNode = { session: session('grandchild', 'Grandchild'), children: [], worktree: null };
++    const child: SessionNode = { session: session('child', 'Child'), children: [grandchild], worktree: null };
++    const root: SessionNode = { session: session('root', 'Root'), children: [child], worktree: null };
++
++    expect(selectBlockingBadgeSessionIds(root, false)).toEqual(['root', 'child', 'grandchild']);
++  });
++
++  test('keeps a session with no known directory, so the index still answers for it', () => {
++    const child: SessionNode = { session: session('child', 'Child'), children: [], worktree: null };
++    const root: SessionNode = { session: session('root', 'Root'), children: [child], worktree: null };
++
++    expect(selectBlockingBadgeSessionIds(root, false)).toEqual(['root', 'child']);
++  });
++
++  test('an expanded row counts its own session and the workflow agents under it', () => {
++    const agentChild: SessionNode = { session: session('agent-child', 'Agent child'), children: [], worktree: null };
++    const agent: SessionNode = {
++      session: { ...session('agent', 'Agent'), metadata: { openchamber: { kind: 'workflow-agent' } } },
++      children: [agentChild],
++      worktree: null,
++    };
++    const child: SessionNode = { session: session('child', 'Child'), children: [], worktree: null };
++    const root: SessionNode = { session: session('root', 'Root'), children: [child, agent], worktree: null };
++
++    expect(selectBlockingBadgeSessionIds(root, true)).toEqual(['root', 'agent', 'agent-child']);
++  });
++});
++
+ describe('nodeHasPinnedMembershipChange', () => {
+   test('detects composite pin changes using the group directory fallback', () => {
+     const node: SessionNode = {
+diff --git a/packages/ui/src/components/session/sidebar/sessions/sessionNodeItemUtils.ts b/packages/ui/src/components/session/sidebar/sessions/sessionNodeItemUtils.ts
+index 99dd2f9..cdece59 100644
+--- a/packages/ui/src/components/session/sidebar/sessions/sessionNodeItemUtils.ts
++++ b/packages/ui/src/components/session/sidebar/sessions/sessionNodeItemUtils.ts
+@@ -115,33 +115,63 @@ export const getSessionWorktreeMenuDisabled = ({
+ }): boolean => !sessionDirectory || isStreaming || isMovingToWorktree;
  
--Pending permissions and forms get the same treatment in `global-blocking-requests.ts`: the dispatcher feeds it `permission.asked`/`permission.replied`, `form.created`/`form.settled`, and `session.deleted` for every directory, and the host seed adds the `pending` map the server keeps from its own stream (`getPendingBlockingRequestsSnapshot` in `session-runtime.js`; dropped on reply, deletion, and OpenCode restart, so it carries no age cutoff). The index keeps only the fields its consumers render (`id`/`sessionID`/`action`/`resources`/`save` for a permission, `id`/`sessionID`/`title` for a form), which is also everything the host can carry. It is additive from the seed and never cleared by absence. Directory stores stay the source for open directories; desktop row badges also count the index's forms while that directory's store has not completed a bootstrap, because such a store learns only of live ones. Once the bootstrap completes, the store alone answers for forms, since its reply and reconnect paths clear forms the index can keep after a lost `form.settled`; a status change notifies form subscribers so rows switch source. The index serves the tray's approval list and any surface without a mounted row. The mobile shell has no global poller, so its sessions sheet runs the seed after the list load it does each time it opens; without it, phone rows, which read only the index, miss every request already waiting at startup. A page an agent shows that waits for the user's answer (`render.page` with `awaitAnswer`) is a third kind, `pages` (`id` is the tool call id, plus `sessionID`/`title`). OpenCode never hears of that wait, so no directory store holds it: the server announces both ends as `openchamber:page-waiting` and `openchamber:page-settled` (`applyWaitingPageEvent`, placed by the session's directory when the server does not name one) and lists it in the seed's `pages`. Every surface counts it as a form: collapsed and expanded rows, mobile rows, run overviews and the tray, which only opens the session for either. Pages stay apart from `forms` so the form dock never tries to answer one. While one waits, the composer sends a message at once instead of queueing it, because the turn cannot end until the wait does; the message reaches the agent's plugin, which ends the wait.
-+Pending permissions and forms get the same treatment in `global-blocking-requests.ts`: the dispatcher feeds it `permission.asked`/`permission.replied`, `form.created`/`form.settled`, and `session.deleted` for every directory, and the host seed adds the `pending` map the server keeps from its own stream (`getPendingBlockingRequestsSnapshot` in `session-runtime.js`; dropped on reply, deletion, and OpenCode restart, so it carries no age cutoff). The index keeps only the fields its consumers render (`id`/`sessionID`/`action`/`resources`/`save` for a permission, `id`/`sessionID`/`title` for a form), which is also everything the host can carry. It is additive from the seed and never cleared by absence. Directory stores stay the source for open directories; row badges and collapsed group, worktree and run headers also count the index's permissions and forms while that directory's store has not completed a bootstrap, because such a store learns only of live ones. Once the bootstrap completes, the store alone answers, since its reply and reconnect paths clear requests the index can keep after a lost settlement; a status change notifies request subscribers so rows switch source. The index serves the tray's approval list and any surface without a mounted row, and still answers for a session with no known directory. The mobile shell has no global poller, so its sessions sheet runs the seed after the list load it does each time it opens; without it, phone rows miss every request already waiting at startup. Phone rows use the same store-or-index lookup as desktop rows (`useSessionBlockingRequests` through `MobileSessionRow`), so opening a chat also clears a form the index kept after a lost settlement. A page an agent shows that waits for the user's answer (`render.page` with `awaitAnswer`) is a third kind, `pages` (`id` is the tool call id, plus `sessionID`/`title`). OpenCode never hears of that wait, so no directory store holds it: the server announces both ends as `openchamber:page-waiting` and `openchamber:page-settled` (`applyWaitingPageEvent`, placed by the session's directory when the server does not name one) and lists it in the seed's `pages`. Every surface counts it as a form: collapsed and expanded rows, mobile rows, run overviews and the tray, which only opens the session for either. Pages stay apart from `forms` so the form dock never tries to answer one. While one waits, the composer sends a message at once instead of queueing it, because the turn cannot end until the wait does; the message reaches the agent's plugin, which ends the wait.
- 
- ### Why page snapshots replace waits while form and permission seeds stay additive
+ /**
+- * Choose which (directory, sessionIDs) scopes a sidebar row's blocking-request
+- * badges should count. An expanded row counts its own session and the workflow
+- * agents under it, which have no rows; a collapsed parent row additionally
+- * rolls up the hidden descendants of its subtree, grouped by the directory
+- * store each descendant actually lives in.
++ * Visit the sessions whose blocking-request badges belong to a row: the row's
++ * own session, and either its workflow agents when expanded or its whole
++ * subtree when collapsed. Workflow agents have no rows of their own, so an
++ * expanded row counts them; every descendant of a collapsed row is hidden, so
++ * it counts all of them.
+  */
+-export const selectBlockingBadgeSessionScopes = (
++const visitBlockingBadgeSessions = (
+   node: SessionNode,
+   isExpanded: boolean,
+-  fallbackDirectory: string | null,
+-): BlockingBadgeSessionScope[] => {
+-  const sessionIDsByDirectory = new Map<string, string[]>();
++  visitSession: (session: SessionNode['session'], directory: string | null) => void,
++): void => {
+   const visit = (current: SessionNode): void => {
+-    const directory = resolveGlobalSessionDirectory(current.session)
+-      ?? normalizePath(current.worktree?.path)
+-      ?? fallbackDirectory;
+-    if (directory) {
+-      const sessionIDs = sessionIDsByDirectory.get(directory) ?? [];
+-      sessionIDs.push(current.session.id);
+-      sessionIDsByDirectory.set(directory, sessionIDs);
+-    }
++    visitSession(
++      current.session,
++      resolveGlobalSessionDirectory(current.session) ?? normalizePath(current.worktree?.path),
++    );
+     for (const child of current.children) {
+       if (current === node && isExpanded && !isWorkflowAgentSession(child.session)) continue;
+       visit(child);
+     }
+   };
+   visit(node);
++};
++
++/**
++ * Every session id whose blocking-request badges belong to a row. A lookup that
++ * resolves directories itself uses these, so a session with no known directory
++ * still counts from the cross-directory index.
++ */
++export const selectBlockingBadgeSessionIds = (
++  node: SessionNode,
++  isExpanded: boolean,
++): string[] => {
++  const ids: string[] = [];
++  visitBlockingBadgeSessions(node, isExpanded, (session) => ids.push(session.id));
++  return ids;
++};
++
++/**
++ * Choose which (directory, sessionIDs) scopes a sidebar row's blocking-request
++ * badges should count, grouped by the directory store each session lives in.
++ * Sessions with no known directory are left out; callers that read the
++ * cross-directory index instead use `selectBlockingBadgeSessionIds`.
++ */
++export const selectBlockingBadgeSessionScopes = (
++  node: SessionNode,
++  isExpanded: boolean,
++  fallbackDirectory: string | null,
++): BlockingBadgeSessionScope[] => {
++  const sessionIDsByDirectory = new Map<string, string[]>();
++  visitBlockingBadgeSessions(node, isExpanded, (session, directory) => {
++    const resolved = directory ?? fallbackDirectory;
++    if (!resolved) return;
++    const sessionIDs = sessionIDsByDirectory.get(resolved) ?? [];
++    sessionIDs.push(session.id);
++    sessionIDsByDirectory.set(resolved, sessionIDs);
++  });
+   return [...sessionIDsByDirectory].map(([directory, sessionIDs]) => ({ directory, sessionIDs }));
+ };
  
 diff --git a/packages/ui/src/sync/session-blocking-requests.test.tsx b/packages/ui/src/sync/session-blocking-requests.test.tsx
 index 88324dd..631690d 100644
@@ -824,3 +940,16 @@ index f7fa515..20ff767 100644
        }
      }
      const previous = snapshotRef.current
+diff --git a/packages/ui/src/sync/DOCUMENTATION.md b/packages/ui/src/sync/DOCUMENTATION.md
+index 65b82b1..5ea22e9 100644
+--- a/packages/ui/src/sync/DOCUMENTATION.md
++++ b/packages/ui/src/sync/DOCUMENTATION.md
+@@ -838,7 +838,7 @@ Cross-directory selectors subscribe to the narrow child-store field they aggrega
+ 
+ Directories that are not bootstrapped get their initial activity from the host instead: `host-session-status-seed.ts` fetches `/api/sessions/status`, the cross-project map the OpenChamber host keeps from its single upstream event stream, after each global session load. One request, no OpenCode instance creation. The seed is additive only. It adds busy entries (retry collapses to busy; the next live event restores details) for sessions the client has not observed itself, resolves each session's directory from the global session cache, skips entries the host last updated more than 30 minutes ago because nothing reconciles the host map after a stream gap, and never clears anything: the host payload carries no directory, so absence proves nothing. A live event that arrived first wins. In VS Code the webview shim answers the same route from the extension host's activity watcher, whose phases collapse busy and retry and settle themselves, so every entry it reports is current. The host also reads OpenCode's running list each time its event stream connects and marks those sessions busy, so a turn that started before the host (an external OpenCode, or a host restarted mid-turn) is seeded too. The seed also applies the host's turn starts (`buildHostTurnStarts`): a busy entry's start is its running turn's; an idle entry's is its last turn's and is applied only to a session this device does not see running itself, which is a parent whose subagent or background command keeps that turn open here.
+ 
+-Pending permissions and forms get the same treatment in `global-blocking-requests.ts`: the dispatcher feeds it `permission.asked`/`permission.replied`, `form.created`/`form.settled`, and `session.deleted` for every directory, and the host seed adds the `pending` map the server keeps from its own stream (`getPendingBlockingRequestsSnapshot` in `session-runtime.js`; dropped on reply, deletion, and OpenCode restart, so it carries no age cutoff). The index keeps only the fields its consumers render (`id`/`sessionID`/`action`/`resources`/`save` for a permission, `id`/`sessionID`/`title` for a form), which is also everything the host can carry. It is additive from the seed and never cleared by absence. Directory stores stay the source for open directories; desktop row badges also count the index's forms while that directory's store has not completed a bootstrap, because such a store learns only of live ones. Once the bootstrap completes, the store alone answers for forms, since its reply and reconnect paths clear forms the index can keep after a lost `form.settled`; a status change notifies form subscribers so rows switch source. The index serves the tray's approval list and any surface without a mounted row. The mobile shell has no global poller, so its sessions sheet runs the seed after the list load it does each time it opens; without it, phone rows, which read only the index, miss every request already waiting at startup. A page an agent shows that waits for the user's answer (`render.page` with `awaitAnswer`) is a third kind, `pages` (`id` is the tool call id, plus `sessionID`/`title`). OpenCode never hears of that wait, so no directory store holds it: the server announces both ends as `openchamber:page-waiting` and `openchamber:page-settled` (`applyWaitingPageEvent`, placed by the session's directory when the server does not name one) and lists it in the seed's `pages`. Every surface counts it as a form: collapsed and expanded rows, mobile rows, run overviews and the tray, which only opens the session for either. Pages stay apart from `forms` so the form dock never tries to answer one. While one waits, the composer sends a message at once instead of queueing it, because the turn cannot end until the wait does; the message reaches the agent's plugin, which ends the wait.
++Pending permissions and forms get the same treatment in `global-blocking-requests.ts`: the dispatcher feeds it `permission.asked`/`permission.replied`, `form.created`/`form.settled`, and `session.deleted` for every directory, and the host seed adds the `pending` map the server keeps from its own stream (`getPendingBlockingRequestsSnapshot` in `session-runtime.js`; dropped on reply, deletion, and OpenCode restart, so it carries no age cutoff). The index keeps only the fields its consumers render (`id`/`sessionID`/`action`/`resources`/`save` for a permission, `id`/`sessionID`/`title` for a form), which is also everything the host can carry. It is additive from the seed and never cleared by absence. Directory stores stay the source for open directories; row badges and collapsed group, worktree and run headers also count the index's permissions and forms while that directory's store has not completed a bootstrap, because such a store learns only of live ones. Once the bootstrap completes, the store alone answers, since its reply and reconnect paths clear requests the index can keep after a lost settlement; a status change notifies request subscribers so rows switch source. The index serves the tray's approval list and any surface without a mounted row, and still answers for a session with no known directory. The mobile shell has no global poller, so its sessions sheet runs the seed after the list load it does each time it opens; without it, phone rows miss every request already waiting at startup. Phone rows use the same store-or-index lookup as desktop rows (`usePendingRequests` through `MobileSessionRow`), so opening a chat also clears a form the index kept after a lost settlement. A page an agent shows that waits for the user's answer (`render.page` with `awaitAnswer`) is a third kind, `pages` (`id` is the tool call id, plus `sessionID`/`title`). OpenCode never hears of that wait, so no directory store holds it: the server announces both ends as `openchamber:page-waiting` and `openchamber:page-settled` (`applyWaitingPageEvent`, placed by the session's directory when the server does not name one) and lists it in the seed's `pages`. Every surface counts it as a form: collapsed and expanded rows, mobile rows, run overviews and the tray, which only opens the session for either. Pages stay apart from `forms` so the form dock never tries to answer one. While one waits, the composer sends a message at once instead of queueing it, because the turn cannot end until the wait does; the message reaches the agent's plugin, which ends the wait.
+ 
+ ### Why page snapshots replace waits while form and permission seeds stay additive
+ 
