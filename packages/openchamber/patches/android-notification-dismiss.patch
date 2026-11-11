@@ -319,11 +319,67 @@ index c2faab5..cdcba00 100644
    if (marked.length === 0) return
    for (const sessionId of marked) clearDesktopSessionNotifications(sessionId)
    // The route only resets the push badge, so one call covers them all.
+diff --git a/packages/ui/src/sync/session-unread.test.ts b/packages/ui/src/sync/session-unread.test.ts
+index 5eeed69..69dc16c 100644
+--- a/packages/ui/src/sync/session-unread.test.ts
++++ b/packages/ui/src/sync/session-unread.test.ts
+@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test"
+ import type { Session } from "@/lib/opencode/model"
+ import { opencodeClient } from "@/lib/opencode/client"
+ import { useGlobalSessionsStore } from "@/stores/useGlobalSessionsStore"
+-import { getUnreadSessionIds, isSessionUnread, isSessionUnreadWithError, markSessionsUnreadSeen, markSessionUnreadSeen } from "./session-unread"
++import { getSessionFamilyIds, getUnreadSessionIds, isSessionUnread, isSessionUnreadWithError, markSessionsUnreadSeen, markSessionUnreadSeen } from "./session-unread"
+ 
+ const session = (id: string, time: Partial<Session["time"]> = {}, extra: Partial<Session> = {}): Session => ({
+   id, directory: "/repo", projectID: "project", title: id, cost: 0,
+@@ -102,3 +102,34 @@ describe("markSessionUnreadSeen", () => {
+     expect(view.mock.calls.sort()).toEqual([["a", 10, "/repo"], ["b", 30, "/repo"]])
+   })
+ })
++
++describe("getSessionFamilyIds", () => {
++  let previousState: ReturnType<typeof useGlobalSessionsStore.getState>
++
++  beforeEach(() => {
++    previousState = useGlobalSessionsStore.getState()
++  })
++
++  afterEach(() => {
++    useGlobalSessionsStore.setState(previousState)
++  })
++
++  test("a view of a parent covers every session nested under it", () => {
++    const grandchild = session("grandchild", {}, { parentID: "child" })
++    const child = session("child", {}, { parentID: "parent" })
++    const parent = session("parent")
++    useGlobalSessionsStore.getState().applySnapshot([parent, child, grandchild], [])
++
++    expect(getSessionFamilyIds("parent")).toEqual(["parent", "child", "grandchild"])
++    expect(getSessionFamilyIds("child")).toEqual(["child", "grandchild"])
++    expect(getSessionFamilyIds("grandchild")).toEqual(["grandchild"])
++  })
++
++  test("a parent cycle ends instead of looping", () => {
++    const first = session("first", {}, { parentID: "second" })
++    const second = session("second", {}, { parentID: "first" })
++    useGlobalSessionsStore.getState().applySnapshot([first, second], [])
++
++    expect(getSessionFamilyIds("first")).toEqual(["first", "second"])
++  })
++})
 diff --git a/packages/ui/src/sync/session-unread.ts b/packages/ui/src/sync/session-unread.ts
-index 8ed35b8..cfac05d 100644
+index 8ed35b8..33f61a3 100644
 --- a/packages/ui/src/sync/session-unread.ts
 +++ b/packages/ui/src/sync/session-unread.ts
-@@ -96,6 +96,30 @@ export const markSessionUnreadSeen = (sessionId: string): void => {
+@@ -14,6 +14,7 @@ import { useCallback } from "react"
+ import { compact, type Session } from "@/lib/opencode/model"
+ import { opencodeClient } from "@/lib/opencode/client"
+ import { getRuntimeKey } from "@/lib/runtime-switch"
++import { readGlobalSessionLineage } from "@/stores/sessionLineage"
+ import { useGlobalSessionsStore } from "@/stores/useGlobalSessionsStore"
+ 
+ /**
+@@ -96,6 +97,24 @@ export const markSessionUnreadSeen = (sessionId: string): void => {
    markSessionsUnreadSeen([sessionId])
  }
  
@@ -336,19 +392,13 @@ index 8ed35b8..cfac05d 100644
 +
 +/**
 + * A session and every session nested under it. A view of the parent shows the
-+ * requests its subagents wait on, so their notifications belong to it too.
++ * requests its subagents wait on, so their notifications belong to it too. The
++ * walk comes from `sessionLineage.ts`, which carries the visited set that ends
++ * a parent cycle and the review-session handling the other lineage callers use.
 + */
 +export const getSessionFamilyIds = (sessionId: string): string[] => {
-+  const ids = [sessionId]
-+  const childrenByParentId = useGlobalSessionsStore.getState().structure.activeChildrenByParentId
-+  const collect = (parentId: string): void => {
-+    for (const childId of childrenByParentId.get(parentId) ?? []) {
-+      ids.push(childId)
-+      collect(childId)
-+    }
-+  }
-+  collect(sessionId)
-+  return ids
++  const descendants = readGlobalSessionLineage().descendantsOf(sessionId, "active")
++  return [sessionId, ...descendants.map((session) => session.id)]
 +}
 +
  /** Every unread session the client knows of. */
