@@ -64,6 +64,7 @@ let
       ./patches/mobile-boot-overlay.patch
       ./patches/dictation-thread-count.patch
       ./patches/mobile-guest-extensions.patch
+      ./patches/android-notification-dismiss.patch
     ];
   };
 in
