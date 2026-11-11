@@ -1,0 +1,396 @@
+diff --git a/packages/mobile/HANDOFF.md b/packages/mobile/HANDOFF.md
+index fff372c..27c4ac5 100644
+--- a/packages/mobile/HANDOFF.md
++++ b/packages/mobile/HANDOFF.md
+@@ -124,6 +124,15 @@ iOS Simulator helpers: `mobile:sim:{boot,install,launch,run,serve,list,kill}` (s
+   shows the in-app notification). Gated on the desktop's visibility, never the phone's own.
+ - Foreground behavior: iOS suppresses the banner via `presentationOptions: []`; the web/PWA service
+   worker suppresses when a window is focused.
++- Delivered banners: Android's sealed push service keys each banner by the push tag (the identity
++  iOS gets through `apns-collapse-id`; the tag also rides in the push `data` so the app can key
++  by it without relying on the relay's collapse-key mapping), so a later push for a session
++  replaces that session's earlier banner instead of stacking another. It copies `sessionId` into
++  the notification extras; opening or viewing a session removes its delivered banners through the
++  Capacitor push plugin (`clearNativeSessionNotifications`), and "Mark all seen" removes every
++  banner of a session the active runtime knows. Pull-request alerts name no session and stay.
++  Banners Firebase Messaging displays itself (no `enc`: enterprise mode, or a shell without a
++  push key) carry the payload only on the tap intent and are not cleared this way.
+ 
+ ## Platform config specifics
+ 
+diff --git a/packages/mobile/android/app/src/main/java/com/openchamber/app/SealedPushMessagingService.java b/packages/mobile/android/app/src/main/java/com/openchamber/app/SealedPushMessagingService.java
+index 26259bc..f43898e 100644
+--- a/packages/mobile/android/app/src/main/java/com/openchamber/app/SealedPushMessagingService.java
++++ b/packages/mobile/android/app/src/main/java/com/openchamber/app/SealedPushMessagingService.java
+@@ -7,6 +7,7 @@ import android.app.PendingIntent;
+ import android.content.Context;
+ import android.content.Intent;
+ import android.os.Build;
++import android.os.Bundle;
+ import androidx.annotation.NonNull;
+ import androidx.core.app.NotificationCompat;
+ import androidx.core.app.NotificationManagerCompat;
+@@ -70,6 +71,16 @@ public class SealedPushMessagingService extends MessagingService {
+         for (Map.Entry<String, String> entry : data.entrySet()) {
+             if (!"enc".equals(entry.getKey())) intent.putExtra(entry.getKey(), entry.getValue());
+         }
++        // One banner per push tag, the identity iOS gets through apns-collapse-id:
++        // a later push for the same session replaces its earlier banner instead
++        // of stacking another one. The server also puts the tag in `data`, so
++        // this does not depend on the relay mapping the collapse key. Without
++        // either, each message keeps its own banner.
++        String tag = remoteMessage.getCollapseKey();
++        if (tag == null) tag = data.get("tag");
++        int notificationId = tag != null ? tag.hashCode() : messageId.hashCode();
++        // Each push keeps its own tap intent, so replacing a banner cannot point
++        // an older banner's tap at a newer push.
+         int requestCode = messageId.hashCode();
+         PendingIntent pendingIntent = PendingIntent.getActivity(
+             this,
+@@ -87,6 +98,15 @@ public class SealedPushMessagingService extends MessagingService {
+             .setAutoCancel(true)
+             .setPriority(NotificationCompat.PRIORITY_HIGH)
+             .setContentIntent(pendingIntent);
++        // The tap intent's extras do not reach the notification itself, and the
++        // web layer reads this one to remove the session's banners once the
++        // user opens it (getDeliveredNotifications exposes notification extras).
++        String sessionId = data.get("sessionId");
++        if (sessionId != null) {
++            Bundle extras = new Bundle();
++            extras.putString("sessionId", sessionId);
++            builder.addExtras(extras);
++        }
+         String badge = data.get("badge");
+         if (badge != null) {
+             try {
+@@ -96,9 +116,8 @@ public class SealedPushMessagingService extends MessagingService {
+             }
+         }
+ 
+-        String tag = remoteMessage.getCollapseKey();
+         try {
+-            NotificationManagerCompat.from(this).notify(tag, requestCode, builder.build());
++            NotificationManagerCompat.from(this).notify(tag, notificationId, builder.build());
+         } catch (SecurityException error) {
+             // Notification permission withdrawn; nothing to show.
+         }
+diff --git a/packages/ui/src/lib/DOCUMENTATION.md b/packages/ui/src/lib/DOCUMENTATION.md
+index cd38893..56aa978 100644
+--- a/packages/ui/src/lib/DOCUMENTATION.md
++++ b/packages/ui/src/lib/DOCUMENTATION.md
+@@ -1,17 +1,35 @@
+-# Hosted surface selection
++# Shared UI library modules
+ 
+-## Ownership
++## Hosted surface selection
++
++### Ownership
+ 
+ `runtimeSurface.ts` owns the choice between the mobile and desktop app shells in a hosted browser. It stamps the answer on `window` at boot, and every `isMobileSurfaceRuntime()` caller reads that answer. Capacitor, Electron and VS Code have fixed surfaces and skip the heuristic. The live tablet layout inside the mobile shell belongs to `useTabletLayout` in `device.ts`.
+ 
+-## Invariants
++### Invariants
+ 
+ - An explicit stamp or `?surface=` override wins over the heuristic, and an override stops the resize watcher.
+ - Rotating a phone never changes its surface, so it never reloads the document.
+ - Tablets and fine-pointer touch desktops follow the viewport width: a coarse-pointer tablet is mobile up to 768 CSS px wide, so rotating it can still reload into the other shell.
+ 
++## Native session notifications
++
++### Ownership
++
++`nativeNotifications.ts` removes the native app's delivered banners for sessions the user has seen. The desktop shell clears its own through Electron IPC (`desktop.ts`); a browser has no delivered list.
++
++### Invariants
++
++- Only banners whose push data names a session are removed. Pull-request alerts and any banner without a session id stay.
++- "Mark all seen" clears the banners of every session this runtime's store knows, including one that left no unread mark such as a permission request. Banners from another paired server stay.
++- A list read that fails before push registration completes is harmless; the next view clears what this one missed.
++
+ ## Decisions
+ 
++### Why the Capacitor push plugin's delivered list and not an app-local plugin
++
++The plugin already owns the delivered list on both platforms and returns each banner with its push data. Android's `SealedPushMessagingService` copies `sessionId` into the notification's extras so that read sees it, and iOS keeps it in the request's userInfo. A second app-local plugin would duplicate the list handling for one operation.
++
+ ### Why a phone is recognized by the screen's short side and not by the viewport width
+ 
+ A rotated phone's viewport and `screen.width` both report the long side, so a width check flips during rotation and the resize watcher reloads into the desktop shell. The short side stays the same in both orientations.
+diff --git a/packages/ui/src/lib/nativeNotifications.test.ts b/packages/ui/src/lib/nativeNotifications.test.ts
+new file mode 100644
+index 0000000..6b12f42
+--- /dev/null
++++ b/packages/ui/src/lib/nativeNotifications.test.ts
+@@ -0,0 +1,95 @@
++import { beforeEach, describe, expect, mock, test } from 'bun:test';
++import type { PushNotificationSchema } from '@capacitor/push-notifications';
++
++let platform: 'ios' | 'android' | 'web' = 'web';
++let delivered: PushNotificationSchema[] = [];
++let removed: PushNotificationSchema[][] = [];
++let readFailure: Error | null = null;
++
++mock.module('@/lib/platform', () => ({ getClientPlatform: () => platform }));
++mock.module('@capacitor/push-notifications', () => ({
++  PushNotifications: {
++    getDeliveredNotifications: async () => {
++      if (readFailure) throw readFailure;
++      return { notifications: delivered };
++    },
++    removeDeliveredNotifications: async ({ notifications }: { notifications: PushNotificationSchema[] }) => {
++      removed.push(notifications);
++    },
++  },
++}));
++
++const { clearNativeSessionNotifications } = await import('./nativeNotifications');
++
++const banner = (id: string, sessionId?: string): PushNotificationSchema => ({
++  id,
++  title: 'Agent response is ready',
++  body: '',
++  data: sessionId ? { sessionId } : { type: 'pull-request' },
++} as PushNotificationSchema);
++
++describe('clearing native session notifications', () => {
++  beforeEach(() => {
++    platform = 'android';
++    delivered = [];
++    removed = [];
++    readFailure = null;
++  });
++
++  test('removes only the banners of the sessions the user saw', async () => {
++    delivered = [
++      banner('a', 'ses_seen'),
++      banner('b', 'ses_other'),
++      banner('c', 'ses_seen'),
++      banner('d'),
++    ];
++
++    await clearNativeSessionNotifications(['ses_seen']);
++
++    expect(removed).toEqual([[delivered[0], delivered[2]]]);
++  });
++
++  test('removes banners for every session marked seen', async () => {
++    delivered = [banner('a', 'ses_one'), banner('b', 'ses_two'), banner('c', 'ses_other')];
++
++    await clearNativeSessionNotifications(['ses_one', 'ses_two']);
++
++    expect(removed).toEqual([[delivered[0], delivered[1]]]);
++  });
++
++  test('does nothing when no banner belongs to the session', async () => {
++    delivered = [banner('a', 'ses_other')];
++
++    await clearNativeSessionNotifications(['ses_seen']);
++
++    expect(removed).toEqual([]);
++  });
++
++  test('marking everything seen removes every banner of the known sessions and leaves pull requests', async () => {
++    delivered = [banner('a', 'ses_one'), banner('b', 'ses_two'), banner('c')];
++
++    await clearNativeSessionNotifications(['ses_one', 'ses_two']);
++
++    expect(removed).toEqual([[delivered[0], delivered[1]]]);
++  });
++
++  test('runs on iOS and stays quiet elsewhere', async () => {
++    delivered = [banner('a', 'ses_seen')];
++
++    platform = 'web';
++    await clearNativeSessionNotifications(['ses_seen']);
++    expect(removed).toEqual([]);
++
++    platform = 'ios';
++    await clearNativeSessionNotifications(['ses_seen']);
++    expect(removed).toEqual([[delivered[0]]]);
++  });
++
++  test('survives a list read that fails before registration completes', async () => {
++    readFailure = new Error('registration not called');
++
++    await clearNativeSessionNotifications(['ses_seen']);
++
++    expect(removed).toEqual([]);
++  });
++});
+diff --git a/packages/ui/src/lib/nativeNotifications.ts b/packages/ui/src/lib/nativeNotifications.ts
+new file mode 100644
+index 0000000..3f8cb13
+--- /dev/null
++++ b/packages/ui/src/lib/nativeNotifications.ts
+@@ -0,0 +1,40 @@
++// Removes the native app's delivered notifications for sessions the user has
++// seen. Desktop clears its own through the Electron IPC command in
++// `desktop.ts`; a browser has no delivered-notification list to clear.
++//
++// The Capacitor push plugin owns the delivered-notification list on both
++// platforms, so no app-local native plugin is needed: `getDeliveredNotifications`
++// returns each banner with its `data`, which carries `sessionId` from the push
++// (Android's `SealedPushMessagingService` copies it into the notification's
++// extras, iOS keeps it in the request's userInfo). Matching on that id, never on
++// the banner tag, keeps a session's banners apart from pull-request alerts,
++// which name no session.
++
++import type { PushNotificationSchema } from '@capacitor/push-notifications';
++
++import { getClientPlatform } from '@/lib/platform';
++
++const removeDelivered = async (matches: (notification: PushNotificationSchema) => boolean): Promise<void> => {
++  const platform = getClientPlatform();
++  if (platform !== 'ios' && platform !== 'android') return;
++
++  try {
++    const { PushNotifications } = await import('@capacitor/push-notifications');
++    const delivered = await PushNotifications.getDeliveredNotifications();
++    const matching = delivered.notifications.filter(matches);
++    if (matching.length === 0) return;
++    await PushNotifications.removeDeliveredNotifications({ notifications: matching });
++  } catch {
++    // The plugin rejects the list read before its registration completes, and
++    // the next view clears what this one missed.
++  }
++};
++
++export const clearNativeSessionNotifications = async (sessionIds: readonly string[]): Promise<void> => {
++  if (sessionIds.length === 0) return;
++  const wanted = new Set(sessionIds);
++  await removeDelivered((notification) => {
++    const sessionId = notification.data?.sessionId;
++    return typeof sessionId === 'string' && wanted.has(sessionId);
++  });
++};
+diff --git a/packages/ui/src/sync/DOCUMENTATION.md b/packages/ui/src/sync/DOCUMENTATION.md
+index 65b82b1..61140a8 100644
+--- a/packages/ui/src/sync/DOCUMENTATION.md
++++ b/packages/ui/src/sync/DOCUMENTATION.md
+@@ -957,7 +957,7 @@ Live activity/status indicators must not depend on this cache. They must use the
+ 
+ `session-unread.ts` owns the unread mark, and OpenCode owns the state behind it. A session record carries `time.idle` (when its last turn ended, whatever the outcome) and `time.viewed` (a watermark of the last turn end a viewer saw, which OpenCode keeps monotone). A top-level, unarchived session whose `idle` is past its `viewed` is unread. Rows, tabs, switchers, collapsed aggregates, run overviews, the tray, the dock badge and the iOS widget all read that one rule from the global sessions store. OpenCode stamps `idle` when a session only idles on background work, so the sidebar's user sections, the tray and the dock badge also leave out a session whose turn is still open (`collectOpenTurnSessionIds`: the running sessions, their ancestors, and sessions waiting on a workflow run, a background command or image, or a pull request). It counts once that work ends, with no change to its record, which is why the tray hook subscribes to those stores even with the tray off. The tray and the dock badge also require a sidebar row (`sessionHasSidebarRow`): an unread session the user cannot see or open would hold a dock count nothing clears. The badge counts a session that only the Chats, Pinned or In work section lists while that section is shown; the tray list keeps it with the section hidden, because a tray row opens the session directly.
+ 
+-Marking a session seen (`markSessionViewed` in `notification-store.ts`, which also clears its native notifications) writes the watermark locally at once and sends `POST /api/session/:id/view` with the `idle` it saw; a failed write restores the previous watermark unless a newer record replaced it. OpenCode announces the view as `session.viewed` to every client, so a session seen on one device stops being unread on the others. The global store's change signatures include `idle` and `viewed`, so these updates publish immediately instead of waiting with recency-only updates.
++Marking a session seen (`markSessionViewed` in `notification-store.ts`, which also clears its native notifications) writes the watermark locally at once and sends `POST /api/session/:id/view` with the `idle` it saw; a failed write restores the previous watermark unless a newer record replaced it. On the desktop shell it removes the session's Notification Center entries through Electron IPC. In the native app it reads the Capacitor push plugin's delivered list and removes the banners whose push data carries that session id; pull-request alerts name no session and stay. `markAllSessionsViewed` clears the banners of every session this runtime's store knows, including one that left no unread mark such as a permission request; banners from another paired server stay. OpenCode announces the view as `session.viewed` to every client, so a session seen on one device stops being unread on the others. The global store's change signatures include `idle` and `viewed`, so these updates publish immediately instead of waiting with recency-only updates.
+ 
+ Archive and delete clear the mark whatever did them (the archive action, retention cleanup, worktree removal): an archived session is never unread and a deleted one has no record. Restoring an archived session marks its last turn seen, so it does not come back unread.
+ 
+diff --git a/packages/ui/src/sync/notification-store.ts b/packages/ui/src/sync/notification-store.ts
+index c2faab5..03c3aa1 100644
+--- a/packages/ui/src/sync/notification-store.ts
++++ b/packages/ui/src/sync/notification-store.ts
+@@ -9,8 +9,9 @@
+ 
+ import { create } from "zustand"
+ import { clearDesktopSessionNotifications } from "@/lib/desktop"
++import { clearNativeSessionNotifications } from "@/lib/nativeNotifications"
+ import { runtimeFetch } from "@/lib/runtime-fetch"
+-import { getUnreadSessionIds, markSessionsUnreadSeen, markSessionUnreadSeen } from "./session-unread"
++import { getKnownSessionIds, getUnreadSessionIds, markSessionsUnreadSeen, markSessionUnreadSeen } from "./session-unread"
+ 
+ export type ErrorNotification = {
+   directory?: string
+@@ -49,12 +50,14 @@ export function appendErrorNotification(notification: ErrorNotification) {
+ /**
+  * The user saw the session: its unread mark clears on every device, and so do
+  * its native notifications, including ones that left no unread mark, such as a
+- * permission request. The server also resets the phone's push badge count,
+- * since the user is in the app.
++ * permission request. That covers the desktop shell and the native app's
++ * delivered banners. The server also resets the phone's push badge count, since
++ * the user is in the app.
+  */
+ export function markSessionViewed(sessionId: string) {
+   markSessionUnreadSeen(sessionId)
+   clearDesktopSessionNotifications(sessionId)
++  void clearNativeSessionNotifications([sessionId])
+   runtimeFetch(`/api/sessions/${encodeURIComponent(sessionId)}/view`, { method: "POST" })
+     .catch(() => { /* the badge resets on the next engagement signal */ })
+ }
+@@ -62,6 +65,10 @@ export function markSessionViewed(sessionId: string) {
+ /** Every unread session the client knows of is marked seen, the same way opening each would. */
+ export function markAllSessionsViewed() {
+   const marked = markSessionsUnreadSeen(getUnreadSessionIds())
++  // "Mark all seen" also covers banners that left no unread mark, such as a
++  // permission request, so every banner of a session this runtime knows goes,
++  // not only `marked`. Sessions of another paired server stay.
++  void clearNativeSessionNotifications(getKnownSessionIds())
+   if (marked.length === 0) return
+   for (const sessionId of marked) clearDesktopSessionNotifications(sessionId)
+   // The route only resets the push badge, so one call covers them all.
+diff --git a/packages/ui/src/sync/session-unread.ts b/packages/ui/src/sync/session-unread.ts
+index 8ed35b8..5f97e7f 100644
+--- a/packages/ui/src/sync/session-unread.ts
++++ b/packages/ui/src/sync/session-unread.ts
+@@ -96,6 +96,13 @@ export const markSessionUnreadSeen = (sessionId: string): void => {
+   markSessionsUnreadSeen([sessionId])
+ }
+ 
++/** Every session the active runtime's store knows of, seen or not. */
++export const getKnownSessionIds = (): string[] => {
++  const ids: string[] = []
++  for (const session of useGlobalSessionsStore.getState().entityById.values()) ids.push(session.id)
++  return ids
++}
++
+ /** Every unread session the client knows of. */
+ export const getUnreadSessionIds = (): string[] => {
+   const ids: string[] = []
+diff --git a/packages/web/server/lib/notifications/APNS.md b/packages/web/server/lib/notifications/APNS.md
+index b4f24c8..000bc01 100644
+--- a/packages/web/server/lib/notifications/APNS.md
++++ b/packages/web/server/lib/notifications/APNS.md
+@@ -148,3 +148,21 @@ every phone shows only the scenario title.
+ 
+ The relay forwards Android tokens to FCM. A sealed push goes as a data message, so
+ `SealedPushMessagingService` runs in the background and builds the notification itself.
++
++Its banner identity is the push `tag`, the same identity `apns-collapse-id` gives iOS, so a
++later push for one session replaces that session's earlier banner instead of stacking
++another one. The tag also rides in the push `data` (the relay already forwards `data` keys
++such as `enc` and `sessionId`), so Android can key the banner without relying on the relay
++mapping it to FCM's collapse key. The service copies `sessionId` into the notification's own
++extras, which the Capacitor push plugin exposes through `getDeliveredNotifications`. When the
++user opens a session, the app removes the delivered banners carrying that id
++(`clearNativeSessionNotifications` in `packages/ui/src/lib/nativeNotifications.ts`); a
++pull-request alert names no session and stays.
++
++The extras exist only on banners `SealedPushMessagingService` builds, the path an install with
++a push key takes outside enterprise mode. A push without `enc` is displayed by Firebase
++Messaging itself, whose banner carries the payload only on the tap intent, so those banners are
++not cleared by session view; that path remains for enterprise mode and shells that predate the
++push key.
++
++
+diff --git a/packages/web/server/lib/notifications/runtime.js b/packages/web/server/lib/notifications/runtime.js
+index 7a6e397..856e40c 100644
+--- a/packages/web/server/lib/notifications/runtime.js
++++ b/packages/web/server/lib/notifications/runtime.js
+@@ -129,7 +129,11 @@ export const createNotificationTriggerRuntime = (deps) => {
+       badge: trackPushAndCountBadge(typeof payload?.tag === 'string' ? payload.tag : undefined),
+       tag: payload?.tag,
+       // sessionId is forwarded so a tapped push can deep-link; it is an opaque id, not content.
+-      data: typeof data.sessionId === 'string' ? { sessionId: data.sessionId } : undefined,
++      // The tag rides along so Android can key a banner by the session without relying on the
++      // relay to map it to FCM's collapse key.
++      data: typeof data.sessionId === 'string'
++        ? { sessionId: data.sessionId, tag: typeof payload?.tag === 'string' ? payload.tag : undefined }
++        : undefined,
+     };
+   };
+ 
+diff --git a/packages/web/server/lib/notifications/trigger-runtime.test.js b/packages/web/server/lib/notifications/trigger-runtime.test.js
+index cf9b3ed..bd21203 100644
+--- a/packages/web/server/lib/notifications/trigger-runtime.test.js
++++ b/packages/web/server/lib/notifications/trigger-runtime.test.js
+@@ -315,6 +315,8 @@ describe('push content in enterprise mode', () => {
+       // The clear text stays generic; the reply rides only in `sealed`.
+       expect(apns).toMatchObject({ title: 'Agent response is ready', body: 'Fix the billing export' });
+       expect(apns.sealed).toEqual({ title: 'Fix the billing export', body: 'The customer table is migrated' });
++      // The tag rides with the session id so Android can key the banner by the session.
++      expect(apns.data).toEqual({ sessionId: 'ses_p', tag: 'ready-ses_p' });
+       expect(sendPushToAllUiSessions.mock.calls[0][0].phoneBody).toBeUndefined();
+     } finally {
+       vi.unstubAllGlobals();

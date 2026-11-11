@@ -57,12 +57,14 @@ let
       ./patches/codex-credits-balance.patch
       ./patches/question-indicator-purple.patch
       ./patches/question-indicator-switcher.patch
+      ./patches/stale-pending-badge.patch
       ./patches/chat-width.patch
       ./patches/gitea-references-across.patch
       ./patches/reply-start-scroll.patch
       ./patches/mobile-boot-overlay.patch
       ./patches/dictation-thread-count.patch
       ./patches/mobile-guest-extensions.patch
+      ./patches/android-notification-dismiss.patch
     ];
   };
 in
