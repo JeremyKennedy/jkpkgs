@@ -1,7 +1,16 @@
 diff --git a/packages/ui/src/components/chat/ChatContainer.tsx b/packages/ui/src/components/chat/ChatContainer.tsx
-index 3701cf6..8175a57 100644
+index 3701cf6..e21d3ab 100644
 --- a/packages/ui/src/components/chat/ChatContainer.tsx
 +++ b/packages/ui/src/components/chat/ChatContainer.tsx
+@@ -63,7 +63,7 @@ import {
+     withdrawComposerInsets,
+ } from '@/components/chat/composer/state/composerInsetReaders';
+ import { SessionErrorNotice } from '@/components/chat/SessionErrorNotice';
+-import ScrollToBottomButton from './components/ScrollToBottomButton';
++import ScrollToBottomButton, { ScrollToReplyStartAction } from './components/ScrollToBottomButton';
+ import { PromptNavigatorRail } from './components/PromptNavigatorRail';
+ import { useAuthSessionStore } from '@/lib/runtime-auth-expiry';
+ import { useScrollShadow } from '@/components/ui/useScrollShadow';
 @@ -74,6 +74,8 @@ import { useChatTurnNavigation } from './hooks/useChatTurnNavigation';
  import { ChatQuoteHighlightContext, useChatQuoteHighlightStore } from './hooks/chatQuoteHighlightStore';
  import { ChatQuoteHighlightLayer } from './message/ChatQuoteHighlightLayer';
@@ -63,7 +72,7 @@ index 3701cf6..8175a57 100644
      const scrollToQuoteSource = React.useCallback(async (
          messageId: string,
          options?: { behavior?: ScrollBehavior },
-@@ -1570,6 +1617,19 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
+@@ -1570,6 +1617,28 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
      const scrollToUiPageRow = React.useCallback((messageId: string) => (
          messageListRef.current?.scrollToUiPageRow(messageId) ?? false
      ), []);
@@ -80,10 +89,19 @@ index 3701cf6..8175a57 100644
 +            messageListRef.current?.scrollToReplyStart(replyJumpTargetId, { behavior: 'auto' });
 +        })();
 +    }, [replyJumpTargetId, scrollToQuoteSource]);
++
++    // At the live edge the status chip sits over the pill, so the chip carries
++    // the reply-start arrow itself. Away from the edge the chip fades and the
++    // pill owns both arrows.
++    const replyStartAction = React.useMemo(() => (
++        !timelineController.showScrollToBottom && replyJumpTargetId
++            ? <ScrollToReplyStartAction onClick={scrollToPreviousReplyStart} />
++            : undefined
++    ), [replyJumpTargetId, scrollToPreviousReplyStart, timelineController.showScrollToBottom]);
  
      const navigation = useChatTurnNavigation({
          sessionId: currentSessionId,
-@@ -2043,8 +2103,10 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
+@@ -2043,8 +2112,10 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                         when the slot resizes (see mobileComposerMorph). */
                      <div className="oc-composer-riders absolute bottom-full inset-x-0" data-composer-riders="true">
                          <ScrollToBottomButton
@@ -95,6 +113,15 @@ index 3701cf6..8175a57 100644
                              onClick={navigation.resumeToLatest}
                          />
                          {/* Same anchor and column as the pill, so the status
+@@ -2069,7 +2140,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
+                                         userOwnsScroll ? 'pointer-events-none' : 'pointer-events-auto',
+                                     )}
+                                 >
+-                                    <StatusRowContainer />
++                                    <StatusRowContainer leadingAction={replyStartAction} />
+                                 </div>
+                             </div>
+                         </div>
 diff --git a/packages/ui/src/components/chat/MessageList.tsx b/packages/ui/src/components/chat/MessageList.tsx
 index 6ca4f51..7e05ad1 100644
 --- a/packages/ui/src/components/chat/MessageList.tsx
@@ -304,8 +331,74 @@ index 6ca4f51..7e05ad1 100644
  
      const rowContext = React.useMemo(() => ({
          scrollToBottom: stableScrollToBottom,
+diff --git a/packages/ui/src/components/chat/StatusRow.tsx b/packages/ui/src/components/chat/StatusRow.tsx
+index 0b2c0ce..5f84306 100644
+--- a/packages/ui/src/components/chat/StatusRow.tsx
++++ b/packages/ui/src/components/chat/StatusRow.tsx
+@@ -1,4 +1,5 @@
+ import React from "react";
++import { cn } from "@/lib/utils";
+ import { useChatSessionSelection } from './chatColumnSession';
+ import { WorkingPlaceholder } from "./message/parts/WorkingPlaceholder";
+ import { BackgroundWorkButton } from "./components/BackgroundWorkButton";
+@@ -24,6 +25,9 @@ interface StatusRowProps {
+   providerId?: string | null;
+   /** Set while the turn waits on work OpenCode can move to the background. */
+   onBackground?: () => void;
++  /** Drawn inside the chip ahead of the status, for an action the chip takes
++      over while it is the floating control at the live edge. */
++  leadingAction?: React.ReactNode;
+ }
+ 
+ export const StatusRow: React.FC<StatusRowProps> = ({
+@@ -37,6 +41,7 @@ export const StatusRow: React.FC<StatusRowProps> = ({
+   modelName,
+   providerId,
+   onBackground,
++  leadingAction,
+ }) => {
+   const currentSessionId = useChatSessionSelection().sessionId;
+ 
+@@ -64,7 +69,15 @@ export const StatusRow: React.FC<StatusRowProps> = ({
+           WorkingPlaceholder, so the visible marks land on the same line.
+           pe-2 evens out the far side: text glyph to edge lands ~10px, the
+           same optical gap as the start. */}
+-      <div className="oc-surface-floating inline-flex w-max max-w-full items-center gap-2 h-7 whitespace-nowrap rounded-full [corner-shape:round] ps-1.5 pe-2">
++      <div
++        className={cn(
++          "oc-surface-floating inline-flex w-max max-w-full items-center gap-2 h-7 whitespace-nowrap rounded-full [corner-shape:round] pe-2",
++          // The arrow slot sits at the chip's edge the way it does in the
++          // scroll pill, so the icon lands on the same line in both.
++          leadingAction ? "ps-0" : "ps-1.5",
++        )}
++      >
++        {leadingAction}
+         {/* overflow-x-clip: hiding one axis turns the other into `auto`, and a
+             sub-pixel overshoot of the label (zoom, font metrics) gave the chip
+             its own scrollbar. Clipping both axes cut descenders off at the
+diff --git a/packages/ui/src/components/chat/StatusRowContainer.tsx b/packages/ui/src/components/chat/StatusRowContainer.tsx
+index 4be82b8..e5cb0d4 100644
+--- a/packages/ui/src/components/chat/StatusRowContainer.tsx
++++ b/packages/ui/src/components/chat/StatusRowContainer.tsx
+@@ -12,7 +12,7 @@ import { StatusRow } from './StatusRow';
+  * Uses the dedicated assistant status hook so the row keeps accurate live activity
+  * labels while still limiting subscriptions to the active assistant message.
+  */
+-export const StatusRowContainer: React.FC = React.memo(() => {
++export const StatusRowContainer: React.FC<{ leadingAction?: React.ReactNode }> = React.memo(({ leadingAction }) => {
+     const { activeModel, working } = useAssistantStatus();
+     const currentAgentName = useConfigStore((state) => state.currentAgentName);
+     const providers = useConfigStore((state) => state.providers);
+@@ -47,6 +47,7 @@ export const StatusRowContainer: React.FC = React.memo(() => {
+             modelName={modelDisplayName}
+             providerId={activeModel?.providerId ?? null}
+             onBackground={working.canBackground ? backgroundWork : undefined}
++            leadingAction={leadingAction}
+         />
+     );
+ });
 diff --git a/packages/ui/src/components/chat/components/ScrollToBottomButton.tsx b/packages/ui/src/components/chat/components/ScrollToBottomButton.tsx
-index 18dac21..078cf12 100644
+index 18dac21..1c69369 100644
 --- a/packages/ui/src/components/chat/components/ScrollToBottomButton.tsx
 +++ b/packages/ui/src/components/chat/components/ScrollToBottomButton.tsx
 @@ -41,6 +41,30 @@ const ScrollAction: React.FC<{ onClick: () => void; children?: React.ReactNode }
@@ -317,7 +410,7 @@ index 18dac21..078cf12 100644
 + * who scrolled past it. Sits beside the down arrow in the same surface so both
 + * jumps stay one floating control.
 + */
-+const ScrollToReplyStartAction: React.FC<{ onClick: () => void }> = ({ onClick }) => {
++export const ScrollToReplyStartAction: React.FC<{ onClick: () => void }> = ({ onClick }) => {
 +    const { t } = useI18n();
 +    return (
 +        <Tooltip>
