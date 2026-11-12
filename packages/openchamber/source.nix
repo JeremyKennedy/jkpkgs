@@ -71,6 +71,7 @@ let
       ./patches/send-past-open-question.patch
       ./patches/mobile-voice-launch.patch
       ./patches/draft-heading-project-picker.patch
+      ./patches/recap-full-note.patch
     ];
   };
 in
