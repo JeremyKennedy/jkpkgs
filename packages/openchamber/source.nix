@@ -73,8 +73,8 @@ let
       ./patches/mobile-assist-trigger.patch
       ./patches/draft-heading-project-picker.patch
       ./patches/recap-full-note.patch
-      ./patches/instance-attention.patch
       ./patches/question-rows.patch
+      ./patches/instance-attention.patch
     ];
   };
 in

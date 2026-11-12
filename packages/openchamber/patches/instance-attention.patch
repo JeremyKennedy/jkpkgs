@@ -67,48 +67,54 @@ index 2d7e7ba08..48e0dca8c 100644
    test(`preserves optional health identity parsing for ${JSON.stringify(serverId)}`, async () => {
      const result = await baseProbe({
 diff --git a/packages/ui/src/App.tsx b/packages/ui/src/App.tsx
-index 47c67827e..cf06fc3d7 100644
+index 47c67827e..6721caae0 100644
 --- a/packages/ui/src/App.tsx
 +++ b/packages/ui/src/App.tsx
-@@ -20,6 +20,8 @@ import { useGuestInstallLinks } from '@/hooks/useGuestInstallLinks';
+@@ -20,6 +20,9 @@ import { useGuestInstallLinks } from '@/hooks/useGuestInstallLinks';
  import { useSessionStatusBootstrap } from '@/hooks/useSessionStatusBootstrap';
  import { useTraySync } from '@/hooks/useTraySync';
  import { useGlobalSessionsPolling } from '@/hooks/useGlobalSessionsPolling';
 +import { useInstanceAttentionPolling } from '@/hooks/useInstanceAttentionPolling';
 +import { useInstanceAttentionPreview } from '@/hooks/useInstanceAttentionPreview';
++import { useLocalInstanceAttention } from '@/hooks/useLocalInstanceAttention';
  import { useRouter } from '@/hooks/useRouter';
  import { usePushVisibilityBeacon } from '@/hooks/usePushVisibilityBeacon';
  import { useWebNotificationStream } from '@/hooks/useWebNotificationStream';
-@@ -694,6 +696,9 @@ function App({ apis }: AppProps) {
+@@ -694,6 +697,11 @@ function App({ apis }: AppProps) {
  
    useTraySync();
    useGlobalSessionsPolling(true);
-+  // Desktop-only: sessions on the other saved instances that need the user.
++  // Desktop-only: sessions on the other saved instances that need the user,
++  // merged with this instance's own in one list and one count.
 +  useInstanceAttentionPolling(isDesktopRuntime);
++  useLocalInstanceAttention(isDesktopRuntime);
 +  useInstanceAttentionPreview();
  
    useSessionStatusBootstrap();
  
 diff --git a/packages/ui/src/apps/MobileApp.tsx b/packages/ui/src/apps/MobileApp.tsx
-index 5e68fe568..84225b4a3 100644
+index 5e68fe568..322f2317a 100644
 --- a/packages/ui/src/apps/MobileApp.tsx
 +++ b/packages/ui/src/apps/MobileApp.tsx
-@@ -29,6 +29,8 @@ import { MobileToaster } from './MobileToaster';
+@@ -29,6 +29,9 @@ import { MobileToaster } from './MobileToaster';
  import { usePushVisibilityBeacon } from '@/hooks/usePushVisibilityBeacon';
  import { useRouter } from '@/hooks/useRouter';
  import { useTerminalSessionKeepalive } from '@/hooks/useTerminalSessionKeepalive';
 +import { useInstanceAttentionPreview } from '@/hooks/useInstanceAttentionPreview';
++import { useLocalInstanceAttention } from '@/hooks/useLocalInstanceAttention';
 +import { useMobileInstanceAttentionPolling } from '@/hooks/useMobileInstanceAttentionPolling';
  import { useUpdatePolling } from '@/hooks/useUpdatePolling';
  import { useWindowTitle } from '@/hooks/useWindowTitle';
  import { useEnterprisePolicySync } from '@/hooks/useEnterprisePolicySync';
-@@ -1299,6 +1301,10 @@ function MobileAppContent({ apis }: MobileAppProps) {
+@@ -1299,6 +1302,12 @@ function MobileAppContent({ apis }: MobileAppProps) {
    // Same as App.tsx: the session's memory index and the Memory tab both read
    // this snapshot, and without it the phone showed no memory at all.
    useAgentMemorySync(currentDirectory || null);
 +  // The phone's other saved connections: sessions that need the user while
-+  // this one is shown. The active connection is excluded.
++  // this one is shown. The active connection is excluded, and this
++  // connection's own sessions are merged in from the live stores.
 +  useMobileInstanceAttentionPolling(isConnected);
++  useLocalInstanceAttention(isConnected);
 +  useInstanceAttentionPreview();
    useRouter();
    // APNs is the only notification channel on the native app (background-capable,
@@ -430,15 +436,16 @@ index 000000000..baae9bc2b
 +};
 diff --git a/packages/ui/src/apps/MobileInstanceAttentionBell.test.tsx b/packages/ui/src/apps/MobileInstanceAttentionBell.test.tsx
 new file mode 100644
-index 000000000..5c49f9f3a
+index 000000000..d6dcd5c28
 --- /dev/null
 +++ b/packages/ui/src/apps/MobileInstanceAttentionBell.test.tsx
-@@ -0,0 +1,331 @@
+@@ -0,0 +1,367 @@
 +import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 +import React, { act } from 'react';
 +import type { Root } from 'react-dom/client';
 +import { Window } from 'happy-dom';
 +
++import { LOCAL_INSTANCE_ATTENTION_HOST_ID } from '@/lib/instanceAttention';
 +import { useInstanceAttentionStore } from '@/stores/useInstanceAttentionStore';
 +import type { MobileSavedConnection } from './mobileConnections';
 +
@@ -475,9 +482,10 @@ index 000000000..5c49f9f3a
 +});
 +
 +const messages = new Map<string, string>([
-+  ['instanceAttention.ariaOne', '{count} session on another instance is waiting on you'],
-+  ['instanceAttention.ariaMany', '{count} sessions on other instances are waiting on you'],
++  ['instanceAttention.ariaOne', '{count} session is waiting on you'],
++  ['instanceAttention.ariaMany', '{count} sessions are waiting on you'],
 +  ['instanceAttention.list.title', 'Waiting on you'],
++  ['instanceAttention.localInstance', 'This instance'],
 +  ['instanceAttention.kind.permission', 'Permission'],
 +  ['instanceAttention.kind.question', 'Question'],
 +  ['instanceAttention.kind.failed', 'Failed'],
@@ -560,6 +568,10 @@ index 000000000..5c49f9f3a
 +  isActiveRuntimeConnection: (connection: MobileSavedConnection) => connection.id === activeConnectionId,
 +}));
 +mock.module('@/lib/desktopHostActions', () => ({ activateHost: async () => undefined }));
++let attentionRefreshCalls = 0;
++mock.module('@/hooks/useInstanceAttentionPolling', () => ({
++  requestInstanceAttentionRefresh: async () => { attentionRefreshCalls += 1; },
++}));
 +mock.module('@/lib/i18n', () => ({
 +  ...actualI18n,
 +  useI18n: () => ({ t: translate }),
@@ -607,6 +619,7 @@ index 000000000..5c49f9f3a
 +  }
 +  useInstanceAttentionStore.getState().reset();
 +  connectCalls.length = 0;
++  attentionRefreshCalls = 0;
 +  openedSessions.length = 0;
 +  openChanges.length = 0;
 +  activeConnectionId = null;
@@ -675,7 +688,7 @@ index 000000000..5c49f9f3a
 +
 +  const buttons = [...document.querySelectorAll('button')];
 +  const bell = buttons.find((button) => (button.getAttribute('aria-label') || '').includes('waiting on you'));
-+  expect(bell?.getAttribute('aria-label')).toBe('1 session on another instance is waiting on you');
++  expect(bell?.getAttribute('aria-label')).toBe('1 session is waiting on you');
 +  // The badge is a bare number in the corner, the same treatment as desktop.
 +  const badge = bell?.querySelector('[data-instance-attention-badge]');
 +  expect(badge?.textContent?.trim()).toBe('1');
@@ -703,6 +716,35 @@ index 000000000..5c49f9f3a
 +  expect(openedSessions).toEqual([['ses_a', '/repo']]);
 +  expect(useInstanceAttentionStore.getState().hosts['host-b']).toBeUndefined();
 +  expect(openChanges).toEqual([false]);
++});
++
++test('opening the sheet reads the connections again', async () => {
++  seed();
++  await render(false);
++  expect(attentionRefreshCalls).toBe(0);
++
++  await render(true);
++
++  expect(attentionRefreshCalls).toBe(1);
++});
++
++test('a row on this connection opens the session without connecting', async () => {
++  useInstanceAttentionStore.getState().applyPoll(LOCAL_INSTANCE_ATTENTION_HOST_ID, 'This instance', {
++    sessions: [{ id: 'ses_local', directory: '/repo', title: 'Local queue', archived: false, idle: 10 }],
++    pending: new Map(),
++    busy: new Set(),
++  }, 100);
++  await render(true);
++
++  const row = [...document.querySelectorAll('button')]
++    .find((button) => button.textContent?.includes('Local queue'));
++  expect(row?.textContent).toContain('This instance');
++  await act(async () => row?.click());
++
++  expect(connectCalls).toEqual([]);
++  expect(openedSessions).toEqual([['ses_local', '/repo']]);
++  expect(openChanges).toEqual([false]);
++  expect(useInstanceAttentionStore.getState().hosts[LOCAL_INSTANCE_ATTENTION_HOST_ID]).toBeDefined();
 +});
 +
 +test('a server that needs a login keeps the sheet open with a password prompt', async () => {
@@ -767,10 +809,10 @@ index 000000000..5c49f9f3a
 +});
 diff --git a/packages/ui/src/apps/MobileInstanceAttentionBell.tsx b/packages/ui/src/apps/MobileInstanceAttentionBell.tsx
 new file mode 100644
-index 000000000..014036ece
+index 000000000..df8cea6e6
 --- /dev/null
 +++ b/packages/ui/src/apps/MobileInstanceAttentionBell.tsx
-@@ -0,0 +1,202 @@
+@@ -0,0 +1,221 @@
 +import React from 'react';
 +
 +import { Button } from '@/components/ui/button';
@@ -782,8 +824,13 @@ index 000000000..014036ece
 +  InstanceAttentionList,
 +  type InstanceAttentionListRowProps,
 +} from '@/components/instance-attention/InstanceAttentionList';
-+import type { InstanceAttentionItem } from '@/lib/instanceAttention';
-+import { finishInstanceAttentionJump, openInstanceAttentionItemWith } from '@/lib/instanceAttentionJump';
++import { requestInstanceAttentionRefresh } from '@/hooks/useInstanceAttentionPolling';
++import { isLocalInstanceAttentionHost, type InstanceAttentionItem } from '@/lib/instanceAttention';
++import {
++  finishInstanceAttentionJump,
++  openInstanceAttentionItemWith,
++  openLocalInstanceAttentionItem,
++} from '@/lib/instanceAttentionJump';
 +import { useI18n } from '@/lib/i18n';
 +import { cn } from '@/lib/utils';
 +import { useInstanceAttentionStore } from '@/stores/useInstanceAttentionStore';
@@ -803,11 +850,11 @@ index 000000000..014036ece
 +);
 +
 +/**
-+ * The phone's cross-instance attention surface: a header bell with a count and
-+ * a bottom sheet listing every waiting session on the other saved
-+ * connections. The rows and the switch-and-open path are the desktop ones;
-+ * only the shell differs. Tapping a row connects that saved server and opens
-+ * the session.
++ * The phone's attention surface: a header bell with a count and a bottom sheet
++ * listing every waiting session, this connection's own included. The rows and
++ * the open path are the desktop ones; only the shell differs. Tapping a row on
++ * this connection opens its session, and tapping one on another saved server
++ * connects that server and opens the session.
 + *
 + * A server that needs a login stops the switch at a password prompt. The sheet
 + * keeps the prompt and the failure in place, so the tap is never a silent
@@ -823,6 +870,13 @@ index 000000000..014036ece
 +  const [password, setPassword] = React.useState('');
 +  const pendingItemRef = React.useRef<InstanceAttentionItem | null>(null);
 +  const tapInFlightRef = React.useRef(false);
++
++  // The sheet is opened to act on the waiters, so read them when it opens
++  // instead of showing whatever the last tick found on the other connections.
++  React.useEffect(() => {
++    if (!open) return;
++    void requestInstanceAttentionRefresh();
++  }, [open]);
 +
 +  const finishPendingJump = React.useCallback(() => {
 +    const item = pendingItemRef.current;
@@ -866,6 +920,13 @@ index 000000000..014036ece
 +  )], [hosts]);
 +
 +  const openItem = React.useCallback((item: InstanceAttentionItem) => {
++    // This phone's own connection needs no connect: opening the session is the
++    // whole jump, exactly as it is on the desktop.
++    if (isLocalInstanceAttentionHost(item.hostId)) {
++      openLocalInstanceAttentionItem(item);
++      onOpenChange(false);
++      return;
++    }
 +    pendingItemRef.current = item;
 +    tapInFlightRef.current = true;
 +    void openInstanceAttentionItemWith(item, async (hostId) => {
@@ -1574,18 +1635,207 @@ index f2002648f..3961a0330 100644
    resetPendingSessionAssists();
    resetRecoverableQuestions();
    resetBackgroundShells();
+diff --git a/packages/ui/src/components/desktop/DesktopHostSwitcher.refresh.test.tsx b/packages/ui/src/components/desktop/DesktopHostSwitcher.refresh.test.tsx
+new file mode 100644
+index 000000000..8953ca878
+--- /dev/null
++++ b/packages/ui/src/components/desktop/DesktopHostSwitcher.refresh.test.tsx
+@@ -0,0 +1,98 @@
++import { afterEach, expect, mock, test } from 'bun:test';
++import React, { act } from 'react';
++import { createRoot } from 'react-dom/client';
++import { Window } from 'happy-dom';
++import type { DesktopHost, HostProbeResult } from '@/lib/desktopHosts';
++
++const dom = new Window({ url: 'http://localhost/' });
++Object.assign(globalThis, {
++  window: dom, document: dom.document, navigator: dom.navigator,
++  Node: dom.Node, Element: dom.Element, HTMLElement: dom.HTMLElement,
++  Event: dom.Event, MouseEvent: dom.MouseEvent, IS_REACT_ACT_ENVIRONMENT: true,
++  localStorage: dom.localStorage,
++  requestAnimationFrame: dom.requestAnimationFrame.bind(dom),
++  cancelAnimationFrame: dom.cancelAnimationFrame.bind(dom),
++  getComputedStyle: dom.getComputedStyle.bind(dom),
++});
++
++type UiStub = { setSettingsDialogOpen: () => void; setSettingsPage: () => void };
++mock.module('@/stores/useUIStore', () => ({
++  useUIStore: <T,>(select: (state: UiStub) => T): T => (
++    select({ setSettingsDialogOpen: () => undefined, setSettingsPage: () => undefined })
++  ),
++}));
++mock.module('@/stores/useConfigStore', () => ({
++  useConfigStore: <T,>(select: (state: { isConnected: boolean }) => T): T => select({ isConnected: true }),
++}));
++mock.module('@/components/ui', () => ({ toast: { error() {} } }));
++
++const host: DesktopHost = {
++  id: 'paired',
++  label: 'Paired server',
++  url: 'http://192.0.2.10:3000',
++  apiUrl: 'http://192.0.2.10:3000',
++};
++let probeCalls = 0;
++let attentionRefreshCalls = 0;
++
++const desktop = await import('@/lib/desktop');
++mock.module('@/lib/desktop', () => ({ ...desktop, isDesktopShell: () => true, isElectronShell: () => true }));
++const hosts = await import('@/lib/desktopHosts');
++mock.module('@/lib/desktopHosts', () => ({
++  ...hosts,
++  desktopHostsGet: async () => ({ hosts: [host], defaultHostId: 'local', localOrigin: 'http://localhost' }),
++  desktopLocalClientTokenGet: async () => 'local-token',
++  desktopHostProbe: async (): Promise<HostProbeResult> => {
++    probeCalls += 1;
++    return { status: 'ok', latencyMs: 1 };
++  },
++  probeRelayDesktopHost: async (): Promise<HostProbeResult> => ({ status: 'ok', latencyMs: 1 }),
++}));
++const ssh = await import('@/lib/desktopSsh');
++mock.module('@/lib/desktopSsh', () => ({ ...ssh, desktopSshInstancesGet: async () => ({ instances: [] }), desktopSshStatus: async () => [] }));
++const runtime = await import('@/lib/runtime-switch');
++mock.module('@/lib/runtime-switch', () => ({
++  ...runtime, switchRuntimeEndpoint: () => undefined,
++}));
++mock.module('@/lib/desktopRelayRestore', () => ({ scheduleDesktopHostCandidateRefresh: () => undefined }));
++mock.module('@/hooks/useInstanceAttentionPolling', () => ({
++  requestInstanceAttentionRefresh: async () => { attentionRefreshCalls += 1; },
++}));
++
++const { I18nProvider } = await import('@/lib/i18n');
++const { DesktopHostSwitcherDialog } = await import('./DesktopHostSwitcher');
++
++const flush = async () => {
++  for (let turn = 0; turn < 4; turn += 1) await new Promise<void>((resolve) => setTimeout(resolve, 0));
++};
++
++afterEach(async () => {
++  await dom.happyDOM.close();
++});
++
++test('opening the panel and its refresh button each read the waiters', async () => {
++  const container = document.createElement('div');
++  document.body.append(container);
++  const mounted = createRoot(container);
++  try {
++    const refreshesBefore = attentionRefreshCalls;
++    await act(async () => {
++      mounted.render(<I18nProvider><DesktopHostSwitcherDialog open embedded onOpenChange={() => undefined} /></I18nProvider>);
++      await flush();
++    });
++    expect(attentionRefreshCalls).toBe(refreshesBefore + 1);
++
++    const probesAfterOpen = probeCalls;
++    const refreshButton = container.querySelector<HTMLButtonElement>('[aria-label="Refresh instances"]');
++    expect(refreshButton).not.toBeNull();
++    await act(async () => {
++      refreshButton!.click();
++      await flush();
++    });
++
++    expect(attentionRefreshCalls).toBe(refreshesBefore + 2);
++    expect(probeCalls).toBeGreaterThan(probesAfterOpen);
++  } finally {
++    await act(async () => mounted.unmount());
++  }
++});
+diff --git a/packages/ui/src/components/desktop/DesktopHostSwitcher.tsx b/packages/ui/src/components/desktop/DesktopHostSwitcher.tsx
+index ded60f501..5ab0e18c9 100644
+--- a/packages/ui/src/components/desktop/DesktopHostSwitcher.tsx
++++ b/packages/ui/src/components/desktop/DesktopHostSwitcher.tsx
+@@ -53,6 +53,7 @@ import { scheduleDesktopHostCandidateRefresh } from '@/lib/desktopRelayRestore';
+ import { adoptRelayTunnel } from '@/lib/relay/runtime-tunnel';
+ import { createRelayTunnelClient } from '@/lib/relay/tunnel-client';
+ import { subscribeRuntimeEndpointChanged, switchRuntimeEndpoint } from '@/lib/runtime-switch';
++import { requestInstanceAttentionRefresh } from '@/hooks/useInstanceAttentionPolling';
+ import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
+ import {
+   desktopSshConnect,
+@@ -263,6 +264,8 @@ export function DesktopHostSwitcherDialog({
+   const statusSnapshot = React.useSyncExternalStore(subscribeDesktopHostStatuses, getDesktopHostStatusSnapshot, getDesktopHostStatusSnapshot);
+   const statusById = statusSnapshot.byHostId;
+   const isProbing = statusSnapshot.isProbing;
++  const [isAttentionRefreshing, setIsAttentionRefreshing] = React.useState(false);
++  const attentionRefreshCount = React.useRef(0);
+   const [isLoading, setIsLoading] = React.useState(false);
+   const [isSaving, setIsSaving] = React.useState(false);
+   const [switchingHostId, setSwitchingHostId] = React.useState<string | null>(null);
+@@ -383,6 +386,22 @@ export function DesktopHostSwitcherDialog({
+     await probeDesktopHosts(hosts);
+   }, []);
+ 
++  // Reading the instances does not refresh what they are waiting on: without
++  // this, the refresh button left the attention rows and count as the last
++  // 45-second tick found them.
++  const refreshAttention = React.useCallback(() => {
++    const run = ++attentionRefreshCount.current;
++    setIsAttentionRefreshing(true);
++    void requestInstanceAttentionRefresh().finally(() => {
++      if (attentionRefreshCount.current === run) setIsAttentionRefreshing(false);
++    });
++  }, []);
++
++  const refreshInstances = React.useCallback(() => {
++    void probeAll(allHosts);
++    refreshAttention();
++  }, [allHosts, probeAll, refreshAttention]);
++
+   React.useEffect(() => {
+     if (!open) {
+       setEditingId(null);
+@@ -401,6 +420,13 @@ export function DesktopHostSwitcherDialog({
+     void probeAll(allHosts);
+   }, [open, allHosts, probeAll]);
+ 
++  React.useEffect(() => {
++    // Opening the panel shows the waiters, so read them now rather than
++    // whatever the previous tick left behind.
++    if (!open) return;
++    refreshAttention();
++  }, [open, refreshAttention]);
++
+   React.useEffect(() => {
+     if (!open || !isDesktopShell()) {
+       return;
+@@ -877,11 +903,11 @@ export function DesktopHostSwitcherDialog({
+                 'hover:text-foreground hover:bg-interactive-hover',
+                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+               )}
+-              onClick={() => void probeAll(allHosts)}
++              onClick={refreshInstances}
+               disabled={!desktopAvailable || isLoading || isProbing}
+               aria-label={t('desktopHostSwitcher.actions.refreshInstancesAria')}
+             >
+-              <Icon name="refresh" className={cn('h-4 w-4', isProbing && 'animate-spin')} />
++              <Icon name="refresh" className={cn('h-4 w-4', (isProbing || isAttentionRefreshing) && 'animate-spin')} />
+             </button>
+           </div>
+         </div>
+@@ -914,10 +940,10 @@ export function DesktopHostSwitcherDialog({
+               type="button"
+               size="sm"
+               variant="ghost"
+-              onClick={() => void probeAll(allHosts)}
++              onClick={refreshInstances}
+               disabled={!desktopAvailable || isLoading || isProbing}
+             >
+-              <Icon name="refresh" className={cn('h-4 w-4', isProbing && 'animate-spin')} />
++              <Icon name="refresh" className={cn('h-4 w-4', (isProbing || isAttentionRefreshing) && 'animate-spin')} />
+               {t('desktopHostSwitcher.actions.refresh')}
+             </Button>
+           </div>
 diff --git a/packages/ui/src/components/desktop/DesktopInstanceMenu.test.tsx b/packages/ui/src/components/desktop/DesktopInstanceMenu.test.tsx
 new file mode 100644
-index 000000000..b3e1e5c33
+index 000000000..f93c99abc
 --- /dev/null
 +++ b/packages/ui/src/components/desktop/DesktopInstanceMenu.test.tsx
-@@ -0,0 +1,245 @@
+@@ -0,0 +1,265 @@
 +import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 +import React, { act } from 'react';
 +import type { Root } from 'react-dom/client';
 +import { Window } from 'happy-dom';
 +
-+import type { InstanceAttentionItem } from '@/lib/instanceAttention';
++import { LOCAL_INSTANCE_ATTENTION_HOST_ID, type InstanceAttentionItem } from '@/lib/instanceAttention';
 +import { useInstanceAttentionStore } from '@/stores/useInstanceAttentionStore';
 +
 +const opened: InstanceAttentionItem[] = [];
@@ -1596,9 +1846,10 @@ index 000000000..b3e1e5c33
 +const messages = new Map<string, string>([
 +  ['header.services.openWithCurrent', 'Open instances with {current}'],
 +  ['header.services.tooltip.currentInstance', '{current}. Toggle with {toggle}'],
-+  ['instanceAttention.ariaOne', '{count} session on another instance is waiting on you'],
-+  ['instanceAttention.ariaMany', '{count} sessions on other instances are waiting on you'],
++  ['instanceAttention.ariaOne', '{count} session is waiting on you'],
++  ['instanceAttention.ariaMany', '{count} sessions are waiting on you'],
 +  ['instanceAttention.list.title', 'Waiting on you'],
++  ['instanceAttention.localInstance', 'This instance'],
 +  ['instanceAttention.instancesCountAriaOne', '{count} session on {instance} is waiting on you'],
 +  ['instanceAttention.instancesCountAriaMany', '{count} sessions on {instance} are waiting on you'],
 +  ['instanceAttention.kind.permission', 'Permission'],
@@ -1760,7 +2011,7 @@ index 000000000..b3e1e5c33
 +
 +  const buttons = [...document.querySelectorAll('button')];
 +  const trigger = buttons.find((button) => (button.getAttribute('aria-label') || '').includes('waiting on you'));
-+  expect(trigger?.getAttribute('aria-label')).toBe('2 sessions on other instances are waiting on you');
++  expect(trigger?.getAttribute('aria-label')).toBe('2 sessions are waiting on you');
 +  // The corner badge is a bare number: the panel's section header carries the
 +  // words, and the button itself only names the instance.
 +  const badge = trigger?.querySelector('[data-instance-attention-badge]');
@@ -1801,7 +2052,26 @@ index 000000000..b3e1e5c33
 +
 +  const trigger = [...document.querySelectorAll('button')]
 +    .find((button) => (button.getAttribute('aria-label') || '').includes('waiting on you'));
-+  expect(trigger?.getAttribute('aria-label')).toBe('1 session on another instance is waiting on you');
++  expect(trigger?.getAttribute('aria-label')).toBe('1 session is waiting on you');
++});
++
++test('the trigger total and the list include this instance beside the polled ones', async () => {
++  seed();
++  useInstanceAttentionStore.getState().applyPoll(LOCAL_INSTANCE_ATTENTION_HOST_ID, 'This instance', {
++    sessions: [{ id: 'ses_local', directory: '/repo', title: 'Local queue', archived: false, idle: 30 }],
++    pending: new Map([['ses_local', { permissions: 0, forms: 1, pages: 0 }]]),
++    busy: new Set(),
++  }, 100);
++  await render();
++
++  const trigger = [...document.querySelectorAll('button')]
++    .find((button) => (button.getAttribute('aria-label') || '').includes('waiting on you'));
++  expect(trigger?.getAttribute('aria-label')).toBe('3 sessions are waiting on you');
++  expect(trigger?.querySelector('[data-instance-attention-badge]')?.textContent?.trim()).toBe('3');
++
++  const row = [...document.querySelectorAll('button')].find((button) => button.textContent?.includes('Local queue'));
++  expect(row?.textContent).toContain('This instance');
++  expect(row?.textContent).toContain('Question');
 +});
 +
 +test('a row on an unreachable host stays put instead of switching blind', async () => {
@@ -2075,7 +2345,7 @@ index 000000000..3c04d2b54
 +});
 diff --git a/packages/ui/src/components/instance-attention/InstanceAttentionList.tsx b/packages/ui/src/components/instance-attention/InstanceAttentionList.tsx
 new file mode 100644
-index 000000000..2779b7350
+index 000000000..e4fd5cacd
 --- /dev/null
 +++ b/packages/ui/src/components/instance-attention/InstanceAttentionList.tsx
 @@ -0,0 +1,102 @@
@@ -2135,9 +2405,9 @@ index 000000000..2779b7350
 +);
 +
 +/**
-+ * Every session on another saved instance that needs the user, strongest
-+ * first. Presentational: the popover shell and a phone sheet both render it,
-+ * and only the row primitive changes between them.
++ * Every session that needs the user, this instance's own and the saved ones,
++ * strongest first. Presentational: the popover shell and a phone sheet both
++ * render it, and only the row primitive changes between them.
 + */
 +export function InstanceAttentionList({
 +  items,
@@ -2181,6 +2451,152 @@ index 000000000..2779b7350
 +    </div>
 +  );
 +}
+diff --git a/packages/ui/src/components/layout/TitlebarLeftControls.test.tsx b/packages/ui/src/components/layout/TitlebarLeftControls.test.tsx
+index bef73d8e9..2891e5488 100644
+--- a/packages/ui/src/components/layout/TitlebarLeftControls.test.tsx
++++ b/packages/ui/src/components/layout/TitlebarLeftControls.test.tsx
+@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
+ import { Window } from 'happy-dom';
+ import { I18nProvider } from '@/lib/i18n';
+ import { TooltipProvider } from '@/components/ui/tooltip';
++import { useInstanceAttentionStore } from '@/stores/useInstanceAttentionStore';
+ import { useUIStore } from '@/stores/useUIStore';
+ import { Sidebar } from './Sidebar';
+ import { TitlebarLeftControls } from './TitlebarLeftControls';
+@@ -36,6 +37,7 @@ beforeEach(() => {
+     descriptors.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
+     Object.defineProperty(globalThis, key, { value, configurable: true });
+   }
++  useInstanceAttentionStore.getState().reset();
+   const host = document.createElement('div');
+   document.body.append(host);
+   root = createRoot(host);
+@@ -60,6 +62,25 @@ async function renderControls() {
+   ));
+ }
+ 
++const seedAttention = (count: number): void => {
++  useInstanceAttentionStore.getState().applyPoll('host-b', 'bee', {
++    sessions: Array.from({ length: count }, (_, index) => ({
++      id: `ses_${index}`,
++      directory: '/repo',
++      title: `Session ${index}`,
++      archived: false,
++      idle: 10 + index,
++    })),
++    pending: new Map(),
++    busy: new Set(),
++  }, 100);
++};
++
++const toggle = (): HTMLButtonElement | null => document.querySelector<HTMLButtonElement>('[data-sidebar-toggle]');
++
++const toggleBadge = (): string | null => toggle()
++  ?.querySelector('[data-instance-attention-badge]')?.textContent?.trim() ?? null;
++
+ describe('TitlebarLeftControls', () => {
+   test('caps the overlay to the sidebar width when the sidebar is open', async () => {
+     useUIStore.getState().setSidebarOpen(true);
+@@ -137,4 +158,39 @@ describe('TitlebarLeftControls', () => {
+     expect(icon).not.toBeNull();
+     expect(icon!.classList.contains('shrink-0')).toBe(true);
+   });
++
++  test('a closed sidebar shows the waiting total on the toggle', async () => {
++    seedAttention(3);
++    useUIStore.getState().setSidebarOpen(false);
++    await renderControls();
++
++    expect(toggleBadge()).toBe('3');
++    expect(toggle()!.getAttribute('aria-label')).toBe('Open sessions, 3 sessions are waiting on you');
++  });
++
++  test('the toggle label counts a single waiting session in the singular', async () => {
++    seedAttention(1);
++    useUIStore.getState().setSidebarOpen(false);
++    await renderControls();
++
++    expect(toggleBadge()).toBe('1');
++    expect(toggle()!.getAttribute('aria-label')).toBe('Open sessions, 1 session is waiting on you');
++  });
++
++  test('an open sidebar hides the badge its list already covers', async () => {
++    seedAttention(2);
++    useUIStore.getState().setSidebarOpen(true);
++    await renderControls();
++
++    expect(toggleBadge()).toBeNull();
++    expect(toggle()!.getAttribute('aria-label')).toBe('Open sessions');
++  });
++
++  test('a closed sidebar with nothing waiting shows no badge', async () => {
++    useUIStore.getState().setSidebarOpen(false);
++    await renderControls();
++
++    expect(toggleBadge()).toBeNull();
++    expect(toggle()!.getAttribute('aria-label')).toBe('Open sessions');
++  });
+ });
+\ No newline at end of file
+diff --git a/packages/ui/src/components/layout/TitlebarLeftControls.tsx b/packages/ui/src/components/layout/TitlebarLeftControls.tsx
+index 20816cc39..969814a63 100644
+--- a/packages/ui/src/components/layout/TitlebarLeftControls.tsx
++++ b/packages/ui/src/components/layout/TitlebarLeftControls.tsx
+@@ -2,6 +2,7 @@ import React from 'react';
+ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+ import { Icon } from '@/components/icon/Icon';
+ import { cn } from '@/lib/utils';
++import { useInstanceAttentionStore } from '@/stores/useInstanceAttentionStore';
+ import { useUIStore } from '@/stores/useUIStore';
+ import { useSessionUIStore } from '@/sync/session-ui-store';
+ import { getInlineStartSide, useI18n } from '@/lib/i18n';
+@@ -35,6 +36,10 @@ export const TitlebarLeftControls: React.FC = () => {
+   const toggleSidebar = useUIStore((state) => state.toggleSidebar);
+   const isSidebarOpen = useUIStore((state) => state.isSidebarOpen);
+   const shortcutOverrides = useUIStore((state) => state.shortcutOverrides);
++  // The same total the instance switcher and the phone bell show. A closed
++  // sidebar hides the list that carries it, so the toggle carries the count.
++  const attentionCount = useInstanceAttentionStore((state) => state.items.length);
++  const showAttentionBadge = !isSidebarOpen && attentionCount > 0;
+   const clusterRef = React.useRef<HTMLDivElement | null>(null);
+ 
+   const toggleShortcut = formatShortcutForDisplay(getEffectiveShortcutCombo('toggle_sidebar', shortcutOverrides));
+@@ -143,11 +148,32 @@ export const TitlebarLeftControls: React.FC = () => {
+               type="button"
+               onClick={toggleSidebar}
+               data-sidebar-toggle=""
+-              aria-label={t('header.actions.openSessionsAria')}
++              aria-label={showAttentionBadge
++                ? `${t('header.actions.openSessionsAria')}, ${t(
++                  attentionCount === 1 ? 'instanceAttention.ariaOne' : 'instanceAttention.ariaMany',
++                  { count: attentionCount },
++                )}`
++                : t('header.actions.openSessionsAria')}
+               aria-pressed={isSidebarOpen}
+-              className={cn(ICON_BUTTON_CLASS, 'shrink-0', isSidebarOpen && 'text-foreground')}
++              className={cn(
++                ICON_BUTTON_CLASS,
++                'shrink-0',
++                isSidebarOpen && 'text-foreground',
++                // The badge sits in the button's own flow, as it does in the
++                // instance switcher, so the button widens instead of overflowing.
++                showAttentionBadge && 'w-auto gap-1 px-1',
++              )}
+             >
+-              <Icon name="layout-left" className="h-4 w-4" />
++              <Icon name="layout-left" className="h-4 w-4 shrink-0" />
++              {showAttentionBadge ? (
++                <span
++                  data-instance-attention-badge
++                  aria-hidden="true"
++                  className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-[var(--status-warning-background)] px-1 typography-micro font-medium tabular-nums text-[var(--status-warning-text)]"
++                >
++                  {attentionCount}
++                </span>
++              ) : null}
+             </button>
+           </TooltipTrigger>
+           <TooltipContent>
 diff --git a/packages/ui/src/components/session/sidebar/shell/SidebarFooter.tsx b/packages/ui/src/components/session/sidebar/shell/SidebarFooter.tsx
 index dd9c0aa40..9266264db 100644
 --- a/packages/ui/src/components/session/sidebar/shell/SidebarFooter.tsx
@@ -2404,10 +2820,10 @@ index 000000000..18d8f706c
 +});
 diff --git a/packages/ui/src/hooks/useInstanceAttentionPolling.test.ts b/packages/ui/src/hooks/useInstanceAttentionPolling.test.ts
 new file mode 100644
-index 000000000..e5894b6af
+index 000000000..c82fec2c5
 --- /dev/null
 +++ b/packages/ui/src/hooks/useInstanceAttentionPolling.test.ts
-@@ -0,0 +1,258 @@
+@@ -0,0 +1,339 @@
 +import { beforeEach, describe, expect, test } from 'bun:test';
 +
 +import type { DesktopHost } from '@/lib/desktopHosts';
@@ -2416,6 +2832,7 @@ index 000000000..e5894b6af
 +import {
 +  INSTANCE_ATTENTION_POLL_INTERVAL_MS,
 +  instanceAttentionTargets,
++  requestInstanceAttentionRefresh,
 +  startInstanceAttentionPolling,
 +  type InstanceAttentionHosts,
 +  type InstanceAttentionTarget,
@@ -2593,6 +3010,86 @@ index 000000000..e5894b6af
 +    dispose();
 +  });
 +
++  test('a refresh request reads at once and replaces the scheduled cycle', async () => {
++    const clock = timers();
++    let reads = 0;
++    const dispose = startInstanceAttentionPolling({
++      readTargets: async () => [target('host-b', async () => {
++        reads += 1;
++        return poll([session('ses_a')]);
++      })],
++      isVisible: () => true,
++      onVisible: () => () => undefined,
++      scheduleTimeout: clock.schedule,
++      clearScheduledTimeout: clock.clear,
++      now: () => 1_000,
++    });
++    await flush();
++    expect(reads).toBe(1);
++    expect(clock.pending.size).toBe(1);
++
++    await requestInstanceAttentionRefresh();
++
++    expect(reads).toBe(2);
++    // The immediate read owns the only scheduled cycle; it did not stack one.
++    expect(clock.pending.size).toBe(1);
++    expect(clock.delay()).toBe(INSTANCE_ATTENTION_POLL_INTERVAL_MS);
++    dispose();
++  });
++
++  test('requests during an in-flight read share exactly one follow-up read', async () => {
++    const clock = timers();
++    let reads = 0;
++    let releaseFirst: () => void = () => undefined;
++    const firstRead = new Promise<void>((resolve) => { releaseFirst = resolve; });
++    const dispose = startInstanceAttentionPolling({
++      readTargets: async () => [target('host-b', async () => {
++        reads += 1;
++        if (reads === 1) await firstRead;
++        return poll([session('ses_a')]);
++      })],
++      isVisible: () => true,
++      onVisible: () => () => undefined,
++      scheduleTimeout: clock.schedule,
++      clearScheduledTimeout: clock.clear,
++      now: () => 1_000,
++    });
++    await flush();
++    expect(reads).toBe(1);
++
++    const first = requestInstanceAttentionRefresh();
++    const second = requestInstanceAttentionRefresh();
++    releaseFirst();
++    await Promise.all([first, second]);
++
++    expect(reads).toBe(2);
++    expect(clock.pending.size).toBe(1);
++    dispose();
++  });
++
++  test('a refresh request stops reading once the poller is disposed', async () => {
++    const clock = timers();
++    let reads = 0;
++    const dispose = startInstanceAttentionPolling({
++      readTargets: async () => [target('host-b', async () => {
++        reads += 1;
++        return poll([session('ses_a')]);
++      })],
++      isVisible: () => true,
++      onVisible: () => () => undefined,
++      scheduleTimeout: clock.schedule,
++      clearScheduledTimeout: clock.clear,
++      now: () => 1_000,
++    });
++    await flush();
++    dispose();
++
++    await requestInstanceAttentionRefresh();
++
++    expect(reads).toBe(1);
++    expect(clock.pending.size).toBe(0);
++  });
++
 +  test('a failed target list schedules the next cycle without dropping known items', async () => {
 +    const clock = timers();
 +    let fail = false;
@@ -2668,10 +3165,10 @@ index 000000000..e5894b6af
 +});
 diff --git a/packages/ui/src/hooks/useInstanceAttentionPolling.ts b/packages/ui/src/hooks/useInstanceAttentionPolling.ts
 new file mode 100644
-index 000000000..7a97e26df
+index 000000000..2312be897
 --- /dev/null
 +++ b/packages/ui/src/hooks/useInstanceAttentionPolling.ts
-@@ -0,0 +1,351 @@
+@@ -0,0 +1,409 @@
 +import React from 'react';
 +
 +import {
@@ -2707,6 +3204,28 @@ index 000000000..7a97e26df
 +const INSTANCE_ATTENTION_DIRECT_TIMEOUT_MS = 4_000;
 +const INSTANCE_ATTENTION_RELAY_TIMEOUT_MS = 8_000;
 +const INSTANCE_ATTENTION_READ_MARGIN_MS = 2_000;
++
++type InstanceAttentionRefreshListener = () => Promise<void>;
++const refreshListeners = new Set<InstanceAttentionRefreshListener>();
++
++/**
++ * Reads every running poller's instances now instead of waiting for the next
++ * tick. The returned promise settles when the read it caused has finished, so a
++ * surface can keep a spinner up without gating its own action on it.
++ *
++ * A request that arrives while a read is in flight joins a single follow-up
++ * read rather than starting another cycle.
++ */
++export const requestInstanceAttentionRefresh = async (): Promise<void> => {
++  await Promise.all([...refreshListeners].map((listener) => listener()));
++};
++
++const subscribeInstanceAttentionRefresh = (listener: InstanceAttentionRefreshListener): (() => void) => {
++  refreshListeners.add(listener);
++  return () => {
++    refreshListeners.delete(listener);
++  };
++};
 +
 +export type InstanceAttentionHosts = {
 +  hosts: DesktopHost[];
@@ -2863,6 +3382,8 @@ index 000000000..7a97e26df
 +): (() => void) => {
 +  let disposed = false;
 +  let running = false;
++  let refreshQueued = false;
++  let queuedRefreshResolvers: Array<() => void> = [];
 +  let timeoutId: number | undefined;
 +  const controllers = new Set<AbortController>();
 +
@@ -2907,6 +3428,12 @@ index 000000000..7a97e26df
 +
 +  const run = async (): Promise<void> => {
 +    if (disposed || running) return;
++    // A read started outside the tick (a refresh request, the surface opening)
++    // replaces the scheduled cycle with the one it is about to schedule.
++    if (timeoutId !== undefined) {
++      deps.clearScheduledTimeout(timeoutId);
++      timeoutId = undefined;
++    }
 +    running = true;
 +    try {
 +      const targets = await deps.readTargets().catch(() => null);
@@ -2922,8 +3449,35 @@ index 000000000..7a97e26df
 +      schedule();
 +    } finally {
 +      running = false;
++      const waiters = queuedRefreshResolvers;
++      queuedRefreshResolvers = [];
++      if (refreshQueued && !disposed) {
++        refreshQueued = false;
++        // Awaiting the follow-up keeps this cycle's promise (and every request
++        // it absorbed) unsettled until the read the caller asked for finished.
++        await run();
++      } else {
++        refreshQueued = false;
++      }
++      for (const resolve of waiters) resolve();
 +    }
 +  };
++
++  /**
++   * A refresh request is a read promise: it joins the in-flight read's single
++   * follow-up when one is running, so callers that arrived together settle
++   * together and the poller reads once more, not once per caller.
++   */
++  const readNow = (): Promise<void> => {
++    if (disposed) return Promise.resolve();
++    if (!running) return run();
++    refreshQueued = true;
++    return new Promise<void>((resolve) => {
++      queuedRefreshResolvers.push(resolve);
++    });
++  };
++
++  const unsubscribeRefresh = subscribeInstanceAttentionRefresh(readNow);
 +
 +  const stopVisible = deps.onVisible(() => {
 +    if (disposed || running) return;
@@ -2937,6 +3491,7 @@ index 000000000..7a97e26df
 +
 +  return () => {
 +    disposed = true;
++    unsubscribeRefresh();
 +    stopVisible();
 +    if (timeoutId !== undefined) deps.clearScheduledTimeout(timeoutId);
 +    for (const controller of controllers) controller.abort();
@@ -3100,6 +3655,194 @@ index 000000000..59e646cfc
 +    // in the preview without pretending it has items of its own.
 +    store.markUnreachable('preview-halo', 'halo', now);
 +  }, []);
++};
+diff --git a/packages/ui/src/hooks/useLocalInstanceAttention.test.tsx b/packages/ui/src/hooks/useLocalInstanceAttention.test.tsx
+new file mode 100644
+index 000000000..2d0b3b48d
+--- /dev/null
++++ b/packages/ui/src/hooks/useLocalInstanceAttention.test.tsx
+@@ -0,0 +1,125 @@
++import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
++import React, { act } from 'react';
++import type { Root } from 'react-dom/client';
++import { Window } from 'happy-dom';
++
++import { LOCAL_INSTANCE_ATTENTION_HOST_ID } from '@/lib/instanceAttention';
++import type { Session } from '@/lib/opencode/model';
++import { useGlobalBlockingRequestsStore } from '@/sync/global-blocking-requests';
++import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
++import { useInstanceAttentionStore } from '@/stores/useInstanceAttentionStore';
++
++const actualI18n = await import('@/lib/i18n');
++mock.module('@/lib/i18n', () => ({
++  ...actualI18n,
++  useI18n: () => ({ t: (key: string) => (key === 'instanceAttention.localInstance' ? 'This instance' : key) }),
++}));
++
++const { useLocalInstanceAttention } = await import('./useLocalInstanceAttention');
++
++const session = (id: string, overrides: Partial<Session> = {}): Session => ({
++  id,
++  directory: '/repo',
++  projectID: 'project',
++  title: `Session ${id}`,
++  cost: 0,
++  tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
++  time: { created: 1, updated: 10, idle: 10 },
++  ...overrides,
++});
++
++const Probe = ({ enabled }: { enabled: boolean }): React.ReactNode => {
++  useLocalInstanceAttention(enabled);
++  return null;
++};
++
++let dom: Window;
++let root: Root | null = null;
++const globals = new Map<string, PropertyDescriptor | undefined>();
++
++beforeEach(() => {
++  dom = new Window({ url: 'http://localhost' });
++  const values = {
++    window: dom, document: dom.document, navigator: dom.navigator,
++    Node: dom.Node, Element: dom.Element, HTMLElement: dom.HTMLElement,
++    Event: dom.Event, MouseEvent: dom.MouseEvent, IS_REACT_ACT_ENVIRONMENT: true,
++  };
++  for (const [name, value] of Object.entries(values)) {
++    globals.set(name, Object.getOwnPropertyDescriptor(globalThis, name));
++    Object.defineProperty(globalThis, name, { configurable: true, writable: true, value });
++  }
++  useInstanceAttentionStore.getState().reset();
++  useGlobalBlockingRequestsStore.setState({ bySession: new Map() });
++  useGlobalSessionsStore.setState({ entityById: new Map<string, Session>() });
++});
++
++afterEach(async () => {
++  const mounted = root;
++  root = null;
++  if (mounted) await act(async () => mounted.unmount());
++  for (const [name, descriptor] of globals) {
++    if (descriptor) Object.defineProperty(globalThis, name, descriptor);
++    else Reflect.deleteProperty(globalThis, name);
++  }
++  globals.clear();
++  await dom.happyDOM.abort();
++  dom.close();
++});
++
++const mount = async (enabled = true): Promise<void> => {
++  const host = document.createElement('div');
++  document.body.append(host);
++  const { createRoot } = await import('react-dom/client');
++  const created = createRoot(host);
++  root = created;
++  await act(async () => created.render(<Probe enabled={enabled} />));
++};
++
++const localItems = () => useInstanceAttentionStore.getState().items
++  .filter((item) => item.hostId === LOCAL_INSTANCE_ATTENTION_HOST_ID);
++
++test('the hook publishes this instance’s waiting sessions into the attention store', async () => {
++  useGlobalSessionsStore.setState({
++    entityById: new Map([
++      ['ses_unread', session('ses_unread')],
++      ['ses_read', session('ses_read', { time: { created: 1, updated: 10, idle: 10, viewed: 10 } })],
++    ]),
++  });
++  useGlobalBlockingRequestsStore.setState({
++    bySession: new Map([
++      ['ses_read', {
++        directory: '/repo',
++        permissions: [],
++        forms: [{ id: 'form_1', sessionID: 'ses_read', title: 'Pick one' }],
++        pages: [],
++      }],
++    ]),
++  });
++  await mount();
++
++  expect(localItems().map((item) => [item.sessionId, item.kind, item.hostLabel])).toEqual([
++    ['ses_read', 'question', 'This instance'],
++    ['ses_unread', 'unread', 'This instance'],
++  ]);
++  expect(useInstanceAttentionStore.getState().hosts[LOCAL_INSTANCE_ATTENTION_HOST_ID]?.status).toBe('ok');
++});
++
++test('unmounting clears the local entry', async () => {
++  useGlobalSessionsStore.setState({ entityById: new Map([['ses_unread', session('ses_unread')]]) });
++  await mount();
++  expect(localItems()).toHaveLength(1);
++
++  const mounted = root;
++  root = null;
++  if (mounted) await act(async () => mounted.unmount());
++
++  expect(useInstanceAttentionStore.getState().hosts[LOCAL_INSTANCE_ATTENTION_HOST_ID]).toBeUndefined();
++  expect(useInstanceAttentionStore.getState().items).toEqual([]);
++});
++
++test('a disabled subscriber publishes nothing', async () => {
++  useGlobalSessionsStore.setState({ entityById: new Map([['ses_unread', session('ses_unread')]]) });
++  await mount(false);
++
++  expect(useInstanceAttentionStore.getState().items).toEqual([]);
++});
+diff --git a/packages/ui/src/hooks/useLocalInstanceAttention.ts b/packages/ui/src/hooks/useLocalInstanceAttention.ts
+new file mode 100644
+index 000000000..94b0914ce
+--- /dev/null
++++ b/packages/ui/src/hooks/useLocalInstanceAttention.ts
+@@ -0,0 +1,51 @@
++import React from 'react';
++
++import { useI18n } from '@/lib/i18n';
++import { LOCAL_INSTANCE_ATTENTION_HOST_ID, type InstancePendingCounts } from '@/lib/instanceAttention';
++import { localInstanceAttentionPoll } from '@/lib/localInstanceAttention';
++import { useGlobalBlockingRequestsStore } from '@/sync/global-blocking-requests';
++import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
++import { useInstanceAttentionStore } from '@/stores/useInstanceAttentionStore';
++
++/**
++ * Publishes this window's own waiting sessions into the attention store, as
++ * the reserved local entry. Mounted beside the pollers so the same list and
++ * count cover the instance the user is looking at; the polled hosts cover the
++ * others.
++ *
++ * The store's `retainHosts` keeps this entry when it drops the instances the
++ * poller is no longer reading. Unmounting the subscriber clears it, so a shell
++ * without the surfaces does not leave a stale count behind.
++ */
++export const useLocalInstanceAttention = (enabled: boolean): void => {
++  const { t } = useI18n();
++  const hostLabel = t('instanceAttention.localInstance');
++  const entityById = useGlobalSessionsStore((state) => state.entityById);
++  const bySession = useGlobalBlockingRequestsStore((state) => state.bySession);
++
++  React.useEffect(() => {
++    if (!enabled) return;
++    const pending = new Map<string, InstancePendingCounts>();
++    for (const [sessionId, entry] of bySession) {
++      if (entry.permissions.length === 0 && entry.forms.length === 0 && entry.pages.length === 0) continue;
++      pending.set(sessionId, {
++        permissions: entry.permissions.length,
++        forms: entry.forms.length,
++        pages: entry.pages.length,
++      });
++    }
++    useInstanceAttentionStore.getState().applyPoll(
++      LOCAL_INSTANCE_ATTENTION_HOST_ID,
++      hostLabel,
++      localInstanceAttentionPoll(entityById.values(), pending),
++      Date.now(),
++    );
++  }, [bySession, enabled, entityById, hostLabel]);
++
++  React.useEffect(() => {
++    if (!enabled) return;
++    return () => {
++      useInstanceAttentionStore.getState().dropHost(LOCAL_INSTANCE_ATTENTION_HOST_ID);
++    };
++  }, [enabled]);
 +};
 diff --git a/packages/ui/src/hooks/useMobileInstanceAttentionPolling.ts b/packages/ui/src/hooks/useMobileInstanceAttentionPolling.ts
 new file mode 100644
@@ -3303,10 +4046,10 @@ index 6e18140db..dac4faf44 100644
    ...overviewI18n.he,
 diff --git a/packages/ui/src/lib/i18n/messages/instance-attention.i18n.test.ts b/packages/ui/src/lib/i18n/messages/instance-attention.i18n.test.ts
 new file mode 100644
-index 000000000..fb38617b4
+index 000000000..67b392d8e
 --- /dev/null
 +++ b/packages/ui/src/lib/i18n/messages/instance-attention.i18n.test.ts
-@@ -0,0 +1,29 @@
+@@ -0,0 +1,35 @@
 +import { describe, expect, test } from 'bun:test';
 +
 +import { instanceAttentionI18n } from './instance-attention.i18n';
@@ -3335,19 +4078,26 @@ index 000000000..fb38617b4
 +    expect(instanceAttentionI18n.en['instanceAttention.instancesCountAriaOne']).not.toContain('sessions');
 +    expect(instanceAttentionI18n.en['instanceAttention.instancesCountAriaMany']).toContain('sessions');
 +  });
++
++  test('the total labels count every instance instead of naming the others', () => {
++    expect(instanceAttentionI18n.en['instanceAttention.ariaOne']).toBe('{count} session is waiting on you');
++    expect(instanceAttentionI18n.en['instanceAttention.ariaMany']).toBe('{count} sessions are waiting on you');
++    expect(instanceAttentionI18n.en['instanceAttention.localInstance']).toBe('This instance');
++  });
 +});
 diff --git a/packages/ui/src/lib/i18n/messages/instance-attention.i18n.ts b/packages/ui/src/lib/i18n/messages/instance-attention.i18n.ts
 new file mode 100644
-index 000000000..b43a6c461
+index 000000000..757697858
 --- /dev/null
 +++ b/packages/ui/src/lib/i18n/messages/instance-attention.i18n.ts
-@@ -0,0 +1,183 @@
-+/** Cross-instance attention: sessions on other saved instances that need the user. Merged into each locale's main dictionary. */
+@@ -0,0 +1,198 @@
++/** Attention: every session that needs the user, on this instance and the saved ones. Merged into each locale's main dictionary. */
 +export const instanceAttentionI18n = {
 +  en: {
-+    'instanceAttention.ariaOne': '{count} session on another instance is waiting on you',
-+    'instanceAttention.ariaMany': '{count} sessions on other instances are waiting on you',
++    'instanceAttention.ariaOne': '{count} session is waiting on you',
++    'instanceAttention.ariaMany': '{count} sessions are waiting on you',
 +    'instanceAttention.list.title': 'Waiting on you',
++    'instanceAttention.localInstance': 'This instance',
 +    'instanceAttention.instancesCountAriaOne': '{count} session on {instance} is waiting on you',
 +    'instanceAttention.instancesCountAriaMany': '{count} sessions on {instance} are waiting on you',
 +    'instanceAttention.kind.permission': 'Permission',
@@ -3357,9 +4107,10 @@ index 000000000..b43a6c461
 +    'instanceAttention.unreachable': 'No answer from {instances}; showing their last known items.',
 +  },
 +  de: {
-+    'instanceAttention.ariaOne': '{count} Sitzung auf einer anderen Instanz wartet auf dich',
-+    'instanceAttention.ariaMany': '{count} Sitzungen auf anderen Instanzen warten auf dich',
++    'instanceAttention.ariaOne': '{count} Sitzung wartet auf dich',
++    'instanceAttention.ariaMany': '{count} Sitzungen warten auf dich',
 +    'instanceAttention.list.title': 'Warten auf dich',
++    'instanceAttention.localInstance': 'Diese Instanz',
 +    'instanceAttention.instancesCountAriaOne': '{count} Sitzung auf {instance} wartet auf dich',
 +    'instanceAttention.instancesCountAriaMany': '{count} Sitzungen auf {instance} warten auf dich',
 +    'instanceAttention.kind.permission': 'Berechtigung',
@@ -3369,21 +4120,23 @@ index 000000000..b43a6c461
 +    'instanceAttention.unreachable': 'Keine Antwort von {instances}; die zuletzt bekannten Einträge werden angezeigt.',
 +  },
 +  fr: {
-+    'instanceAttention.ariaOne': "{count} session sur une autre instance vous attend",
-+    'instanceAttention.ariaMany': "{count} sessions sur d'autres instances vous attendent",
++    'instanceAttention.ariaOne': '{count} session vous attend',
++    'instanceAttention.ariaMany': '{count} sessions vous attendent',
 +    'instanceAttention.list.title': 'En attente de vous',
++    'instanceAttention.localInstance': 'Cette instance',
 +    'instanceAttention.instancesCountAriaOne': '{count} session sur {instance} vous attend',
 +    'instanceAttention.instancesCountAriaMany': '{count} sessions sur {instance} vous attendent',
 +    'instanceAttention.kind.permission': 'Autorisation',
 +    'instanceAttention.kind.question': 'Question',
 +    'instanceAttention.kind.failed': 'Échec',
 +    'instanceAttention.kind.unread': 'Non lu',
-+    'instanceAttention.unreachable': "Pas de réponse de {instances} ; les derniers éléments connus sont affichés.",
++    'instanceAttention.unreachable': 'Pas de réponse de {instances} ; les derniers éléments connus sont affichés.',
 +  },
 +  nl: {
-+    'instanceAttention.ariaOne': '{count} sessie op een andere instantie wacht op je',
-+    'instanceAttention.ariaMany': '{count} sessies op andere instanties wachten op je',
++    'instanceAttention.ariaOne': '{count} sessie wacht op je',
++    'instanceAttention.ariaMany': '{count} sessies wachten op je',
 +    'instanceAttention.list.title': 'Wachten op jou',
++    'instanceAttention.localInstance': 'Deze instantie',
 +    'instanceAttention.instancesCountAriaOne': '{count} sessie op {instance} wacht op je',
 +    'instanceAttention.instancesCountAriaMany': '{count} sessies op {instance} wachten op je',
 +    'instanceAttention.kind.permission': 'Toestemming',
@@ -3393,9 +4146,10 @@ index 000000000..b43a6c461
 +    'instanceAttention.unreachable': 'Geen antwoord van {instances}; de laatst bekende items worden getoond.',
 +  },
 +  es: {
-+    'instanceAttention.ariaOne': '{count} sesión en otra instancia te está esperando',
-+    'instanceAttention.ariaMany': '{count} sesiones en otras instancias te están esperando',
++    'instanceAttention.ariaOne': '{count} sesión te está esperando',
++    'instanceAttention.ariaMany': '{count} sesiones te están esperando',
 +    'instanceAttention.list.title': 'Te están esperando',
++    'instanceAttention.localInstance': 'Esta instancia',
 +    'instanceAttention.instancesCountAriaOne': '{count} sesión en {instance} te está esperando',
 +    'instanceAttention.instancesCountAriaMany': '{count} sesiones en {instance} te están esperando',
 +    'instanceAttention.kind.permission': 'Permiso',
@@ -3405,9 +4159,10 @@ index 000000000..b43a6c461
 +    'instanceAttention.unreachable': 'Sin respuesta de {instances}; se muestran los últimos elementos conocidos.',
 +  },
 +  'pt-BR': {
-+    'instanceAttention.ariaOne': '{count} sessão em outra instância está aguardando você',
-+    'instanceAttention.ariaMany': '{count} sessões em outras instâncias estão aguardando você',
++    'instanceAttention.ariaOne': '{count} sessão está aguardando você',
++    'instanceAttention.ariaMany': '{count} sessões estão aguardando você',
 +    'instanceAttention.list.title': 'Aguardando você',
++    'instanceAttention.localInstance': 'Esta instância',
 +    'instanceAttention.instancesCountAriaOne': '{count} sessão em {instance} está aguardando você',
 +    'instanceAttention.instancesCountAriaMany': '{count} sessões em {instance} estão aguardando você',
 +    'instanceAttention.kind.permission': 'Permissão',
@@ -3417,9 +4172,10 @@ index 000000000..b43a6c461
 +    'instanceAttention.unreachable': 'Sem resposta de {instances}; os últimos itens conhecidos são exibidos.',
 +  },
 +  ja: {
-+    'instanceAttention.ariaOne': '他のインスタンスの {count} 件のセッションがあなたの対応を待っています',
-+    'instanceAttention.ariaMany': '他のインスタンスの {count} 件のセッションがあなたの対応を待っています',
++    'instanceAttention.ariaOne': '{count} 件のセッションがあなたの対応を待っています',
++    'instanceAttention.ariaMany': '{count} 件のセッションがあなたの対応を待っています',
 +    'instanceAttention.list.title': 'あなたの対応待ち',
++    'instanceAttention.localInstance': 'このインスタンス',
 +    'instanceAttention.instancesCountAriaOne': '{instance} の {count} 件のセッションがあなたの対応を待っています',
 +    'instanceAttention.instancesCountAriaMany': '{instance} の {count} 件のセッションがあなたの対応を待っています',
 +    'instanceAttention.kind.permission': '権限',
@@ -3429,9 +4185,10 @@ index 000000000..b43a6c461
 +    'instanceAttention.unreachable': '{instances} から応答がありません。最後に確認した項目を表示しています。',
 +  },
 +  ko: {
-+    'instanceAttention.ariaOne': '다른 인스턴스의 세션 {count}개가 당신의 응답을 기다리고 있습니다',
-+    'instanceAttention.ariaMany': '다른 인스턴스의 세션 {count}개가 당신의 응답을 기다리고 있습니다',
++    'instanceAttention.ariaOne': '{count}개의 세션이 당신의 응답을 기다리고 있습니다',
++    'instanceAttention.ariaMany': '{count}개의 세션이 당신의 응답을 기다리고 있습니다',
 +    'instanceAttention.list.title': '당신의 응답을 기다리는 중',
++    'instanceAttention.localInstance': '이 인스턴스',
 +    'instanceAttention.instancesCountAriaOne': '{instance}의 세션 {count}개가 당신의 응답을 기다리고 있습니다',
 +    'instanceAttention.instancesCountAriaMany': '{instance}의 세션 {count}개가 당신의 응답을 기다리고 있습니다',
 +    'instanceAttention.kind.permission': '권한',
@@ -3441,9 +4198,10 @@ index 000000000..b43a6c461
 +    'instanceAttention.unreachable': '{instances}에서 응답이 없습니다. 마지막으로 확인된 항목을 표시합니다.',
 +  },
 +  pl: {
-+    'instanceAttention.ariaOne': '{count} sesja na innej instancji czeka na Ciebie',
-+    'instanceAttention.ariaMany': '{count} sesji na innych instancjach czeka na Ciebie',
++    'instanceAttention.ariaOne': '{count} sesja czeka na Ciebie',
++    'instanceAttention.ariaMany': '{count} sesji czeka na Ciebie',
 +    'instanceAttention.list.title': 'Czekają na Ciebie',
++    'instanceAttention.localInstance': 'Ta instancja',
 +    'instanceAttention.instancesCountAriaOne': '{count} sesja na {instance} czeka na Ciebie',
 +    'instanceAttention.instancesCountAriaMany': '{count} sesji na {instance} czeka na Ciebie',
 +    'instanceAttention.kind.permission': 'Uprawnienie',
@@ -3453,9 +4211,10 @@ index 000000000..b43a6c461
 +    'instanceAttention.unreachable': 'Brak odpowiedzi od {instances}; pokazano ostatnie znane pozycje.',
 +  },
 +  uk: {
-+    'instanceAttention.ariaOne': '{count} сесія на іншому екземплярі чекає на вас',
-+    'instanceAttention.ariaMany': '{count} сесій на інших екземплярах чекають на вас',
++    'instanceAttention.ariaOne': '{count} сесія чекає на вас',
++    'instanceAttention.ariaMany': '{count} сесій чекають на вас',
 +    'instanceAttention.list.title': 'Чекають на вас',
++    'instanceAttention.localInstance': 'Цей екземпляр',
 +    'instanceAttention.instancesCountAriaOne': '{count} сесія на {instance} чекає на вас',
 +    'instanceAttention.instancesCountAriaMany': '{count} сесій на {instance} чекають на вас',
 +    'instanceAttention.kind.permission': 'Дозвіл',
@@ -3465,9 +4224,10 @@ index 000000000..b43a6c461
 +    'instanceAttention.unreachable': 'Немає відповіді від {instances}; показано останні відомі елементи.',
 +  },
 +  tr: {
-+    'instanceAttention.ariaOne': 'Diğer örneklerdeki {count} oturum sizi bekliyor',
-+    'instanceAttention.ariaMany': 'Diğer örneklerdeki {count} oturum sizi bekliyor',
++    'instanceAttention.ariaOne': '{count} oturum sizi bekliyor',
++    'instanceAttention.ariaMany': '{count} oturum sizi bekliyor',
 +    'instanceAttention.list.title': 'Sizi bekleyenler',
++    'instanceAttention.localInstance': 'Bu örnek',
 +    'instanceAttention.instancesCountAriaOne': '{instance} üzerindeki {count} oturum sizi bekliyor',
 +    'instanceAttention.instancesCountAriaMany': '{instance} üzerindeki {count} oturum sizi bekliyor',
 +    'instanceAttention.kind.permission': 'İzin',
@@ -3477,9 +4237,10 @@ index 000000000..b43a6c461
 +    'instanceAttention.unreachable': '{instances} yanıt vermedi; bilinen son öğeler gösteriliyor.',
 +  },
 +  ar: {
-+    'instanceAttention.ariaOne': '{count} جلسة على نسخة أخرى في انتظارك',
-+    'instanceAttention.ariaMany': '{count} جلسات على نسخ أخرى في انتظارك',
++    'instanceAttention.ariaOne': '{count} جلسة في انتظارك',
++    'instanceAttention.ariaMany': '{count} جلسات في انتظارك',
 +    'instanceAttention.list.title': 'في انتظارك',
++    'instanceAttention.localInstance': 'هذه النسخة',
 +    'instanceAttention.instancesCountAriaOne': '{count} جلسة على {instance} في انتظارك',
 +    'instanceAttention.instancesCountAriaMany': '{count} جلسات على {instance} في انتظارك',
 +    'instanceAttention.kind.permission': 'إذن',
@@ -3489,9 +4250,10 @@ index 000000000..b43a6c461
 +    'instanceAttention.unreachable': 'لا رد من {instances}؛ يتم عرض آخر العناصر المعروفة.',
 +  },
 +  he: {
-+    'instanceAttention.ariaOne': '{count} סשן במופע אחר ממתין לך',
-+    'instanceAttention.ariaMany': '{count} סשנים במופעים אחרים ממתינים לך',
++    'instanceAttention.ariaOne': '{count} סשן ממתין לך',
++    'instanceAttention.ariaMany': '{count} סשנים ממתינים לך',
 +    'instanceAttention.list.title': 'ממתינים לך',
++    'instanceAttention.localInstance': 'המופע הזה',
 +    'instanceAttention.instancesCountAriaOne': '{count} סשן ב{instance} ממתין לך',
 +    'instanceAttention.instancesCountAriaMany': '{count} סשנים ב{instance} ממתינים לך',
 +    'instanceAttention.kind.permission': 'הרשאה',
@@ -3501,9 +4263,10 @@ index 000000000..b43a6c461
 +    'instanceAttention.unreachable': 'אין תגובה מ{instances}; מוצגים הפריטים האחרונים הידועים.',
 +  },
 +  'zh-CN': {
-+    'instanceAttention.ariaOne': '其他实例上有 {count} 个会话正在等待你处理',
-+    'instanceAttention.ariaMany': '其他实例上有 {count} 个会话正在等待你处理',
++    'instanceAttention.ariaOne': '{count} 个会话正在等待你处理',
++    'instanceAttention.ariaMany': '{count} 个会话正在等待你处理',
 +    'instanceAttention.list.title': '等待你处理',
++    'instanceAttention.localInstance': '此实例',
 +    'instanceAttention.instancesCountAriaOne': '{instance} 上有 {count} 个会话正在等待你处理',
 +    'instanceAttention.instancesCountAriaMany': '{instance} 上有 {count} 个会话正在等待你处理',
 +    'instanceAttention.kind.permission': '权限',
@@ -3513,9 +4276,10 @@ index 000000000..b43a6c461
 +    'instanceAttention.unreachable': '{instances} 没有响应，显示上次已知的项目。',
 +  },
 +  'zh-TW': {
-+    'instanceAttention.ariaOne': '其他執行個體上有 {count} 個會話正在等待你處理',
-+    'instanceAttention.ariaMany': '其他執行個體上有 {count} 個會話正在等待你處理',
++    'instanceAttention.ariaOne': '{count} 個會話正在等待你處理',
++    'instanceAttention.ariaMany': '{count} 個會話正在等待你處理',
 +    'instanceAttention.list.title': '等待你處理',
++    'instanceAttention.localInstance': '此執行個體',
 +    'instanceAttention.instancesCountAriaOne': '{instance} 上有 {count} 個會話正在等待你處理',
 +    'instanceAttention.instancesCountAriaMany': '{instance} 上有 {count} 個會話正在等待你處理',
 +    'instanceAttention.kind.permission': '權限',
@@ -3994,10 +4758,10 @@ index 000000000..e4748ccc0
 +});
 diff --git a/packages/ui/src/lib/instanceAttention.ts b/packages/ui/src/lib/instanceAttention.ts
 new file mode 100644
-index 000000000..8f349a5c6
+index 000000000..4bbbad80f
 --- /dev/null
 +++ b/packages/ui/src/lib/instanceAttention.ts
-@@ -0,0 +1,445 @@
+@@ -0,0 +1,460 @@
 +import type { JsonValue } from '@opencode/client';
 +import { z } from 'zod';
 +
@@ -4018,6 +4782,10 @@ index 000000000..8f349a5c6
 +// OpenCode location: `GET /api/session` and `GET /api/sessions/status`. A poll
 +// names no directory, so it never starts MCP servers, and it uses the saved
 +// host's own address and client token instead of the active runtime's.
++//
++// The instance this window shows is not polled: `localInstanceAttention.ts`
++// derives its items from the app's live stores and publishes them beside these
++// hosts, so every surface reads one list and one total.
 +
 +export type InstanceAttentionKind = 'permission' | 'question' | 'failed' | 'unread';
 +
@@ -4061,6 +4829,17 @@ index 000000000..8f349a5c6
 +  /** Newest activity the item can be dated by, for ordering. */
 +  at: number;
 +};
++
++/**
++ * The instance this window shows, as a reserved entry in the same store the
++ * polled hosts use. It is not a polled target: it is derived from the app's own
++ * live stores, so `retainHosts` keeps it when every other host is dropped.
++ */
++export const LOCAL_INSTANCE_ATTENTION_HOST_ID = 'openchamber:this-instance';
++
++export const isLocalInstanceAttentionHost = (hostId: string): boolean => (
++  hostId === LOCAL_INSTANCE_ATTENTION_HOST_ID
++);
 +
 +export type InstanceAttentionPoll = {
 +  /** `null` means the read failed; callers keep what they already had. */
@@ -4445,13 +5224,13 @@ index 000000000..8f349a5c6
 +};
 diff --git a/packages/ui/src/lib/instanceAttentionJump.test.ts b/packages/ui/src/lib/instanceAttentionJump.test.ts
 new file mode 100644
-index 000000000..8d0767f14
+index 000000000..059a9e509
 --- /dev/null
 +++ b/packages/ui/src/lib/instanceAttentionJump.test.ts
-@@ -0,0 +1,134 @@
+@@ -0,0 +1,147 @@
 +import { beforeEach, describe, expect, mock, test } from 'bun:test';
 +
-+import type { InstanceAttentionItem } from '@/lib/instanceAttention';
++import { LOCAL_INSTANCE_ATTENTION_HOST_ID, type InstanceAttentionItem } from '@/lib/instanceAttention';
 +import { useInstanceAttentionStore } from '@/stores/useInstanceAttentionStore';
 +
 +const activations: string[] = [];
@@ -4549,6 +5328,19 @@ index 000000000..8d0767f14
 +    expect(openedSessions).toEqual([['ses_a', '/repo']]);
 +  });
 +
++  test('a local item opens the session without switching hosts', async () => {
++    const opened = await openInstanceAttentionItem(item({
++      key: `${LOCAL_INSTANCE_ATTENTION_HOST_ID}:ses_local`,
++      hostId: LOCAL_INSTANCE_ATTENTION_HOST_ID,
++      hostLabel: 'This instance',
++      sessionId: 'ses_local',
++    }));
++
++    expect(opened).toBe(true);
++    expect(activations).toEqual([]);
++    expect(openedSessions).toEqual([['ses_local', '/repo']]);
++  });
++
 +  test('the phone supplies its own switch and gets the same open path', async () => {
 +    seed();
 +    const switched: string[] = [];
@@ -4585,12 +5377,12 @@ index 000000000..8d0767f14
 +});
 diff --git a/packages/ui/src/lib/instanceAttentionJump.ts b/packages/ui/src/lib/instanceAttentionJump.ts
 new file mode 100644
-index 000000000..48337a1cc
+index 000000000..90c331ad9
 --- /dev/null
 +++ b/packages/ui/src/lib/instanceAttentionJump.ts
-@@ -0,0 +1,65 @@
+@@ -0,0 +1,78 @@
 +import { activateHost } from '@/lib/desktopHostActions';
-+import type { InstanceAttentionItem } from '@/lib/instanceAttention';
++import { isLocalInstanceAttentionHost, type InstanceAttentionItem } from '@/lib/instanceAttention';
 +import { useInstanceAttentionStore } from '@/stores/useInstanceAttentionStore';
 +import { useSessionUIStore } from '@/sync/session-ui-store';
 +
@@ -4640,12 +5432,25 @@ index 000000000..48337a1cc
 +};
 +
 +/**
++ * Opens a waiting session that lives on the instance this window already
++ * shows. There is nothing to switch to, so it goes straight to the session;
++ * its item clears on its own once the session is read or the request answered.
++ */
++export const openLocalInstanceAttentionItem = (item: InstanceAttentionItem): void => {
++  useSessionUIStore.getState().setCurrentSession(item.sessionId, item.directory);
++};
++
++/**
 + * The desktop shell's switch-and-open path. A host whose last poll failed still
 + * shows its last-known items, so the row is tappable; switching blind would
 + * move the window onto an instance that is not answering. The guard leaves the
 + * surface and its unreachable note in place instead.
 + */
 +export const openInstanceAttentionItem = (item: InstanceAttentionItem): Promise<boolean> => {
++  if (isLocalInstanceAttentionHost(item.hostId)) {
++    openLocalInstanceAttentionItem(item);
++    return Promise.resolve(true);
++  }
 +  if (useInstanceAttentionStore.getState().hosts[item.hostId]?.status === 'error') {
 +    return Promise.resolve(false);
 +  }
@@ -4777,15 +5582,243 @@ index 000000000..4b2367e1d
 +    expect(poll.sessions?.map((entry) => entry.id)).toEqual(['ses_a']);
 +  });
 +});
+diff --git a/packages/ui/src/lib/localInstanceAttention.test.ts b/packages/ui/src/lib/localInstanceAttention.test.ts
+new file mode 100644
+index 000000000..37d46f862
+--- /dev/null
++++ b/packages/ui/src/lib/localInstanceAttention.test.ts
+@@ -0,0 +1,130 @@
++import { describe, expect, test } from 'bun:test';
++
++import {
++  collectInstanceAttention,
++  LOCAL_INSTANCE_ATTENTION_HOST_ID,
++  type InstanceAttentionItem,
++  type InstancePendingCounts,
++} from '@/lib/instanceAttention';
++import { localInstanceAttentionPoll } from '@/lib/localInstanceAttention';
++import type { Session } from '@/lib/opencode/model';
++
++const session = (overrides: Partial<Session> = {}): Session => ({
++  id: 'ses_a',
++  directory: '/repo',
++  projectID: 'project',
++  title: 'Session A',
++  cost: 0,
++  tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
++  time: { created: 1, updated: 1 },
++  ...overrides,
++});
++
++const counts = (overrides: Partial<InstancePendingCounts> = {}): InstancePendingCounts => ({
++  permissions: 0,
++  forms: 0,
++  pages: 0,
++  ...overrides,
++});
++
++const derive = (
++  sessions: readonly Session[],
++  pending: ReadonlyMap<string, InstancePendingCounts> = new Map(),
++): InstanceAttentionItem[] => {
++  const poll = localInstanceAttentionPoll(sessions, pending);
++  return collectInstanceAttention([{
++    hostId: LOCAL_INSTANCE_ATTENTION_HOST_ID,
++    hostLabel: 'This instance',
++    sessions: poll.sessions ?? [],
++    pending: poll.pending ?? new Map(),
++    busy: poll.busy ?? undefined,
++  }]);
++};
++
++describe('local instance attention', () => {
++  test('a pending permission is the strongest reason and carries the session details', () => {
++    const items = derive(
++      [session({ id: 'ses_permission', title: 'Unify sessions', time: { created: 1, updated: 40, idle: 30, viewed: 30 } })],
++      new Map([['ses_permission', counts({ permissions: 1 })]]),
++    );
++
++    expect(items).toHaveLength(1);
++    expect(items[0]).toMatchObject({
++      hostId: LOCAL_INSTANCE_ATTENTION_HOST_ID,
++      hostLabel: 'This instance',
++      sessionId: 'ses_permission',
++      directory: '/repo',
++      title: 'Unify sessions',
++      kind: 'permission',
++      at: 30,
++    });
++  });
++
++  test('a form and a waiting page both read as a question', () => {
++    const items = derive(
++      [session({ id: 'ses_form' }), session({ id: 'ses_page' })],
++      new Map([
++        ['ses_form', counts({ forms: 1 })],
++        ['ses_page', counts({ pages: 1 })],
++      ]),
++    );
++
++    expect(items.map((item) => [item.sessionId, item.kind])).toEqual([
++      ['ses_form', 'question'],
++      ['ses_page', 'question'],
++    ]);
++  });
++
++  test('an unread turn is unread, and a failed one is failed', () => {
++    const items = derive([
++      session({ id: 'ses_unread', time: { created: 1, updated: 20, idle: 10, viewed: 5 } }),
++      session({ id: 'ses_failed', outcome: 'failed', time: { created: 1, updated: 40, idle: 30, viewed: 10 } }),
++    ]);
++
++    expect(items.map((item) => [item.sessionId, item.kind])).toEqual([
++      ['ses_failed', 'failed'],
++      ['ses_unread', 'unread'],
++    ]);
++  });
++
++  test('a read session and an archived one are not waiting', () => {
++    const items = derive([
++      session({ id: 'ses_read', time: { created: 1, updated: 20, idle: 10, viewed: 10 } }),
++      session({ id: 'ses_archived', time: { created: 1, updated: 20, idle: 10, archived: 20 } }),
++    ]);
++
++    expect(items).toEqual([]);
++  });
++
++  test('a subagent request attributes to its top-level parent, like a polled instance', () => {
++    const items = derive(
++      [
++        session({ id: 'ses_parent', title: 'Parent work', time: { created: 1, updated: 40, idle: 40, viewed: 40 } }),
++        session({ id: 'ses_child', parentID: 'ses_parent', title: 'Child work', time: { created: 2, updated: 50, idle: 50 } }),
++        session({ id: 'ses_grandchild', parentID: 'ses_child', title: 'Grandchild work', time: { created: 3, updated: 60, idle: 60 } }),
++      ],
++      new Map([['ses_grandchild', counts({ permissions: 1 })]]),
++    );
++
++    expect(items).toHaveLength(1);
++    expect(items[0]).toMatchObject({ sessionId: 'ses_parent', title: 'Parent work', kind: 'permission', at: 60 });
++  });
++
++  test('a child without a request does not add a row of its own', () => {
++    const items = derive([
++      session({ id: 'ses_parent', title: 'Parent work', time: { created: 1, updated: 20, idle: 20, viewed: 20 } }),
++      session({ id: 'ses_child', parentID: 'ses_parent', time: { created: 2, updated: 30, idle: 30 } }),
++    ]);
++
++    expect(items).toEqual([]);
++  });
++
++  test('one session keeps its strongest reason when several apply', () => {
++    const items = derive(
++      [session({ id: 'ses_a', outcome: 'failed', time: { created: 1, updated: 20, idle: 10 } })],
++      new Map([['ses_a', counts({ forms: 1 })]]),
++    );
++
++    expect(items.map((item) => item.kind)).toEqual(['question']);
++  });
++});
+diff --git a/packages/ui/src/lib/localInstanceAttention.ts b/packages/ui/src/lib/localInstanceAttention.ts
+new file mode 100644
+index 000000000..4f8bb0656
+--- /dev/null
++++ b/packages/ui/src/lib/localInstanceAttention.ts
+@@ -0,0 +1,47 @@
++import type { Session } from '@/lib/opencode/model';
++import type {
++  InstanceAttentionPoll,
++  InstancePendingCounts,
++  InstanceSessionSummary,
++} from '@/lib/instanceAttention';
++
++// The instance this window shows, in the shape the attention rule already
++// reads. The polled hosts answer from two global routes; this one is derived
++// from the app's own live stores instead, so the waiting sessions of the
++// instance the user is looking at appear in the same list and the same total
++// as the instances they are not.
++//
++// Nothing here reads the network. The sidebar already holds these facts:
++// `useGlobalBlockingRequestsStore` for requests waiting on an answer,
++// `useGlobalSessionsStore` for titles, parents, unread turns and failed ones.
++
++/**
++ * One local session as the shared rule reads it. `archived` follows the same
++ * rule as the sidebar: any archive stamp, from any path, puts the session away.
++ */
++const toSummary = (session: Session): InstanceSessionSummary => ({
++  id: session.id,
++  parentID: session.parentID,
++  directory: session.directory,
++  title: session.title,
++  idle: session.time.idle,
++  viewed: session.time.viewed,
++  archived: session.time.archived !== undefined,
++  updated: session.time.updated,
++  outcome: session.outcome,
++});
++
++/**
++ * The local half of the attention list. The unread rule is the app's own
++ * (`sync/session-unread.ts`), which is also what the sidebar shows, so there is
++ * no separate busy set: a session whose turn finished unread stays an item until
++ * the user looks at it, exactly as it does in the sidebar.
++ */
++export const localInstanceAttentionPoll = (
++  sessions: Iterable<Session>,
++  pending: ReadonlyMap<string, InstancePendingCounts>,
++): InstanceAttentionPoll => ({
++  sessions: [...sessions].map(toSummary),
++  pending,
++  busy: new Set(),
++});
+diff --git a/packages/ui/src/stores/DOCUMENTATION.md b/packages/ui/src/stores/DOCUMENTATION.md
+index a6ffb4c29..c46685e28 100644
+--- a/packages/ui/src/stores/DOCUMENTATION.md
++++ b/packages/ui/src/stores/DOCUMENTATION.md
+@@ -96,6 +96,29 @@ owner cannot replace the catalog or finish the current owner's loading state.
+ 
+ ### Feature cache / query stores
+ 
++#### Cross-instance attention
++
++`useInstanceAttentionStore.ts` holds one list for every session that needs the
++user, strongest reason first and newest within that. The saved instances the
++poller reads answer from their `/api/session` and `/api/sessions/status` routes.
++The instance this window shows is published by `hooks/useLocalInstanceAttention.ts`
++as the reserved `openchamber:this-instance` entry, derived from
++`sync/global-blocking-requests.ts`, `useGlobalSessionsStore` and
++`sync/session-unread.ts`; a subagent request attributes to its top-level parent.
++Every surface reads the same `items` array, so the switcher, the phone bell and
++the collapsed-sidebar badge show one total. `retainHosts` keeps the reserved
++entry because it is never in a poller's target list.
++
++#### Why the local instance is a store entry and not a second list
++
++A separate local list would make every surface merge two arrays and choose
++between two counts, and the merge would have to repeat the strength order and
++subagent attribution the polled path already owns. Publishing the local half as
++another host entry keeps one derivation and one sorted list; the reserved id is
++the only thing that distinguishes it, and the hook resolves
++`instanceAttention.localInstance` when it publishes, so the row label follows
++the locale instead of storing English in the record.
++
+ #### Provider quota visibility
+ 
+ `useQuotaAutoRefresh(visible, allProviders)` registers demand only for a mounted,
 diff --git a/packages/ui/src/stores/useInstanceAttentionStore.test.ts b/packages/ui/src/stores/useInstanceAttentionStore.test.ts
 new file mode 100644
-index 000000000..1416febc1
+index 000000000..12b06193d
 --- /dev/null
 +++ b/packages/ui/src/stores/useInstanceAttentionStore.test.ts
-@@ -0,0 +1,120 @@
+@@ -0,0 +1,154 @@
 +import { beforeEach, describe, expect, test } from 'bun:test';
 +
-+import type { InstanceAttentionPoll, InstancePendingCounts, InstanceSessionSummary } from '@/lib/instanceAttention';
++import {
++  LOCAL_INSTANCE_ATTENTION_HOST_ID,
++  type InstanceAttentionPoll,
++  type InstancePendingCounts,
++  type InstanceSessionSummary,
++} from '@/lib/instanceAttention';
 +import { useInstanceAttentionStore } from './useInstanceAttentionStore';
 +
 +const session = (overrides: Partial<InstanceSessionSummary> = {}): InstanceSessionSummary => ({
@@ -4881,6 +5914,35 @@ index 000000000..1416febc1
 +    expect(useInstanceAttentionStore.getState().items.map((item) => item.hostId)).toEqual(['host-c']);
 +  });
 +
++  test('the local entry merges into the same list as the polled hosts', () => {
++    const store = useInstanceAttentionStore.getState();
++    store.applyPoll('host-b', 'Build box', poll([
++      session({ id: 'ses_remote_unread', title: 'Remote unread', idle: 10 }),
++    ], new Map()), 100);
++    store.applyPoll(LOCAL_INSTANCE_ATTENTION_HOST_ID, 'This instance', poll([
++      session({ id: 'ses_local_permission', title: 'Local permission', idle: 5 }),
++    ], new Map([['ses_local_permission', { permissions: 1, forms: 0, pages: 0 }]])), 100);
++
++    const state = useInstanceAttentionStore.getState();
++    expect(state.items.map((item) => [item.sessionId, item.kind])).toEqual([
++      ['ses_local_permission', 'permission'],
++      ['ses_remote_unread', 'unread'],
++    ]);
++  });
++
++  test('the local entry survives retention while polled hosts do not', () => {
++    const store = useInstanceAttentionStore.getState();
++    store.applyPoll(LOCAL_INSTANCE_ATTENTION_HOST_ID, 'This instance', poll([
++      session({ id: 'ses_local', idle: 10 }),
++    ], new Map()), 100);
++    store.applyPoll('host-b', 'Build box', poll([session({ id: 'ses_remote', idle: 10 })], new Map()), 100);
++
++    store.retainHosts([]);
++
++    expect(useInstanceAttentionStore.getState().items.map((item) => item.hostId))
++      .toEqual([LOCAL_INSTANCE_ATTENTION_HOST_ID]);
++  });
++
 +  test('opening an item drops its host and leaves the others', () => {
 +    const store = useInstanceAttentionStore.getState();
 +    store.applyPoll('host-b', 'Build box', poll([session({ id: 'ses_a', idle: 10 })], new Map()), 100);
@@ -4905,23 +5967,25 @@ index 000000000..1416febc1
 +});
 diff --git a/packages/ui/src/stores/useInstanceAttentionStore.ts b/packages/ui/src/stores/useInstanceAttentionStore.ts
 new file mode 100644
-index 000000000..bc20a1cfb
+index 000000000..247603bc2
 --- /dev/null
 +++ b/packages/ui/src/stores/useInstanceAttentionStore.ts
-@@ -0,0 +1,114 @@
+@@ -0,0 +1,122 @@
 +import { create } from 'zustand';
 +
 +import {
 +  collectInstanceAttention,
++  LOCAL_INSTANCE_ATTENTION_HOST_ID,
 +  type InstanceAttentionItem,
 +  type InstanceAttentionPoll,
 +  type InstancePendingCounts,
 +  type InstanceSessionSummary,
 +} from '@/lib/instanceAttention';
 +
-+// Holds what the saved instances other than the active one last told us.
-+// Sessions, pending requests and open turns are kept apart so a failed half of
-+// a poll keeps the other half's previous answer instead of reading as empty.
++// Holds what the saved instances other than the active one last told us, plus
++// this instance's own waiting sessions under a reserved id. Sessions, pending
++// requests and open turns are kept apart so a failed half of a poll keeps the
++// other half's previous answer instead of reading as empty.
 +type InstanceAttentionHostRecord = {
 +  label: string;
 +  status: 'ok' | 'error';
@@ -4937,7 +6001,10 @@ index 000000000..bc20a1cfb
 +  items: readonly InstanceAttentionItem[];
 +  applyPoll: (hostId: string, label: string, poll: InstanceAttentionPoll, checkedAt: number) => void;
 +  markUnreachable: (hostId: string, label: string, checkedAt: number) => void;
-+  /** Drop instances that are no longer saved or are now the active one. */
++  /**
++   * Drop instances that are no longer saved or are now the active one. The
++   * reserved local entry is not a polled target and always stays.
++   */
 +  retainHosts: (hostIds: readonly string[]) => void;
 +  dropHost: (hostId: string) => void;
 +  reset: () => void;
@@ -4960,6 +6027,9 @@ index 000000000..bc20a1cfb
 +  hostIds: readonly string[],
 +) => {
 +  const keep = new Set(hostIds);
++  // The local entry is fed by this window's own stores, never by the poller,
++  // so it is absent from every target list and has to survive retention.
++  keep.add(LOCAL_INSTANCE_ATTENTION_HOST_ID);
 +  const next: Record<string, InstanceAttentionHostRecord> = {};
 +  for (const [hostId, record] of Object.entries(hosts)) {
 +    if (keep.has(hostId)) next[hostId] = record;
