@@ -1,5 +1,5 @@
 diff --git a/packages/ui/src/apps/DOCUMENTATION.md b/packages/ui/src/apps/DOCUMENTATION.md
-index 6e1374275..6928c42ab 100644
+index 0a5589ea4..76d8261df 100644
 --- a/packages/ui/src/apps/DOCUMENTATION.md
 +++ b/packages/ui/src/apps/DOCUMENTATION.md
 @@ -26,6 +26,7 @@
@@ -8,13 +8,13 @@ index 6e1374275..6928c42ab 100644
  - Settings uses the existing persistence and broadcast protocol. Moving its host changes no stored format, registry key or runtime availability.
 +- The mobile shell loads the extension catalog itself (`useGuestCatalogSync`) because it has no rail: the phone's Status tab renders extension status sections and the workspace drawer offers one tab per installed extension panel (`guest:<id>`). Extension message/session menu entries, slash commands, attach items and guest pages remain desktop-only.
  - Notification commands and initial session tabs in VS Code use the shared session opener, so a `/btw` fork opens its parent and expands the panel mounted in the shared composer. Notification commands also reveal the chat view.
+ - Every shell that renders chat columns applies the chat width level with `applyChatWidth` (`lib/chatWidth.ts`). The desktop App, the VS Code webview, the mobile shell and the Electron mini-chat window each write the same root properties, so the tablet shell gets the setting the desktop App already applied.
  
- ## Decisions
 diff --git a/packages/ui/src/apps/MobileApp.tsx b/packages/ui/src/apps/MobileApp.tsx
-index 5e68fe568..fd17eace6 100644
+index c12e67149..e7c34b8a5 100644
 --- a/packages/ui/src/apps/MobileApp.tsx
 +++ b/packages/ui/src/apps/MobileApp.tsx
-@@ -81,6 +81,9 @@ import { OverviewPage } from '@/components/overview/OverviewView';
+@@ -82,6 +82,9 @@ import { OverviewPage } from '@/components/overview/OverviewView';
  import { ScheduledTasksView, type ScheduledTasksLeaveReason } from '@/components/session/ScheduledTasksDialog';
  import { MobileWorkspaceDrawer } from './MobileWorkspaceDrawer';
  import { shownMobileWorkspaceTabs, type MobileWorkspaceTab } from '@/lib/mobileWorkspaceTabs';
@@ -24,7 +24,7 @@ index 5e68fe568..fd17eace6 100644
  import { DedicatedMobileAppProvider, type MobileAppActions } from './mobileAppContext';
  import { autoConnectLastInstance, getAutoConnectTargetLabel, logMobileConnectEvent, reprobeActiveConnection, suppressAutoConnectUntilManualConnect, type AutoConnectOutcome } from './mobileConnections';
  import { isCapacitorMobileApp, useMobileWebBackButton, useNativeAndroidBackButton, useNativeMobileChrome, useNativeMobileLifecycle } from './mobileNativeChrome';
-@@ -117,6 +120,7 @@ const MOBILE_SETTINGS_PAGES = [
+@@ -118,6 +121,7 @@ const MOBILE_SETTINGS_PAGES = [
    'commands',
    'mcp',
    'plugins',
@@ -32,7 +32,7 @@ index 5e68fe568..fd17eace6 100644
    'skills.installed',
    'skills.catalog',
    'providers',
-@@ -145,6 +149,9 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
+@@ -146,6 +150,9 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
    // keepalive: without it, background PTYs (running project actions included)
    // are idle-reaped by the server while the workspace drawer is closed.
    useTerminalSessionKeepalive();
@@ -42,7 +42,7 @@ index 5e68fe568..fd17eace6 100644
    const [sessionsSheetOpen, setSessionsSheetOpen] = React.useState(false);
    // The run overview covers the chat; selecting any session returns to it.
    React.useEffect(() => useSessionUIStore.subscribe((state, prev) => {
-@@ -162,14 +169,22 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
+@@ -163,14 +170,22 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
    const [workspaceOpen, setWorkspaceOpen] = React.useState(false);
    const [workspaceTab, setWorkspaceTab] = React.useState<MobileWorkspaceTab>(() => {
      const { mobileWorkspaceTabOrder, mobileWorkspaceHiddenTabs } = useUIStore.getState();
@@ -946,10 +946,10 @@ index 80774fbd0..ad1447c62 100644
 +  });
  });
 diff --git a/packages/ui/src/stores/useUIStore.ts b/packages/ui/src/stores/useUIStore.ts
-index 63fbc1f4b..350cd480e 100644
+index 75d4913d1..644025961 100644
 --- a/packages/ui/src/stores/useUIStore.ts
 +++ b/packages/ui/src/stores/useUIStore.ts
-@@ -19,7 +19,9 @@ import { isVSCodeRuntime } from '@/lib/desktop';
+@@ -20,7 +20,9 @@ import { isVSCodeRuntime } from '@/lib/desktop';
  import { noteBrowserTabOpenedWithAddress, requestBrowserTabLoad } from '@/lib/browser/devServerWait';
  import { clampLiveBrowserTabs, LIVE_BROWSER_TABS_DEFAULT } from '@/lib/browser/liveTabs';
  import { isContextPanelMode, type ContextPanelMode } from '@/lib/surfaces/modes';
@@ -960,7 +960,7 @@ index 63fbc1f4b..350cd480e 100644
  import {
    carrySurfaceToZone,
    getZoneView,
-@@ -2461,7 +2463,12 @@ export const useUIStore = create<UIStore>()(
+@@ -2463,7 +2465,12 @@ export const useUIStore = create<UIStore>()(
          },
  
          setMobileWorkspaceTabOrder: (order) => {
@@ -974,7 +974,7 @@ index 63fbc1f4b..350cd480e 100644
          },
  
          setMobileWorkspaceTabVisible: (tab, visible) => {
-@@ -2472,7 +2479,8 @@ export const useUIStore = create<UIStore>()(
+@@ -2474,7 +2481,8 @@ export const useUIStore = create<UIStore>()(
              }
              if (hidden.includes(tab)) return state;
              // The last tab the user keeps stays: the drawer would have nothing to show.
