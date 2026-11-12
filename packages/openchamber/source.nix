@@ -72,6 +72,7 @@ let
       ./patches/mobile-voice-launch.patch
       ./patches/mobile-assist-trigger.patch
       ./patches/draft-heading-project-picker.patch
+      ./patches/recap-full-note.patch
     ];
   };
 in
