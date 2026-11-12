@@ -1,0 +1,84 @@
+--- a/packages/mobile/android/app/src/main/AndroidManifest.xml
++++ b/packages/mobile/android/app/src/main/AndroidManifest.xml
+@@ -30,6 +30,13 @@
+                 <category android:name="android.intent.category.BROWSABLE" />
+                 <data android:scheme="openchamber" />
+             </intent-filter>
++            <!-- The digital-assistant role: makes OpenChamber selectable in Settings → System →
++                 Gestures → Press and hold power button → Digital assistant. MainActivity rewrites
++                 this intent into the openchamber:// URL above. -->
++            <intent-filter>
++                <action android:name="android.intent.action.ASSIST" />
++                <category android:name="android.intent.category.DEFAULT" />
++            </intent-filter>
+         </activity>
+ 
+         <provider
+--- a/packages/mobile/android/app/src/main/java/com/openchamber/app/MainActivity.java
++++ b/packages/mobile/android/app/src/main/java/com/openchamber/app/MainActivity.java
+@@ -1,10 +1,20 @@
+ package com.openchamber.app;
+ 
++import android.content.Intent;
++import android.net.Uri;
+ import android.os.Bundle;
+ import com.getcapacitor.BridgeActivity;
+ 
+ public class MainActivity extends BridgeActivity {
+ 
++    /**
++     * Long-pressing the power button (and the assistant button on headsets) reaches us as
++     * ACTION_ASSIST with no data URI, which the Capacitor App plugin ignores. Rewriting it into
++     * this URL routes the gesture through the shared deep-link handler, so it opens a managed
++     * Chats draft and starts dictation without a third-party button remapper.
++     */
++    private static final String ASSIST_DEEP_LINK = "openchamber://new-session?target=chat&dictate=1";
++
+     @Override
+     public void onCreate(Bundle savedInstanceState) {
+         // App-local plugins must be registered before the bridge starts.
+@@ -15,6 +25,8 @@
+         registerPlugin(ReadingAudioFocusPlugin.class);
+         registerPlugin(WindowLayoutPlugin.class);
+         registerPlugin(RuntimeWebSocketPlugin.class);
++        // The bridge reads the launch intent while starting, so rewrite it first.
++        setIntent(assistDeepLinkIntent(getIntent()));
+         super.onCreate(savedInstanceState);
+     }
+ 
+@@ -25,4 +37,16 @@
+         setContentView(R.layout.activity_main);
+         super.load();
+     }
++
++    @Override
++    protected void onNewIntent(Intent intent) {
++        super.onNewIntent(assistDeepLinkIntent(intent));
++    }
++
++    private static Intent assistDeepLinkIntent(Intent intent) {
++        if (intent == null || !Intent.ACTION_ASSIST.equals(intent.getAction())) {
++            return intent;
++        }
++        return new Intent(Intent.ACTION_VIEW, Uri.parse(ASSIST_DEEP_LINK));
++    }
+ }
+--- /dev/null
++++ b/packages/mobile/android/DOCUMENTATION.md
+@@ -0,0 +1,16 @@
++# Android app shell entry points
++
++## Ownership
++
++The Android shell owns how an operating-system launch reaches the shared UI: the manifest intent filters, `MainActivity`'s intent handling, and the app-local plugins registered before the bridge starts. What an `openchamber://` URL means, and which draft or surface it opens, belongs to `packages/ui/src/apps/deepLinks.ts` and `deepLinkNavigation.ts`. iOS launch entry points belong to `packages/mobile/ios`.
++
++## Invariants
++
++- Every launch the app claims (custom scheme, assistant gesture) reaches the shared deep-link handler through the same `openchamber://` vocabulary. The shell adds no second parser and no second URL shape.
++- An intent that the shell does not claim passes through unchanged, so unrelated launches keep the bridge's default behaviour.
++
++## Decisions
++
++### Why the assistant intent is rewritten into a deep link and not delivered through a plugin
++
++`ACTION_ASSIST` carries no data URI, so the Capacitor App plugin ignores it. Rewriting the intent before the bridge starts reuses the existing cold- and warm-launch path, including the retained cold-launch URL, instead of adding a plugin, an event name and a JS listener for one gesture. The rewrite happens in `onCreate` before `super.onCreate` because the bridge reads the launch intent while starting.
