@@ -1,0 +1,359 @@
+diff --git a/packages/ui/src/components/chat/ChatContainer.tsx b/packages/ui/src/components/chat/ChatContainer.tsx
+index 3701cf6e6..53f7089ab 100644
+--- a/packages/ui/src/components/chat/ChatContainer.tsx
++++ b/packages/ui/src/components/chat/ChatContainer.tsx
+@@ -1,6 +1,7 @@
+ import React from 'react';
+ import { SessionRecapNote } from '@/components/chat/SessionRecapSpacer';
+ import { DraftProjectName } from '@/components/chat/DraftProjectName';
++import { requestDraftProjectPicker } from '@/components/chat/composer/state/draftProjectPickerRequest';
+ import { createPortal } from 'react-dom';
+ import type { Message, Part, Session } from '@/lib/opencode/model';
+ import { getLastConversationRecord, isIncompleteAssistantTurn } from '@/lib/opencode/model';
+@@ -791,7 +801,11 @@ const getProjectDisplayLabel = (project: { label?: string; path: string }): stri
+     return label || formatDirectoryName(project.path);
+ };
+ 
+-const renderDraftTitle = (title: string, projectLabel: string | null): React.ReactNode => {
++const renderDraftTitle = (
++    title: string,
++    projectLabel: string | null,
++    onOpenProjectPicker?: () => void,
++): React.ReactNode => {
+     if (!projectLabel) return title;
+     const projectIndex = title.indexOf(projectLabel);
+     if (projectIndex === -1) return title;
+@@ -799,7 +813,7 @@ const renderDraftTitle = (title: string, projectLabel: string | null): React.Rea
+     return (
+         <>
+             {title.slice(0, projectIndex)}
+-            <DraftProjectName label={projectLabel} />
++            <DraftProjectName label={projectLabel} onOpenPicker={onOpenProjectPicker} />
+             {title.slice(projectIndex + projectLabel.length)}
+         </>
+     );
+@@ -817,6 +831,11 @@ const DraftWelcome: React.FC<{ exiting?: boolean }> = ({ exiting = false }) => {
+         return project ? getProjectDisplayLabel(project) : null;
+     }, [draftTarget, selectedProjectId]));
+     const draftHeading = useDraftHeading(projectLabel);
++    // The picker the heading opens lives in the composer; VS Code shows no
++    // draft target selectors, so there the name stays plain text. While the
++    // draft fades out the name stops being a target: `pointer-events-none`
++    // keeps the mouse out but not the keyboard.
++    const openProjectPicker = isVSCodeRuntime() || exiting ? undefined : requestDraftProjectPicker;
+ 
+     return (
+         <div className={cn(
+@@ -824,7 +843,7 @@ const DraftWelcome: React.FC<{ exiting?: boolean }> = ({ exiting = false }) => {
+             exiting && 'pointer-events-none opacity-0',
+         )}>
+             <h1 className="text-balance text-3xl font-normal tracking-tight text-foreground">
+-                {renderDraftTitle(draftHeading, projectLabel)}
++                {renderDraftTitle(draftHeading, projectLabel, openProjectPicker)}
+             </h1>
+             <DraftPresetChips
+                 onSubmit={(starter) => useInputStore.getState().requestPresetSubmit(starter.submitText, starter.ref.type)}
+diff --git a/packages/ui/src/components/chat/ChatInput.tsx b/packages/ui/src/components/chat/ChatInput.tsx
+index 9bf35808f..c5a950e90 100644
+--- a/packages/ui/src/components/chat/ChatInput.tsx
++++ b/packages/ui/src/components/chat/ChatInput.tsx
+@@ -254,6 +254,7 @@ import { useFileMentionCheck } from './composer/state/useFileMentionCheck';
+ import { useSessionDraftPublishing } from './composer/state/useSessionDraftPublishing';
+ import { useDictationOrigin } from './composer/state/useDictationOrigin';
+ import { useDraftTarget } from './composer/state/useDraftTarget';
++import { requestDraftProjectPicker, setDraftProjectPickerOpen, useDraftProjectPickerRequest } from './composer/state/draftProjectPickerRequest';
+ import { useMobileComposerShell } from './composer/state/useMobileComposerShell';
+ import { useMobileViewportPin } from './composer/state/useMobileViewportPin';
+ import { MobileCommentComposer } from './composer/comment/MobileCommentComposer';
+@@ -374,7 +375,11 @@ const recordLinkedReferences = (
+     void sessionActions.addLinkedIssues(sessionId, directory, linked).catch(() => undefined);
+ };
+ 
+-const renderDraftTitle = (title: string, projectLabel: string | null): React.ReactNode => {
++const renderDraftTitle = (
++    title: string,
++    projectLabel: string | null,
++    onOpenProjectPicker?: () => void,
++): React.ReactNode => {
+     if (!projectLabel) return title;
+     const projectIndex = title.indexOf(projectLabel);
+     if (projectIndex === -1) return title;
+@@ -382,7 +387,7 @@ const renderDraftTitle = (title: string, projectLabel: string | null): React.Rea
+     return (
+         <>
+             {title.slice(0, projectIndex)}
+-            <DraftProjectName label={projectLabel} />
++            <DraftProjectName label={projectLabel} onOpenPicker={onOpenProjectPicker} />
+             {title.slice(projectIndex + projectLabel.length)}
+         </>
+     );
+@@ -4424,6 +4447,18 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+         }
+         setMobileDraftPicker(picker);
+     }, [refreshDraftTarget]);
++    // The heading's project name is a second way into the mobile sheet. On
++    // desktop the selectors answer for themselves (see DraftTargetSelectors).
++    useDraftProjectPickerRequest(React.useCallback(() => {
++        if (!isMobile || !showDraftTargetSelectors || !selectedDraftProject) return;
++        setMobileDraftPicker('project');
++    }, [isMobile, showDraftTargetSelectors, selectedDraftProject]));
++    // The heading's project name carries `aria-expanded` from the sheet state.
++    React.useEffect(() => {
++        if (!isMobile) return;
++        setDraftProjectPickerOpen(mobileDraftPicker === 'project');
++        return () => setDraftProjectPickerOpen(false);
++    }, [isMobile, mobileDraftPicker]);
+ 
+     // The one entry to an isolated space: while the feature's switch is on, for a project the
+     // branch selector serves, never in VS Code (decision 16). The dialog keeps the project it
+@@ -5007,7 +5051,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+             {showDesktopDraftPresentation ? (
+                 <div className={cn('chat-input-column mb-7 text-center', draftPresentationClassName)}>
+                     <h1 className="text-balance text-2xl font-normal tracking-tight text-foreground md:text-3xl">
+-                        {renderDraftTitle(draftHeading, draftProjectLabel)}
++                        {renderDraftTitle(draftHeading, draftProjectLabel, showDraftTargetSelectors ? requestDraftProjectPicker : undefined)}
+                     </h1>
+                 </div>
+             ) : null}
+diff --git a/packages/ui/src/components/chat/DraftProjectName.tsx b/packages/ui/src/components/chat/DraftProjectName.tsx
+index a7cc2c592..8466e728b 100644
+--- a/packages/ui/src/components/chat/DraftProjectName.tsx
++++ b/packages/ui/src/components/chat/DraftProjectName.tsx
+@@ -1,14 +1,32 @@
+ import React from 'react';
+ import { useWidthMorph } from '@/lib/motion/useSizeMorph';
++import { useDraftProjectPickerOpen } from '@/components/chat/composer/state/draftProjectPickerRequest';
+ 
+ /**
+  * The project's name inside the new-session heading. Picking another project
+  * eases the name into its new width, so the line around it slides instead of
+  * jumping. An inline block clipped at its edge, top-aligned so its text sits
+  * on the heading's line.
++ *
++ * With `onOpenPicker` it is also the way into the composer's project picker:
++ * the padding sits on negative margins, so the touch target grows around the
++ * same glyphs and the heading does not move.
+  */
+-export const DraftProjectName: React.FC<{ label: string }> = ({ label }) => {
++export const DraftProjectName: React.FC<{ label: string; onOpenPicker?: () => void }> = ({ label, onOpenPicker }) => {
+     const ref = React.useRef<HTMLSpanElement>(null);
++    const pickerOpen = useDraftProjectPickerOpen();
+     useWidthMorph(ref);
+-    return <span ref={ref} className="inline-block max-w-full overflow-hidden whitespace-nowrap align-top font-medium">{label}</span>;
++    const name = <span ref={ref} className="inline-block max-w-full overflow-hidden whitespace-nowrap align-top font-medium">{label}</span>;
++    if (!onOpenPicker) return name;
++    return (
++        <button
++            type="button"
++            onClick={onOpenPicker}
++            aria-haspopup="dialog"
++            aria-expanded={pickerOpen}
++            className="-mx-1.5 -my-2 inline-block max-w-full cursor-pointer rounded-md px-1.5 py-2 align-top text-start hover:bg-[var(--interactive-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-focus-ring)]"
++        >
++            {name}
++        </button>
++    );
+ };
+diff --git a/packages/ui/src/components/chat/composer/DOCUMENTATION.md b/packages/ui/src/components/chat/composer/DOCUMENTATION.md
+index a228bb648..9fea875be 100644
+--- a/packages/ui/src/components/chat/composer/DOCUMENTATION.md
++++ b/packages/ui/src/components/chat/composer/DOCUMENTATION.md
+@@ -367,7 +365,7 @@ comment mode").
+ |---|---|
+ | `language/` | What the text *means*: `@` references, `/` and `#` tokens, markdown, and which picker a caret asks for |
+ | `editor/` | The CodeMirror view that renders the language and owns the caret |
+-| `state/` | Composer-local lifecycle state: ArrowUp/ArrowDown browsing, draft stash/restore, mobile shell, popup placement, draft targeting |
++| `state/` | Composer-local lifecycle state: ArrowUp/ArrowDown browsing, draft stash/restore, mobile shell, popup placement, draft targeting and the heading's request into the project picker |
+ | `comment/` | Mobile comment mode: quoted-selection state, its scope ownership, and the shell that replaces the composer while a comment is written |
+ | `submit/` | Turning what the user has into what gets sent. `guestCommands.ts` routes an extension's slash command (`contributes.commands`) before anything is sent: `/name args` never reaches the model, the extension resolves it into a chip |
+ | `attachments/` | Files: paths, drop payloads |
+@@ -943,6 +941,17 @@ command can leave the queue untouched and delivery can take only part of it.
+   draft target UI is mounted.
+   Keyboard selection returns focus to the current form's composer, including
+   when the selected value is unchanged.
++  The project's name inside a new-session heading is the same entry with a
++  larger touch target: it asks `state/draftProjectPickerRequest.ts` for the
++  picker, and the surface that owns the popup or the mobile sheet answers and
++  reports its open state back for the name's `aria-expanded`. The request
++  travels through a store rather than a callback because the compact draft
++  welcome renders the heading in another component from the composer, and it
++  is delivered from a subscription rather than an effect so the picker's state
++  lands in the same batch as the tap, before the mobile shell decides whether
++  to fold the composer as the keyboard hides. VS Code shows no draft target
++  selectors, so there the name stays plain text, and it stops being a target
++  while the draft fades out.
+ - `ChatInput.tsx` maps Ctrl+N/P to the active command, skill, snippet, or
+   mention picker after its IME guard.
+ 
+diff --git a/packages/ui/src/components/chat/composer/state/__tests__/draftProjectPickerRequest.test.tsx b/packages/ui/src/components/chat/composer/state/__tests__/draftProjectPickerRequest.test.tsx
+new file mode 100644
+index 000000000..831026b5c
+--- /dev/null
++++ b/packages/ui/src/components/chat/composer/state/__tests__/draftProjectPickerRequest.test.tsx
+@@ -0,0 +1,77 @@
++import React, { act } from 'react';
++import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
++import { Window } from 'happy-dom';
++
++describe('draft project picker request', () => {
++  let dom: Window;
++
++  beforeEach(() => {
++    dom = new Window({ url: 'http://localhost/' });
++    Object.assign(globalThis, {
++      window: dom,
++      document: dom.document,
++      navigator: dom.navigator,
++      IS_REACT_ACT_ENVIRONMENT: true,
++    });
++  });
++
++  afterEach(() => {
++    dom.close();
++  });
++
++  test('answers one open per request, never on mount', async () => {
++    const { createRoot } = await import('react-dom/client');
++    const { requestDraftProjectPicker, useDraftProjectPickerRequest } = await import('../draftProjectPickerRequest');
++
++    const opened: number[] = [];
++    const Harness = () => {
++      useDraftProjectPickerRequest(() => opened.push(opened.length + 1));
++      return null;
++    };
++    const container = document.createElement('div');
++    const root = createRoot(container);
++
++    await act(async () => root.render(<Harness />));
++    expect(opened).toEqual([]);
++
++    await act(async () => requestDraftProjectPicker());
++    expect(opened).toEqual([1]);
++
++    await act(async () => requestDraftProjectPicker());
++    expect(opened).toEqual([1, 2]);
++
++    await act(async () => root.unmount());
++    // A request after unmount reaches nobody.
++    await act(async () => requestDraftProjectPicker());
++    expect(opened).toEqual([1, 2]);
++  });
++
++  test('the heading name is a button only where a picker exists', async () => {
++    const { createRoot } = await import('react-dom/client');
++    const { DraftProjectName } = await import('../../../DraftProjectName');
++    const { setDraftProjectPickerOpen } = await import('../draftProjectPickerRequest');
++
++    const container = document.createElement('div');
++    const root = createRoot(container);
++
++    await act(async () => root.render(<DraftProjectName label="acme" />));
++    expect(container.querySelector('button')).toBeNull();
++    expect(container.textContent).toBe('acme');
++
++    let clicks = 0;
++    await act(async () => root.render(<DraftProjectName label="acme" onOpenPicker={() => { clicks += 1; }} />));
++    const button = container.querySelector('button');
++    expect(button?.getAttribute('aria-haspopup')).toBe('dialog');
++    expect(button?.getAttribute('aria-expanded')).toBe('false');
++    await act(async () => button?.click());
++    expect(clicks).toBe(1);
++
++    await act(async () => setDraftProjectPickerOpen(true));
++    expect(container.querySelector('button')?.getAttribute('aria-expanded')).toBe('true');
++
++    await act(async () => setDraftProjectPickerOpen(false));
++    expect(container.querySelector('button')?.getAttribute('aria-expanded')).toBe('false');
++
++    await act(async () => root.unmount());
++  });
++});
+diff --git a/packages/ui/src/components/chat/composer/state/draftProjectPickerRequest.ts b/packages/ui/src/components/chat/composer/state/draftProjectPickerRequest.ts
+new file mode 100644
+index 000000000..2b61e6745
+--- /dev/null
++++ b/packages/ui/src/components/chat/composer/state/draftProjectPickerRequest.ts
+@@ -0,0 +1,42 @@
++import React from 'react';
++import { create } from 'zustand';
++
++// The project name inside a new-session heading is a second, larger way into
++// the project picker the composer shows beside it. The heading only asks; the
++// composer owns the popup and the mobile sheet, so it answers and reports
++// whether the picker is open back for the heading's `aria-expanded`. The
++// heading lives in a different component from the picker on some layouts (the
++// compact draft welcome), which is why the request travels through a store
++// instead of a callback prop.
++//
++// A counter rather than a flag: a tap while the picker is already open still
++// counts as a request, and no request outlives the tap that made it.
++const useRequest = create<{ nonce: number; open: boolean }>(() => ({ nonce: 0, open: false }));
++
++/** Asks the composer showing the draft to open its project picker. */
++export function requestDraftProjectPicker(): void {
++    useRequest.setState((state) => ({ nonce: state.nonce + 1 }));
++}
++
++/** Reports the picker's open state; the surface that owns it writes this. */
++export function setDraftProjectPickerOpen(open: boolean): void {
++    useRequest.setState({ open });
++}
++
++export function useDraftProjectPickerOpen(): boolean {
++    return useRequest((state) => state.open);
++}
++
++/**
++ * Runs `open` once for every request made after this hook mounted. Delivered
++ * from the store subscription rather than an effect: the tap must commit the
++ * picker's state in the same batch as the click, because the mobile shell
++ * reads it to decide whether to fold the composer as the keyboard hides.
++ */
++export function useDraftProjectPickerRequest(open: () => void): void {
++    const openRef = React.useRef(open);
++    openRef.current = open;
++    React.useEffect(() => useRequest.subscribe((state, previous) => {
++        if (state.nonce !== previous.nonce) openRef.current();
++    }), []);
++}
+diff --git a/packages/ui/src/components/chat/composer/ui/DraftTargetSelectors.tsx b/packages/ui/src/components/chat/composer/ui/DraftTargetSelectors.tsx
+index 5891ea790..4f95787b3 100644
+--- a/packages/ui/src/components/chat/composer/ui/DraftTargetSelectors.tsx
++++ b/packages/ui/src/components/chat/composer/ui/DraftTargetSelectors.tsx
+@@ -52,6 +52,7 @@ import type { Theme } from '@/types/theme';
+ import { isSpaceDirectory } from '@/lib/spaces/space-route';
+ import { normalizePath } from '../attachments/filePaths';
+ import { getProjectDisplayLabel, type DraftTargetProject } from '../state/useDraftTarget';
++import { useDraftProjectPickerRequest, setDraftProjectPickerOpen } from '../state/draftProjectPickerRequest';
+ import { useProjectsInSidebarOrder } from '@/components/session/sidebar/list/useProjectsInSidebarOrder';
+ import { DraftsHerePicker, MobileDraftsHerePicker } from './DraftsHerePicker';
+ 
+@@ -221,7 +222,10 @@ function DraftTargetSelectorsView(props: DraftTargetProps) {
+         setOpenPicker(null);
+     };
+ 
+-    useKeybind('open_draft_project_picker', () => {
++    // One entry, three ways: the shortcut, the trigger itself, and the project
++    // name in the new-session heading (a bigger touch target). Seed the active
++    // row from the committed project so Enter without typing repeats it.
++    const openProjectPicker = React.useCallback(() => {
+         projectTriggerRef.current?.focus();
+         setProjectFocusReturn(false);
+         setProjectQuery('');
+@@ -229,7 +233,15 @@ function DraftTargetSelectorsView(props: DraftTargetProps) {
+             projects.some((project) => project.id === selectedProject.id) ? selectedProject.id : null,
+         );
+         setOpenPicker('project');
+-    });
++    }, [projects, selectedProject.id]);
++
++    useKeybind('open_draft_project_picker', openProjectPicker);
++    useDraftProjectPickerRequest(openProjectPicker);
++    // The heading's project name carries `aria-expanded` from this state.
++    React.useEffect(() => {
++        setDraftProjectPickerOpen(openPicker === 'project');
++        return () => setDraftProjectPickerOpen(false);
++    }, [openPicker]);
+     useKeybind('open_draft_worktree_picker', () => {
+         if (!showBranchSelector) return false;
+         worktreeTriggerRef.current?.focus();
