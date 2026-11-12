@@ -74,6 +74,7 @@ let
       ./patches/draft-heading-project-picker.patch
       ./patches/recap-full-note.patch
       ./patches/question-rows.patch
+      ./patches/question-rows-polish.patch
       ./patches/instance-attention.patch
     ];
   };

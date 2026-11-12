@@ -1,0 +1,645 @@
+diff --git a/packages/ui/src/components/chat/TimelineDialog.tsx b/packages/ui/src/components/chat/TimelineDialog.tsx
+index 7d27dbdf0..1415a697e 100644
+--- a/packages/ui/src/components/chat/TimelineDialog.tsx
++++ b/packages/ui/src/components/chat/TimelineDialog.tsx
+@@ -462,16 +462,18 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
+                                         </div>
+                                     </div>
+                                     {(questionsByPromptId.get(message.info.id) ?? []).map((question) => {
+-                                        const questionText = `${question.question} ${question.answer ?? ''}`;
++                                        // The snippet searches the question only; the answer
++                                        // is rendered after the separator, so a match in the
++                                        // answer is not printed twice.
+                                         const questionSnippet = searchQuery.trim()
+-                                            ? getSearchSnippet(questionText, searchQuery)
++                                            ? getSearchSnippet(question.question, searchQuery)
+                                             : null;
+                                         return (
+                                             <div
+                                                 key={question.partId}
+                                                 role="button"
+                                                 tabIndex={0}
+-                                                className="group flex items-start gap-3 py-1 ps-6 hover:bg-interactive-hover/30 focus-visible:bg-interactive-hover/30 focus-visible:outline-none rounded transition-colors cursor-pointer"
++                                                className="group flex items-center gap-3 py-1.5 ps-6 hover:bg-interactive-hover/30 focus-visible:bg-interactive-hover/30 focus-visible:outline-none rounded transition-colors cursor-pointer"
+                                                 onClick={() => void navigateToMessage(question.messageId)}
+                                                 onKeyDown={(event) => {
+                                                     if (event.key !== 'Enter' && event.key !== ' ') return;
+@@ -480,16 +482,13 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
+                                                 }}
+                                                 title={`${question.question} — ${question.answer ?? noAnswerLabel}`}
+                                             >
+-                                                <span className="typography-meta min-w-16 flex-shrink-0 text-end text-muted-foreground/70">
+-                                                    ?
++                                                <span className="min-w-16 flex-shrink-0 flex justify-end text-muted-foreground">
++                                                    <Icon name="question" className="size-3.5" />
+                                                 </span>
+-                                                <span className="min-w-0 flex-1">
+-                                                    <span className="block truncate typography-small text-muted-foreground">
+-                                                        {questionSnippet ?? question.question}
+-                                                    </span>
+-                                                    <span className="block truncate typography-meta text-muted-foreground/80">
+-                                                        {question.answer ?? noAnswerLabel}
+-                                                    </span>
++                                                <span className="min-w-0 flex-1 truncate typography-meta text-muted-foreground">
++                                                    {questionSnippet ?? question.question}
++                                                    {' · '}
++                                                    <span className="text-muted-foreground">{question.answer ?? noAnswerLabel}</span>
+                                                 </span>
+                                             </div>
+                                         );
+diff --git a/packages/ui/src/components/chat/components/PromptNavigatorRail.tsx b/packages/ui/src/components/chat/components/PromptNavigatorRail.tsx
+index 7f11d62d8..6e391257c 100644
+--- a/packages/ui/src/components/chat/components/PromptNavigatorRail.tsx
++++ b/packages/ui/src/components/chat/components/PromptNavigatorRail.tsx
+@@ -334,7 +334,7 @@ export function PromptNavigatorRail({
+             close();
+             listRef.current?.blur();
+         }
+-    }, [close, currentIndex, handleSelect, handleSelectQuestion, highlightedRowIndex, moveHighlight, navRows]);
++    }, [close, currentIndex, currentRowIndex, handleSelect, handleSelectQuestion, highlightedRowIndex, moveHighlight, navRows]);
+ 
+     const handleListBlur = React.useCallback((event: React.FocusEvent<HTMLDivElement>) => {
+         if (event.currentTarget.contains(event.relatedTarget)) {
+@@ -466,19 +466,14 @@ export function PromptNavigatorRail({
+                                                 onMouseDown={(event) => event.preventDefault()}
+                                                 onClick={() => handleSelectQuestion(question.messageId)}
+                                             >
+-                                                <span
+-                                                    aria-hidden="true"
+-                                                    className="mt-[1px] flex size-3.5 flex-shrink-0 items-center justify-center rounded-full border border-edge typography-micro text-muted-foreground"
+-                                                >
+-                                                    ?
+-                                                </span>
+-                                                <span className="min-w-0 flex-1">
+-                                                    <span className="block truncate typography-meta text-muted-foreground">
+-                                                        {question.question}
+-                                                    </span>
+-                                                    <span className="block truncate typography-micro text-muted-foreground/80">
+-                                                        {question.answer ?? noAnswerLabel}
+-                                                    </span>
++                                                <Icon
++                                                    name="question"
++                                                    className="mt-[1px] size-3.5 flex-shrink-0 text-muted-foreground"
++                                                />
++                                                <span className="min-w-0 flex-1 truncate typography-meta text-muted-foreground">
++                                                    {question.question}
++                                                    {' · '}
++                                                    <span className="text-muted-foreground">{question.answer ?? noAnswerLabel}</span>
+                                                 </span>
+                                             </div>
+                                         );
+diff --git a/packages/ui/src/components/chat/lib/questionEntries.test.ts b/packages/ui/src/components/chat/lib/questionEntries.test.ts
+index 7632701c0..53d88aa5e 100644
+--- a/packages/ui/src/components/chat/lib/questionEntries.test.ts
++++ b/packages/ui/src/components/chat/lib/questionEntries.test.ts
+@@ -150,6 +150,19 @@ describe('selectedOptionLabels', () => {
+         expect([...selectedOptionLabels(options, 'Yes, Later', true)]).toEqual(['Yes', 'Later']);
+     });
+ 
++    test('matches the option the question tool marked as recommended', () => {
++        expect([...selectedOptionLabels(options, 'Yes (Recommended)', false)]).toEqual(['Yes']);
++        expect([...selectedOptionLabels(options, 'Yes, Later (Recommended)', true)]).toEqual(['Yes', 'Later']);
++    });
++
++    test('marks a recommended pick in the middle of a multi-select reply', () => {
++        expect([...selectedOptionLabels(options, 'Later (Recommended), Yes', true)]).toEqual(['Yes', 'Later']);
++    });
++
++    test('keeps a label that itself ends with the recommendation marker', () => {
++        expect([...selectedOptionLabels([{ label: 'Yes (Recommended)' }], 'Yes (Recommended)', false)]).toEqual(['Yes (Recommended)']);
++    });
++
+     test('does not split a label that contains a comma when the answer is that label', () => {
+         expect([...selectedOptionLabels([{ label: 'Yes, please' }, { label: 'No' }], 'Yes, please', true)]).toEqual(['Yes, please']);
+     });
+diff --git a/packages/ui/src/components/chat/lib/questionEntries.ts b/packages/ui/src/components/chat/lib/questionEntries.ts
+index ac258267a..f66a6ce20 100644
+--- a/packages/ui/src/components/chat/lib/questionEntries.ts
++++ b/packages/ui/src/components/chat/lib/questionEntries.ts
+@@ -73,6 +73,18 @@ export const readQuestionInput = (input: ToolInput | undefined): QuestionAsked[]
+ 
+ const unescapeQuoted = (value: string): string => value.replace(/\\(["\\])/g, '$1');
+ 
++/**
++ * The question tool appends this marker to the option it recommends, so the
++ * recorded answer carries it even though the option's label does not. Matching
++ * the label needs the marker gone.
++ */
++const RECOMMENDATION_SUFFIX = ' (Recommended)';
++const withoutRecommendation = (value: string): string => (
++    value.endsWith(RECOMMENDATION_SUFFIX)
++        ? value.slice(0, -RECOMMENDATION_SUFFIX.length)
++        : value
++);
++
+ /**
+  * Parses the question tool's reply:
+  * `User has answered your questions: "Q1"="A1", "Q2"="A2". You can now…`
+@@ -191,24 +203,29 @@ export const selectedOptionLabels = (
+     if (!trimmed) return selected;
+ 
+     const labels = options.map((option) => option.label);
+-    const exact = labels.find((label) => label === trimmed);
++    // The tool marks its recommended option in the recorded answer, so the
++    // label match has to ignore that marker.
++    const bare = withoutRecommendation(trimmed);
++    const exact = labels.find((label) => label === trimmed || label === bare);
+     if (exact) {
+         selected.add(exact);
+         return selected;
+     }
+     if (!multiple) return selected;
+ 
+-    const parsed = parseJoinedLabels(trimmed, labels);
++    const parsed = parseJoinedLabels(bare, labels) ?? parseJoinedLabels(trimmed, labels);
+     if (parsed) {
+         for (const label of parsed) selected.add(label);
+         return selected;
+     }
+ 
+     // A reply that is not exactly the joined labels (free text alongside picks)
+-    // still marks the labels it names as whole comma segments.
++    // still marks the labels it names as whole comma segments. The tool's
++    // recommendation marker can sit on any pick, not only the last one.
+     const segments = trimmed.split(/\s*,\s*/).map((segment) => segment.trim());
++    const bareSegments = segments.map(withoutRecommendation);
+     for (const label of labels) {
+-        if (segments.includes(label)) selected.add(label);
++        if (segments.includes(label) || bareSegments.includes(label)) selected.add(label);
+     }
+     return selected;
+ };
+diff --git a/packages/ui/src/components/chat/message/parts/QuestionToolContent.test.tsx b/packages/ui/src/components/chat/message/parts/QuestionToolContent.test.tsx
+index 3d4656775..174ca1eaa 100644
+--- a/packages/ui/src/components/chat/message/parts/QuestionToolContent.test.tsx
++++ b/packages/ui/src/components/chat/message/parts/QuestionToolContent.test.tsx
+@@ -90,6 +90,11 @@ test('expanded rows show the multi-select marker and an unanswered row says so',
+     expect(open).toContain('No answer');
+ });
+ 
++test('expanded rows mark the option the tool recommended', () => {
++    const content = render(<QuestionExpandedContent entries={[entry({ answer: 'Yes (Recommended)' })]} />);
++    expect(content).toContain('size-1.5 rounded-full bg-[var(--interactive-selection)]');
++});
++
+ test('expanded rows show an option description', () => {
+     const content = text(<QuestionExpandedContent entries={[entry({
+         options: [{ label: 'Yes', description: 'Ships the release now' }, { label: 'No' }],
+diff --git a/packages/ui/src/components/chat/message/parts/ToolPart.tsx b/packages/ui/src/components/chat/message/parts/ToolPart.tsx
+index 7d843526d..85df5ea2e 100644
+--- a/packages/ui/src/components/chat/message/parts/ToolPart.tsx
++++ b/packages/ui/src/components/chat/message/parts/ToolPart.tsx
+@@ -2199,18 +2199,6 @@ const ToolPartContent: React.FC<ToolPartProps & { header?: ToolRowHeader; subage
+                                 </Button>
+                             </HoverTooltip>
+                         ) : null}
+-                        {isQuestionTool(part.tool) && isExpanded ? (
+-                            <button
+-                                type="button"
+-                                className="flex-shrink-0 typography-micro text-muted-foreground transition-colors hover:text-foreground"
+-                                onClick={(event) => {
+-                                    event.stopPropagation();
+-                                    onToggle(part.id);
+-                                }}
+-                            >
+-                                {t('chat.toolPart.question.collapse')}
+-                            </button>
+-                        ) : null}
+                     </div>
+                 )}
+             </div>
+diff --git a/packages/ui/src/lib/i18n/messages/ar.settings.ts b/packages/ui/src/lib/i18n/messages/ar.settings.ts
+index 314726419..85bee25eb 100644
+--- a/packages/ui/src/lib/i18n/messages/ar.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/ar.settings.ts
+@@ -2452,6 +2452,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'يعرض تفكير النموذج وملخص الضغط فور وصولهما. عند التعطيل، يبقيان مطويين ويُفتحان بنقرة.',
+   'settings.openchamber.visual.field.collapsibleUserMessagesAria': 'طي رسائل المستخدم الطويلة',
+   'settings.openchamber.visual.field.collapsibleUserMessages': 'طي رسائل المستخدم الطويلة',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsAria': 'فتح الأسئلة المجاب عنها تلقائيًا',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestions': 'فتح الأسئلة المجاب عنها تلقائيًا',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsInfo': 'تُفتح الأسئلة المجاب عنها في السجل مع جميع الخيارات وإجابتك. يبقى السؤال المطوي مطويًا.',
++  'settings.openchamber.visual.field.questionsInPromptSelectorAria': 'إدراج الأسئلة في منتقي المطالبات',
++  'settings.openchamber.visual.field.questionsInPromptSelector': 'إدراج الأسئلة في منتقي المطالبات',
++  'settings.openchamber.visual.field.questionsInPromptSelectorInfo': 'يعرض كل سؤال مجاب عنه تحت المطالبة الخاصة به في المنتقي أعلى اليمين.',
+   'settings.openchamber.visual.field.stickyUserHeaderAria': 'تثبيت رأس رسالة المستخدم',
+   'settings.openchamber.visual.field.stickyUserHeader': 'تثبيت رأس رسالة المستخدم',
+   'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'متصفح الطلبات',
+diff --git a/packages/ui/src/lib/i18n/messages/ar.ts b/packages/ui/src/lib/i18n/messages/ar.ts
+index b2e80a4f4..dfa12fa19 100644
+--- a/packages/ui/src/lib/i18n/messages/ar.ts
++++ b/packages/ui/src/lib/i18n/messages/ar.ts
+@@ -2707,7 +2707,6 @@ export const dict = {
+   'chat.toolPart.awaitingResponse': 'بانتظار الرد…',
+   'chat.toolPart.noOutputProduced': 'لا توجد مخرجات',
+   'chat.toolPart.questionsAsked': 'الأسئلة المطروحة: {count}',
+-  'chat.toolPart.question.collapse': 'طي',
+   'chat.toolPart.question.noAnswer': 'لا إجابة',
+   'chat.toolPart.question.selectOne': 'اختر واحدًا',
+   'chat.toolPart.question.showMore': 'عرض المزيد',
+diff --git a/packages/ui/src/lib/i18n/messages/de.settings.ts b/packages/ui/src/lib/i18n/messages/de.settings.ts
+index 9b1756af2..61324cc64 100644
+--- a/packages/ui/src/lib/i18n/messages/de.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/de.settings.ts
+@@ -2383,6 +2383,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'Zeigt die Gedanken des Modells und die Zusammenfassung beim Komprimieren, während sie eintreffen. Wenn aus, bleiben die Blöcke eingeklappt und öffnen sich per Klick.',
+   'settings.openchamber.visual.field.collapsibleUserMessagesAria': 'Lange Benutzernachrichten einklappen',
+   'settings.openchamber.visual.field.collapsibleUserMessages': 'Lange Benutzernachrichten einklappen',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsAria': 'Beantwortete Fragen automatisch öffnen',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestions': 'Beantwortete Fragen automatisch öffnen',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsInfo': 'Beantwortete Fragen im Verlauf öffnen sich mit allen Optionen und deiner Antwort. Eine eingeklappte Frage bleibt eingeklappt.',
++  'settings.openchamber.visual.field.questionsInPromptSelectorAria': 'Fragen im Prompt-Auswahlmenü auflisten',
++  'settings.openchamber.visual.field.questionsInPromptSelector': 'Fragen im Prompt-Auswahlmenü auflisten',
++  'settings.openchamber.visual.field.questionsInPromptSelectorInfo': 'Zeigt jede beantwortete Frage unter ihrem Prompt im Auswahlmenü oben rechts.',
+   'settings.openchamber.visual.field.stickyUserHeaderAria': 'Fixierter Benutzerheader',
+   'settings.openchamber.visual.field.stickyUserHeader': 'Fixierter Benutzerkopf',
+   'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'Prompt-Navigator',
+diff --git a/packages/ui/src/lib/i18n/messages/de.ts b/packages/ui/src/lib/i18n/messages/de.ts
+index cace30a94..6125863d6 100644
+--- a/packages/ui/src/lib/i18n/messages/de.ts
++++ b/packages/ui/src/lib/i18n/messages/de.ts
+@@ -2503,7 +2503,6 @@ export const dict = {
+   'chat.toolPart.awaitingResponse': 'Warte auf Antwort...',
+   'chat.toolPart.noOutputProduced': 'Keine Ausgabe erzeugt',
+   'chat.toolPart.questionsAsked': 'Gestellte Fragen: {count}',
+-  'chat.toolPart.question.collapse': 'Einklappen',
+   'chat.toolPart.question.noAnswer': 'Keine Antwort',
+   'chat.toolPart.question.selectOne': 'Eine auswählen',
+   'chat.toolPart.question.showMore': 'Mehr anzeigen',
+diff --git a/packages/ui/src/lib/i18n/messages/en.settings.ts b/packages/ui/src/lib/i18n/messages/en.settings.ts
+index 0e44b1826..6e1ae3f42 100644
+--- a/packages/ui/src/lib/i18n/messages/en.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/en.settings.ts
+@@ -2476,6 +2476,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'Shows the model\'s thinking and the compaction summary as they arrive. When off, they stay folded and open with a click.',
+   'settings.openchamber.visual.field.collapsibleUserMessagesAria': 'Collapse long user messages',
+   'settings.openchamber.visual.field.collapsibleUserMessages': 'Collapse long user messages',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsAria': 'Open answered questions automatically',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestions': 'Open answered questions automatically',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsInfo': 'Answered questions in the transcript open with every option and your answer. Collapsing one keeps it collapsed.',
++  'settings.openchamber.visual.field.questionsInPromptSelectorAria': 'List questions in the prompt selector',
++  'settings.openchamber.visual.field.questionsInPromptSelector': 'List questions in the prompt selector',
++  'settings.openchamber.visual.field.questionsInPromptSelectorInfo': 'Shows each answered question under its prompt in the selector at the top right.',
+   'settings.openchamber.visual.field.stickyUserHeaderAria': 'Sticky user header',
+   'settings.openchamber.visual.field.stickyUserHeader': 'Sticky user header',
+   'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'Prompt navigator',
+diff --git a/packages/ui/src/lib/i18n/messages/en.ts b/packages/ui/src/lib/i18n/messages/en.ts
+index 3fabab398..74606db1c 100644
+--- a/packages/ui/src/lib/i18n/messages/en.ts
++++ b/packages/ui/src/lib/i18n/messages/en.ts
+@@ -2795,7 +2795,6 @@ export const dict = {
+   'chat.toolPart.awaitingResponse': 'Awaiting response...',
+   'chat.toolPart.noOutputProduced': 'No output produced',
+   'chat.toolPart.questionsAsked': 'Questions asked: {count}',
+-  'chat.toolPart.question.collapse': 'Collapse',
+   'chat.toolPart.question.noAnswer': 'No answer',
+   'chat.toolPart.question.selectOne': 'Select one',
+   'chat.toolPart.question.showMore': 'Show more',
+diff --git a/packages/ui/src/lib/i18n/messages/es.settings.ts b/packages/ui/src/lib/i18n/messages/es.settings.ts
+index 6182ca1ef..9da921fc6 100644
+--- a/packages/ui/src/lib/i18n/messages/es.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/es.settings.ts
+@@ -2431,6 +2431,12 @@ export const settingsDict = {
+   "settings.openchamber.visual.field.expandReasoningWhileStreamingInfo": "Muestra el razonamiento del modelo y el resumen de la compactación a medida que llegan. Si está desactivado, los bloques quedan plegados y se abren con un clic.",
+   "settings.openchamber.visual.field.collapsibleUserMessagesAria": "Contraer mensajes largos del usuario",
+   "settings.openchamber.visual.field.collapsibleUserMessages": "Contraer mensajes largos del usuario",
++  "settings.openchamber.visual.field.autoExpandAnsweredQuestionsAria": "Abrir automáticamente las preguntas respondidas",
++  "settings.openchamber.visual.field.autoExpandAnsweredQuestions": "Abrir automáticamente las preguntas respondidas",
++  "settings.openchamber.visual.field.autoExpandAnsweredQuestionsInfo": "Las preguntas respondidas en el historial se abren con todas las opciones y tu respuesta. Una pregunta contraída permanece contraída.",
++  "settings.openchamber.visual.field.questionsInPromptSelectorAria": "Listar preguntas en el selector de prompts",
++  "settings.openchamber.visual.field.questionsInPromptSelector": "Listar preguntas en el selector de prompts",
++  "settings.openchamber.visual.field.questionsInPromptSelectorInfo": "Muestra cada pregunta respondida bajo su prompt en el selector de la esquina superior derecha.",
+   "settings.openchamber.visual.field.stickyUserHeaderAria": "Encabezado del usuario fijo",
+   "settings.openchamber.visual.field.stickyUserHeader": "Encabezado de usuario fijo",
+   "settings.openchamber.visual.field.promptNavigatorEnabledAria": "Navegador de prompts",
+diff --git a/packages/ui/src/lib/i18n/messages/es.ts b/packages/ui/src/lib/i18n/messages/es.ts
+index d51136eb7..712fe4aa7 100644
+--- a/packages/ui/src/lib/i18n/messages/es.ts
++++ b/packages/ui/src/lib/i18n/messages/es.ts
+@@ -2752,7 +2752,6 @@ export const dict: Record<I18nKey, string> = {
+   "chat.toolPart.awaitingResponse": "Esperando respuesta...",
+   "chat.toolPart.noOutputProduced": "No se produjo ninguna salida",
+   "chat.toolPart.questionsAsked": 'Preguntas realizadas: {count}',
+-  "chat.toolPart.question.collapse": "Contraer",
+   "chat.toolPart.question.noAnswer": "Sin respuesta",
+   "chat.toolPart.question.selectOne": "Elegir una",
+   "chat.toolPart.question.showMore": "Mostrar más",
+diff --git a/packages/ui/src/lib/i18n/messages/fr.settings.ts b/packages/ui/src/lib/i18n/messages/fr.settings.ts
+index 61025c637..bdead07cb 100644
+--- a/packages/ui/src/lib/i18n/messages/fr.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/fr.settings.ts
+@@ -2320,6 +2320,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'Affiche le raisonnement du modèle et le résumé de compaction au fil de l\'eau. Désactivé, ces blocs restent repliés et s\'ouvrent d\'un clic.',
+   'settings.openchamber.visual.field.collapsibleUserMessagesAria': 'Réduire les longs messages utilisateur',
+   'settings.openchamber.visual.field.collapsibleUserMessages': 'Réduire les longs messages utilisateur',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsAria': 'Ouvrir automatiquement les questions répondues',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestions': 'Ouvrir automatiquement les questions répondues',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsInfo': 'Les questions répondues dans le fil s’ouvrent avec toutes les options et votre réponse. Une question réduite reste réduite.',
++  'settings.openchamber.visual.field.questionsInPromptSelectorAria': 'Lister les questions dans le sélecteur de prompts',
++  'settings.openchamber.visual.field.questionsInPromptSelector': 'Lister les questions dans le sélecteur de prompts',
++  'settings.openchamber.visual.field.questionsInPromptSelectorInfo': 'Affiche chaque question répondue sous son prompt dans le sélecteur en haut à droite.',
+   'settings.openchamber.visual.field.stickyUserHeaderAria': 'En-tête utilisateur collant',
+   'settings.openchamber.visual.field.stickyUserHeader': 'En-tête utilisateur collant',
+   'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'Navigateur de prompts',
+diff --git a/packages/ui/src/lib/i18n/messages/fr.ts b/packages/ui/src/lib/i18n/messages/fr.ts
+index cd13933a7..48e08e620 100644
+--- a/packages/ui/src/lib/i18n/messages/fr.ts
++++ b/packages/ui/src/lib/i18n/messages/fr.ts
+@@ -2492,7 +2492,6 @@ export const dict = {
+   'chat.toolPart.awaitingResponse': 'En attente de réponse...',
+   'chat.toolPart.noOutputProduced': 'Aucune sortie produite',
+   'chat.toolPart.questionsAsked': 'Questions posées : {count}',
+-  'chat.toolPart.question.collapse': 'Réduire',
+   'chat.toolPart.question.noAnswer': 'Pas de réponse',
+   'chat.toolPart.question.selectOne': 'Choisir une',
+   'chat.toolPart.question.showMore': 'Afficher plus',
+diff --git a/packages/ui/src/lib/i18n/messages/he.settings.ts b/packages/ui/src/lib/i18n/messages/he.settings.ts
+index d0898ba61..0de2bf4e5 100644
+--- a/packages/ui/src/lib/i18n/messages/he.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/he.settings.ts
+@@ -2452,6 +2452,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'מציג את החשיבה של המודל ואת סיכום הדחיסה בזמן שהם מגיעים. כשהאפשרות כבויה, הם נשארים מקופלים ונפתחים בלחיצה.',
+   'settings.openchamber.visual.field.collapsibleUserMessagesAria': 'קיפול הודעות משתמש ארוכות',
+   'settings.openchamber.visual.field.collapsibleUserMessages': 'קיפול הודעות משתמש ארוכות',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsAria': 'פתיחת שאלות שנענו אוטומטית',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestions': 'פתיחת שאלות שנענו אוטומטית',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsInfo': 'שאלות שנענו בתמלול נפתחות עם כל האפשרויות והתשובה שלך. שאלה מכווצת נשארת מכווצת.',
++  'settings.openchamber.visual.field.questionsInPromptSelectorAria': 'הצגת שאלות בבורר ההנחיות',
++  'settings.openchamber.visual.field.questionsInPromptSelector': 'הצגת שאלות בבורר ההנחיות',
++  'settings.openchamber.visual.field.questionsInPromptSelectorInfo': 'מציג כל שאלה שנענתה תחת ההנחיה שלה בבורר בפינה הימנית העליונה.',
+   'settings.openchamber.visual.field.stickyUserHeaderAria': 'כותרת משתמש נצמדת',
+   'settings.openchamber.visual.field.stickyUserHeader': 'כותרת משתמש נצמדת',
+   'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'ניווט בין הנחיות',
+diff --git a/packages/ui/src/lib/i18n/messages/he.ts b/packages/ui/src/lib/i18n/messages/he.ts
+index 26707b13e..3e77bcabe 100644
+--- a/packages/ui/src/lib/i18n/messages/he.ts
++++ b/packages/ui/src/lib/i18n/messages/he.ts
+@@ -2707,7 +2707,6 @@ export const dict = {
+   'chat.toolPart.awaitingResponse': 'ממתין לתגובה…',
+   'chat.toolPart.noOutputProduced': 'לא נוצר פלט',
+   'chat.toolPart.questionsAsked': 'שאלות שנשאלו: {count}',
+-  'chat.toolPart.question.collapse': 'כיווץ',
+   'chat.toolPart.question.noAnswer': 'אין תשובה',
+   'chat.toolPart.question.selectOne': 'בחירה אחת',
+   'chat.toolPart.question.showMore': 'הצג עוד',
+diff --git a/packages/ui/src/lib/i18n/messages/ja.settings.ts b/packages/ui/src/lib/i18n/messages/ja.settings.ts
+index f499e4274..964cbf154 100644
+--- a/packages/ui/src/lib/i18n/messages/ja.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/ja.settings.ts
+@@ -2464,6 +2464,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'モデルの思考と会話圧縮の要約を届いたそばから表示します。オフのときはブロックが折りたたまれ、クリックで開けます。',
+   'settings.openchamber.visual.field.collapsibleUserMessagesAria': '長いユーザーメッセージを折りたたむ',
+   'settings.openchamber.visual.field.collapsibleUserMessages': '長いユーザーメッセージを折りたたむ',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsAria': '回答済みの質問を自動で開く',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestions': '回答済みの質問を自動で開く',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsInfo': 'トランスクリプト内の回答済みの質問は、すべての選択肢とあなたの回答を表示して開きます。折りたたんだ質問は折りたたまれたままになります。',
++  'settings.openchamber.visual.field.questionsInPromptSelectorAria': 'プロンプトセレクターに質問を表示',
++  'settings.openchamber.visual.field.questionsInPromptSelector': 'プロンプトセレクターに質問を表示',
++  'settings.openchamber.visual.field.questionsInPromptSelectorInfo': '右上のセレクターで、各回答済みの質問を対応するプロンプトの下に表示します。',
+   'settings.openchamber.visual.field.stickyUserHeaderAria': 'ユーザーヘッダー固定',
+   'settings.openchamber.visual.field.stickyUserHeader': 'ユーザーヘッダー固定',
+   'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'プロンプトナビゲーター',
+diff --git a/packages/ui/src/lib/i18n/messages/ja.ts b/packages/ui/src/lib/i18n/messages/ja.ts
+index f9989ee29..16f36a8f6 100644
+--- a/packages/ui/src/lib/i18n/messages/ja.ts
++++ b/packages/ui/src/lib/i18n/messages/ja.ts
+@@ -2794,7 +2794,6 @@ export const dict: Record<I18nKey, string> = {
+   'chat.toolPart.awaitingResponse': '応答を待機中...',
+   'chat.toolPart.noOutputProduced': '出力は生成されませんでした',
+   'chat.toolPart.questionsAsked': '質問数: {count}',
+-  'chat.toolPart.question.collapse': '折りたたむ',
+   'chat.toolPart.question.noAnswer': '回答なし',
+   'chat.toolPart.question.selectOne': '1つ選択',
+   'chat.toolPart.question.showMore': 'さらに表示',
+diff --git a/packages/ui/src/lib/i18n/messages/ko.settings.ts b/packages/ui/src/lib/i18n/messages/ko.settings.ts
+index 882660968..2a4b44d95 100644
+--- a/packages/ui/src/lib/i18n/messages/ko.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/ko.settings.ts
+@@ -2431,6 +2431,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': '모델의 생각과 대화 압축 요약을 도착하는 대로 보여줍니다. 끄면 블록이 접힌 채로 있고 클릭하면 열립니다.',
+   'settings.openchamber.visual.field.collapsibleUserMessagesAria': '긴 사용자 메시지 접기',
+   'settings.openchamber.visual.field.collapsibleUserMessages': '긴 사용자 메시지 접기',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsAria': '답변한 질문 자동 펼치기',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestions': '답변한 질문 자동 펼치기',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsInfo': '대화 기록의 답변한 질문은 모든 선택지와 답변을 함께 펼쳐 표시합니다. 접은 질문은 접힌 상태로 유지됩니다.',
++  'settings.openchamber.visual.field.questionsInPromptSelectorAria': '프롬프트 선택기에 질문 표시',
++  'settings.openchamber.visual.field.questionsInPromptSelector': '프롬프트 선택기에 질문 표시',
++  'settings.openchamber.visual.field.questionsInPromptSelectorInfo': '오른쪽 위 선택기에서 각 답변한 질문을 해당 프롬프트 아래에 표시합니다.',
+   'settings.openchamber.visual.field.stickyUserHeaderAria': '고정 사용자 헤더',
+   'settings.openchamber.visual.field.stickyUserHeader': '고정 사용자 헤더',
+   'settings.openchamber.visual.field.promptNavigatorEnabledAria': '프롬프트 탐색기',
+diff --git a/packages/ui/src/lib/i18n/messages/ko.ts b/packages/ui/src/lib/i18n/messages/ko.ts
+index ff0206668..3a0c1d16b 100644
+--- a/packages/ui/src/lib/i18n/messages/ko.ts
++++ b/packages/ui/src/lib/i18n/messages/ko.ts
+@@ -2795,7 +2795,6 @@ export const dict: Record<I18nKey, string> = {
+   'chat.toolPart.awaitingResponse': '응답 대기 중…',
+   'chat.toolPart.noOutputProduced': '출력 없음',
+   'chat.toolPart.questionsAsked': '질문 수: {count}',
+-  'chat.toolPart.question.collapse': '접기',
+   'chat.toolPart.question.noAnswer': '답변 없음',
+   'chat.toolPart.question.selectOne': '하나 선택',
+   'chat.toolPart.question.showMore': '더 보기',
+diff --git a/packages/ui/src/lib/i18n/messages/nl.settings.ts b/packages/ui/src/lib/i18n/messages/nl.settings.ts
+index e7f98deec..8f9c01c99 100644
+--- a/packages/ui/src/lib/i18n/messages/nl.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/nl.settings.ts
+@@ -2454,6 +2454,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'Toont de redenering van het model en de samenvatting bij het inkorten terwijl die binnenkomen. Uit: de blokken blijven ingeklapt en openen met een klik.',
+   'settings.openchamber.visual.field.collapsibleUserMessagesAria': 'Vouw lange gebruikersberichten samen',
+   'settings.openchamber.visual.field.collapsibleUserMessages': 'Lange gebruikersberichten samenvouwen',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsAria': 'Beantwoorde vragen automatisch openen',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestions': 'Beantwoorde vragen automatisch openen',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsInfo': 'Beantwoorde vragen in het transcript openen met alle opties en je antwoord. Een samengevouwen vraag blijft samengevouwen.',
++  'settings.openchamber.visual.field.questionsInPromptSelectorAria': 'Vragen tonen in de promptkiezer',
++  'settings.openchamber.visual.field.questionsInPromptSelector': 'Vragen tonen in de promptkiezer',
++  'settings.openchamber.visual.field.questionsInPromptSelectorInfo': 'Toont elke beantwoorde vraag onder de bijbehorende prompt in de kiezer rechtsboven.',
+   'settings.openchamber.visual.field.stickyUserHeaderAria': 'Vaste gebruikerskop',
+   'settings.openchamber.visual.field.stickyUserHeader': 'Vaste gebruikerskop',
+   'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'Promptnavigator',
+diff --git a/packages/ui/src/lib/i18n/messages/nl.ts b/packages/ui/src/lib/i18n/messages/nl.ts
+index e0674777b..2a22feabe 100644
+--- a/packages/ui/src/lib/i18n/messages/nl.ts
++++ b/packages/ui/src/lib/i18n/messages/nl.ts
+@@ -2795,7 +2795,6 @@ export const dict = {
+   'chat.toolPart.awaitingResponse': 'Wachten op antwoord...',
+   'chat.toolPart.noOutputProduced': 'Geen uitvoer',
+   'chat.toolPart.questionsAsked': 'Gestelde vragen: {count}',
+-  'chat.toolPart.question.collapse': 'Samenvouwen',
+   'chat.toolPart.question.noAnswer': 'Geen antwoord',
+   'chat.toolPart.question.selectOne': 'Eén kiezen',
+   'chat.toolPart.question.showMore': 'Meer tonen',
+diff --git a/packages/ui/src/lib/i18n/messages/pl.settings.ts b/packages/ui/src/lib/i18n/messages/pl.settings.ts
+index 691f6e3b2..5d4af5bc8 100644
+--- a/packages/ui/src/lib/i18n/messages/pl.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/pl.settings.ts
+@@ -1372,6 +1372,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'Pokazuje rozumowanie modelu i podsumowanie kompaktowania na bieżąco. Gdy wyłączone, bloki są zwinięte i otwierają się kliknięciem.',
+   'settings.openchamber.visual.field.collapsibleThinkingBlocksAria': 'Włącz zwijalne bloki rozumowania',
+   'settings.openchamber.visual.field.collapsibleUserMessages': 'Zwijaj długie wiadomości użytkownika',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsAria': 'Automatycznie otwieraj odpowiedzi na pytania',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestions': 'Automatycznie otwieraj odpowiedzi na pytania',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsInfo': 'Odpowiedzi na pytania w transkrypcie otwierają się z wszystkimi opcjami i Twoją odpowiedzią. Zwinięte pytanie pozostaje zwinięte.',
++  'settings.openchamber.visual.field.questionsInPromptSelectorAria': 'Wyświetlaj pytania w selektorze promptów',
++  'settings.openchamber.visual.field.questionsInPromptSelector': 'Wyświetlaj pytania w selektorze promptów',
++  'settings.openchamber.visual.field.questionsInPromptSelectorInfo': 'Pokazuje każde pytanie z odpowiedzią pod jego promptem w selektorze w prawym górnym rogu.',
+   'settings.openchamber.visual.field.collapsibleUserMessagesAria': 'Zwijaj długie wiadomości użytkownika',
+   'settings.openchamber.visual.field.showSplitAssistantMessageActions': 'Akcje asystenta w treści',
+   'settings.openchamber.visual.field.showSplitAssistantMessageActionsAria': 'Akcje asystenta w treści',
+diff --git a/packages/ui/src/lib/i18n/messages/pl.ts b/packages/ui/src/lib/i18n/messages/pl.ts
+index 74bbe7f26..4f67d0a06 100644
+--- a/packages/ui/src/lib/i18n/messages/pl.ts
++++ b/packages/ui/src/lib/i18n/messages/pl.ts
+@@ -1691,7 +1691,6 @@ export const dict: Record<I18nKey, string> = {
+   'chat.toolPart.moreRows': '+{count} kolejnych wierszy',
+   'chat.toolPart.noOutputProduced': 'Brak wygenerowanego wyniku',
+   'chat.toolPart.questionsAsked': 'Zadane pytania: {count}',
+-  'chat.toolPart.question.collapse': 'Zwiń',
+   'chat.toolPart.question.noAnswer': 'Brak odpowiedzi',
+   'chat.toolPart.question.selectOne': 'Wybierz jedną',
+   'chat.toolPart.question.showMore': 'Pokaż więcej',
+diff --git a/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts b/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
+index 91d09a581..bad21eef8 100644
+--- a/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
+@@ -2431,6 +2431,12 @@ export const settingsDict = {
+   "settings.openchamber.visual.field.expandReasoningWhileStreamingInfo": "Mostra o raciocínio do modelo e o resumo da compactação enquanto chegam. Desativado, os blocos ficam recolhidos e abrem com um clique.",
+   "settings.openchamber.visual.field.collapsibleUserMessagesAria": "Recolher mensagens longas do usuário",
+   "settings.openchamber.visual.field.collapsibleUserMessages": "Recolher mensagens longas do usuário",
++  "settings.openchamber.visual.field.autoExpandAnsweredQuestionsAria": "Abrir automaticamente perguntas respondidas",
++  "settings.openchamber.visual.field.autoExpandAnsweredQuestions": "Abrir automaticamente perguntas respondidas",
++  "settings.openchamber.visual.field.autoExpandAnsweredQuestionsInfo": "As perguntas respondidas no histórico abrem com todas as opções e a sua resposta. Uma pergunta recolhida permanece recolhida.",
++  "settings.openchamber.visual.field.questionsInPromptSelectorAria": "Listar perguntas no seletor de prompts",
++  "settings.openchamber.visual.field.questionsInPromptSelector": "Listar perguntas no seletor de prompts",
++  "settings.openchamber.visual.field.questionsInPromptSelectorInfo": "Mostra cada pergunta respondida sob o seu prompt no seletor no canto superior direito.",
+   "settings.openchamber.visual.field.stickyUserHeaderAria": "Cabeçalho do usuário fixo",
+   "settings.openchamber.visual.field.stickyUserHeader": "Cabeçalho do usuário fixo",
+   "settings.openchamber.visual.field.promptNavigatorEnabledAria": "Navegador de prompts",
+diff --git a/packages/ui/src/lib/i18n/messages/pt-BR.ts b/packages/ui/src/lib/i18n/messages/pt-BR.ts
+index 0d3b40d2a..4c7f224bb 100644
+--- a/packages/ui/src/lib/i18n/messages/pt-BR.ts
++++ b/packages/ui/src/lib/i18n/messages/pt-BR.ts
+@@ -2752,7 +2752,6 @@ export const dict: Record<I18nKey, string> = {
+   "chat.toolPart.awaitingResponse": "Aguardando resposta...",
+   "chat.toolPart.noOutputProduced": "Nenhuma saída produzida",
+   "chat.toolPart.questionsAsked": 'Perguntas feitas: {count}',
+-  "chat.toolPart.question.collapse": "Recolher",
+   "chat.toolPart.question.noAnswer": "Sem resposta",
+   "chat.toolPart.question.selectOne": "Escolher uma",
+   "chat.toolPart.question.showMore": "Mostrar mais",
+diff --git a/packages/ui/src/lib/i18n/messages/tr.settings.ts b/packages/ui/src/lib/i18n/messages/tr.settings.ts
+index 01bf959ec..f12a877a3 100644
+--- a/packages/ui/src/lib/i18n/messages/tr.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/tr.settings.ts
+@@ -2321,6 +2321,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'Modelin düşüncelerini ve sıkıştırma özetini geldikçe gösterir. Kapalıyken bloklar daraltılmış kalır ve tıklayınca açılır.',
+   'settings.openchamber.visual.field.collapsibleUserMessagesAria': 'Uzun kullanıcı mesajlarını daralt',
+   'settings.openchamber.visual.field.collapsibleUserMessages': 'Uzun Kullanıcı Mesajlarını Daralt',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsAria': 'Yanıtlanan soruları otomatik aç',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestions': 'Yanıtlanan soruları otomatik aç',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsInfo': 'Transkriptteki yanıtlanan sorular tüm seçenekler ve yanıtınızla açılır. Daraltılan bir soru daraltılmış kalır.',
++  'settings.openchamber.visual.field.questionsInPromptSelectorAria': 'Soruları istem seçicide listele',
++  'settings.openchamber.visual.field.questionsInPromptSelector': 'Soruları istem seçicide listele',
++  'settings.openchamber.visual.field.questionsInPromptSelectorInfo': 'Her yanıtlanan soruyu sağ üstteki seçicide isteminin altında gösterir.',
+   'settings.openchamber.visual.field.stickyUserHeaderAria': 'Yapışkan kullanıcı üstbilgisi',
+   'settings.openchamber.visual.field.stickyUserHeader': 'Yapışkan Kullanıcı Üstbilgisi',
+   'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'Prompt gezgini',
+diff --git a/packages/ui/src/lib/i18n/messages/tr.ts b/packages/ui/src/lib/i18n/messages/tr.ts
+index 9966fbfe2..4b8ae5e9f 100644
+--- a/packages/ui/src/lib/i18n/messages/tr.ts
++++ b/packages/ui/src/lib/i18n/messages/tr.ts
+@@ -2625,7 +2625,6 @@ export const dict = {
+   'chat.toolPart.awaitingResponse': 'Yanıt bekleniyor...',
+   'chat.toolPart.noOutputProduced': 'Çıktı üretilmedi',
+   'chat.toolPart.questionsAsked': 'Sorulan sorular: {count}',
+-  'chat.toolPart.question.collapse': 'Daralt',
+   'chat.toolPart.question.noAnswer': 'Yanıt yok',
+   'chat.toolPart.question.selectOne': 'Birini seç',
+   'chat.toolPart.question.showMore': 'Daha fazla göster',
+diff --git a/packages/ui/src/lib/i18n/messages/uk.settings.ts b/packages/ui/src/lib/i18n/messages/uk.settings.ts
+index 26b120e2f..f9fcc9254 100644
+--- a/packages/ui/src/lib/i18n/messages/uk.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/uk.settings.ts
+@@ -2431,6 +2431,12 @@ export const settingsDict = {
+   "settings.openchamber.visual.field.expandReasoningWhileStreamingInfo": "Показує міркування моделі та підсумок стиснення розмови, поки вони надходять. Коли вимкнено, блоки згорнуті й відкриваються кліком.",
+   "settings.openchamber.visual.field.collapsibleUserMessagesAria": "Згортати довгі повідомлення користувача",
+   "settings.openchamber.visual.field.collapsibleUserMessages": "Згортати довгі повідомлення користувача",
++  "settings.openchamber.visual.field.autoExpandAnsweredQuestionsAria": "Автоматично відкривати відповіді на запитання",
++  "settings.openchamber.visual.field.autoExpandAnsweredQuestions": "Автоматично відкривати відповіді на запитання",
++  "settings.openchamber.visual.field.autoExpandAnsweredQuestionsInfo": "Відповіді на запитання в історії відкриваються з усіма варіантами та вашою відповіддю. Згорнуте запитання лишається згорнутим.",
++  "settings.openchamber.visual.field.questionsInPromptSelectorAria": "Показувати запитання у виборі запитів",
++  "settings.openchamber.visual.field.questionsInPromptSelector": "Показувати запитання у виборі запитів",
++  "settings.openchamber.visual.field.questionsInPromptSelectorInfo": "Показує кожну відповідь на запитання під її запитом у виборі в правому верхньому куті.",
+   "settings.openchamber.visual.field.stickyUserHeaderAria": "Закріплений заголовок користувача",
+   "settings.openchamber.visual.field.stickyUserHeader": "Закріплений заголовок користувача",
+   "settings.openchamber.visual.field.promptNavigatorEnabledAria": "Навігатор промптів",
+diff --git a/packages/ui/src/lib/i18n/messages/uk.ts b/packages/ui/src/lib/i18n/messages/uk.ts
+index 3889237a9..89943a2eb 100644
+--- a/packages/ui/src/lib/i18n/messages/uk.ts
++++ b/packages/ui/src/lib/i18n/messages/uk.ts
+@@ -2752,7 +2752,6 @@ export const dict: Record<I18nKey, string> = {
+   "chat.toolPart.awaitingResponse": "Очікування відповіді...",
+   "chat.toolPart.noOutputProduced": "Вивід відсутній",
+   "chat.toolPart.questionsAsked": 'Поставлено запитань: {count}',
+-  "chat.toolPart.question.collapse": "Згорнути",
+   "chat.toolPart.question.noAnswer": "Немає відповіді",
+   "chat.toolPart.question.selectOne": "Вибрати один",
+   "chat.toolPart.question.showMore": "Показати більше",
+diff --git a/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts b/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
+index da1a0ae75..bf94fc17e 100644
+--- a/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
+@@ -2431,6 +2431,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': '在内容到达时实时显示模型的推理和对话压缩摘要。关闭后这些块保持折叠，点击即可展开。',
+   'settings.openchamber.visual.field.collapsibleUserMessagesAria': '折叠较长的用户消息',
+   'settings.openchamber.visual.field.collapsibleUserMessages': '折叠较长的用户消息',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsAria': '自动展开已回答的问题',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestions': '自动展开已回答的问题',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsInfo': '聊天记录中已回答的问题会展开显示所有选项和你的回答。折叠后的问题会保持折叠。',
++  'settings.openchamber.visual.field.questionsInPromptSelectorAria': '在选择器中列出问题',
++  'settings.openchamber.visual.field.questionsInPromptSelector': '在选择器中列出问题',
++  'settings.openchamber.visual.field.questionsInPromptSelectorInfo': '在右上角选择器中于对应提示下显示每个已回答的问题。',
+   'settings.openchamber.visual.field.stickyUserHeaderAria': '固定用户消息头',
+   'settings.openchamber.visual.field.stickyUserHeader': '固定用户消息头',
+   'settings.openchamber.visual.field.promptNavigatorEnabledAria': '提示词导航',
+diff --git a/packages/ui/src/lib/i18n/messages/zh-CN.ts b/packages/ui/src/lib/i18n/messages/zh-CN.ts
+index 8c55b70e1..2b3cbe91a 100644
+--- a/packages/ui/src/lib/i18n/messages/zh-CN.ts
++++ b/packages/ui/src/lib/i18n/messages/zh-CN.ts
+@@ -2761,7 +2761,6 @@ export const dict: Record<I18nKey, string> = {
+   'chat.toolPart.awaitingResponse': '等待响应...',
+   'chat.toolPart.noOutputProduced': '未产生输出',
+   'chat.toolPart.questionsAsked': '已提问：{count}',
+-  'chat.toolPart.question.collapse': '折叠',
+   'chat.toolPart.question.noAnswer': '无回答',
+   'chat.toolPart.question.selectOne': '选择一项',
+   'chat.toolPart.question.showMore': '显示更多',
+diff --git a/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts b/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
+index d9066b496..d9e7621d1 100644
+--- a/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
+@@ -2309,6 +2309,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': '在內容到達時即時顯示模型的推理和對話壓縮摘要。關閉後這些區塊保持摺疊，點擊即可展開。',
+   'settings.openchamber.visual.field.collapsibleUserMessagesAria': '收合較長的使用者訊息',
+   'settings.openchamber.visual.field.collapsibleUserMessages': '收合較長的使用者訊息',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsAria': '自動展開已回答的問題',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestions': '自動展開已回答的問題',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsInfo': '聊天記錄中已回答的問題會展開顯示所有選項和你的回答。收合後的問題會保持收合。',
++  'settings.openchamber.visual.field.questionsInPromptSelectorAria': '在選擇器中列出問題',
++  'settings.openchamber.visual.field.questionsInPromptSelector': '在選擇器中列出問題',
++  'settings.openchamber.visual.field.questionsInPromptSelectorInfo': '在右上角選擇器中於對應提示下顯示每個已回答的問題。',
+   'settings.openchamber.visual.field.stickyUserHeaderAria': '固定使用者訊息標頭',
+   'settings.openchamber.visual.field.stickyUserHeader': '固定使用者訊息標頭',
+   'settings.openchamber.visual.field.promptNavigatorEnabledAria': '提示詞導覽',
+diff --git a/packages/ui/src/lib/i18n/messages/zh-TW.ts b/packages/ui/src/lib/i18n/messages/zh-TW.ts
+index bc0672ea1..66d0daad3 100644
+--- a/packages/ui/src/lib/i18n/messages/zh-TW.ts
++++ b/packages/ui/src/lib/i18n/messages/zh-TW.ts
+@@ -2772,7 +2772,6 @@ export const dict: Record<I18nKey, string> = {
+   'chat.toolPart.awaitingResponse': '等待回應...',
+   'chat.toolPart.noOutputProduced': '未產生輸出',
+   'chat.toolPart.questionsAsked': '已提問：{count}',
+-  'chat.toolPart.question.collapse': '收合',
+   'chat.toolPart.question.noAnswer': '無回答',
+   'chat.toolPart.question.selectOne': '選擇一項',
+   'chat.toolPart.question.showMore': '顯示更多',
