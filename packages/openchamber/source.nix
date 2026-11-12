@@ -69,6 +69,7 @@ let
       ./patches/in-work-first-page.patch
       ./patches/in-work-page-size.patch
       ./patches/send-past-open-question.patch
+      ./patches/draft-heading-project-picker.patch
     ];
   };
 in
