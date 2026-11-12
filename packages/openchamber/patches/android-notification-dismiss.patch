@@ -1,5 +1,5 @@
 diff --git a/packages/mobile/HANDOFF.md b/packages/mobile/HANDOFF.md
-index fff372c..27c4ac5 100644
+index fff372c16..27c4ac5b7 100644
 --- a/packages/mobile/HANDOFF.md
 +++ b/packages/mobile/HANDOFF.md
 @@ -124,6 +124,15 @@ iOS Simulator helpers: `mobile:sim:{boot,install,launch,run,serve,list,kill}` (s
@@ -19,7 +19,7 @@ index fff372c..27c4ac5 100644
  ## Platform config specifics
  
 diff --git a/packages/mobile/android/app/src/main/java/com/openchamber/app/SealedPushMessagingService.java b/packages/mobile/android/app/src/main/java/com/openchamber/app/SealedPushMessagingService.java
-index 26259bc..f43898e 100644
+index 26259bc55..f43898e94 100644
 --- a/packages/mobile/android/app/src/main/java/com/openchamber/app/SealedPushMessagingService.java
 +++ b/packages/mobile/android/app/src/main/java/com/openchamber/app/SealedPushMessagingService.java
 @@ -7,6 +7,7 @@ import android.app.PendingIntent;
@@ -75,27 +75,14 @@ index 26259bc..f43898e 100644
              // Notification permission withdrawn; nothing to show.
          }
 diff --git a/packages/ui/src/lib/DOCUMENTATION.md b/packages/ui/src/lib/DOCUMENTATION.md
-index cd38893..1356fe8 100644
+index 381d13b20..9be4cc666 100644
 --- a/packages/ui/src/lib/DOCUMENTATION.md
 +++ b/packages/ui/src/lib/DOCUMENTATION.md
-@@ -1,17 +1,36 @@
--# Hosted surface selection
-+# Shared UI library modules
- 
--## Ownership
-+## Hosted surface selection
-+
-+### Ownership
- 
- `runtimeSurface.ts` owns the choice between the mobile and desktop app shells in a hosted browser. It stamps the answer on `window` at boot, and every `isMobileSurfaceRuntime()` caller reads that answer. Capacitor, Electron and VS Code have fixed surfaces and skip the heuristic. The live tablet layout inside the mobile shell belongs to `useTabletLayout` in `device.ts`.
- 
--## Invariants
-+### Invariants
- 
- - An explicit stamp or `?surface=` override wins over the heuristic, and an override stops the resize watcher.
+@@ -12,9 +12,26 @@
  - Rotating a phone never changes its surface, so it never reloads the document.
  - Tablets and fine-pointer touch desktops follow the viewport width: a coarse-pointer tablet is mobile up to 768 CSS px wide, so rotating it can still reload into the other shell.
  
+-### Decisions
 +## Native session notifications
 +
 +### Ownership
@@ -109,18 +96,20 @@ index cd38893..1356fe8 100644
 +- "Mark all seen" clears the banners of every session this runtime's store knows, including one that left no unread mark such as a permission request. Banners from another paired server stay.
 +- A list read that fails before push registration completes is harmless; the next view clears what this one missed.
 +
- ## Decisions
- 
++## Decisions
++
 +### Why the Capacitor push plugin's delivered list and not an app-local plugin
 +
 +The plugin already owns the delivered list on both platforms and returns each banner with its push data. Android's `SealedPushMessagingService` copies `sessionId` into the notification's extras so that read sees it, and iOS keeps it in the request's userInfo. A second app-local plugin would duplicate the list handling for one operation.
-+
- ### Why a phone is recognized by the screen's short side and not by the viewport width
+ 
+-#### Why a phone is recognized by the screen's short side and not by the viewport width
++### Why a phone is recognized by the screen's short side and not by the viewport width
  
  A rotated phone's viewport and `screen.width` both report the long side, so a width check flips during rotation and the resize watcher reloads into the desktop shell. The short side stays the same in both orientations.
+ 
 diff --git a/packages/ui/src/lib/nativeNotifications.test.ts b/packages/ui/src/lib/nativeNotifications.test.ts
 new file mode 100644
-index 0000000..f4b8229
+index 000000000..f4b8229bd
 --- /dev/null
 +++ b/packages/ui/src/lib/nativeNotifications.test.ts
 @@ -0,0 +1,96 @@
@@ -222,7 +211,7 @@ index 0000000..f4b8229
 +});
 diff --git a/packages/ui/src/lib/nativeNotifications.ts b/packages/ui/src/lib/nativeNotifications.ts
 new file mode 100644
-index 0000000..5cf8048
+index 000000000..5cf8048c7
 --- /dev/null
 +++ b/packages/ui/src/lib/nativeNotifications.ts
 @@ -0,0 +1,50 @@
@@ -276,8 +265,21 @@ index 0000000..5cf8048
 +    return sessionId !== undefined && wanted.has(sessionId);
 +  });
 +};
+diff --git a/packages/ui/src/sync/DOCUMENTATION.md b/packages/ui/src/sync/DOCUMENTATION.md
+index f01532c53..5ea22e988 100644
+--- a/packages/ui/src/sync/DOCUMENTATION.md
++++ b/packages/ui/src/sync/DOCUMENTATION.md
+@@ -957,7 +957,7 @@ Live activity/status indicators must not depend on this cache. They must use the
+ 
+ `session-unread.ts` owns the unread mark, and OpenCode owns the state behind it. A session record carries `time.idle` (when its last turn ended, whatever the outcome) and `time.viewed` (a watermark of the last turn end a viewer saw, which OpenCode keeps monotone). A top-level, unarchived session whose `idle` is past its `viewed` is unread. Rows, tabs, switchers, collapsed aggregates, run overviews, the tray, the dock badge and the iOS widget all read that one rule from the global sessions store. OpenCode stamps `idle` when a session only idles on background work, so the sidebar's user sections, the tray and the dock badge also leave out a session whose turn is still open (`collectOpenTurnSessionIds`: the running sessions, their ancestors, and sessions waiting on a workflow run, a background command or image, or a pull request). It counts once that work ends, with no change to its record, which is why the tray hook subscribes to those stores even with the tray off. The tray and the dock badge also require a sidebar row (`sessionHasSidebarRow`): an unread session the user cannot see or open would hold a dock count nothing clears. The badge counts a session that only the Chats, Pinned or In work section lists while that section is shown; the tray list keeps it with the section hidden, because a tray row opens the session directly.
+ 
+-Marking a session seen (`markSessionViewed` in `notification-store.ts`, which also clears its native notifications) writes the watermark locally at once and sends `POST /api/session/:id/view` with the `idle` it saw; a failed write restores the previous watermark unless a newer record replaced it. OpenCode announces the view as `session.viewed` to every client, so a session seen on one device stops being unread on the others. The global store's change signatures include `idle` and `viewed`, so these updates publish immediately instead of waiting with recency-only updates.
++Marking a session seen (`markSessionViewed` in `notification-store.ts`, which also clears its native notifications) writes the watermark locally at once and sends `POST /api/session/:id/view` with the `idle` it saw; a failed write restores the previous watermark unless a newer record replaced it. On the desktop shell it removes the session's Notification Center entries through Electron IPC. In the native app it reads the Capacitor push plugin's delivered list and removes the banners whose push data carries the id of that session or of a session nested under it, since the parent's dock shows the requests its subagents wait on; pull-request alerts name no session and stay. `markAllSessionsViewed` clears the banners of every session this runtime's store knows, including one that left no unread mark such as a permission request; banners from another paired server stay. OpenCode announces the view as `session.viewed` to every client, so a session seen on one device stops being unread on the others. The global store's change signatures include `idle` and `viewed`, so these updates publish immediately instead of waiting with recency-only updates.
+ 
+ Archive and delete clear the mark whatever did them (the archive action, retention cleanup, worktree removal): an archived session is never unread and a deleted one has no record. Restoring an archived session marks its last turn seen, so it does not come back unread.
+ 
 diff --git a/packages/ui/src/sync/notification-store.ts b/packages/ui/src/sync/notification-store.ts
-index c2faab5..cdcba00 100644
+index c2faab586..cdcba0005 100644
 --- a/packages/ui/src/sync/notification-store.ts
 +++ b/packages/ui/src/sync/notification-store.ts
 @@ -9,8 +9,9 @@
@@ -320,7 +322,7 @@ index c2faab5..cdcba00 100644
    for (const sessionId of marked) clearDesktopSessionNotifications(sessionId)
    // The route only resets the push badge, so one call covers them all.
 diff --git a/packages/ui/src/sync/session-unread.test.ts b/packages/ui/src/sync/session-unread.test.ts
-index 5eeed69..69dc16c 100644
+index 5eeed690c..69dc16c63 100644
 --- a/packages/ui/src/sync/session-unread.test.ts
 +++ b/packages/ui/src/sync/session-unread.test.ts
 @@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test"
@@ -368,7 +370,7 @@ index 5eeed69..69dc16c 100644
 +  })
 +})
 diff --git a/packages/ui/src/sync/session-unread.ts b/packages/ui/src/sync/session-unread.ts
-index 8ed35b8..33f61a3 100644
+index 8ed35b8b2..33f61a374 100644
 --- a/packages/ui/src/sync/session-unread.ts
 +++ b/packages/ui/src/sync/session-unread.ts
 @@ -14,6 +14,7 @@ import { useCallback } from "react"
@@ -405,7 +407,7 @@ index 8ed35b8..33f61a3 100644
  export const getUnreadSessionIds = (): string[] => {
    const ids: string[] = []
 diff --git a/packages/web/server/lib/notifications/APNS.md b/packages/web/server/lib/notifications/APNS.md
-index b4f24c8..000bc01 100644
+index b4f24c8b0..000bc0109 100644
 --- a/packages/web/server/lib/notifications/APNS.md
 +++ b/packages/web/server/lib/notifications/APNS.md
 @@ -148,3 +148,21 @@ every phone shows only the scenario title.
@@ -431,7 +433,7 @@ index b4f24c8..000bc01 100644
 +
 +
 diff --git a/packages/web/server/lib/notifications/runtime.js b/packages/web/server/lib/notifications/runtime.js
-index 7a6e397..d0823d0 100644
+index 7a6e397f1..d0823d059 100644
 --- a/packages/web/server/lib/notifications/runtime.js
 +++ b/packages/web/server/lib/notifications/runtime.js
 @@ -116,6 +116,7 @@ export const createNotificationTriggerRuntime = (deps) => {
@@ -460,7 +462,7 @@ index 7a6e397..d0823d0 100644
    };
  
 diff --git a/packages/web/server/lib/notifications/trigger-runtime.test.js b/packages/web/server/lib/notifications/trigger-runtime.test.js
-index cf9b3ed..bd21203 100644
+index cf9b3ed25..bd2120328 100644
 --- a/packages/web/server/lib/notifications/trigger-runtime.test.js
 +++ b/packages/web/server/lib/notifications/trigger-runtime.test.js
 @@ -315,6 +315,8 @@ describe('push content in enterprise mode', () => {
@@ -472,16 +474,3 @@ index cf9b3ed..bd21203 100644
        expect(sendPushToAllUiSessions.mock.calls[0][0].phoneBody).toBeUndefined();
      } finally {
        vi.unstubAllGlobals();
-diff --git a/packages/ui/src/sync/DOCUMENTATION.md b/packages/ui/src/sync/DOCUMENTATION.md
-index 65b82b1..5ea22e9 100644
---- a/packages/ui/src/sync/DOCUMENTATION.md
-+++ b/packages/ui/src/sync/DOCUMENTATION.md
-@@ -957,7 +957,7 @@ Live activity/status indicators must not depend on this cache. They must use the
- 
- `session-unread.ts` owns the unread mark, and OpenCode owns the state behind it. A session record carries `time.idle` (when its last turn ended, whatever the outcome) and `time.viewed` (a watermark of the last turn end a viewer saw, which OpenCode keeps monotone). A top-level, unarchived session whose `idle` is past its `viewed` is unread. Rows, tabs, switchers, collapsed aggregates, run overviews, the tray, the dock badge and the iOS widget all read that one rule from the global sessions store. OpenCode stamps `idle` when a session only idles on background work, so the sidebar's user sections, the tray and the dock badge also leave out a session whose turn is still open (`collectOpenTurnSessionIds`: the running sessions, their ancestors, and sessions waiting on a workflow run, a background command or image, or a pull request). It counts once that work ends, with no change to its record, which is why the tray hook subscribes to those stores even with the tray off. The tray and the dock badge also require a sidebar row (`sessionHasSidebarRow`): an unread session the user cannot see or open would hold a dock count nothing clears. The badge counts a session that only the Chats, Pinned or In work section lists while that section is shown; the tray list keeps it with the section hidden, because a tray row opens the session directly.
- 
--Marking a session seen (`markSessionViewed` in `notification-store.ts`, which also clears its native notifications) writes the watermark locally at once and sends `POST /api/session/:id/view` with the `idle` it saw; a failed write restores the previous watermark unless a newer record replaced it. OpenCode announces the view as `session.viewed` to every client, so a session seen on one device stops being unread on the others. The global store's change signatures include `idle` and `viewed`, so these updates publish immediately instead of waiting with recency-only updates.
-+Marking a session seen (`markSessionViewed` in `notification-store.ts`, which also clears its native notifications) writes the watermark locally at once and sends `POST /api/session/:id/view` with the `idle` it saw; a failed write restores the previous watermark unless a newer record replaced it. On the desktop shell it removes the session's Notification Center entries through Electron IPC. In the native app it reads the Capacitor push plugin's delivered list and removes the banners whose push data carries the id of that session or of a session nested under it, since the parent's dock shows the requests its subagents wait on; pull-request alerts name no session and stay. `markAllSessionsViewed` clears the banners of every session this runtime's store knows, including one that left no unread mark such as a permission request; banners from another paired server stay. OpenCode announces the view as `session.viewed` to every client, so a session seen on one device stops being unread on the others. The global store's change signatures include `idle` and `viewed`, so these updates publish immediately instead of waiting with recency-only updates.
- 
- Archive and delete clear the mark whatever did them (the archive action, retention cleanup, worktree removal): an archived session is never unread and a deleted one has no record. Restoring an archived session marks its last turn seen, so it does not come back unread.
- 

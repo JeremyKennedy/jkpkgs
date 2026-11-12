@@ -63,6 +63,7 @@ let
       ./patches/reply-start-scroll.patch
       ./patches/mobile-boot-overlay.patch
       ./patches/dictation-thread-count.patch
+      ./patches/dictation-sherpa-platform.patch
       ./patches/mobile-guest-extensions.patch
       ./patches/android-notification-dismiss.patch
     ];
