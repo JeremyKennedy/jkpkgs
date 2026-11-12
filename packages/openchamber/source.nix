@@ -67,6 +67,7 @@ let
       ./patches/mobile-guest-extensions.patch
       ./patches/android-notification-dismiss.patch
       ./patches/in-work-first-page.patch
+      ./patches/send-past-open-question.patch
     ];
   };
 in
