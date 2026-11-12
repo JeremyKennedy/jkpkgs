@@ -66,6 +66,7 @@ let
       ./patches/dictation-sherpa-platform.patch
       ./patches/mobile-guest-extensions.patch
       ./patches/android-notification-dismiss.patch
+      ./patches/send-past-open-question.patch
     ];
   };
 in
