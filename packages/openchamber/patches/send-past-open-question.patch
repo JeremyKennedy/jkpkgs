@@ -1,0 +1,134 @@
+diff --git a/packages/ui/src/components/chat/ChatInput.tsx b/packages/ui/src/components/chat/ChatInput.tsx
+index 9bf35808f..379ca565b 100644
+--- a/packages/ui/src/components/chat/ChatInput.tsx
++++ b/packages/ui/src/components/chat/ChatInput.tsx
+@@ -2040,7 +2040,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+         const submitRuntimeKey = getRuntimeKey();
+         const queuedOnly = options?.queuedOnly ?? false;
+         const queuedMessageId = options?.queuedMessageId;
+-        const delivery = options?.delivery === 'steer' && sessionPhase !== 'idle' ? 'steer' : undefined;
++        // A pending question is the agent waiting on the user. The message
++        // joins the running turn (steer) and the question card stays open, so
++        // it can still be answered afterwards.
++        const delivery = sessionPhase !== 'idle' && (options?.delivery === 'steer' || pendingForms.length > 0)
++            ? 'steer'
++            : undefined;
+         const capturedTarget = messageQueueTarget;
+         // Snapshot the draft and current-session identity before the first
+         // async gap so a later sidebar selection cannot reroute the send.
+@@ -2231,14 +2236,20 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+         // panel; the composer send goes straight to the fork (routeMessage
+         // queues if the fork's own turn is busy).
+         if (currentSessionId && !queuedOnly && !isBtwActive && !commandPlan) {
+-            // Sending is authoritative for blocking prompts: deny pending
+-            // permissions and dismiss open forms for the session subtree. The
+-            // deny/clear vanishes the card instantly (optimistic); rejecting
+-            // unblocks the agent's tool but does NOT end its turn.
+-            const [deniedPermissions, dismissedForms] = await Promise.all([
+-                sessionActions.dismissOpenPermissionsForSession(currentSessionId),
+-                sessionActions.dismissOpenFormsForSession(currentSessionId),
+-            ]);
++            // Sending is authoritative for pending permissions: deny them for
++            // the session subtree. The deny/clear vanishes the card instantly
++            // (optimistic); rejecting unblocks the agent's tool but does NOT
++            // end its turn.
++            //
++            // A pending question is different: it is the agent waiting on the
++            // user, so the card stays and the answer stays available. The
++            // message is steered into the running turn instead (see
++            // `delivery` above), which the inbox accepts while the turn is
++            // active. Dismissing it would cancel the ask and stop the turn.
++            const deniedPermissions = await sessionActions.dismissOpenPermissionsForSession(currentSessionId);
++            const dismissedForms = pendingForms.length > 0
++                ? false
++                : await sessionActions.dismissOpenFormsForSession(currentSessionId);
+             // An explicit Steer goes straight to the session inbox, which
+             // takes it while the turn is still active. Any other send would
+             // race with that run, so it is queued; the queued-message auto-send
+@@ -2813,7 +2824,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+         if (isMobileCommentOpen()) return;
+         if (pendingFirstSend) return;
+         const inputSnapshot = getCurrentInputSnapshot();
+-        const canQueue = !isBtwActive && !isPageWaiting && inputMode === 'normal' && inputSnapshot.hasContent && currentSessionId && (currentSessionPhase !== 'idle' || autoReviewRunning);
++        // Queueing waits for the turn to end, and a pending question keeps the
++        // turn open until it is answered. Such a send goes into the running
++        // turn instead, leaving the question open.
++        const canQueue = !isBtwActive && !isPageWaiting && inputMode === 'normal' && inputSnapshot.hasContent && currentSessionId && (currentSessionPhase !== 'idle' || autoReviewRunning) && pendingForms.length === 0;
+         if (followUpBehavior === 'queue' && canQueue) {
+             void handleQueueMessage();
+         } else if (followUpBehavior === 'steer' && canQueue) {
+@@ -2821,7 +2835,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+         } else {
+             void handleSubmitRef.current();
+         }
+-    }, [inputMode, getCurrentInputSnapshot, currentSessionId, currentSessionPhase, autoReviewRunning, followUpBehavior, handleQueueMessage, isBtwActive, isPageWaiting, isMobileCommentOpen, pendingFirstSend]);
++    }, [inputMode, getCurrentInputSnapshot, currentSessionId, currentSessionPhase, autoReviewRunning, followUpBehavior, handleQueueMessage, isBtwActive, isPageWaiting, isMobileCommentOpen, pendingFirstSend, pendingForms.length]);
+ 
+     // Draft welcome presets: submit immediately.
+     const submitPresetPrompt = React.useCallback((text: string, type: 'command' | 'skill') => {
+@@ -3121,8 +3135,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+             // a turn runs Stop replaces the send button, so only Enter does it.
+ 
+             // Queueing / steering only works when there's an existing busy
+-            // session (or an active auto-review run).
+-            const canQueue = !isBtwActive && !isPageWaiting && inputMode === 'normal' && hasContent && currentSessionId && (currentSessionPhase !== 'idle' || autoReviewRunning);
++            // session (or an active auto-review run). A pending question keeps
++            // the turn open, so its send steers instead of waiting in the queue.
++            const canQueue = !isBtwActive && !isPageWaiting && inputMode === 'normal' && hasContent && currentSessionId && (currentSessionPhase !== 'idle' || autoReviewRunning) && pendingForms.length === 0;
+ 
+             if (followUpBehavior === 'queue') {
+                 if (isCtrlEnter || !canQueue) {
+diff --git a/packages/ui/src/sync/DOCUMENTATION.md b/packages/ui/src/sync/DOCUMENTATION.md
+index 65b82b111..4cd63a20c 100644
+--- a/packages/ui/src/sync/DOCUMENTATION.md
++++ b/packages/ui/src/sync/DOCUMENTATION.md
+@@ -1222,12 +1222,16 @@ A form reply resumes the turn, so `replyToForm` first puts the session on its co
+ 
+ `replyToForm`, `cancelForm`, `respondToPermission`, and `dismissPermission` route the reply through `resolveDirectoryForBlockingRequest`. The directory chosen decides which OpenCode instance resolves the pending request, so it must be the **session record's own server-confirmed directory** (ownership), never the containing child-store key (containment): a project store legitimately holds its worktree sessions, and a reply addressed to the parent instance makes the server answer `FormNotFoundError` while the form stays pending in the worktree instance — the session is then stuck on the running form tool with no recovery. When a form reply/cancel comes back not-found, the stale request is removed locally and a `settled-running-tool` tail materialization is enqueued so the trailing tool part converges to the server's actual state instead of leaving the UI on "asking question" forever. A permission reply/reject that comes back not-found only removes the request locally.
+ 
+-Sending a message while forms are open cancels them through `dismissOpenFormsForSession`, which removes them from the store before the cancel request so the card disappears at once. A not-found answer keeps them removed. Any other failure puts each form back into the store and session it came from: the agent is still waiting, and no event will return it. The mounted chat's form-only recovery would refetch the open session's own form, but a subagent's form shown in the parent chat has no other path back. Open permissions follow the same rule through `dismissOpenPermissionsForSession`, which rejects them: a not-found answer keeps them removed, any other failure puts each one back. Permissions have no in-chat recovery at all, so without the restore even the open session's own prompt stays hidden until a reconnect. A restored card can belong to a request the server already settled (its response was lost, or another client answered it); any reply from the card then comes back not-found, and `respondToPermission` removes it. The same cleanup applies to its other callers, VS Code auto-accept and the desktop tray's approve action.
++Sending a message while a question is open leaves the question open: the card stays answerable and the message is steered into the running turn, which the session inbox accepts while the turn waits on the ask. Cancelling the form instead would stop the turn and lose the ask. A form the composer cannot see, outside the session subtree and the directory's location-scoped forms, is still cancelled through `dismissOpenFormsForSession`, which removes it from the store before the cancel request so the card disappears at once. A not-found answer keeps it removed. Any other failure puts each form back into the store and session it came from: the agent is still waiting, and no event will return it. The mounted chat's form-only recovery would refetch the open session's own form, but a subagent's form shown in the parent chat has no other path back. Open permissions are still dismissed on send through `dismissOpenPermissionsForSession`, which rejects them: a not-found answer keeps them removed, any other failure puts each one back. Permissions have no in-chat recovery at all, so without the restore even the open session's own prompt stays hidden until a reconnect. A restored card can belong to a request the server already settled (its response was lost, or another client answered it); any reply from the card then comes back not-found, and `respondToPermission` removes it. The same cleanup applies to its other callers, VS Code auto-accept and the desktop tray's approve action.
+ 
+ A lost question can be answered through a new paid turn in the asking session. `recoverable-questions.ts` captures only observed session-owned question forms with a tool link. Recovery requires that linked call's exact interruption error or a local interrupted-turn mark. A recorded interrupted or failed turn also grants that mark to stale active tools finalized by materialization under an already completed assistant message; the server's completed message stays unchanged. Explicit replies and local dismissals veto recovery; shutdown, still-running calls and unknown evidence do not qualify. Later authoritative tool transitions supersede local marks.
+ 
+ Recovery is memory-only and retains the last 100 captured questions together with their outcomes and tool dispositions. Closed questions remain tombstoned within that window; eviction forgets the question and its auxiliary records together. Session deletion clears its entries and runtime switching clears everything. These cards do not hold directories, protect caches or count as blocking requests. Both form surfaces warn about the new paid turn, use the normal send path with a per-request lock, and retain drafts after rejected sends. Recovered answers explicitly disable Goal Mode for their turn and leave the main composer's armed goal untouched.
+ 
++### Why a send steers past an open question
++
++Dismissing on send was the earlier behavior: the card vanished, the cancelled ask stopped the turn, and the typed message then waited in the queue until it ended. Steering the message into the waiting turn keeps the ask and the message together, so the user answers the question and the model reads the message in the same turn.
++
+ ### Why recovery needs a linked tool outcome
+ 
+ A missing form can have been answered on another client. Recovery therefore requires request-specific turn-death evidence; missing forms, idle status and disconnects alone cannot re-ask a question.
+diff --git a/packages/ui/src/sync/session-actions.ts b/packages/ui/src/sync/session-actions.ts
+index fd53204a4..b20ec8011 100644
+--- a/packages/ui/src/sync/session-actions.ts
++++ b/packages/ui/src/sync/session-actions.ts
+@@ -2798,9 +2798,10 @@ export async function sendRecoveredFormAnswer(question: RecoveredQuestion, text:
+ 
+ /**
+  * Cancel every pending form for the session subtree rooted at `sessionId` (the
+- * session itself plus any subagent children). Used by the chat send path:
+- * sending a message while a form is open must supersede it so it cannot linger
+- * or strand the session in a half-answered state.
++ * session itself plus any subagent children). The chat send path leaves the
++ * forms its composer shows open (the message steers into the waiting turn), and
++ * calls this for the rest so a form it cannot show cannot linger or strand the
++ * session in a half-answered state.
+  *
+  * The forms are removed from the local store OPTIMISTICALLY (before any network
+  * call) so the prompt disappears instantly instead of waiting on the round
+@@ -2813,10 +2814,9 @@ export async function sendRecoveredFormAnswer(question: RecoveredQuestion, text:
+  * puts the form back: the agent is still waiting on it, and no event will bring
+  * it back (a subagent's form has no other recovery path, #2448).
+  *
+- * Rejecting unblocks the agent's tool without guaranteeing an idle session.
+- * The chat caller preserves explicit Steer as a direct send (the inbox takes
+- * it while the turn is still active) and queues other follow-ups after
+- * dismissal. This helper does not abort the session.
++ * Cancelling stops the turn the form waits on. The chat caller sends an explicit
++ * Steer as a direct send and queues other follow-ups after dismissal. This
++ * helper does not abort the session.
+  */
+ export async function dismissOpenFormsForSession(sessionId: string): Promise<boolean> {
+   if (!sessionId) return false
