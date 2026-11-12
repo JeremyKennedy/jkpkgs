@@ -75,6 +75,7 @@ let
       ./patches/recap-full-note.patch
       ./patches/instance-attention.patch
       ./patches/question-rows.patch
+      ./patches/instance-attention.patch
     ];
   };
 in
