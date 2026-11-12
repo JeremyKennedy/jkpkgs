@@ -1,16 +1,16 @@
 diff --git a/packages/ui/src/components/chat/ChatContainer.tsx b/packages/ui/src/components/chat/ChatContainer.tsx
-index 3701cf6e6..53f7089ab 100644
+index 3701cf6e6..614a94c56 100644
 --- a/packages/ui/src/components/chat/ChatContainer.tsx
 +++ b/packages/ui/src/components/chat/ChatContainer.tsx
 @@ -1,6 +1,7 @@
  import React from 'react';
  import { SessionRecapNote } from '@/components/chat/SessionRecapSpacer';
  import { DraftProjectName } from '@/components/chat/DraftProjectName';
-+import { requestDraftProjectPicker } from '@/components/chat/composer/state/draftProjectPickerRequest';
++import { requestDraftProjectPicker, useDraftProjectPickerOpen } from '@/components/chat/composer/state/draftProjectPickerRequest';
  import { createPortal } from 'react-dom';
  import type { Message, Part, Session } from '@/lib/opencode/model';
  import { getLastConversationRecord, isIncompleteAssistantTurn } from '@/lib/opencode/model';
-@@ -791,7 +801,11 @@ const getProjectDisplayLabel = (project: { label?: string; path: string }): stri
+@@ -791,7 +805,11 @@ const getProjectDisplayLabel = (project: { label?: string; path: string }): stri
      return label || formatDirectoryName(project.path);
  };
  
@@ -23,7 +23,7 @@ index 3701cf6e6..53f7089ab 100644
      if (!projectLabel) return title;
      const projectIndex = title.indexOf(projectLabel);
      if (projectIndex === -1) return title;
-@@ -799,7 +813,7 @@ const renderDraftTitle = (title: string, projectLabel: string | null): React.Rea
+@@ -799,7 +817,7 @@ const renderDraftTitle = (title: string, projectLabel: string | null): React.Rea
      return (
          <>
              {title.slice(0, projectIndex)}
@@ -32,29 +32,45 @@ index 3701cf6e6..53f7089ab 100644
              {title.slice(projectIndex + projectLabel.length)}
          </>
      );
-@@ -817,6 +831,11 @@ const DraftWelcome: React.FC<{ exiting?: boolean }> = ({ exiting = false }) => {
+@@ -817,6 +835,17 @@ const DraftWelcome: React.FC<{ exiting?: boolean }> = ({ exiting = false }) => {
          return project ? getProjectDisplayLabel(project) : null;
      }, [draftTarget, selectedProjectId]));
      const draftHeading = useDraftHeading(projectLabel);
++    const pickerOpen = useDraftProjectPickerOpen();
++    const isMobile = useUIStore((state) => state.isMobile);
 +    // The picker the heading opens lives in the composer; VS Code shows no
 +    // draft target selectors, so there the name stays plain text. While the
 +    // draft fades out the name stops being a target: `pointer-events-none`
 +    // keeps the mouse out but not the keyboard.
 +    const openProjectPicker = isVSCodeRuntime() || exiting ? undefined : requestDraftProjectPicker;
++    // A phone taps the whole line, not a word inside it: the heading itself is
++    // the target there. Desktop keeps the project name as the entry, so the
++    // line around it stays plain text.
++    const wholeHeadingIsTarget = isMobile && Boolean(openProjectPicker);
  
      return (
          <div className={cn(
-@@ -824,7 +843,7 @@ const DraftWelcome: React.FC<{ exiting?: boolean }> = ({ exiting = false }) => {
+@@ -824,7 +853,17 @@ const DraftWelcome: React.FC<{ exiting?: boolean }> = ({ exiting = false }) => {
              exiting && 'pointer-events-none opacity-0',
          )}>
              <h1 className="text-balance text-3xl font-normal tracking-tight text-foreground">
 -                {renderDraftTitle(draftHeading, projectLabel)}
-+                {renderDraftTitle(draftHeading, projectLabel, openProjectPicker)}
++                {wholeHeadingIsTarget ? (
++                    <button
++                        type="button"
++                        onClick={openProjectPicker}
++                        aria-haspopup="dialog"
++                        aria-expanded={pickerOpen}
++                        className="-m-2 inline-block max-w-full cursor-pointer rounded-lg p-2 text-center hover:bg-[var(--interactive-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-focus-ring)]"
++                    >
++                        {renderDraftTitle(draftHeading, projectLabel)}
++                    </button>
++                ) : renderDraftTitle(draftHeading, projectLabel, openProjectPicker)}
              </h1>
              <DraftPresetChips
                  onSubmit={(starter) => useInputStore.getState().requestPresetSubmit(starter.submitText, starter.ref.type)}
 diff --git a/packages/ui/src/components/chat/ChatInput.tsx b/packages/ui/src/components/chat/ChatInput.tsx
-index 9bf35808f..c5a950e90 100644
+index 9bf35808f..a2c1c7589 100644
 --- a/packages/ui/src/components/chat/ChatInput.tsx
 +++ b/packages/ui/src/components/chat/ChatInput.tsx
 @@ -254,6 +254,7 @@ import { useFileMentionCheck } from './composer/state/useFileMentionCheck';
@@ -106,7 +122,7 @@ index 9bf35808f..c5a950e90 100644
  
      // The one entry to an isolated space: while the feature's switch is on, for a project the
      // branch selector serves, never in VS Code (decision 16). The dialog keeps the project it
-@@ -5007,7 +5051,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+@@ -5007,7 +5055,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
              {showDesktopDraftPresentation ? (
                  <div className={cn('chat-input-column mb-7 text-center', draftPresentationClassName)}>
                      <h1 className="text-balance text-2xl font-normal tracking-tight text-foreground md:text-3xl">
@@ -155,7 +171,7 @@ index a7cc2c592..8466e728b 100644
 +    );
  };
 diff --git a/packages/ui/src/components/chat/composer/DOCUMENTATION.md b/packages/ui/src/components/chat/composer/DOCUMENTATION.md
-index a228bb648..9fea875be 100644
+index a228bb648..84b96fa7d 100644
 --- a/packages/ui/src/components/chat/composer/DOCUMENTATION.md
 +++ b/packages/ui/src/components/chat/composer/DOCUMENTATION.md
 @@ -367,7 +365,7 @@ comment mode").
@@ -167,21 +183,24 @@ index a228bb648..9fea875be 100644
  | `comment/` | Mobile comment mode: quoted-selection state, its scope ownership, and the shell that replaces the composer while a comment is written |
  | `submit/` | Turning what the user has into what gets sent. `guestCommands.ts` routes an extension's slash command (`contributes.commands`) before anything is sent: `/name args` never reaches the model, the extension resolves it into a chip |
  | `attachments/` | Files: paths, drop payloads |
-@@ -943,6 +941,17 @@ command can leave the queue untouched and delivery can take only part of it.
+@@ -943,6 +941,20 @@ command can leave the queue untouched and delivery can take only part of it.
    draft target UI is mounted.
    Keyboard selection returns focus to the current form's composer, including
    when the selected value is unchanged.
 +  The project's name inside a new-session heading is the same entry with a
 +  larger touch target: it asks `state/draftProjectPickerRequest.ts` for the
 +  picker, and the surface that owns the popup or the mobile sheet answers and
-+  reports its open state back for the name's `aria-expanded`. The request
-+  travels through a store rather than a callback because the compact draft
-+  welcome renders the heading in another component from the composer, and it
-+  is delivered from a subscription rather than an effect so the picker's state
-+  lands in the same batch as the tap, before the mobile shell decides whether
-+  to fold the composer as the keyboard hides. VS Code shows no draft target
-+  selectors, so there the name stays plain text, and it stops being a target
-+  while the draft fades out.
++  reports its open state back for the name's `aria-expanded`. On a phone the
++  compact draft welcome makes the whole heading line one button instead, so
++  any part of the line opens the sheet; desktop keeps the project name as the
++  entry and leaves the rest of the line plain text. The request travels
++  through a store rather than a callback because that welcome renders the
++  heading in another component from the composer, and it is delivered from a
++  subscription rather than an effect so the picker's state lands in the same
++  batch as the tap, before the mobile shell decides whether to fold the
++  composer as the keyboard hides. VS Code shows no draft target selectors, so
++  there the heading stays plain text, and it stops being a target while the
++  draft fades out.
  - `ChatInput.tsx` maps Ctrl+N/P to the active command, skill, snippet, or
    mention picker after its IME guard.
  
