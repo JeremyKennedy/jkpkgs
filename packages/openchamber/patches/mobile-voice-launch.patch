@@ -151,7 +151,7 @@ index 24673426e..2ac922b7c 100644
      case 'sessions': {
        const filter = query.get('filter');
 diff --git a/packages/ui/src/components/chat/ChatInput.tsx b/packages/ui/src/components/chat/ChatInput.tsx
-index 9bf35808f..894de26e9 100644
+index 9bf35808f..364ef6dd1 100644
 --- a/packages/ui/src/components/chat/ChatInput.tsx
 +++ b/packages/ui/src/components/chat/ChatInput.tsx
 @@ -681,6 +681,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
@@ -162,7 +162,7 @@ index 9bf35808f..894de26e9 100644
      const setPendingInputText = useInputStore((s) => s.setPendingInputText);
      const pendingGuestIssue = useInputStore((s) => s.pendingGuestIssue);
      const consumePendingGuestIssue = useInputStore((s) => s.consumePendingGuestIssue);
-@@ -4844,6 +4845,15 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+@@ -4844,6 +4845,19 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
          }));
      }, []);
  
@@ -171,6 +171,10 @@ index 9bf35808f..894de26e9 100644
 +    // so a composer showing another draft drops it instead of recording there.
 +    React.useEffect(() => {
 +        if (pendingDraftDictation == null || columnPinned) return;
++        // The request is set in the same turn the draft opens, so this
++        // composer can still be showing the previous draft (or none). Wait
++        // for the draft id to match instead of dropping the request.
++        if (draftSubmitDraftId !== pendingDraftDictation.draftId) return;
 +        if (!useInputStore.getState().consumePendingDraftDictation(draftSubmitDraftId)) return;
 +        toggleDictation();
 +    }, [columnPinned, draftSubmitDraftId, pendingDraftDictation, toggleDictation]);
