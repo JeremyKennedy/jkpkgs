@@ -342,7 +342,7 @@ index 09bcd72ac..65b5088b3 100644
    ['chat.collapsible-user-messages', 'messages'],
    ['chat.sticky-user-header', 'messages'],
 diff --git a/packages/ui/src/lib/DOCUMENTATION.md b/packages/ui/src/lib/DOCUMENTATION.md
-index cd38893de..af63509c9 100644
+index cd38893de..37ab8ec29 100644
 --- a/packages/ui/src/lib/DOCUMENTATION.md
 +++ b/packages/ui/src/lib/DOCUMENTATION.md
 @@ -1,25 +1,47 @@
@@ -399,7 +399,7 @@ index cd38893de..af63509c9 100644
 +
 +#### Why wide moves both columns and full-width keeps the old switch layout
 +
-+`wide` widens the transcript and the composer together to 80rem, so the composer never sits narrower than the messages. `full-width` is the layout the old wide-layout switch produced: the transcript fills the chat width while the composer and docked rows stay on the chosen column, kept as its own level so nobody's layout changes on upgrade. `full` fills the chat area with both. A transcript at 64rem beside a 64rem composer would leave the reading measure narrower than the old wide layout for no gain.
++`wide` widens the transcript and the composer together to 80rem, so the composer never sits narrower than the messages. `full-width` is the layout the old wide-layout switch produced: the transcript fills the chat width while the composer and docked rows stay on the chosen column, kept as its own level so nobody's layout changes on upgrade. `full` fills the chat area with both.
 diff --git a/packages/ui/src/lib/chatWidth.test.ts b/packages/ui/src/lib/chatWidth.test.ts
 new file mode 100644
 index 000000000..9c81f6465
@@ -689,7 +689,7 @@ index 000000000..6f5d2f770
 +  });
 +};
 diff --git a/packages/ui/src/lib/i18n/messages/ar.settings.ts b/packages/ui/src/lib/i18n/messages/ar.settings.ts
-index 658eb5d03..478894aea 100644
+index 658eb5d03..783216af9 100644
 --- a/packages/ui/src/lib/i18n/messages/ar.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/ar.settings.ts
 @@ -2455,8 +2455,14 @@ export const settingsDict = {
@@ -700,17 +700,17 @@ index 658eb5d03..478894aea 100644
 -  'settings.openchamber.visual.field.wideChatLayout': 'تخطيط محادثة عريض',
 +  'settings.openchamber.visual.field.chatWidthAria': 'عرض المحادثة',
 +  'settings.openchamber.visual.field.chatWidth': 'عرض المحادثة',
-+  'settings.openchamber.visual.field.chatWidthInfo': 'يضبط عرض الرسائل ومربع الكتابة. الخياران الأخيران يملآن مساحة المحادثة بالكامل.',
++  'settings.openchamber.visual.field.chatWidthInfo': 'يضبط عرض الرسائل ومربع الكتابة.',
 +  'settings.openchamber.visual.option.chatWidth.compact.label': 'مضغوط',
 +  'settings.openchamber.visual.option.chatWidth.standard.label': 'قياسي',
 +  'settings.openchamber.visual.option.chatWidth.wide.label': 'عريض',
-+  'settings.openchamber.visual.option.chatWidth.fullWidth.label': 'رسائل بعرض كامل',
-+  'settings.openchamber.visual.option.chatWidth.full.label': 'رسائل ومربع كتابة بعرض كامل',
++  'settings.openchamber.visual.option.chatWidth.fullWidth.label': 'كامل (الرسائل فقط)',
++  'settings.openchamber.visual.option.chatWidth.full.label': 'كامل (الرسائل ومربع الكتابة)',
    'settings.openchamber.visual.field.codeBlockLineWrapAria': 'التفاف أسطر كتل الشيفرة',
    'settings.openchamber.visual.field.codeBlockLineWrap': 'التفاف أسطر كتل الشيفرة',
    'settings.openchamber.visual.field.tableCellWrap': 'التفاف خلايا الجداول',
 diff --git a/packages/ui/src/lib/i18n/messages/de.settings.ts b/packages/ui/src/lib/i18n/messages/de.settings.ts
-index ab5d3415d..34853f9f3 100644
+index ab5d3415d..62cea1534 100644
 --- a/packages/ui/src/lib/i18n/messages/de.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/de.settings.ts
 @@ -2383,8 +2383,14 @@ export const settingsDict = {
@@ -721,17 +721,17 @@ index ab5d3415d..34853f9f3 100644
 -  'settings.openchamber.visual.field.wideChatLayout': 'Breites Chat-Layout',
 +  'settings.openchamber.visual.field.chatWidthAria': 'Chatbreite',
 +  'settings.openchamber.visual.field.chatWidth': 'Chatbreite',
-+  'settings.openchamber.visual.field.chatWidthInfo': 'Legt fest, wie breit Nachrichten und Eingabefeld sind. Die letzten beiden füllen den gesamten Chatbereich.',
++  'settings.openchamber.visual.field.chatWidthInfo': 'Legt fest, wie breit Nachrichten und Eingabefeld sind.',
 +  'settings.openchamber.visual.option.chatWidth.compact.label': 'Kompakt',
 +  'settings.openchamber.visual.option.chatWidth.standard.label': 'Standard',
 +  'settings.openchamber.visual.option.chatWidth.wide.label': 'Breit',
-+  'settings.openchamber.visual.option.chatWidth.fullWidth.label': 'Nachrichten in voller Breite',
-+  'settings.openchamber.visual.option.chatWidth.full.label': 'Nachrichten und Eingabefeld in voller Breite',
++  'settings.openchamber.visual.option.chatWidth.fullWidth.label': 'Voll (nur Nachrichten)',
++  'settings.openchamber.visual.option.chatWidth.full.label': 'Voll (Nachrichten und Eingabefeld)',
    'settings.openchamber.visual.field.codeBlockLineWrapAria': 'Codeblock-Zeilen umbrechen',
    'settings.openchamber.visual.field.codeBlockLineWrap': 'Codeblock-Zeilen umbrechen',
    'settings.openchamber.visual.field.tableCellWrap': 'Tabellenzellen umbrechen',
 diff --git a/packages/ui/src/lib/i18n/messages/en.settings.ts b/packages/ui/src/lib/i18n/messages/en.settings.ts
-index a435b4630..bb7e1be5a 100644
+index a435b4630..cad646f28 100644
 --- a/packages/ui/src/lib/i18n/messages/en.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/en.settings.ts
 @@ -2493,8 +2493,14 @@ export const settingsDict = {
@@ -742,17 +742,17 @@ index a435b4630..bb7e1be5a 100644
 -  'settings.openchamber.visual.field.wideChatLayout': 'Wide chat layout',
 +  'settings.openchamber.visual.field.chatWidthAria': 'Chat width',
 +  'settings.openchamber.visual.field.chatWidth': 'Chat width',
-+  'settings.openchamber.visual.field.chatWidthInfo': 'Sets how wide messages and the composer are. The last two fill the whole chat area.',
++  'settings.openchamber.visual.field.chatWidthInfo': 'Sets how wide messages and the composer are.',
 +  'settings.openchamber.visual.option.chatWidth.compact.label': 'Compact',
 +  'settings.openchamber.visual.option.chatWidth.standard.label': 'Standard',
 +  'settings.openchamber.visual.option.chatWidth.wide.label': 'Wide',
-+  'settings.openchamber.visual.option.chatWidth.fullWidth.label': 'Full messages',
-+  'settings.openchamber.visual.option.chatWidth.full.label': 'Full messages and composer',
++  'settings.openchamber.visual.option.chatWidth.fullWidth.label': 'Full (messages only)',
++  'settings.openchamber.visual.option.chatWidth.full.label': 'Full (messages and composer)',
    'settings.openchamber.visual.field.codeBlockLineWrapAria': 'Wrap code block lines',
    'settings.openchamber.visual.field.codeBlockLineWrap': 'Wrap code block lines',
    'settings.openchamber.visual.field.tableCellWrap': 'Wrap table cells',
 diff --git a/packages/ui/src/lib/i18n/messages/es.settings.ts b/packages/ui/src/lib/i18n/messages/es.settings.ts
-index 2f8d81cb7..768118fb7 100644
+index 2f8d81cb7..28b0be760 100644
 --- a/packages/ui/src/lib/i18n/messages/es.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/es.settings.ts
 @@ -2448,8 +2448,14 @@ export const settingsDict = {
@@ -763,17 +763,17 @@ index 2f8d81cb7..768118fb7 100644
 -  "settings.openchamber.visual.field.wideChatLayout": "Diseño de chat ancho",
 +  "settings.openchamber.visual.field.chatWidthAria": "Ancho del chat",
 +  "settings.openchamber.visual.field.chatWidth": "Ancho del chat",
-+  "settings.openchamber.visual.field.chatWidthInfo": "Define el ancho de los mensajes y del compositor. Las dos últimas llenan toda el área de chat.",
++  "settings.openchamber.visual.field.chatWidthInfo": "Define el ancho de los mensajes y del campo de mensaje.",
 +  "settings.openchamber.visual.option.chatWidth.compact.label": "Compacto",
 +  "settings.openchamber.visual.option.chatWidth.standard.label": "Estándar",
 +  "settings.openchamber.visual.option.chatWidth.wide.label": "Ancho",
-+  "settings.openchamber.visual.option.chatWidth.fullWidth.label": "Mensajes a ancho completo",
-+  "settings.openchamber.visual.option.chatWidth.full.label": "Mensajes y compositor a ancho completo",
++  "settings.openchamber.visual.option.chatWidth.fullWidth.label": "Completo (solo mensajes)",
++  "settings.openchamber.visual.option.chatWidth.full.label": "Completo (mensajes y campo de mensaje)",
    "settings.openchamber.visual.field.showSplitAssistantMessageActionsAria": "Acciones en línea del asistente",
    "settings.openchamber.visual.field.showSplitAssistantMessageActions": "Acciones en línea del asistente",
    "settings.openchamber.visual.field.showSplitAssistantMessageActionsTooltip": "Muestra Copiar respuesta, Guardar como imagen y Leer en voz alta en bloques de texto del asistente que aparecen antes de llamadas a herramientas posteriores dentro de la misma respuesta.",
 diff --git a/packages/ui/src/lib/i18n/messages/fr.settings.ts b/packages/ui/src/lib/i18n/messages/fr.settings.ts
-index 3f239b35d..34ab1c067 100644
+index 3f239b35d..540cb0d5b 100644
 --- a/packages/ui/src/lib/i18n/messages/fr.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/fr.settings.ts
 @@ -2337,8 +2337,14 @@ export const settingsDict = {
@@ -784,17 +784,17 @@ index 3f239b35d..34ab1c067 100644
 -  'settings.openchamber.visual.field.wideChatLayout': 'Disposition de discussion large',
 +  'settings.openchamber.visual.field.chatWidthAria': 'Largeur du chat',
 +  'settings.openchamber.visual.field.chatWidth': 'Largeur du chat',
-+  'settings.openchamber.visual.field.chatWidthInfo': 'Définit la largeur des messages et de la zone de saisie. Les deux dernières remplissent toute la zone de chat.',
++  'settings.openchamber.visual.field.chatWidthInfo': 'Définit la largeur des messages et de la zone de saisie.',
 +  'settings.openchamber.visual.option.chatWidth.compact.label': 'Compact',
 +  'settings.openchamber.visual.option.chatWidth.standard.label': 'Standard',
 +  'settings.openchamber.visual.option.chatWidth.wide.label': 'Large',
-+  'settings.openchamber.visual.option.chatWidth.fullWidth.label': 'Messages en pleine largeur',
-+  'settings.openchamber.visual.option.chatWidth.full.label': 'Messages et zone de saisie en pleine largeur',
++  'settings.openchamber.visual.option.chatWidth.fullWidth.label': 'Complet (messages uniquement)',
++  'settings.openchamber.visual.option.chatWidth.full.label': 'Complet (messages et zone de saisie)',
    'settings.openchamber.visual.field.showSplitAssistantMessageActionsAria': 'Actions intégrées de l\'assistant',
    'settings.openchamber.visual.field.showSplitAssistantMessageActions': 'Actions intégrées de l\'assistant',
    'settings.openchamber.visual.field.showSplitAssistantMessageActionsTooltip': 'Afficher Copier la réponse, Enregistrer en image et Lire à haute voix sur les blocs de texte de l\'assistant qui apparaissent avant les appels d\'outil suivants dans la même réponse.',
 diff --git a/packages/ui/src/lib/i18n/messages/he.settings.ts b/packages/ui/src/lib/i18n/messages/he.settings.ts
-index 21526a27a..e73d30ba1 100644
+index 21526a27a..8417732c0 100644
 --- a/packages/ui/src/lib/i18n/messages/he.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/he.settings.ts
 @@ -2455,8 +2455,14 @@ export const settingsDict = {
@@ -805,17 +805,17 @@ index 21526a27a..e73d30ba1 100644
 -  'settings.openchamber.visual.field.wideChatLayout': 'פריסת צ\'אט רחבה',
 +  'settings.openchamber.visual.field.chatWidthAria': 'רוחב הצ\'אט',
 +  'settings.openchamber.visual.field.chatWidth': 'רוחב הצ\'אט',
-+  'settings.openchamber.visual.field.chatWidthInfo': 'קובע את רוחב ההודעות ותיבת הכתיבה. שתי האפשרויות האחרונות ממלאות את כל אזור הצ׳אט.',
++  'settings.openchamber.visual.field.chatWidthInfo': 'קובע את רוחב ההודעות ותיבת הכתיבה.',
 +  'settings.openchamber.visual.option.chatWidth.compact.label': 'קומפקטי',
 +  'settings.openchamber.visual.option.chatWidth.standard.label': 'רגיל',
 +  'settings.openchamber.visual.option.chatWidth.wide.label': 'רחב',
-+  'settings.openchamber.visual.option.chatWidth.fullWidth.label': 'הודעות ברוחב מלא',
-+  'settings.openchamber.visual.option.chatWidth.full.label': 'הודעות ותיבת כתיבה ברוחב מלא',
++  'settings.openchamber.visual.option.chatWidth.fullWidth.label': 'מלא (הודעות בלבד)',
++  'settings.openchamber.visual.option.chatWidth.full.label': 'מלא (הודעות ותיבת כתיבה)',
    'settings.openchamber.visual.field.codeBlockLineWrapAria': 'גלישת שורות בבלוקי קוד',
    'settings.openchamber.visual.field.codeBlockLineWrap': 'גלישת שורות בבלוקי קוד',
    'settings.openchamber.visual.field.tableCellWrap': 'גלישת טקסט בתאי טבלה',
 diff --git a/packages/ui/src/lib/i18n/messages/ja.settings.ts b/packages/ui/src/lib/i18n/messages/ja.settings.ts
-index c7a5fdc4f..5b3f9dca8 100644
+index c7a5fdc4f..71071698d 100644
 --- a/packages/ui/src/lib/i18n/messages/ja.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/ja.settings.ts
 @@ -2481,8 +2481,14 @@ export const settingsDict = {
@@ -826,17 +826,17 @@ index c7a5fdc4f..5b3f9dca8 100644
 -  'settings.openchamber.visual.field.wideChatLayout': 'ワイドチャットレイアウト',
 +  'settings.openchamber.visual.field.chatWidthAria': 'チャットの幅',
 +  'settings.openchamber.visual.field.chatWidth': 'チャットの幅',
-+  'settings.openchamber.visual.field.chatWidthInfo': 'メッセージと入力欄の幅を設定します。最後の二つはチャット領域全体を埋めます。',
++  'settings.openchamber.visual.field.chatWidthInfo': 'メッセージと入力欄の幅を設定します。',
 +  'settings.openchamber.visual.option.chatWidth.compact.label': 'コンパクト',
 +  'settings.openchamber.visual.option.chatWidth.standard.label': '標準',
 +  'settings.openchamber.visual.option.chatWidth.wide.label': '広い',
-+  'settings.openchamber.visual.option.chatWidth.fullWidth.label': 'メッセージを全幅に',
-+  'settings.openchamber.visual.option.chatWidth.full.label': 'メッセージと入力欄を全幅に',
++  'settings.openchamber.visual.option.chatWidth.fullWidth.label': '全体（メッセージのみ）',
++  'settings.openchamber.visual.option.chatWidth.full.label': '全体（メッセージと入力欄）',
    'settings.openchamber.visual.field.showSplitAssistantMessageActionsAria': 'インラインアシスタントアクション',
    'settings.openchamber.visual.field.showSplitAssistantMessageActions': 'インラインアシスタントアクション',
    'settings.openchamber.visual.field.showSplitAssistantMessageActionsTooltip': '同じ応答内の後のツール呼び出しの前に表示されるアシスタントテキストブロックに、回答コピー、画像保存、読み上げを表示します。',
 diff --git a/packages/ui/src/lib/i18n/messages/ko.settings.ts b/packages/ui/src/lib/i18n/messages/ko.settings.ts
-index 3896d1bed..2fd6778d6 100644
+index 3896d1bed..348e2715d 100644
 --- a/packages/ui/src/lib/i18n/messages/ko.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/ko.settings.ts
 @@ -2448,8 +2448,14 @@ export const settingsDict = {
@@ -847,17 +847,17 @@ index 3896d1bed..2fd6778d6 100644
 -  'settings.openchamber.visual.field.wideChatLayout': '넓은 채팅 레이아웃',
 +  'settings.openchamber.visual.field.chatWidthAria': '채팅 너비',
 +  'settings.openchamber.visual.field.chatWidth': '채팅 너비',
-+  'settings.openchamber.visual.field.chatWidthInfo': '메시지와 입력창의 너비를 설정합니다. 마지막 두 옵션은 채팅 영역 전체를 채웁니다.',
++  'settings.openchamber.visual.field.chatWidthInfo': '메시지와 입력창의 너비를 설정합니다.',
 +  'settings.openchamber.visual.option.chatWidth.compact.label': '컴팩트',
 +  'settings.openchamber.visual.option.chatWidth.standard.label': '표준',
 +  'settings.openchamber.visual.option.chatWidth.wide.label': '넓게',
-+  'settings.openchamber.visual.option.chatWidth.fullWidth.label': '메시지 전체 너비',
-+  'settings.openchamber.visual.option.chatWidth.full.label': '메시지와 입력창 전체 너비',
++  'settings.openchamber.visual.option.chatWidth.fullWidth.label': '전체 (메시지만)',
++  'settings.openchamber.visual.option.chatWidth.full.label': '전체 (메시지와 입력창)',
    'settings.openchamber.visual.field.showSplitAssistantMessageActionsAria': '인라인 어시스턴트 작업',
    'settings.openchamber.visual.field.showSplitAssistantMessageActions': '인라인 어시스턴트 작업',
    'settings.openchamber.visual.field.showSplitAssistantMessageActionsTooltip': '같은 응답에서 이후 도구 호출 앞에 나타나는 어시스턴트 텍스트 블록에 답변 복사, 이미지로 저장, 소리 내어 읽기 작업을 표시합니다.',
 diff --git a/packages/ui/src/lib/i18n/messages/nl.settings.ts b/packages/ui/src/lib/i18n/messages/nl.settings.ts
-index 248abfeb8..38574cb7f 100644
+index 248abfeb8..9fef3489a 100644
 --- a/packages/ui/src/lib/i18n/messages/nl.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/nl.settings.ts
 @@ -2471,8 +2471,14 @@ export const settingsDict = {
@@ -868,17 +868,17 @@ index 248abfeb8..38574cb7f 100644
 -  'settings.openchamber.visual.field.wideChatLayout': 'Brede chatindeling',
 +  'settings.openchamber.visual.field.chatWidthAria': 'Chatbreedte',
 +  'settings.openchamber.visual.field.chatWidth': 'Chatbreedte',
-+  'settings.openchamber.visual.field.chatWidthInfo': 'Bepaalt hoe breed berichten en het invoerveld zijn. De laatste twee vullen het hele chatgebied.',
++  'settings.openchamber.visual.field.chatWidthInfo': 'Bepaalt hoe breed berichten en het invoerveld zijn.',
 +  'settings.openchamber.visual.option.chatWidth.compact.label': 'Compact',
 +  'settings.openchamber.visual.option.chatWidth.standard.label': 'Standaard',
 +  'settings.openchamber.visual.option.chatWidth.wide.label': 'Breed',
-+  'settings.openchamber.visual.option.chatWidth.fullWidth.label': 'Berichten op volledige breedte',
-+  'settings.openchamber.visual.option.chatWidth.full.label': 'Berichten en invoerveld op volledige breedte',
++  'settings.openchamber.visual.option.chatWidth.fullWidth.label': 'Volledig (alleen berichten)',
++  'settings.openchamber.visual.option.chatWidth.full.label': 'Volledig (berichten en invoerveld)',
    'settings.openchamber.visual.field.codeBlockLineWrapAria': 'Regels in codeblokken afbreken',
    'settings.openchamber.visual.field.codeBlockLineWrap': 'Regels in codeblokken afbreken',
    'settings.openchamber.visual.field.tableCellWrap': 'Tekst in tabelcellen afbreken',
 diff --git a/packages/ui/src/lib/i18n/messages/pl.settings.ts b/packages/ui/src/lib/i18n/messages/pl.settings.ts
-index 58b55f2c6..915c90fd4 100644
+index 58b55f2c6..9c5d4b5f2 100644
 --- a/packages/ui/src/lib/i18n/messages/pl.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/pl.settings.ts
 @@ -1439,8 +1439,14 @@ export const settingsDict = {
@@ -889,17 +889,17 @@ index 58b55f2c6..915c90fd4 100644
 -  'settings.openchamber.visual.field.wideChatLayoutAria': 'Szeroki układ czatu',
 +  'settings.openchamber.visual.field.chatWidthAria': 'Szerokość czatu',
 +  'settings.openchamber.visual.field.chatWidth': 'Szerokość czatu',
-+  'settings.openchamber.visual.field.chatWidthInfo': 'Określa szerokość wiadomości i pola wiadomości. Dwie ostatnie opcje wypełniają cały obszar czatu.',
++  'settings.openchamber.visual.field.chatWidthInfo': 'Określa szerokość wiadomości i pola wiadomości.',
 +  'settings.openchamber.visual.option.chatWidth.compact.label': 'Kompakt',
 +  'settings.openchamber.visual.option.chatWidth.standard.label': 'Standardowy',
 +  'settings.openchamber.visual.option.chatWidth.wide.label': 'Szeroki',
-+  'settings.openchamber.visual.option.chatWidth.fullWidth.label': 'Wiadomości na pełną szerokość',
-+  'settings.openchamber.visual.option.chatWidth.full.label': 'Wiadomości i pole wiadomości na pełną szerokość',
++  'settings.openchamber.visual.option.chatWidth.fullWidth.label': 'Pełny (tylko wiadomości)',
++  'settings.openchamber.visual.option.chatWidth.full.label': 'Pełny (wiadomości i pole wiadomości)',
    'settings.openchamber.visual.option.activityRenderMode.collapsed.description': 'Domyślnie utrzymuj aktywność zwiniętą.',
    'settings.openchamber.visual.option.activityRenderMode.collapsed.label': 'Zwinięta',
    'settings.openchamber.visual.option.activityRenderMode.summary.description': 'Domyślnie rozwijaj aktywność.',
 diff --git a/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts b/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
-index c2b9bdceb..945bdfee1 100644
+index c2b9bdceb..4dcad98a8 100644
 --- a/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
 @@ -2448,8 +2448,14 @@ export const settingsDict = {
@@ -910,17 +910,17 @@ index c2b9bdceb..945bdfee1 100644
 -  "settings.openchamber.visual.field.wideChatLayout": "Layout de chat amplo",
 +  "settings.openchamber.visual.field.chatWidthAria": "Largura do chat",
 +  "settings.openchamber.visual.field.chatWidth": "Largura do chat",
-+  "settings.openchamber.visual.field.chatWidthInfo": "Define a largura das mensagens e do campo de mensagem. As duas últimas preenchem toda a área do chat.",
++  "settings.openchamber.visual.field.chatWidthInfo": "Define a largura das mensagens e do campo de mensagem.",
 +  "settings.openchamber.visual.option.chatWidth.compact.label": "Compacto",
 +  "settings.openchamber.visual.option.chatWidth.standard.label": "Padrão",
 +  "settings.openchamber.visual.option.chatWidth.wide.label": "Largo",
-+  "settings.openchamber.visual.option.chatWidth.fullWidth.label": "Mensagens em largura total",
-+  "settings.openchamber.visual.option.chatWidth.full.label": "Mensagens e campo de mensagem em largura total",
++  "settings.openchamber.visual.option.chatWidth.fullWidth.label": "Total (somente mensagens)",
++  "settings.openchamber.visual.option.chatWidth.full.label": "Total (mensagens e campo de mensagem)",
    "settings.openchamber.visual.field.showSplitAssistantMessageActionsAria": "Ações inline do assistente",
    "settings.openchamber.visual.field.showSplitAssistantMessageActions": "Ações inline do assistente",
    "settings.openchamber.visual.field.showSplitAssistantMessageActionsTooltip": "Mostra Copiar resposta, Salvar como imagem e Ler em voz alta em blocos de texto do assistente que aparecem antes de chamadas de ferramenta posteriores na mesma resposta.",
 diff --git a/packages/ui/src/lib/i18n/messages/tr.settings.ts b/packages/ui/src/lib/i18n/messages/tr.settings.ts
-index 555595dfa..8d404fec2 100644
+index 555595dfa..5a4c493c0 100644
 --- a/packages/ui/src/lib/i18n/messages/tr.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/tr.settings.ts
 @@ -2338,8 +2338,14 @@ export const settingsDict = {
@@ -931,17 +931,17 @@ index 555595dfa..8d404fec2 100644
 -  'settings.openchamber.visual.field.wideChatLayout': 'Geniş Sohbet Yerleşimi',
 +  'settings.openchamber.visual.field.chatWidthAria': 'Sohbet genişliği',
 +  'settings.openchamber.visual.field.chatWidth': 'Sohbet genişliği',
-+  'settings.openchamber.visual.field.chatWidthInfo': 'Mesajların ve mesaj kutusunun genişliğini belirler. Son iki seçenek sohbet alanının tamamını doldurur.',
++  'settings.openchamber.visual.field.chatWidthInfo': 'Mesajların ve mesaj kutusunun genişliğini belirler.',
 +  'settings.openchamber.visual.option.chatWidth.compact.label': 'Kompakt',
 +  'settings.openchamber.visual.option.chatWidth.standard.label': 'Standart',
 +  'settings.openchamber.visual.option.chatWidth.wide.label': 'Geniş',
-+  'settings.openchamber.visual.option.chatWidth.fullWidth.label': 'Tam genişlikte mesajlar',
-+  'settings.openchamber.visual.option.chatWidth.full.label': 'Tam genişlikte mesajlar ve mesaj kutusu',
++  'settings.openchamber.visual.option.chatWidth.fullWidth.label': 'Tam (yalnızca mesajlar)',
++  'settings.openchamber.visual.option.chatWidth.full.label': 'Tam (mesajlar ve mesaj kutusu)',
    'settings.openchamber.visual.field.codeBlockLineWrapAria': 'Kod bloğu satırlarını kaydır',
    'settings.openchamber.visual.field.codeBlockLineWrap': 'Kod Bloğu Satırlarını Kaydır',
    'settings.openchamber.visual.field.tableCellWrap': 'Tablo Hücrelerini Kaydır',
 diff --git a/packages/ui/src/lib/i18n/messages/uk.settings.ts b/packages/ui/src/lib/i18n/messages/uk.settings.ts
-index c50433631..aec97ac85 100644
+index c50433631..48e27107f 100644
 --- a/packages/ui/src/lib/i18n/messages/uk.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/uk.settings.ts
 @@ -2448,8 +2448,14 @@ export const settingsDict = {
@@ -952,17 +952,17 @@ index c50433631..aec97ac85 100644
 -  "settings.openchamber.visual.field.wideChatLayout": "Широкий макет чату",
 +  "settings.openchamber.visual.field.chatWidthAria": "Ширина чату",
 +  "settings.openchamber.visual.field.chatWidth": "Ширина чату",
-+  "settings.openchamber.visual.field.chatWidthInfo": "Задає ширину повідомлень і поля вводу. Останні два варіанти заповнюють усю область чату.",
++  "settings.openchamber.visual.field.chatWidthInfo": "Задає ширину повідомлень і поля вводу.",
 +  "settings.openchamber.visual.option.chatWidth.compact.label": "Компактний",
 +  "settings.openchamber.visual.option.chatWidth.standard.label": "Стандартний",
 +  "settings.openchamber.visual.option.chatWidth.wide.label": "Широкий",
-+  "settings.openchamber.visual.option.chatWidth.fullWidth.label": "Повідомлення на всю ширину",
-+  "settings.openchamber.visual.option.chatWidth.full.label": "Повідомлення й поле вводу на всю ширину",
++  "settings.openchamber.visual.option.chatWidth.fullWidth.label": "Повний (лише повідомлення)",
++  "settings.openchamber.visual.option.chatWidth.full.label": "Повний (повідомлення й поле вводу)",
    "settings.openchamber.visual.field.showSplitAssistantMessageActionsAria": "Вбудовані дії асистента",
    "settings.openchamber.visual.field.showSplitAssistantMessageActions": "Вбудовані дії асистента",
    "settings.openchamber.visual.field.showSplitAssistantMessageActionsTooltip": "Показує «Скопіювати відповідь», «Зберегти як зображення» та озвучення для текстових блоків асистента, які з’являються перед пізнішими викликами інструментів у тій самій відповіді.",
 diff --git a/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts b/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
-index ec63c4862..94139496e 100644
+index ec63c4862..502085b68 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
 @@ -2448,8 +2448,14 @@ export const settingsDict = {
@@ -973,17 +973,17 @@ index ec63c4862..94139496e 100644
 -  'settings.openchamber.visual.field.wideChatLayout': '宽聊天布局',
 +  'settings.openchamber.visual.field.chatWidthAria': '聊天宽度',
 +  'settings.openchamber.visual.field.chatWidth': '聊天宽度',
-+  'settings.openchamber.visual.field.chatWidthInfo': '设置消息和输入框的宽度。最后两个选项会填满整个聊天区域。',
++  'settings.openchamber.visual.field.chatWidthInfo': '设置消息和输入框的宽度。',
 +  'settings.openchamber.visual.option.chatWidth.compact.label': '紧凑',
 +  'settings.openchamber.visual.option.chatWidth.standard.label': '标准',
 +  'settings.openchamber.visual.option.chatWidth.wide.label': '宽',
-+  'settings.openchamber.visual.option.chatWidth.fullWidth.label': '消息全宽',
-+  'settings.openchamber.visual.option.chatWidth.full.label': '消息和输入框全宽',
++  'settings.openchamber.visual.option.chatWidth.fullWidth.label': '全部（仅消息）',
++  'settings.openchamber.visual.option.chatWidth.full.label': '全部（消息和输入框）',
    'settings.openchamber.visual.field.showSplitAssistantMessageActionsAria': '内联助手操作',
    'settings.openchamber.visual.field.showSplitAssistantMessageActions': '内联助手操作',
    'settings.openchamber.visual.field.showSplitAssistantMessageActionsTooltip': '在同一条回复中，如果助手文本块后面还有工具调用，则显示“复制回答”“保存为图片”和“朗读”操作。',
 diff --git a/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts b/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
-index bb7b0e125..d6c12b3e2 100644
+index bb7b0e125..81fd15410 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
 @@ -2326,8 +2326,14 @@ export const settingsDict = {
@@ -994,17 +994,17 @@ index bb7b0e125..d6c12b3e2 100644
 -  'settings.openchamber.visual.field.wideChatLayout': '寬聊天佈局',
 +  'settings.openchamber.visual.field.chatWidthAria': '聊天寬度',
 +  'settings.openchamber.visual.field.chatWidth': '聊天寬度',
-+  'settings.openchamber.visual.field.chatWidthInfo': '設定訊息和輸入框的寬度。最後兩個選項會填滿整個聊天區域。',
++  'settings.openchamber.visual.field.chatWidthInfo': '設定訊息和輸入框的寬度。',
 +  'settings.openchamber.visual.option.chatWidth.compact.label': '緊湊',
 +  'settings.openchamber.visual.option.chatWidth.standard.label': '標準',
 +  'settings.openchamber.visual.option.chatWidth.wide.label': '寬',
-+  'settings.openchamber.visual.option.chatWidth.fullWidth.label': '訊息全寬',
-+  'settings.openchamber.visual.option.chatWidth.full.label': '訊息和輸入框全寬',
++  'settings.openchamber.visual.option.chatWidth.fullWidth.label': '全部（僅訊息）',
++  'settings.openchamber.visual.option.chatWidth.full.label': '全部（訊息和輸入框）',
    'settings.openchamber.visual.field.showSplitAssistantMessageActionsAria': '行內助理操作',
    'settings.openchamber.visual.field.showSplitAssistantMessageActions': '行內助理操作',
    'settings.openchamber.visual.field.showSplitAssistantMessageActionsTooltip': '在同一則回覆中，如果助理文字區塊後方還有工具呼叫，則顯示「複製回答」「儲存為圖片」和「朗讀」操作。',
 diff --git a/packages/ui/src/lib/settings/DOCUMENTATION.md b/packages/ui/src/lib/settings/DOCUMENTATION.md
-index 793b93b97..54f7d93d6 100644
+index 793b93b97..b7982eb9d 100644
 --- a/packages/ui/src/lib/settings/DOCUMENTATION.md
 +++ b/packages/ui/src/lib/settings/DOCUMENTATION.md
 @@ -43,6 +43,10 @@
@@ -1013,7 +1013,7 @@ index 793b93b97..54f7d93d6 100644
  
 +### Why a saved wide-layout switch reads as a chat width level
 +
-+`chatWidth` replaced the `wideChatLayoutEnabled` boolean. The parser reads a document that still carries the old switch as `wide` for `true` and `compact` for `false`, so an upgrade does not move anyone's layout. Keeping the boolean as a second field would have made every reader decide which of the two wins.
++`chatWidth` replaced the `wideChatLayoutEnabled` boolean. The parser reads a document that still carries the old switch as `full-width` for `true` and `compact` for `false`, so an upgrade does not move anyone's layout. Keeping the boolean as a second field would have made every reader decide which of the two wins.
 +
  ### Why the Settings view passes its voice availability snapshot
  
