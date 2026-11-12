@@ -70,6 +70,7 @@ let
       ./patches/in-work-page-size.patch
       ./patches/send-past-open-question.patch
       ./patches/mobile-voice-launch.patch
+      ./patches/draft-heading-project-picker.patch
     ];
   };
 in
