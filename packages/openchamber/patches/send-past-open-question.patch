@@ -1,22 +1,33 @@
 diff --git a/packages/ui/src/components/chat/ChatInput.tsx b/packages/ui/src/components/chat/ChatInput.tsx
-index 9bf35808f..379ca565b 100644
+index 9bf35808f..83da8ce16 100644
 --- a/packages/ui/src/components/chat/ChatInput.tsx
 +++ b/packages/ui/src/components/chat/ChatInput.tsx
-@@ -2040,7 +2040,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+@@ -2040,7 +2040,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
          const submitRuntimeKey = getRuntimeKey();
          const queuedOnly = options?.queuedOnly ?? false;
          const queuedMessageId = options?.queuedMessageId;
 -        const delivery = options?.delivery === 'steer' && sessionPhase !== 'idle' ? 'steer' : undefined;
-+        // A pending question is the agent waiting on the user. The message
++        // A pending question is the agent waiting on the user, so the message
 +        // joins the running turn (steer) and the question card stays open, so
-+        // it can still be answered afterwards.
-+        const delivery = sessionPhase !== 'idle' && (options?.delivery === 'steer' || pendingForms.length > 0)
++        // it can still be answered afterwards. The session reads as idle while
++        // its own form waits, so this cannot depend on `sessionPhase`.
++        const delivery = pendingForms.length > 0 || (options?.delivery === 'steer' && sessionPhase !== 'idle')
 +            ? 'steer'
 +            : undefined;
          const capturedTarget = messageQueueTarget;
          // Snapshot the draft and current-session identity before the first
          // async gap so a later sidebar selection cannot reroute the send.
-@@ -2231,14 +2236,20 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+@@ -2222,7 +2228,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+         }
+ 
+         // Auto-review owns the active workflow; follow-ups wait in its queue.
+-        if (currentSessionId && !queuedOnly && autoReviewRunning && !isBtwActive && !commandPlan) {
++        // A pending question keeps its turn open, so that send steers instead.
++        if (currentSessionId && !queuedOnly && autoReviewRunning && !isBtwActive && !commandPlan && pendingForms.length === 0) {
+             void handleQueueMessage();
+             return;
+         }
+@@ -2231,14 +2238,20 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
          // panel; the composer send goes straight to the fork (routeMessage
          // queues if the fork's own turn is busy).
          if (currentSessionId && !queuedOnly && !isBtwActive && !commandPlan) {
@@ -45,7 +56,7 @@ index 9bf35808f..379ca565b 100644
              // An explicit Steer goes straight to the session inbox, which
              // takes it while the turn is still active. Any other send would
              // race with that run, so it is queued; the queued-message auto-send
-@@ -2813,7 +2824,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+@@ -2813,7 +2826,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
          if (isMobileCommentOpen()) return;
          if (pendingFirstSend) return;
          const inputSnapshot = getCurrentInputSnapshot();
@@ -57,7 +68,7 @@ index 9bf35808f..379ca565b 100644
          if (followUpBehavior === 'queue' && canQueue) {
              void handleQueueMessage();
          } else if (followUpBehavior === 'steer' && canQueue) {
-@@ -2821,7 +2835,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+@@ -2821,7 +2837,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
          } else {
              void handleSubmitRef.current();
          }
@@ -66,7 +77,7 @@ index 9bf35808f..379ca565b 100644
  
      // Draft welcome presets: submit immediately.
      const submitPresetPrompt = React.useCallback((text: string, type: 'command' | 'skill') => {
-@@ -3121,8 +3135,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+@@ -3121,8 +3137,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
              // a turn runs Stop replaces the send button, so only Enter does it.
  
              // Queueing / steering only works when there's an existing busy
