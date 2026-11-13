@@ -56,6 +56,11 @@ let
       # Batch 1: ports untouched by the base bump (they apply clean onto 2.7.1).
       ./patches/commandcode-quota.patch
       ./patches/codex-credits-balance.patch
+      # Batch 2: the badge work. They share both session switchers, so they are
+      # ported together; upstream had already changed the unread condition and
+      # the pending-request lookup these build on.
+      ./patches/question-indicator.patch
+      ./patches/stale-pending-badge.patch
       ./patches/mobile-boot-overlay.patch
       ./patches/dictation-thread-count.patch
       ./patches/dictation-sherpa-platform.patch
