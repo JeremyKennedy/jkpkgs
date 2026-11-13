@@ -179,10 +179,10 @@ index 3cdb5a013..dcf5bce53 100644
  置顶的会话会放在进行中上方单独的 **已置顶** 区块里；如果只想让它们留在各自的项目下，在同一个菜单中关闭 **显示已置顶部分**。置顶且进行中的会话只会列在已置顶中。
  
 diff --git a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-index 04675f726..b25a73ee5 100644
+index 18d27d479..d6d9435d1 100644
 --- a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
 +++ b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-@@ -608,7 +608,13 @@ the same Mark all as read.
+@@ -608,7 +608,21 @@ the same Mark all as read.
  Works in work render in their own `work` activity zone under Chats (and
  Pinned) and above the projects while `sessionWorkEnabled` is on and the
  display menu's In work toggle (`showWorkSection`, `sidebarShowWorkSection`,
@@ -191,13 +191,21 @@ index 04675f726..b25a73ee5 100644
 +first: a work waiting on a permission, a question or a page
 +(`orderInWorkWorksByAttention` in `works/sidebarWorks.ts`), then one whose
 +turn runs, then one whose finished turn is unread or that Jev says looks done,
-+then the rest; each tier keeps the lifecycle order. It opens with seven works,
-+the project lists' reveal limit, and Show more reveals seven more; a search
-+lists every match. A session work is in work when its root
++then the rest; each tier keeps the lifecycle order. It opens with the number of
++works set in Settings → Sessions (`workPageSize`, `sidebarWorkPageSize`, per
++surface, 7 by default — `DEFAULT_WORK_PAGE_SIZE`) and Show more reveals the same
++number again; a search lists every match. A changed page size starts the
++block over in the same render, dropping an expansion made at the old size. While
++the pointer or focus is inside the list, the block keeps the order and page it
++was showing (`heldWorkOrder`, the same hold the project list uses for Recent:
++`holdOrder` in `list/projectSort.ts`), because opening a work marks it read and
++drops it a rank — otherwise the row the user just clicked would leave the page
++and another work would take its slot. Leaving the list applies the live rank.
++A session work is in work when its root
  or a nested non-subagent session is (`metadata.openchamber.work.state ===
  'open'`, see `packages/web/server/lib/session-work/DOCUMENTATION.md`); a
  worktree work when any root session in it is, or, while it has no session
-@@ -616,9 +622,10 @@ yet, when a draft is begun in it (open in the composer or kept as a row): the
+@@ -616,9 +630,10 @@ yet, when a draft is begun in it (open in the composer or kept as a row): the
  user just made it for a task, so it opens the block. A worktree this client
  is removing keeps its place in the block until git is done
  (`useRemovingWorktreePaths`), though its sessions are archived first. A subagent's own state
@@ -212,7 +220,7 @@ index 04675f726..b25a73ee5 100644
  stays out of In work, Pinned and search until its folder is registered: by the
  user opening the session, or by `sync/session-admission.ts` after a move out of
 diff --git a/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx b/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx
-index c1a3879fb..e2fc0917a 100644
+index c1a3879fb..ce81bef56 100644
 --- a/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx
 +++ b/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx
 @@ -59,12 +59,12 @@ import { resolveSidebarSessionLocations } from '../recent/sessionLocation';
@@ -231,7 +239,21 @@ index c1a3879fb..e2fc0917a 100644
  import { getSessionLifecycleOrderValue } from '@/sync/session-ordering';
  import { useSessionDraftsStore, type SessionDraft } from '@/stores/useSessionDraftsStore';
  import { useSidebarGroupStatus } from './useSidebarGroupStatus';
-@@ -454,6 +454,9 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+@@ -414,6 +414,13 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+   const [heldProjectOrder, setHeldProjectOrder] = React.useState<readonly string[] | null>(null);
+   const shownProjectOrderRef = React.useRef<readonly string[]>([]);
+   const holdsProjectOrder = view.projectSortOrder === 'recent';
++  // In work holds its order the same way, and for a sharper reason: opening a
++  // work marks it read, which drops it a rank, so the row the user just
++  // clicked would leave the page and take another work's slot. The held order
++  // keeps the page as it was under the pointer or focus; leaving applies the
++  // live rank.
++  const [heldWorkOrder, setHeldWorkOrder] = React.useState<readonly string[] | null>(null);
++  const shownWorkOrderRef = React.useRef<readonly string[]>([]);
+   React.useEffect(() => {
+     if (!holdsProjectOrder) setHeldProjectOrder(null);
+   }, [holdsProjectOrder]);
+@@ -454,6 +461,9 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
    const liveFacts = useSidebarLiveFacts(view.isVisible && visibleSections.some((section) => (
      section.kind === 'custom' && section.section.grouping === 'time' && sidebarSectionReadsLiveState(section.section.filter)
    )));
@@ -241,7 +263,7 @@ index c1a3879fb..e2fc0917a 100644
    // Plans are read from each project's knowledge only while a shown section
    // asks for them, and only for the projects it names (every project when it names none).
    const planProjectIds = React.useMemo(() => {
-@@ -530,6 +533,34 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+@@ -530,6 +540,34 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
    const removingWorktreePaths = useRemovingWorktreePaths();
    // The works In work listed last time, in order (see the removal case below).
    const lastWorkKeysRef = React.useRef<readonly string[]>([]);
@@ -276,7 +298,7 @@ index c1a3879fb..e2fc0917a 100644
    // What each section could list, before the sections above it take theirs.
    const sectionCandidates = React.useMemo(() => {
      const sessionRef = (session: Session): SidebarWorkRef => {
-@@ -553,7 +584,14 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+@@ -553,7 +591,14 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
          .filter((ref) => ref.group.worktree?.pinnedAt !== undefined && (ref.group.worktree.pinList ?? DEFAULT_PIN_LIST) === DEFAULT_PIN_LIST)
          .sort((left, right) => (right.group.worktree?.pinnedAt ?? 0) - (left.group.worktree?.pinnedAt ?? 0))
        : [];
@@ -292,12 +314,24 @@ index c1a3879fb..e2fc0917a 100644
      // A worktree or a space with no session yet is in work while a draft is
      // begun there: the user just made it for a task. It opens the block, as
      // the newest. A space's draft waits on the project root while the space
-@@ -591,21 +629,9 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+@@ -590,22 +635,20 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+       const leads = (ref: SidebarWorkRef): boolean => ref.kind === 'group' && Boolean(ref.group.space && liveSpaceIds.has(ref.group.space.id));
        all = [...unstarted.filter(leads), ...all, ...unstarted.filter((ref) => !leads(ref))];
      }
-     return { pinned: [...pinnedSessions.map(sessionRef), ...pinnedWorktrees], work: listed, all };
+-    return { pinned: [...pinnedSessions.map(sessionRef), ...pinnedWorktrees], work: listed, all };
 -  }, [collection.orderedSessions, collection.pinnedSessionIds, customTimeSections, draftPlacement, liveSpaceIds, openDraftDirectory, openDraftSpaceId, ownership.bySessionId, removingWorktreePaths, rootSessionIds, sessionRootIndex, showPinned, showWork, workIndex, worktreeArchiveAnchors]);
-+  }, [collection.orderedSessions, collection.pinnedSessionIds, customTimeSections, draftPlacement, inWorkAttentionContext, liveSpaceIds, openDraftDirectory, openDraftSpaceId, ownership.bySessionId, removingWorktreePaths, rootSessionIds, sessionRootIndex, showPinned, showWork, workIndex, worktreeArchiveAnchors]);
++    return {
++      pinned: [...pinnedSessions.map(sessionRef), ...pinnedWorktrees],
++      // Under the pointer or focus the block keeps the order it showed, so the
++      // page the user is aiming at does not rearrange itself; works that
++      // appeared meanwhile follow. Leaving the block applies the live rank.
++      work: heldWorkOrder ? holdOrder(listed, heldWorkOrder, (ref) => ref.key) : listed,
++      all,
++    };
++  }, [collection.orderedSessions, collection.pinnedSessionIds, customTimeSections, draftPlacement, heldWorkOrder, inWorkAttentionContext, liveSpaceIds, openDraftDirectory, openDraftSpaceId, ownership.bySessionId, removingWorktreePaths, rootSessionIds, sessionRootIndex, showPinned, showWork, workIndex, worktreeArchiveAnchors]);
++  React.useEffect(() => {
++    shownWorkOrderRef.current = sectionCandidates.work.map((ref) => ref.key);
++  }, [sectionCandidates]);
    const projectIds = React.useMemo(() => new Set(projectSections.map((section) => section.project.id)), [projectSections]);
 -  // Which root folder holds each session and worktree: the Folder condition and
 -  // the list by time read it.
@@ -315,7 +349,7 @@ index c1a3879fb..e2fc0917a 100644
      const factsByKey = new Map<string, SidebarWorkFacts>();
      return resolveSidebarSectionMembership({
        sections: visibleSections,
-@@ -616,7 +642,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+@@ -616,7 +659,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
        factsOf: (ref) => {
          const cached = factsByKey.get(ref.key);
          if (cached) return cached;
@@ -324,7 +358,7 @@ index c1a3879fb..e2fc0917a 100644
          factsByKey.set(ref.key, facts);
          return facts;
        },
-@@ -624,7 +650,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+@@ -624,7 +667,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
        now: Math.max(sectionsNow, Date.now()),
        search: view.hasSessionSearchQuery,
      });
@@ -333,6 +367,31 @@ index c1a3879fb..e2fc0917a 100644
    // The section being edited says how much it lists as it stands.
    React.useEffect(() => {
      if (!sectionDraft) return;
+@@ -1374,9 +1417,22 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+       <div
+         className="contents"
+         onPointerEnter={(event) => {
+-          if (holdsProjectOrder && event.pointerType === 'mouse') setHeldProjectOrder(shownProjectOrderRef.current);
++          if (event.pointerType !== 'mouse') return;
++          if (holdsProjectOrder) setHeldProjectOrder(shownProjectOrderRef.current);
++          setHeldWorkOrder(shownWorkOrderRef.current);
++        }}
++        onPointerLeave={() => {
++          setHeldProjectOrder(null);
++          setHeldWorkOrder(null);
++        }}
++        onFocus={() => setHeldWorkOrder(shownWorkOrderRef.current)}
++        onBlur={(event) => {
++          // React's blur bubbles from every descendant; moving between rows
++          // keeps the hold, leaving the list releases it.
++          // SAFETY: a React focus event's relatedTarget is the node that took
++          // or lost focus, or null when focus left the document.
++          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setHeldWorkOrder(null);
+         }}
+-        onPointerLeave={() => setHeldProjectOrder(null)}
+       >
+         {view.renderList
+           ? view.renderList({ model: scrollerModel, view: scrollerView, actions: scrollerActionSet })
 diff --git a/packages/ui/src/components/session/sidebar/sections/DOCUMENTATION.md b/packages/ui/src/components/session/sidebar/sections/DOCUMENTATION.md
 index 66575c930..ef5af9574 100644
 --- a/packages/ui/src/components/session/sidebar/sections/DOCUMENTATION.md
@@ -462,7 +521,7 @@ index 09fde345c..4fd5d6b40 100644
 +  });
 +});
 diff --git a/packages/ui/src/components/session/sidebar/sections/workFacts.ts b/packages/ui/src/components/session/sidebar/sections/workFacts.ts
-index 24cbe6af9..1f2735cb4 100644
+index 24cbe6af9..0d1df0966 100644
 --- a/packages/ui/src/components/session/sidebar/sections/workFacts.ts
 +++ b/packages/ui/src/components/session/sidebar/sections/workFacts.ts
 @@ -1,4 +1,5 @@
@@ -489,7 +548,7 @@ index 24cbe6af9..1f2735cb4 100644
    const all: Session[] = [];
    if (ref.kind === 'group') {
      const stack: SessionNode[] = [...ref.group.sessions];
-@@ -143,3 +144,22 @@ export const buildSidebarWorkFacts = (ref: SidebarWorkRef, context: FactsContext
+@@ -143,3 +144,24 @@ export const buildSidebarWorkFacts = (ref: SidebarWorkRef, context: FactsContext
      ],
    };
  };
@@ -509,7 +568,9 @@ index 24cbe6af9..1f2735cb4 100644
 +    needsAnswer: all.some((session) => context.blockingIds.has(session.id)),
 +    running: all.some((session) => context.activeIds.has(session.id)),
 +    unread: top.some((session) => isSessionUnread(session)),
-+    looksDone: top.some((session) => isDoneSuggested(session)),
++    // The record cache the sections already parse into, not a second parse of
++    // the same metadata on every ranking pass.
++    looksDone: top.some((session) => recordFacts(session).looksDone),
 +  };
 +};
 diff --git a/packages/ui/src/components/session/sidebar/sessionSidebarRowModel.test.ts b/packages/ui/src/components/session/sidebar/sessionSidebarRowModel.test.ts
