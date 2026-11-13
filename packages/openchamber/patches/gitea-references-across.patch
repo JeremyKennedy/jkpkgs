@@ -371,7 +371,7 @@ index c55588271..284dc032d 100644
                  cursor: page.cursor,
                  hasMore: page.hasMore,
 diff --git a/packages/ui/src/components/references/referenceSources.ts b/packages/ui/src/components/references/referenceSources.ts
-index 441401d0c..9591ee7b5 100644
+index 441401d0c..8912fccfb 100644
 --- a/packages/ui/src/components/references/referenceSources.ts
 +++ b/packages/ui/src/components/references/referenceSources.ts
 @@ -52,6 +52,7 @@ import {
@@ -391,7 +391,7 @@ index 441401d0c..9591ee7b5 100644
  const trackerLists = createListCache<TrackerItemSummary>();
  const trackerDetails = createValueCache<TrackerItem>();
  const repositoryDetails = createValueCache<RepositoryReferenceDetail>();
-@@ -376,11 +377,11 @@ export function useRepositoryAcrossReferenceList(options: {
+@@ -376,11 +377,16 @@ export function useRepositoryAcrossReferenceList(options: {
      const key = enabled && contexts.ready
          ? JSON.stringify([getRuntimeKey(), contexts.asked.map(({ directory, context }) => [directory, readContextCacheKey(context)]), kind, state, people, text])
          : null;
@@ -401,7 +401,12 @@ index 441401d0c..9591ee7b5 100644
          const search = sourceControl.referencesAcross?.bind(sourceControl);
 -        return fetchAcrossPage(search, contexts.asked, { kind, state, people, query: text, cursor });
 -    }, [contexts.asked, kind, people, sourceControl, state, text]);
-+        return fetchAcrossPage(search, contexts, { kind, state, people, query: text, cursor, refresh: read.refresh });
++        // Send the flag only when a refresh asked for it: providers whose schema
++        // predates the field reject an unknown key, and a plain read asks for
++        // the cached page anyway.
++        return fetchAcrossPage(search, contexts, read.refresh
++            ? { kind, state, people, query: text, cursor, refresh: true }
++            : { kind, state, people, query: text, cursor });
 +    }, [contexts, kind, people, sourceControl, state, text]);
      const list = useCachedList(repositoryAcrossLists, key, fetchPage);
      const contextOf = React.useCallback(
@@ -752,7 +757,7 @@ index 818bb01ca..a6df127e2 100644
    "settings.openchamber.visual.option.fileTreeSide.left": "Esquerda",
    "settings.openchamber.visual.option.fileTreeSide.right": "Direita",
 diff --git a/packages/ui/src/lib/i18n/messages/reference-picker.i18n.ts b/packages/ui/src/lib/i18n/messages/reference-picker.i18n.ts
-index 0421fd069..42053b586 100644
+index 0421fd069..1f78f8997 100644
 --- a/packages/ui/src/lib/i18n/messages/reference-picker.i18n.ts
 +++ b/packages/ui/src/lib/i18n/messages/reference-picker.i18n.ts
 @@ -70,7 +70,8 @@ export const referencePickerI18n = {
@@ -821,7 +826,7 @@ index 0421fd069..42053b586 100644
      'references.picker.empty.noProject': 'Abra um projeto para escolher as issues e pull requests dele.',
 -    'references.picker.empty.noRepo': 'Este projeto não tem remoto do GitHub nem do GitLab.',
 +    'references.picker.empty.noRepo': 'Este projeto não tem remoto do GitHub, GitLab, Gitea nem do Forgejo.',
-+    'references.picker.empty.unbound': "これらのリポジトリはまだ読み取れません。アカウントを接続するか、Git パネルで紐付けてください。",
++    'references.picker.empty.unbound': "Estes repositórios ainda não podem ser lidos. Conecte uma conta ou vincule-os no painel Git.",
      'references.picker.empty.unsupported': 'Indisponível neste app.',
      'references.picker.empty.issues': 'Nenhuma issue aberta.',
      'references.picker.empty.pulls': 'Nenhuma pull request aberta.',
@@ -861,7 +866,7 @@ index 0421fd069..42053b586 100644
      'references.picker.empty.noProject': '打开一个项目，才能选择它的 Issue 和拉取请求。',
 -    'references.picker.empty.noRepo': '这个项目没有 GitHub 或 GitLab 远程仓库。',
 +    'references.picker.empty.noRepo': '这个项目没有 GitHub、GitLab、Gitea 或 Forgejo 远程仓库。',
-+    'references.picker.empty.unbound': "Tych repozytoriów nie można jeszcze odczytać. Połącz konto lub powiąż je w panelu Git.",
++    'references.picker.empty.unbound': "这些仓库尚无法读取。请连接账号或在 Git 面板中绑定。",
      'references.picker.empty.unsupported': '此应用中不可用。',
      'references.picker.empty.issues': '没有打开的 Issue。',
      'references.picker.empty.pulls': '没有打开的拉取请求。',
@@ -871,7 +876,7 @@ index 0421fd069..42053b586 100644
      'references.picker.empty.noProject': '開啟一個專案，才能選擇它的 Issue 和拉取請求。',
 -    'references.picker.empty.noRepo': '這個專案沒有 GitHub 或 GitLab 遠端儲存庫。',
 +    'references.picker.empty.noRepo': '這個專案沒有 GitHub、GitLab、Gitea 或 Forgejo 遠端儲存庫。',
-+    'references.picker.empty.unbound': "Tych repozytoriów nie można jeszcze odczytać. Połącz konto lub powiąż je w panelu Git.",
++    'references.picker.empty.unbound': "這些儲存庫尚無法讀取。請連接帳號或在 Git 面板中綁定。",
      'references.picker.empty.unsupported': '此應用程式中無法使用。',
      'references.picker.empty.issues': '沒有開啟中的 Issue。',
      'references.picker.empty.pulls': '沒有開啟中的拉取請求。',
@@ -906,7 +911,7 @@ index 0421fd069..42053b586 100644
      'references.picker.empty.issues': 'אין בעיות פתוחות.',
      'references.picker.empty.pulls': 'אין בקשות משיכה פתוחות.',
 diff --git a/packages/ui/src/lib/i18n/messages/source-board.i18n.ts b/packages/ui/src/lib/i18n/messages/source-board.i18n.ts
-index f61a31e84..9088d7a2d 100644
+index f61a31e84..f988cd677 100644
 --- a/packages/ui/src/lib/i18n/messages/source-board.i18n.ts
 +++ b/packages/ui/src/lib/i18n/messages/source-board.i18n.ts
 @@ -21,6 +21,8 @@ export const sourceBoardI18n = {
@@ -1021,7 +1026,7 @@ index f61a31e84..9088d7a2d 100644
      'sourceBoard.across.reason.disconnected': 'Nenhuma conta do {provider} conectada para ele',
      'sourceBoard.across.reason.invalidAccount': 'Não foi possível usar a conta do {provider} dele',
      'sourceBoard.across.reason.error': 'Não foi possível ler',
-+    'sourceBoard.across.reason.unbound': "まだ読み取れる紐付け済みリポジトリがありません — Git パネルで紐付けてください",
++    'sourceBoard.across.reason.unbound': "Nenhum repositório vinculado que possa ser lido ainda — vincule no painel Git",
 +    'sourceBoard.across.reason.unreadable': "まだ読み取れません",
      'sourceBoard.team.label': 'Time do Linear',
      'sourceBoard.tracker.container.label': 'Grupo',
@@ -1093,7 +1098,7 @@ index f61a31e84..9088d7a2d 100644
      'sourceBoard.across.reason.disconnected': '没有为它连接 {provider} 账户',
      'sourceBoard.across.reason.invalidAccount': '无法使用它的 {provider} 账户',
      'sourceBoard.across.reason.error': '无法读取',
-+    'sourceBoard.across.reason.unbound': "Brak powiązanego repozytorium, które można odczytać — powiąż je w panelu Git",
++    'sourceBoard.across.reason.unbound': "尚无可读取的已绑定仓库 — 请在 Git 面板中绑定",
 +    'sourceBoard.across.reason.unreadable': "Nie można jeszcze odczytać",
      'sourceBoard.team.label': 'Linear 团队',
      'sourceBoard.tracker.container.label': '分组',
@@ -1111,7 +1116,7 @@ index f61a31e84..9088d7a2d 100644
      'sourceBoard.across.reason.disconnected': '沒有為它連線 {provider} 帳號',
      'sourceBoard.across.reason.invalidAccount': '無法使用它的 {provider} 帳號',
      'sourceBoard.across.reason.error': '無法讀取',
-+    'sourceBoard.across.reason.unbound': "Brak powiązanego repozytorium, które można odczytać — powiąż je w panelu Git",
++    'sourceBoard.across.reason.unbound': "尚無可讀取的已綁定儲存庫 — 請在 Git 面板中綁定",
 +    'sourceBoard.across.reason.unreadable': "Nie można jeszcze odczytać",
      'sourceBoard.team.label': 'Linear 團隊',
      'sourceBoard.tracker.container.label': '群組',
@@ -1527,10 +1532,10 @@ index 2076afe8a..652847393 100644
  
 diff --git a/packages/web/server/lib/gitea/references-across.js b/packages/web/server/lib/gitea/references-across.js
 new file mode 100644
-index 000000000..fee4312a4
+index 000000000..a76eee878
 --- /dev/null
 +++ b/packages/web/server/lib/gitea/references-across.js
-@@ -0,0 +1,451 @@
+@@ -0,0 +1,464 @@
 +/**
 + * The reference picker's search across a folder's repositories, for Gitea and
 + * Forgejo. The board asks one provider for every repository under a project
@@ -1881,7 +1886,20 @@ index 000000000..fee4312a4
 +  // that item instead of searching for its text, and answer a one-item page.
 +  const lookup = kind === 'issue' || kind === 'pull' ? parseReferenceLookup(query) : null;
 +  if (lookup) {
-+    const found = await mapLimited([...folders.entries()], ACROSS_CONCURRENCY, async ([directory, entry]) => {
++    // A link names one host: folders on another instance cannot answer it, so
++    // they are not read at all. A bare `#number` has no host and reads every
++    // folder, as the single-repository list does.
++    const asked = [...folders.entries()].filter(([, entry]) => {
++      if (!lookup.host) return true;
++      if (entry.status) return true;
++      const host = String(entry.trusted.instance ?? '').toLowerCase();
++      if (host && host !== lookup.host) {
++        entry.status = 'invalid-context';
++        return false;
++      }
++      return true;
++    });
++    const found = await mapLimited(asked, ACROSS_CONCURRENCY, async ([directory, entry]) => {
 +      if (entry.status) return null;
 +      try {
 +        const result = await entry.service.readReferenceItem(directory, {
@@ -2720,6 +2738,19 @@ index f7868e607..ee1f5a18d 100644
 +      .rejects.toMatchObject({ code: 'SOURCE_CONTROL_NO_REPOSITORY', status: 404 });
 +  });
 +});
+diff --git a/packages/web/server/lib/github/reference-search.js b/packages/web/server/lib/github/reference-search.js
+index b3ec589ca..1c3799945 100644
+--- a/packages/web/server/lib/github/reference-search.js
++++ b/packages/web/server/lib/github/reference-search.js
+@@ -48,6 +48,8 @@ const acrossRequestSchema = z.strictObject({
+   query: z.string().optional(),
+   // The first page sends no cursor as null, like the single-repository list.
+   cursor: z.string().max(100_000).nullable().optional(),
++  // Accepted for the shared across request; GitHub keeps no page cache to skip.
++  refresh: z.boolean().optional(),
+ });
+ 
+ const invalidAcrossCursor = () => Object.assign(new Error('Invalid references cursor'), { status: 400, code: 'INVALID_REFERENCES_CURSOR' });
 diff --git a/packages/web/server/lib/source-control/DOCUMENTATION.md b/packages/web/server/lib/source-control/DOCUMENTATION.md
 index e2c69cd84..d9fcaa83c 100644
 --- a/packages/web/server/lib/source-control/DOCUMENTATION.md

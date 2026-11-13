@@ -1277,7 +1277,7 @@ index ecd69ad13..f98579bc8 100644
    beforeEach(() => {
      replyCalls.length = 0
 diff --git a/packages/ui/src/sync/session-actions.ts b/packages/ui/src/sync/session-actions.ts
-index fd53204a4..7617cf6a4 100644
+index fd53204a4..00ae3c8cc 100644
 --- a/packages/ui/src/sync/session-actions.ts
 +++ b/packages/ui/src/sync/session-actions.ts
 @@ -12,6 +12,7 @@ import { dropSessionCaches } from "./session-cache"
@@ -1288,9 +1288,12 @@ index fd53204a4..7617cf6a4 100644
  import {
    noteLocalFormCancelled,
    noteLocalFormReplied,
-@@ -954,7 +955,15 @@ function recoverStaleBlockingRequest(sessionId: string): void {
+@@ -952,9 +953,19 @@ function recoverStaleBlockingRequest(sessionId: string): void {
+   }
+ }
  
- function removeFormRequestFromChildStores(sessionId: string, requestId: string): boolean {
+-function removeFormRequestFromChildStores(sessionId: string, requestId: string): boolean {
++function removeFormRequestFromChildStores(sessionId: string, requestId: string, settle = true): boolean {
    const stores = _childStores
 -  if (!stores || !requestId) return false
 +  if (!requestId) return false
@@ -1299,27 +1302,33 @@ index fd53204a4..7617cf6a4 100644
 +  // store holds the form: the surfaces that read only the index (the tray's
 +  // approvals, the phone's attention bell, the sidebar's facts and the
 +  // overviews) must drop it with the rows, rather than wait for a settlement
-+  // event an SSE gap may have lost.
-+  settleGlobalBlockingRequest("form", sessionId, requestId)
++  // event an SSE gap may have lost. An optimistic clear passes `false` and
++  // settles once the server has answered, so a rejected cancel can put the
++  // request back everywhere.
++  if (settle) settleGlobalBlockingRequest("form", sessionId, requestId)
 +  if (!stores) return false
  
    let removed = false
    for (const [, store] of stores.children) {
-@@ -1028,7 +1037,12 @@ function isPermissionRequestNotFoundError(error: unknown): boolean {
+@@ -1026,9 +1037,15 @@ function isPermissionRequestNotFoundError(error: unknown): boolean {
+   return /Permission(?:\.)?NotFoundError|Permission request not found/i.test(message)
+ }
  
- function removePermissionRequestFromChildStores(sessionId: string, requestId: string): boolean {
+-function removePermissionRequestFromChildStores(sessionId: string, requestId: string): boolean {
++function removePermissionRequestFromChildStores(sessionId: string, requestId: string, settle = true): boolean {
    const stores = _childStores
 -  if (!stores || !requestId) return false
 +  if (!requestId) return false
 +
 +  // See removeFormRequestFromChildStores: the index is a consumer of the same
-+  // settlement and has no other way to learn of a local clear.
-+  settleGlobalBlockingRequest("permission", sessionId, requestId)
++  // settlement and has no other way to learn of a local clear. An optimistic
++  // clear passes `false` and settles once the server has answered.
++  if (settle) settleGlobalBlockingRequest("permission", sessionId, requestId)
 +  if (!stores) return false
  
    let removed = false
    for (const [, store] of stores.children) {
-@@ -2477,6 +2491,11 @@ export async function respondToPermission(
+@@ -2477,6 +2494,11 @@ export async function respondToPermission(
      if (await opencodeClient.replyToPermission(sessionId, requestId, response, { directory }) !== true) {
        throw new Error("Permission reply failed")
      }
@@ -1331,7 +1340,7 @@ index fd53204a4..7617cf6a4 100644
    } catch (error) {
      // The server no longer has it, so the card has nothing left to answer.
      if (isPermissionRequestNotFoundError(error)) {
-@@ -2498,6 +2517,9 @@ export async function dismissPermission(
+@@ -2498,6 +2520,9 @@ export async function dismissPermission(
      if (await opencodeClient.replyToPermission(sessionId, requestId, "reject", { directory }) !== true) {
        throw new Error("Permission dismissal failed")
      }
@@ -1341,6 +1350,59 @@ index fd53204a4..7617cf6a4 100644
    } catch (error) {
      if (isPermissionRequestNotFoundError(error)) {
        removePermissionRequestFromChildStores(sessionId, requestId)
+@@ -2551,17 +2576,23 @@ export async function dismissOpenPermissionsForSession(sessionId: string): Promi
+   if (toDismiss.length === 0) return false
+ 
+   // Optimistically clear the permissions from the local store so the prompt
+-  // disappears immediately, before the reject round-trip.
++  // disappears immediately, before the reject round-trip. The index keeps the
++  // request until the server answers, so a failed dismissal restores it
++  // everywhere instead of leaving the tray and the bell blind to it.
+   for (const { sessionId: scopedSessionId, permission } of toDismiss) {
+-    removePermissionRequestFromChildStores(scopedSessionId, permission.id)
++    removePermissionRequestFromChildStores(scopedSessionId, permission.id, false)
+   }
+ 
+   await Promise.all(
+     toDismiss.map(async ({ store, sessionId: scopedSessionId, permission }) => {
+       try {
+         await dismissPermission(scopedSessionId, permission.id)
++        settleGlobalBlockingRequest("permission", scopedSessionId, permission.id)
+       } catch (error) {
+-        if (isPermissionRequestNotFoundError(error)) return
++        if (isPermissionRequestNotFoundError(error)) {
++          settleGlobalBlockingRequest("permission", scopedSessionId, permission.id)
++          return
++        }
+         // Swallow: a failed dismissal must not block the send. The permission
+         // is still pending server-side, so it goes back where it was.
+         console.error("[session-actions] Failed to dismiss open permission on send:", error)
+@@ -2841,17 +2872,22 @@ export async function dismissOpenFormsForSession(sessionId: string): Promise<boo
+   if (toDismiss.length === 0) return false
+ 
+   // Optimistically clear the forms from the local store so the prompt
+-  // disappears immediately, before the cancel round-trip.
++  // disappears immediately, before the cancel round-trip. The index keeps the
++  // form until the server answers, so a failed cancel restores it everywhere.
+   for (const { sessionId: scopedSessionId, form } of toDismiss) {
+-    removeFormRequestFromChildStores(scopedSessionId, form.id)
++    removeFormRequestFromChildStores(scopedSessionId, form.id, false)
+   }
+ 
+   await Promise.all(
+     toDismiss.map(async ({ store, sessionId: scopedSessionId, form }) => {
+       try {
+         await cancelForm(scopedSessionId, form.id)
++        settleGlobalBlockingRequest("form", scopedSessionId, form.id)
+       } catch (error) {
+-        if (isFormRequestNotFoundError(error)) return
++        if (isFormRequestNotFoundError(error)) {
++          settleGlobalBlockingRequest("form", scopedSessionId, form.id)
++          return
++        }
+         // Swallow: a failed cancellation must not block the send. The form
+         // is still pending server-side, so it goes back where it was.
+         console.error("[session-actions] Failed to cancel open form on send:", error)
 diff --git a/packages/ui/src/sync/session-blocking-requests.test.tsx b/packages/ui/src/sync/session-blocking-requests.test.tsx
 index 88324dd5d..e5f671b0c 100644
 --- a/packages/ui/src/sync/session-blocking-requests.test.tsx

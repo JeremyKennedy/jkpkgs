@@ -747,7 +747,7 @@ index 0a5589ea4..2ee5a65da 100644
  - Every shell that renders chat columns applies the chat width level with `applyChatWidth` (`lib/chatWidth.ts`). The desktop App, the VS Code webview, the mobile shell and the Electron mini-chat window each write the same root properties, so the tablet shell gets the setting the desktop App already applied.
  
 diff --git a/packages/ui/src/apps/MobileApp.tsx b/packages/ui/src/apps/MobileApp.tsx
-index c12e67149..6bf7075c4 100644
+index c12e67149..3921ad4e2 100644
 --- a/packages/ui/src/apps/MobileApp.tsx
 +++ b/packages/ui/src/apps/MobileApp.tsx
 @@ -82,6 +82,9 @@ import { OverviewPage } from '@/components/overview/OverviewView';
@@ -778,7 +778,7 @@ index c12e67149..6bf7075c4 100644
    const [sessionsSheetOpen, setSessionsSheetOpen] = React.useState(false);
    // The run overview covers the chat; selecting any session returns to it.
    React.useEffect(() => useSessionUIStore.subscribe((state, prev) => {
-@@ -163,17 +170,39 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
+@@ -163,17 +170,47 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
    const [workspaceOpen, setWorkspaceOpen] = React.useState(false);
    const [workspaceTab, setWorkspaceTab] = React.useState<MobileWorkspaceTab>(() => {
      const { mobileWorkspaceTabOrder, mobileWorkspaceHiddenTabs } = useUIStore.getState();
@@ -805,9 +805,11 @@ index c12e67149..6bf7075c4 100644
    }, []);
 +  // The initial tab is chosen from the saved order before the catalog has
 +  // landed, so a phone whose first saved tab is an extension would open on a
-+  // built-in. Once the catalog arrives (or changes: an install, a pause, a
-+  // runtime switch), follow it to a tab that exists.
++  // built-in. The first catalog therefore re-picks the saved first tab, once:
++  // later changes (an install, a pause, a runtime switch) only keep the current
++  // tab valid, unless the user has already opened the drawer themselves.
 +  const catalogGuests = useGuestsStore((state) => state.guests);
++  const catalogPickedInitialTab = React.useRef(false);
 +  React.useEffect(() => {
 +    const { mobileWorkspaceTabOrder, mobileWorkspaceHiddenTabs } = useUIStore.getState();
 +    const shown = shownMobileWorkspaceTabs(
@@ -815,7 +817,13 @@ index c12e67149..6bf7075c4 100644
 +      mobileWorkspaceHiddenTabs,
 +      guestPanelTabIds(catalogGuests),
 +    );
-+    setWorkspaceTab((current) => (shown.includes(current) ? current : shown[0]));
++    setWorkspaceTab((current) => {
++      if (!catalogPickedInitialTab.current && catalogGuests.length > 0) {
++        catalogPickedInitialTab.current = true;
++        return shown[0];
++      }
++      return shown.includes(current) ? current : shown[0];
++    });
 +  }, [catalogGuests]);
    // A plan opened from the workspace drawer's Notes tab, shown as a fullscreen
    // layer on top of it (back returns to the notes).
