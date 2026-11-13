@@ -76,6 +76,7 @@ let
       ./patches/question-rows.patch
       ./patches/question-rows-polish.patch
       ./patches/question-rows-compact.patch
+      ./patches/question-cards.patch
       ./patches/instance-attention.patch
       ./patches/image-viewer-zoom.patch
     ];
