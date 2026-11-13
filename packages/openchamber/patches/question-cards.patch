@@ -1,5 +1,5 @@
 diff --git a/packages/ui/src/components/chat/MessageList.tsx b/packages/ui/src/components/chat/MessageList.tsx
-index 43284997d..225b7726c 100644
+index 43284997d..89c38b578 100644
 --- a/packages/ui/src/components/chat/MessageList.tsx
 +++ b/packages/ui/src/components/chat/MessageList.tsx
 @@ -9,7 +9,8 @@ import { isSkippedTimelineMessage, isBackgroundReportEntry, isTimelineNoticeRole
@@ -39,7 +39,7 @@ index 43284997d..225b7726c 100644
 +        const questionPart = row.questionPartId ? message?.parts.find((part) => part.id === row.questionPartId) : undefined;
 +        if (message && questionPart) {
 +            content = (
-+                <QuestionTurnHeader part={questionPart} messageId={message.info.id} startsMessage={!row.slice?.from}
++                <QuestionTurnHeader part={questionPart} messageId={message.info.id} startsMessage={!row.slice?.from && !row.questionLifted}
 +                    open={questionOpen} onToggle={onToggleQuestionCard} />
 +            );
 +        } else if (message) {
@@ -164,10 +164,10 @@ index 43284997d..225b7726c 100644
          turnExpansion,
 diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
 new file mode 100644
-index 000000000..46be51593
+index 000000000..6cb03dfdf
 --- /dev/null
 +++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
-@@ -0,0 +1,193 @@
+@@ -0,0 +1,230 @@
 +import React, { act } from 'react';
 +import { createRoot } from 'react-dom/client';
 +import { expect, test } from 'bun:test';
@@ -208,6 +208,7 @@ index 000000000..46be51593
 +
 +const { QuestionTurnHeader } = await import('./QuestionTurnHeader');
 +const { questionSentence } = await import('../lib/questionEntries');
++const { useUIStore } = await import('@/stores/useUIStore');
 +
 +const unavailable = (): never => { throw new Error('Question rendering must not call runtime APIs'); };
 +const runtimeApis: RuntimeAPIs = {
@@ -361,12 +362,48 @@ index 000000000..46be51593
 +        container.remove();
 +    }
 +});
++
++const callIn = (state: Record<string, unknown>): Part => ({
++    type: 'tool', tool: 'question', id: 'ask', callID: 'ask', sessionID: 'session', messageID: 'msg_assistant',
++    state: { input: { questions: [{ question: 'Ship it?', header: 'Ship', options: [{ label: 'Yes' }, { label: 'No' }] }] }, ...state },
++} as Part);
++
++test('a question without an answer keeps the card and says what happened', () => {
++    const waiting = text(card(callIn({ status: 'running', time: { start: 1 } })));
++    expect(waiting).toContain('Ship it?');
++    expect(waiting).toContain('Awaiting response');
++    const dismissed = text(card(callIn({ status: 'error', error: 'The user dismissed this question', time: { start: 1, end: 2 } })));
++    expect(dismissed).toContain('Not answered');
++    const stopped = text(card(callIn({ status: 'error', error: 'All fibers interrupted without error', time: { start: 1, end: 2 } })));
++    expect(stopped).toContain('Stopped before an answer');
++    for (const markup of [waiting, dismissed, stopped]) expect(markup).toContain('Show more');
++});
++
++test('only an answered card sticks, and an unanswered one lists the options with none marked', async () => {
++    const container = document.createElement('div');
++    document.body.appendChild(container);
++    const root = createRoot(container);
++    const mount = async (node: React.ReactNode) => { await act(async () => root.render(wrap(node))); return container.innerHTML; };
++    const dismissed = callIn({ status: 'error', error: 'The user dismissed this question', time: { start: 1, end: 2 } });
++    useUIStore.setState({ stickyUserHeader: true });
++    try {
++        expect(await mount(card(ask([{ question: 'Ship it?', answer: 'Yes' }])))).toContain('data-turn-sticky-header');
++        expect(await mount(card(dismissed))).not.toContain('data-turn-sticky-header');
++        const open = await mount(card(dismissed, true));
++        expect(container.textContent).toContain('Yes');
++        expect(open.split('size-1.5 rounded-full').length - 1).toBe(0);
++    } finally {
++        useUIStore.setState({ stickyUserHeader: false });
++        await act(async () => root.unmount());
++        container.remove();
++    }
++});
 diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
 new file mode 100644
-index 000000000..c2dbb77a4
+index 000000000..f989cc737
 --- /dev/null
 +++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
-@@ -0,0 +1,172 @@
+@@ -0,0 +1,188 @@
 +import React from 'react';
 +
 +import { useDeviceInfo } from '@/lib/device';
@@ -376,6 +413,7 @@ index 000000000..c2dbb77a4
 +import type { Part } from '@/lib/opencode/model';
 +import { useUIStore } from '@/stores/useUIStore';
 +import {
++    questionCardState,
 +    questionEntriesForPart,
 +    questionSentence,
 +    selectedOptionLabels,
@@ -406,8 +444,8 @@ index 000000000..c2dbb77a4
 +);
 +
 +/**
-+ * An answered question as its own transcript row: a purple card with each
-+ * question and the answer it got on a rail. Show more opens the card in
++ * A question call as its own transcript row: a purple card with each question
++ * and the answer it got on a rail, or a line saying it went unanswered. Show more opens the card in
 + * place to every option offered, the chosen one marked; a typed answer is one
 + * more marked row. With the sticky user header on, the card sticks like a
 + * prompt until the next prompt or answered question pushes it up, and an open
@@ -425,10 +463,16 @@ index 000000000..c2dbb77a4
 +    const { t } = useI18n();
 +    const sticks = useUIStore((state) => state.stickyUserHeader);
 +    const entries = React.useMemo(() => questionEntriesForPart(part, messageId), [part, messageId]);
++    const cardState = questionCardState(part);
++    // Every question in the call; one without an answer shows the call's state.
 +    const answered = entries
-+        .map((entry) => ({ entry, answer: entry.answer ? withoutRecommendation(entry.answer.trim()) : '' }))
-+        .filter(({ answer }) => answer.length > 0);
-+    if (answered.length === 0) return null;
++        .map((entry) => ({ entry, answer: entry.answer ? withoutRecommendation(entry.answer.trim()) : '' }));
++    if (answered.length === 0 || cardState === null) return null;
++    // As the stock question row does, a waiting question shows in the
++    // transcript while the form at the composer takes the answer.
++    const statusText = t(cardState === 'waiting' ? 'chat.toolPart.awaitingResponse'
++        : cardState === 'dismissed' ? 'chat.questionCard.notAnswered'
++            : 'chat.questionCard.stoppedBeforeAnswer');
 +
 +    const toggle = () => onToggle(part.id);
 +
@@ -495,7 +539,10 @@ index 000000000..c2dbb77a4
 +                                                            </div>
 +                                                        );
 +                                                    })}
-+                                                    {picked.size === 0 ? (
++                                                    {!answer ? (
++                                                <div className="typography-markdown italic leading-snug text-muted-foreground">{statusText}</div>
++                                            ) : null}
++                                            {picked.size === 0 && answer ? (
 +                                                        <div className="flex items-start gap-2.5">
 +                                                            <OptionMark chosen />
 +                                                            <span dir="auto" className="min-w-0 whitespace-pre-wrap break-words typography-markdown font-medium leading-snug text-foreground">
@@ -505,9 +552,15 @@ index 000000000..c2dbb77a4
 +                                                    ) : null}
 +                                                </div>
 +                                            ) : (
-+                                                <div dir="auto" className="whitespace-pre-wrap break-words typography-markdown font-medium leading-snug text-foreground line-clamp-3">
-+                                                    {answer}
++                                                answer ? (
++                                                    <div dir="auto" className="whitespace-pre-wrap break-words typography-markdown font-medium leading-snug text-foreground line-clamp-3">
++                                                        {answer}
++                                                    </div>
++                                                ) : (
++                                                    <div dir="auto" className="typography-markdown italic leading-snug text-muted-foreground" data-question-card-state={cardState}>
++                                                    {statusText}
 +                                                </div>
++                                                )
 +                                            )}
 +                                        </div>
 +                                    );
@@ -532,7 +585,7 @@ index 000000000..c2dbb77a4
 +        </div>
 +    );
 +
-+    if (!sticks) return body;
++    if (!sticks || cardState !== 'answered') return body;
 +    return (
 +        <div className="sticky top-0 z-20 [overflow-anchor:none]" data-turn-sticky-header="" style={stickyHeaderBackground(isMobile)}>
 +            {body}
@@ -632,10 +685,34 @@ index 000000000..c1b3b12e7
 +
 +export const stickyHeaderBackground = (isMobile: boolean): React.CSSProperties => (isMobile ? MOBILE : DESKTOP);
 diff --git a/packages/ui/src/components/chat/lib/questionEntries.ts b/packages/ui/src/components/chat/lib/questionEntries.ts
-index bc8236ea0..a7c3e5fe2 100644
+index bc8236ea0..02b37cd9c 100644
 --- a/packages/ui/src/components/chat/lib/questionEntries.ts
 +++ b/packages/ui/src/components/chat/lib/questionEntries.ts
-@@ -299,3 +299,17 @@ export const buildQuestionEntriesByTurnId = (
+@@ -159,6 +159,23 @@ export const questionEntriesForPart = (part: Part, messageId: string): QuestionA
+     }));
+ };
+ 
++/**
++ * Where a question call stands, as its transcript card shows it: answered,
++ * still waiting at the composer, dismissed without an answer, or stopped
++ * (the run ended or failed before an answer came).
++ */
++export type QuestionCardState = 'answered' | 'waiting' | 'dismissed' | 'stopped';
++
++export const questionCardState = (part: Part): QuestionCardState | null => {
++    if (part.type !== 'tool' || !isQuestionTool(part.tool)) return null;
++    const state = part.state;
++    if (state.status === 'pending' || state.status === 'running') return 'waiting';
++    if (state.status === 'completed') return (parseQuestionAnswers(state.output)?.length ?? 0) > 0 ? 'answered' : 'dismissed';
++    const error = 'error' in state ? state.error : undefined;
++    const message = typeof error === 'string' ? error : (error as { message?: string } | undefined)?.message ?? '';
++    return /dismissed/i.test(message) ? 'dismissed' : 'stopped';
++};
++
+ /** Whether a question call finished with at least one answer. */
+ export const isAnsweredQuestionPart = (part: Part): boolean => {
+     if (part.type !== 'tool' || !isQuestionTool(part.tool)) return false;
+@@ -299,3 +316,17 @@ export const buildQuestionEntriesByTurnId = (
      }
      return byTurn;
  };
@@ -740,7 +817,7 @@ index d5e814000..75c255929 100644
              return message === undefined ? undefined : Math.round(message);
          }
 diff --git a/packages/ui/src/components/chat/lib/turns/stickyPrompt.ts b/packages/ui/src/components/chat/lib/turns/stickyPrompt.ts
-index c3c5ebd29..977df3d0e 100644
+index c3c5ebd29..c4729bc33 100644
 --- a/packages/ui/src/components/chat/lib/turns/stickyPrompt.ts
 +++ b/packages/ui/src/components/chat/lib/turns/stickyPrompt.ts
 @@ -1,4 +1,5 @@
@@ -762,20 +839,20 @@ index c3c5ebd29..977df3d0e 100644
 +    const indices: number[] = [];
 +    rows.forEach((row, index) => {
 +        if (row.kind === 'turn-head' && turnHeaderCanStick(row.entry.turn.userMessage)) indices.push(index);
-+        else if (row.kind === 'turn-message' && row.questionPartId) indices.push(index);
++        else if (row.kind === 'turn-message' && row.questionSticks) indices.push(index);
 +    });
 +    return indices.length > 0 ? indices : undefined;
 +};
 +
 +/** A row that starts a new sticky span and pushes the header above it up: a prompt, an answered question, or an ungrouped row. */
 +export const endsStickySpan = (row: TimelineRow): boolean => (
-+    row.kind === 'turn-head' || row.kind === 'ungrouped' || (row.kind === 'turn-message' && row.questionPartId !== undefined)
++    row.kind === 'turn-head' || row.kind === 'ungrouped' || (row.kind === 'turn-message' && row.questionSticks === true)
 +);
 diff --git a/packages/ui/src/components/chat/lib/turns/timelineRows.test.ts b/packages/ui/src/components/chat/lib/turns/timelineRows.test.ts
-index 067cb790b..3f83a3d8a 100644
+index 067cb790b..cf125ccf5 100644
 --- a/packages/ui/src/components/chat/lib/turns/timelineRows.test.ts
 +++ b/packages/ui/src/components/chat/lib/turns/timelineRows.test.ts
-@@ -122,3 +122,61 @@ describe('buildTimelineRows', () => {
+@@ -122,3 +122,122 @@ describe('buildTimelineRows', () => {
          expect(opened[0]).toBe(first[0]);
      });
  });
@@ -810,9 +887,12 @@ index 067cb790b..3f83a3d8a 100644
 +        expect(steps[0]!.kind === 'turn-message' && steps[0]!.questionPartId).toBe('ask');
 +    });
 +
-+    test('a pending question stays in its message', () => {
++    test('a question still waiting is a card row of its own that does not stick', () => {
 +        const pending = [textPart('before', 'Looking first.'), question('ask', null)];
-+        expect(messageRows(buildTimelineRows([turnEntry([assistant('step', pending)])], summary, []))).toHaveLength(1);
++        const steps = messageRows(buildTimelineRows([turnEntry([assistant('step', pending)])], summary, []));
++        expect(steps).toHaveLength(2);
++        const card = steps[1]!;
++        expect(card.kind === 'turn-message' && [card.questionPartId, card.questionSticks]).toEqual(['ask', false]);
 +    });
 +});
 +
@@ -836,31 +916,96 @@ index 067cb790b..3f83a3d8a 100644
 +        expect(indices.map((index) => rows[index]!.kind === 'turn-message' ? 'question' : rows[index]!.kind)).toEqual(['turn-head', 'question']);
 +        expect(rows.filter(endsStickySpan)).toHaveLength(2);
 +    });
++
++    test('an unanswered question gets a card but neither sticks nor ends the prompt\'s span', async () => {
++        const { endsStickySpan, stickyRowIndicesOf } = await import('./stickyPrompt');
++        const dismissed: ToolPart = {
++            ...answered,
++            state: {
++                status: 'error', input: answered.state.input, error: 'The user dismissed this question',
++                time: { start: 1, end: 2 },
++            } as ToolPart['state'],
++        };
++        const rows = buildTimelineRows([turnEntry([
++            assistant('step', [textPart('before', 'Looking first.'), dismissed, readPart], 'stop'),
++        ])], summary, []);
++        expect(rows.some((row) => row.kind === 'turn-message' && row.questionPartId === 'ask')).toBe(true);
++        expect(stickyRowIndicesOf(rows)!.map((index) => rows[index]!.kind)).toEqual(['turn-head']);
++        expect(rows.filter(endsStickySpan)).toHaveLength(1);
++    });
++});
++
++describe('answered questions under a closed fold', () => {
++    const answeredIn = (messageID: string): ToolPart => ({
++        type: 'tool', tool: 'question', id: 'ask', callID: 'ask', sessionID: 'session', messageID,
++        state: {
++            status: 'completed',
++            input: { questions: [{ question: 'Ship it?', header: 'Ship', options: [{ label: 'Yes' }, { label: 'No' }] }] },
++            output: 'User has answered your questions: "Ship it?"="Yes". You can now continue with the user\'s answers in mind.',
++            metadata: {}, time: { start: 1, end: 2 },
++        },
++    });
++
++    test('a finished turn lifts the answered card out of the closed fold, without the message anchor', () => {
++        const rows = buildTimelineRows([turnEntry([
++            assistant('step', [answeredIn('step'), readPart], 'tool-calls'),
++            assistant('answer', [textPart('final', 'Done.')], 'stop'),
++        ])], collapsed, []);
++        const lifted = rows.filter((row) => row.kind === 'turn-message' && row.questionLifted);
++        expect(lifted).toHaveLength(1);
++        expect(rows.findIndex((row) => row.kind === 'turn-fold')).toBeLessThan(rows.indexOf(lifted[0]!));
++        const card = lifted[0]!;
++        expect(card.kind === 'turn-message' && card.questionSticks).toBe(true);
++    });
++
++    test('an opened fold draws the card among its steps instead, once', () => {
++        const entry = turnEntry([
++            assistant('step', [answeredIn('step'), readPart], 'tool-calls'),
++            assistant('answer', [textPart('final', 'Done.')], 'stop'),
++        ]);
++        const turnId = entry.kind === 'turn' ? entry.turn.turnId : '';
++        const rows = buildTimelineRows([entry], { ...collapsed, expandedTurns: new Map([[turnId, true]]) }, []);
++        const cards = rows.filter((row) => row.kind === 'turn-message' && row.questionPartId === 'ask');
++        expect(cards).toHaveLength(1);
++        expect(cards[0]!.kind === 'turn-message' && cards[0]!.questionLifted).toBeFalsy();
++    });
++
++    test('a turn still working lifts nothing', () => {
++        const rows = buildTimelineRows([turnEntry([assistant('step', [answeredIn('step'), readPart])])], collapsed, []);
++        expect(rows.some((row) => row.kind === 'turn-message' && row.questionLifted)).toBe(false);
++    });
 +});
 diff --git a/packages/ui/src/components/chat/lib/turns/timelineRows.ts b/packages/ui/src/components/chat/lib/turns/timelineRows.ts
-index f4ebed69c..b90ffafb8 100644
+index f4ebed69c..2e06c5117 100644
 --- a/packages/ui/src/components/chat/lib/turns/timelineRows.ts
 +++ b/packages/ui/src/components/chat/lib/turns/timelineRows.ts
 @@ -1,5 +1,6 @@
  import { isHiddenUserMessage } from '../../message/hiddenUserMessage';
  import { filterVisibleParts, isEmptyTextPart } from '../../message/partUtils';
-+import { isAnsweredQuestionPart } from '../questionEntries';
++import { questionCardState } from '../questionEntries';
  import { answerChunkCuts } from './answerChunks';
  import { getLiveFinalMessage, getShownPages, hasLiveActivity } from './liveActivity';
  import type { TimelineEntry } from './timelineEntries';
-@@ -45,6 +46,11 @@ export type TimelineRow =
+@@ -45,6 +46,18 @@ export type TimelineRow =
          slice: MessageSlice | null;
          /** The turn's final answer under a fold (collapsed activity mode). */
          final: boolean;
 +        /**
-+         * Set when the row is nothing but one answered question, cut out of its
-+         * message: it draws as a question card, which sticks like a prompt.
++         * Set when the row is nothing but one question call, cut out of its
++         * message: it draws as a question card.
 +         */
 +        questionPartId?: string;
++        /** The card's question was answered, so it sticks like a prompt. */
++        questionSticks?: boolean;
++        /**
++         * The card is drawn out of a closed fold; its message is not, so the
++         * card does not carry the message's anchor.
++         */
++        questionLifted?: boolean;
      } & TurnRowFields);
  
  type TurnRowFields = {
-@@ -75,26 +81,38 @@ const PARTS_PER_ROW = 24;
+@@ -75,26 +88,41 @@ const PARTS_PER_ROW = 24;
  
  /**
   * Where a message is cut into rows, in order: before every PARTS_PER_ROW-th
@@ -875,10 +1020,11 @@ index f4ebed69c..b90ffafb8 100644
 +const messageCuts = (
 +    message: ChatMessageEntry,
 +    showReasoningTraces: boolean,
-+): { cuts: TextCut[]; questionParts: string[]; firstPartId: string | undefined } => {
++): { cuts: TextCut[]; questionParts: string[]; answeredParts: string[]; firstPartId: string | undefined } => {
      const completed = isMessageCompleted(message);
      const cuts: TextCut[] = [];
 +    const questionParts: string[] = [];
++    const answeredParts: string[] = [];
 +    let firstPartId: string | undefined;
      let partsInRow = 0;
 +    let cutAfterQuestion = false;
@@ -886,7 +1032,9 @@ index f4ebed69c..b90ffafb8 100644
          if (isEmptyTextPart(part)) continue;
 -        if (partsInRow === PARTS_PER_ROW) {
 +        firstPartId ??= part.id;
-+        const question = isAnsweredQuestionPart(part);
++        const cardState = questionCardState(part);
++        const question = cardState !== null;
++        if (cardState === 'answered') answeredParts.push(part.id);
 +        if (partsInRow === PARTS_PER_ROW || cutAfterQuestion || (question && partsInRow > 0)) {
              cuts.push({ partId: part.id, offset: 0 });
              partsInRow = 0;
@@ -900,19 +1048,21 @@ index f4ebed69c..b90ffafb8 100644
          if (textCuts.length > 0) partsInRow = 1;
      }
 -    return cuts;
-+    return { cuts, questionParts, firstPartId };
++    return { cuts, questionParts, answeredParts, firstPartId };
  };
  
  const sliceKey = (cut: TextCut) => `${cut.partId}:${cut.offset}`;
-@@ -107,9 +125,13 @@ const turnRows = (entry: TurnEntry, options: TimelineRowsOptions): TimelineRow[]
+@@ -107,9 +135,15 @@ const turnRows = (entry: TurnEntry, options: TimelineRowsOptions): TimelineRow[]
      const rows: TimelineRow[] = [{ kind: 'turn-head', key: entry.key, ...fields }];
      const addMessage = (message: ChatMessageEntry, final = false) => {
          const messageId = message.info.id;
 -        const cuts = messageCuts(message, options.showReasoningTraces);
-+        const { cuts, questionParts, firstPartId } = messageCuts(message, options.showReasoningTraces);
-+        // A row that starts at an answered question holds only that question.
++        const { cuts, questionParts, answeredParts, firstPartId } = messageCuts(message, options.showReasoningTraces);
++        // A row that starts at a question call holds only that question.
 +        const question = (startPartId: string | undefined) => (
-+            startPartId !== undefined && questionParts.includes(startPartId) ? { questionPartId: startPartId } : {}
++            startPartId !== undefined && questionParts.includes(startPartId)
++                ? { questionPartId: startPartId, questionSticks: answeredParts.includes(startPartId) }
++                : {}
 +        );
          if (cuts.length === 0) {
 -            rows.push({ kind: 'turn-message', key: `step:${messageId}`, ...fields, messageId, slice: null, final });
@@ -920,7 +1070,7 @@ index f4ebed69c..b90ffafb8 100644
              return;
          }
          cuts.forEach((cut, index) => {
-@@ -121,10 +143,11 @@ const turnRows = (entry: TurnEntry, options: TimelineRowsOptions): TimelineRow[]
+@@ -121,10 +155,11 @@ const turnRows = (entry: TurnEntry, options: TimelineRowsOptions): TimelineRow[]
                  messageId,
                  slice: from ? { from, to: cut, index, count: cuts.length + 1 } : { to: cut, index, count: cuts.length + 1 },
                  final,
@@ -933,13 +1083,231 @@ index f4ebed69c..b90ffafb8 100644
      };
  
      if (underFold) {
-@@ -166,7 +189,8 @@ const isSameRow = (previous: TimelineRow, next: TimelineRow): boolean => {
+@@ -142,6 +177,21 @@ const turnRows = (entry: TurnEntry, options: TimelineRowsOptions): TimelineRow[]
+             activityMessages.slice(0, split > 0 ? split : activityMessages.length).forEach((message) => addMessage(message));
+             if (pages.length > 0) rows.push({ kind: 'turn-pages', key: `pages:${turn.turnId}`, ...fields });
+             if (split > 0) activityMessages.slice(split).forEach((message) => addMessage(message));
++        } else if (finalMessage) {
++            // The reader's answers stay in view under a closed fold: each
++            // answered question's card follows the fold header. Only once the
++            // turn has its reply, when the fold no longer previews the latest
++            // steps (which would draw the question a second time).
++            for (const message of activityMessages) {
++                for (const part of message.parts) {
++                    if (questionCardState(part) !== 'answered') continue;
++                    rows.push({
++                        kind: 'turn-message', key: `lifted-question:${part.id}`, ...fields,
++                        messageId: message.info.id, slice: null, final: false,
++                        questionPartId: part.id, questionSticks: true, questionLifted: true,
++                    });
++                }
++            }
+         }
+         if (finalMessage) addMessage(finalMessage, true);
+     } else {
+@@ -166,7 +216,9 @@ const isSameRow = (previous: TimelineRow, next: TimelineRow): boolean => {
      if (previous.kind === 'ungrouped' || next.kind === 'ungrouped') return true;
      if (previous.gapBelow !== next.gapBelow || previous.underFold !== next.underFold || previous.finalMessageId !== next.finalMessageId) return false;
      if (previous.kind === 'turn-message' && next.kind === 'turn-message') {
 -        return previous.messageId === next.messageId && previous.final === next.final && isSameSlice(previous.slice, next.slice);
 +        return previous.messageId === next.messageId && previous.final === next.final
-+            && previous.questionPartId === next.questionPartId && isSameSlice(previous.slice, next.slice);
++            && previous.questionPartId === next.questionPartId && previous.questionSticks === next.questionSticks
++            && previous.questionLifted === next.questionLifted && isSameSlice(previous.slice, next.slice);
      }
      return true;
  };
+diff --git a/packages/ui/src/lib/i18n/messages/ar.ts b/packages/ui/src/lib/i18n/messages/ar.ts
+index ccae5ca45..fab203ed7 100644
+--- a/packages/ui/src/lib/i18n/messages/ar.ts
++++ b/packages/ui/src/lib/i18n/messages/ar.ts
+@@ -2510,6 +2510,8 @@ export const dict = {
+   'chat.questionCard.recommended': 'موصى به',
+   'chat.questionCard.other': 'أخرى…',
+   'chat.questionCard.yourAnswer': 'إجابتك',
++  'chat.questionCard.notAnswered': 'لم تتم الإجابة',
++  'chat.questionCard.stoppedBeforeAnswer': 'توقف قبل الإجابة',
+   'chat.questionCard.submit': 'إرسال',
+   'chat.questionCard.next': 'التالي',
+   'chat.questionCard.dismiss': 'تجاهل',
+diff --git a/packages/ui/src/lib/i18n/messages/de.ts b/packages/ui/src/lib/i18n/messages/de.ts
+index c01c78791..3f2504a1b 100644
+--- a/packages/ui/src/lib/i18n/messages/de.ts
++++ b/packages/ui/src/lib/i18n/messages/de.ts
+@@ -2315,6 +2315,8 @@ export const dict = {
+   'chat.questionCard.recommended': 'empfohlen',
+   'chat.questionCard.other': 'Andere…',
+   'chat.questionCard.yourAnswer': 'Ihre Antwort',
++  'chat.questionCard.notAnswered': 'Nicht beantwortet',
++  'chat.questionCard.stoppedBeforeAnswer': 'Vor einer Antwort gestoppt',
+   'chat.questionCard.submit': 'Senden',
+   'chat.questionCard.next': 'Weiter',
+   'chat.questionCard.dismiss': 'Verwerfen',
+diff --git a/packages/ui/src/lib/i18n/messages/en.ts b/packages/ui/src/lib/i18n/messages/en.ts
+index 20b83c221..80e33bb0f 100644
+--- a/packages/ui/src/lib/i18n/messages/en.ts
++++ b/packages/ui/src/lib/i18n/messages/en.ts
+@@ -2598,6 +2598,8 @@ export const dict = {
+   'chat.questionCard.recommended': 'recommended',
+   'chat.questionCard.other': 'Other…',
+   'chat.questionCard.yourAnswer': 'Your answer',
++  'chat.questionCard.notAnswered': 'Not answered',
++  'chat.questionCard.stoppedBeforeAnswer': 'Stopped before an answer',
+   'chat.questionCard.submit': 'Submit',
+   'chat.questionCard.next': 'Next',
+   'chat.questionCard.dismiss': 'Dismiss',
+diff --git a/packages/ui/src/lib/i18n/messages/es.ts b/packages/ui/src/lib/i18n/messages/es.ts
+index 74844ae17..79d72074e 100644
+--- a/packages/ui/src/lib/i18n/messages/es.ts
++++ b/packages/ui/src/lib/i18n/messages/es.ts
+@@ -2566,6 +2566,8 @@ export const dict: Record<I18nKey, string> = {
+   "chat.questionCard.recommended": "recomendado",
+   "chat.questionCard.other": "Otro…",
+   "chat.questionCard.yourAnswer": "Tu respuesta",
++  "chat.questionCard.notAnswered": "Sin responder",
++  "chat.questionCard.stoppedBeforeAnswer": "Detenido antes de responder",
+   "chat.questionCard.submit": "Enviar",
+   "chat.questionCard.next": "Siguiente",
+   "chat.questionCard.dismiss": "Descartar",
+diff --git a/packages/ui/src/lib/i18n/messages/fr.ts b/packages/ui/src/lib/i18n/messages/fr.ts
+index aff896e29..96c10f812 100644
+--- a/packages/ui/src/lib/i18n/messages/fr.ts
++++ b/packages/ui/src/lib/i18n/messages/fr.ts
+@@ -2314,6 +2314,8 @@ export const dict = {
+   'chat.questionCard.recommended': 'recommandé',
+   'chat.questionCard.other': 'Autre…',
+   'chat.questionCard.yourAnswer': 'Votre réponse',
++  'chat.questionCard.notAnswered': 'Sans réponse',
++  'chat.questionCard.stoppedBeforeAnswer': 'Arrêté avant une réponse',
+   'chat.questionCard.submit': 'Soumettre',
+   'chat.questionCard.next': 'Suivant',
+   'chat.questionCard.dismiss': 'Ignorer',
+diff --git a/packages/ui/src/lib/i18n/messages/he.ts b/packages/ui/src/lib/i18n/messages/he.ts
+index 2141cde65..88d150424 100644
+--- a/packages/ui/src/lib/i18n/messages/he.ts
++++ b/packages/ui/src/lib/i18n/messages/he.ts
+@@ -2510,6 +2510,8 @@ export const dict = {
+   'chat.questionCard.recommended': 'מומלץ',
+   'chat.questionCard.other': 'אחר…',
+   'chat.questionCard.yourAnswer': 'התשובה שלך',
++  'chat.questionCard.notAnswered': 'לא נענתה',
++  'chat.questionCard.stoppedBeforeAnswer': 'נעצר לפני תשובה',
+   'chat.questionCard.submit': 'שלח',
+   'chat.questionCard.next': 'הבא',
+   'chat.questionCard.dismiss': 'דלג',
+diff --git a/packages/ui/src/lib/i18n/messages/ja.ts b/packages/ui/src/lib/i18n/messages/ja.ts
+index a083df639..f33a6f09d 100644
+--- a/packages/ui/src/lib/i18n/messages/ja.ts
++++ b/packages/ui/src/lib/i18n/messages/ja.ts
+@@ -2594,6 +2594,8 @@ export const dict: Record<I18nKey, string> = {
+   'chat.questionCard.recommended': '推奨',
+   'chat.questionCard.other': 'その他…',
+   'chat.questionCard.yourAnswer': 'あなたの回答',
++  'chat.questionCard.notAnswered': '未回答',
++  'chat.questionCard.stoppedBeforeAnswer': '回答前に停止',
+   'chat.questionCard.submit': '送信',
+   'chat.questionCard.next': '次へ',
+   'chat.questionCard.dismiss': '閉じる',
+diff --git a/packages/ui/src/lib/i18n/messages/ko.ts b/packages/ui/src/lib/i18n/messages/ko.ts
+index 1a2a4438c..e7b41ecf5 100644
+--- a/packages/ui/src/lib/i18n/messages/ko.ts
++++ b/packages/ui/src/lib/i18n/messages/ko.ts
+@@ -2598,6 +2598,8 @@ export const dict: Record<I18nKey, string> = {
+   'chat.questionCard.recommended': '추천',
+   'chat.questionCard.other': '기타…',
+   'chat.questionCard.yourAnswer': '내 답변',
++  'chat.questionCard.notAnswered': '답변하지 않음',
++  'chat.questionCard.stoppedBeforeAnswer': '답변 전에 중지됨',
+   'chat.questionCard.submit': '제출',
+   'chat.questionCard.next': '다음',
+   'chat.questionCard.dismiss': '닫기',
+diff --git a/packages/ui/src/lib/i18n/messages/nl.ts b/packages/ui/src/lib/i18n/messages/nl.ts
+index d26e9a9ce..03f485a77 100644
+--- a/packages/ui/src/lib/i18n/messages/nl.ts
++++ b/packages/ui/src/lib/i18n/messages/nl.ts
+@@ -2598,6 +2598,8 @@ export const dict = {
+   'chat.questionCard.recommended': 'aanbevolen',
+   'chat.questionCard.other': 'Anders…',
+   'chat.questionCard.yourAnswer': 'Uw antwoord',
++  'chat.questionCard.notAnswered': 'Niet beantwoord',
++  'chat.questionCard.stoppedBeforeAnswer': 'Gestopt vóór een antwoord',
+   'chat.questionCard.submit': 'Verzenden',
+   'chat.questionCard.next': 'Volgende',
+   'chat.questionCard.dismiss': 'Sluiten',
+diff --git a/packages/ui/src/lib/i18n/messages/pl.ts b/packages/ui/src/lib/i18n/messages/pl.ts
+index fa2a0a921..acbf39a8a 100644
+--- a/packages/ui/src/lib/i18n/messages/pl.ts
++++ b/packages/ui/src/lib/i18n/messages/pl.ts
+@@ -1161,6 +1161,8 @@ export const dict: Record<I18nKey, string> = {
+   'chat.questionCard.recommended': 'rekomendowane',
+   'chat.questionCard.other': 'Inne...',
+   'chat.questionCard.yourAnswer': 'Twoja odpowiedź',
++  'chat.questionCard.notAnswered': 'Bez odpowiedzi',
++  'chat.questionCard.stoppedBeforeAnswer': 'Zatrzymano przed odpowiedzią',
+   'chat.questionCard.submit': 'Wyślij',
+   'chat.questionCard.next': 'Następne',
+   'chat.questionCard.dismiss': 'Odrzuć',
+diff --git a/packages/ui/src/lib/i18n/messages/pt-BR.ts b/packages/ui/src/lib/i18n/messages/pt-BR.ts
+index d542efc72..fe98db9f5 100644
+--- a/packages/ui/src/lib/i18n/messages/pt-BR.ts
++++ b/packages/ui/src/lib/i18n/messages/pt-BR.ts
+@@ -2568,6 +2568,8 @@ export const dict: Record<I18nKey, string> = {
+   "chat.questionCard.recommended": "recomendado",
+   "chat.questionCard.other": "Outro…",
+   "chat.questionCard.yourAnswer": "Sua resposta",
++  "chat.questionCard.notAnswered": "Não respondida",
++  "chat.questionCard.stoppedBeforeAnswer": "Interrompida antes de uma resposta",
+   "chat.questionCard.submit": "Enviar",
+   "chat.questionCard.next": "Próximo",
+   "chat.questionCard.dismiss": "Descartar",
+diff --git a/packages/ui/src/lib/i18n/messages/tr.ts b/packages/ui/src/lib/i18n/messages/tr.ts
+index 321e6cf80..e4b464fee 100644
+--- a/packages/ui/src/lib/i18n/messages/tr.ts
++++ b/packages/ui/src/lib/i18n/messages/tr.ts
+@@ -2440,6 +2440,8 @@ export const dict = {
+   'chat.questionCard.recommended': 'önerilen',
+   'chat.questionCard.other': 'Diğer…',
+   'chat.questionCard.yourAnswer': 'Yanıtın',
++  'chat.questionCard.notAnswered': 'Yanıtlanmadı',
++  'chat.questionCard.stoppedBeforeAnswer': 'Yanıt verilmeden durduruldu',
+   'chat.questionCard.submit': 'Gönder',
+   'chat.questionCard.next': 'İleri',
+   'chat.questionCard.dismiss': 'Yok say',
+diff --git a/packages/ui/src/lib/i18n/messages/uk.ts b/packages/ui/src/lib/i18n/messages/uk.ts
+index 727fced9e..2188fce38 100644
+--- a/packages/ui/src/lib/i18n/messages/uk.ts
++++ b/packages/ui/src/lib/i18n/messages/uk.ts
+@@ -2566,6 +2566,8 @@ export const dict: Record<I18nKey, string> = {
+   "chat.questionCard.recommended": "рекомендований",
+   "chat.questionCard.other": "Інше…",
+   "chat.questionCard.yourAnswer": "Ваша відповідь",
++  "chat.questionCard.notAnswered": "Без відповіді",
++  "chat.questionCard.stoppedBeforeAnswer": "Зупинено до відповіді",
+   "chat.questionCard.submit": "Надіслати",
+   "chat.questionCard.next": "Далі",
+   "chat.questionCard.dismiss": "Відхилити",
+diff --git a/packages/ui/src/lib/i18n/messages/zh-CN.ts b/packages/ui/src/lib/i18n/messages/zh-CN.ts
+index 3b7ab1e2a..9765e88a4 100644
+--- a/packages/ui/src/lib/i18n/messages/zh-CN.ts
++++ b/packages/ui/src/lib/i18n/messages/zh-CN.ts
+@@ -2564,6 +2564,8 @@ export const dict: Record<I18nKey, string> = {
+   'chat.questionCard.recommended': '推荐',
+   'chat.questionCard.other': '其他…',
+   'chat.questionCard.yourAnswer': '你的回答',
++  'chat.questionCard.notAnswered': '未回答',
++  'chat.questionCard.stoppedBeforeAnswer': '在回答前已停止',
+   'chat.questionCard.submit': '提交',
+   'chat.questionCard.next': '下一个',
+   'chat.questionCard.dismiss': '忽略',
+diff --git a/packages/ui/src/lib/i18n/messages/zh-TW.ts b/packages/ui/src/lib/i18n/messages/zh-TW.ts
+index 048ac233d..166dce2ab 100644
+--- a/packages/ui/src/lib/i18n/messages/zh-TW.ts
++++ b/packages/ui/src/lib/i18n/messages/zh-TW.ts
+@@ -2575,6 +2575,8 @@ export const dict: Record<I18nKey, string> = {
+   'chat.questionCard.recommended': '推薦',
+   'chat.questionCard.other': '其他…',
+   'chat.questionCard.yourAnswer': '你的回答',
++  'chat.questionCard.notAnswered': '未回答',
++  'chat.questionCard.stoppedBeforeAnswer': '在回答前已停止',
+   'chat.questionCard.submit': '提交',
+   'chat.questionCard.next': '下一個',
+   'chat.questionCard.dismiss': '忽略',
