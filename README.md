@@ -72,12 +72,17 @@ push that changes the patch queue or the source pin, materializes
 in the `android` devShell, verifies the purple-question marker and the
 signature, and publishes the APK as a versioned Forgejo release.
 
-Local parity:
+Install on the phone with `dotman deploy phone openchamber`. It builds from
+this checkout, discovers the device over wireless ADB, and picks a version
+code above the installed one. The phone needs wireless debugging on and a
+reachable ADB connection; `dotman deploy phone` stops with an error when
+either is missing. The raw recipes are the manual fallback:
 
 ```sh
-just android          # signed release APK in result-android.apk
-just android-debug    # debug APK in result-android-debug.apk
-just android-install  # adb install -r result-android.apk
+dotman deploy phone openchamber  # build and install on the phone
+just android                     # signed release APK in result-android.apk
+just android-debug               # debug APK in result-android-debug.apk
+just android-install             # adb install -r result-android.apk
 ```
 
 The release key is the agenix secret `openchamber_android_signing` (base64
