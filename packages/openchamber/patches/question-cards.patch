@@ -162,6 +162,78 @@ index 43284997d..89c38b578 100644
          toggleTurnActivity,
          trailingStreamingEntry?.key,
          turnExpansion,
+diff --git a/packages/ui/src/components/chat/components/LiveTurnActivity.test.tsx b/packages/ui/src/components/chat/components/LiveTurnActivity.test.tsx
+index d79ff1595..ff7d92f9f 100644
+--- a/packages/ui/src/components/chat/components/LiveTurnActivity.test.tsx
++++ b/packages/ui/src/components/chat/components/LiveTurnActivity.test.tsx
+@@ -441,6 +441,39 @@ describe('live Activity with the real message body', () => {
+         expect(container.querySelectorAll('iframe')).toHaveLength(1);
+     });
+ 
++    test('a working turn\'s preview draws a question as its card, in step order, without sticking', async () => {
++        const question: Part = {
++            type: 'tool', tool: 'question', id: 'ask', callID: 'ask', sessionID: 'session', messageID: 'asked',
++            state: {
++                status: 'completed',
++                input: { questions: [{ question: 'Celsius or Fahrenheit?', header: 'Units', options: [{ label: 'Celsius' }, { label: 'Fahrenheit' }] }] },
++                output: 'User has answered your questions: "Celsius or Fahrenheit?"="Celsius". You can now continue with the user\'s answers in mind.',
++                metadata: {}, time: { start: 1, end: 2 },
++            },
++        };
++        const later: Part = {
++            type: 'tool', tool: 'bash', id: 'later', callID: 'later', sessionID: 'session', messageID: 'later',
++            state: { status: 'running', input: { command: 'sleep 90', description: 'Wait' }, time: { start: 3 } },
++        };
++        const before = assistant('before', [text('before-text', 'Looking around'), readPart], 'tool-calls');
++        const asked = assistant('asked', [question], 'tool-calls');
++        const working = assistant('later', [later], undefined);
++        useUIStore.setState({ stickyUserHeader: true });
++        try {
++            await act(async () => root.render(<Harness record={turn([before, asked, working])} />));
++            const card = container.querySelector('[data-question-turn-header]');
++            expect(card?.textContent).toContain('Celsius');
++            expect(container.textContent).not.toContain('Questions asked');
++            expect(container.querySelector('[data-turn-sticky-header]')).toBeNull();
++            const html = container.innerHTML;
++            const at = html.indexOf('data-question-turn-header');
++            expect(html.indexOf('Looking around')).toBeLessThan(at);
++            expect(html.indexOf('data-fixture-message="later"')).toBeGreaterThan(at);
++        } finally {
++            useUIStore.setState({ stickyUserHeader: false });
++        }
++    });
++
+     test('keeps a page that waits for the user\'s answer in view while its call runs', async () => {
+         const page: Part = {
+             type: 'tool', tool: 'openchamber_render', id: 'page', callID: 'page', sessionID: 'session', messageID: 'progress',
+diff --git a/packages/ui/src/components/chat/components/LiveTurnActivity.tsx b/packages/ui/src/components/chat/components/LiveTurnActivity.tsx
+index 20f25703e..0145dd831 100644
+--- a/packages/ui/src/components/chat/components/LiveTurnActivity.tsx
++++ b/packages/ui/src/components/chat/components/LiveTurnActivity.tsx
+@@ -5,6 +5,7 @@ import { useI18n } from '@/lib/i18n';
+ import { useUIStore } from '@/stores/useUIStore';
+ import {
+     ActivityRowSkipContext,
++    FoldPreviewContext,
+     LIVE_ACTIVITY_VISIBLE_ROWS,
+     activityRowParts,
+     planActivityTrim,
+@@ -132,6 +133,7 @@ export function TurnFold({ turn, hasLaterAssistant, expanded, finalMessageId, on
+             {expanded ? null : (
+                 // What stays in view, its rows above and below the pages, as
+                 // one window: the latest rows of the turn.
++                <FoldPreviewContext.Provider value={true}>
+                 <div ref={previewFloorRef}>
+                     <div ref={previewRef}>
+                         <LiveActivityCollapse expanded={isExpanded} id={contentId}>
+@@ -153,6 +155,7 @@ export function TurnFold({ turn, hasLaterAssistant, expanded, finalMessageId, on
+                         ) : null}
+                     </div>
+                 </div>
++                </FoldPreviewContext.Provider>
+             )}
+         </div>
+     );
 diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
 new file mode 100644
 index 000000000..6cb03dfdf
@@ -400,10 +472,10 @@ index 000000000..6cb03dfdf
 +});
 diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
 new file mode 100644
-index 000000000..f989cc737
+index 000000000..284f4c5ff
 --- /dev/null
 +++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
-@@ -0,0 +1,188 @@
+@@ -0,0 +1,191 @@
 +import React from 'react';
 +
 +import { useDeviceInfo } from '@/lib/device';
@@ -458,7 +530,10 @@ index 000000000..f989cc737
 +    startsMessage: boolean;
 +    open: boolean;
 +    onToggle: (partId: string) => void;
-+}> = ({ part, messageId, startsMessage, open, onToggle }) => {
++    pinnable?: boolean;
++    /** Drawn inside a message (a fold's preview), which already sets the column. */
++    nested?: boolean;
++}> = ({ part, messageId, startsMessage, open, onToggle, pinnable = true, nested = false }) => {
 +    const { isMobile } = useDeviceInfo();
 +    const { t } = useI18n();
 +    const sticks = useUIStore((state) => state.stickyUserHeader);
@@ -481,11 +556,11 @@ index 000000000..f989cc737
 +    // desktop, 36px mobile), which the sticky header's fade sits over.
 +    const body = (
 +        <div
-+            className={cn('relative z-10 w-full', isMobile ? 'pt-2' : 'pt-4')}
++            className={cn('relative z-10 w-full', nested ? 'py-1.5' : isMobile ? 'pt-2' : 'pt-4')}
 +            data-question-turn-header=""
 +            data-message-id={startsMessage ? messageId : undefined}
 +        >
-+            <div className="chat-message-column relative">
++            <div className={cn('relative', !nested && 'chat-message-column')}>
 +                <div className="relative flex flex-col items-end">
 +                    <div className="max-w-[85%]">
 +                        <div
@@ -579,13 +654,13 @@ index 000000000..f989cc737
 +                            </div>
 +                        </div>
 +                </div>
-+                    <div aria-hidden="true" className={isMobile ? 'h-9' : 'h-11'} />
++                    {nested ? null : <div aria-hidden="true" className={isMobile ? 'h-9' : 'h-11'} />}
 +                </div>
 +            </div>
 +        </div>
 +    );
 +
-+    if (!sticks || cardState !== 'answered') return body;
++    if (!pinnable || !sticks || cardState !== 'answered') return body;
 +    return (
 +        <div className="sticky top-0 z-20 [overflow-anchor:none]" data-turn-sticky-header="" style={stickyHeaderBackground(isMobile)}>
 +            {body}
@@ -730,6 +805,21 @@ index bc8236ea0..02b37cd9c 100644
 +    }
 +    return text;
 +};
+diff --git a/packages/ui/src/components/chat/lib/turns/activityRows.ts b/packages/ui/src/components/chat/lib/turns/activityRows.ts
+index b48add59d..61d3e0741 100644
+--- a/packages/ui/src/components/chat/lib/turns/activityRows.ts
++++ b/packages/ui/src/components/chat/lib/turns/activityRows.ts
+@@ -63,4 +63,10 @@ export const planActivityTrim = (rowsPerMessage: readonly number[], visibleRows:
+ };
+ 
+ /** The message the trim cuts into, and how many of its first rows it hides. */
++/**
++ * True inside a closed fold's preview of a working turn's latest steps,
++ * where a question draws its card in step order but does not stick.
++ */
++export const FoldPreviewContext = createContext(false);
++
+ export const ActivityRowSkipContext = createContext<{ messageId: string; rows: number } | null>(null);
 diff --git a/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.test.ts b/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.test.ts
 index 5bbaf8764..f17d6a590 100644
 --- a/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.test.ts
@@ -1116,6 +1206,64 @@ index f4ebed69c..2e06c5117 100644
      }
      return true;
  };
+diff --git a/packages/ui/src/components/chat/message/MessageBody.tsx b/packages/ui/src/components/chat/message/MessageBody.tsx
+index a330a3c94..84685becf 100644
+--- a/packages/ui/src/components/chat/message/MessageBody.tsx
++++ b/packages/ui/src/components/chat/message/MessageBody.tsx
+@@ -57,7 +57,7 @@ import { formatTimestampForDisplay } from './timeFormat';
+ import { StaticToolRow } from './parts/ProgressiveGroup';
+ import { isExpandableTool } from './parts/toolRenderUtils';
+ import { ShownPartCard, ShownToolCard } from './parts/ShownToolCard';
+-import { isShownInPlace } from '@/lib/opencode/tools';
++import { isQuestionTool, isShownInPlace } from '@/lib/opencode/tools';
+ import { LiveActivityCollapse } from '../components/LiveActivityCollapse';
+ import { dispatchRowExpand } from '../lib/scroll/timelineScrollIntent';
+ import { ActivityRowSkipContext, isActivityRowPart, isToolRowShown } from '../lib/turns/activityRows';
+@@ -82,6 +82,8 @@ import { shareFileFromNativeApp } from '@/lib/nativeFileShare';
+ import { WorktreeRequiresGitRepositoryError } from '@/lib/worktrees/worktreeCreate';
+ import { buildTurnImageExportSource, cloneMessageImageExportSource, fitMessageImageExportLayout, resolveMessageImageExportPixelRatio, resolveMessageImageExportWidth } from './imageExport';
+ import { hasTextSelectionInside } from '@/lib/textSelection';
++import { FoldPreviewContext } from '../lib/turns/activityRows';
++import { QuestionTurnHeader } from '../components/QuestionTurnHeader';
+ 
+ 
+ const CONTAIN_LAYOUT_STYLE = { contain: 'layout' as const, transform: 'translateZ(0)' };
+@@ -1707,6 +1709,7 @@ const AssistantMessageBody = React.memo(({
+ 
+     const shouldRenderStandaloneActionsAfterContent = shouldShowStandaloneMessageActions && lastRenderableTextPartIndex < 0;
+ 
++    const inFoldPreview = React.useContext(FoldPreviewContext);
+     const renderedParts = React.useMemo(() => {
+         const answerRendered: React.ReactNode[] = [];
+         const activityRendered: React.ReactNode[] = [];
+@@ -1876,6 +1879,18 @@ const AssistantMessageBody = React.memo(({
+                     continue;
+                 }
+ 
++                // A closed fold's preview draws a question as its card, which
++                // sticks only once the turn has its reply and the card is
++                // drawn below the fold (`timelineRows.ts`).
++                if (inFoldPreview && isQuestionTool(toolName)) {
++                    rendered.push(
++                        <QuestionTurnHeader key={`question-${toolPart.id}`} part={toolPart} messageId={messageId}
++                            startsMessage={false} open={expandedTools.has(toolPart.id)} onToggle={onToggleTool} pinnable={false} nested />
++                    );
++                    i++;
++                    continue;
++                }
++
+                 // Expandable tools: bash, edit, write, task, question — individual rows
+                 if (isExpandableTool(toolName)) {
+                     rendered.push(
+@@ -1932,7 +1947,7 @@ const AssistantMessageBody = React.memo(({
+             ];
+         }
+         return answerRendered;
+-    }, [
++    }, [inFoldPreview, 
+         activityRowSkip,
+         alwaysShowMessageActions,
+         hoistedPages,
 diff --git a/packages/ui/src/lib/i18n/messages/ar.ts b/packages/ui/src/lib/i18n/messages/ar.ts
 index ccae5ca45..fab203ed7 100644
 --- a/packages/ui/src/lib/i18n/messages/ar.ts
