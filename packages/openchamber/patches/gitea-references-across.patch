@@ -1,147 +1,924 @@
+diff --git a/packages/ui/src/components/chat/ChatInput.tsx b/packages/ui/src/components/chat/ChatInput.tsx
+index 9bf35808f..ade1bad04 100644
+--- a/packages/ui/src/components/chat/ChatInput.tsx
++++ b/packages/ui/src/components/chat/ChatInput.tsx
+@@ -4617,6 +4617,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+                                 title={reference.title}
+                                 url={reference.url}
+                                 author={reference.author}
++                                repository={reference.repo}
+                                 openInBrowserLabel={t('chat.chatInput.linked.issue.openInBrowserAria')}
+                                 removeLabel={t('chat.chatInput.linked.issue.removeAria')}
+                                 onReopenPicker={() => setReferencePicker({ source: 'repository', kind: 'issue' })}
+@@ -4631,6 +4632,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+                                 title={reference.title}
+                                 url={reference.url}
+                                 author={reference.author}
++                                repository={reference.repo}
+                                 openInBrowserLabel={t('chat.chatInput.linked.discussion.openInBrowserAria')}
+                                 removeLabel={t('chat.chatInput.linked.discussion.removeAria')}
+                                 onReopenPicker={() => setReferencePicker({ source: 'repository', kind: 'discussion' })}
+@@ -4645,6 +4647,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+                                 title={reference.title}
+                                 url={reference.url}
+                                 author={reference.author}
++                                repository={reference.repo}
+                                 branches={reference.head && reference.base ? { head: reference.head, base: reference.base } : undefined}
+                                 openInBrowserLabel={t(changeRequestCopy('chat.chatInput.linked.pr.openInBrowserAria', descriptorOf(reference.provider).terminology.changeRequest))}
+                                 removeLabel={t(changeRequestCopy('chat.chatInput.linked.pr.removeAria', descriptorOf(reference.provider).terminology.changeRequest))}
+diff --git a/packages/ui/src/components/chat/composer/composerReferences.ts b/packages/ui/src/components/chat/composer/composerReferences.ts
+index 8cfbd55f6..c65581f6c 100644
+--- a/packages/ui/src/components/chat/composer/composerReferences.ts
++++ b/packages/ui/src/components/chat/composer/composerReferences.ts
+@@ -29,6 +29,8 @@ export type ComposerReference =
+         url: string;
+         contextText: string;
+         author?: ComposerReferenceAuthor;
++        /** `owner/repo`, when the item is not from the project's own repository. */
++        repo?: string;
+     }
+     | {
+         kind: 'repository-discussion';
+@@ -38,6 +40,8 @@ export type ComposerReference =
+         url: string;
+         contextText: string;
+         author?: ComposerReferenceAuthor;
++        /** `owner/repo`, when the item is not from the project's own repository. */
++        repo?: string;
+     }
+     | {
+         kind: 'change-request';
+@@ -51,6 +55,8 @@ export type ComposerReference =
+         includeDiff: boolean;
+         contextText: string;
+         author?: ComposerReferenceAuthor;
++        /** `owner/repo`, when the item is not from the project's own repository. */
++        repo?: string;
+     }
+     | {
+         kind: 'tracker-item';
+diff --git a/packages/ui/src/components/chat/composer/ui/LinkedReferenceRow.tsx b/packages/ui/src/components/chat/composer/ui/LinkedReferenceRow.tsx
+index 2833b5796..684699595 100644
+--- a/packages/ui/src/components/chat/composer/ui/LinkedReferenceRow.tsx
++++ b/packages/ui/src/components/chat/composer/ui/LinkedReferenceRow.tsx
+@@ -21,6 +21,8 @@ export interface LinkedReferenceRowProps {
+     title: string;
+     url: string;
+     author?: { login: string; avatarUrl?: string };
++    /** `owner/repo`, shown when the item is not from the project's own repository. */
++    repository?: string;
+     /** A PR also shows its branches. */
+     branches?: { head: string; base: string };
+     openInBrowserLabel: string;
+@@ -36,6 +38,7 @@ export function LinkedReferenceRow(props: LinkedReferenceRowProps) {
+         title,
+         url,
+         author,
++        repository,
+         branches,
+         openInBrowserLabel,
+         removeLabel,
+@@ -68,6 +71,9 @@ export function LinkedReferenceRow(props: LinkedReferenceRowProps) {
+                 ) : null}
+                 <span className="text-muted-foreground flex-shrink-0">
+                     {numberLabel === title ? null : numberLabel}
++                    {repository ? (
++                        <span className="ms-1 inline-block max-w-[9rem] truncate align-bottom font-mono" dir="ltr">{repository}</span>
++                    ) : null}
+                     {author ? (
+                         <span className="ms-1">
+                             {t('chat.chatInput.linked.byAuthor', { author: author.login })}
+diff --git a/packages/ui/src/components/overview/ADR.md b/packages/ui/src/components/overview/ADR.md
+index 556ec8cad..dac8b00d0 100644
+--- a/packages/ui/src/components/overview/ADR.md
++++ b/packages/ui/src/components/overview/ADR.md
+@@ -132,9 +132,9 @@ whether it is on screen), re-reads git, and stops if anything changed.
+ The repository's CODEOWNERS names the maintainer for everything, so
+ `review-requested:@me` returned the whole open queue: 30 rows on the first try.
+ Those are the board's catalogue, not something waiting on the user, so they are
+-counted on one line that opens into the list. GitHub only for now: the search
+-across repositories asks one provider with `features.referencesAcross`, and
+-GitLab and Gitea do not have it.
++counted on one line that opens into the list. The search across repositories asks
++one provider with `features.referencesAcross`; GitHub has it, and so do Gitea and
++Forgejo since their across search landed, while GitLab and Gerrit do not.
+ 
+ ### The page reads what it needs itself
+ 
+diff --git a/packages/ui/src/components/overview/DOCUMENTATION.md b/packages/ui/src/components/overview/DOCUMENTATION.md
+index 6bea1381e..e58d878a1 100644
+--- a/packages/ui/src/components/overview/DOCUMENTATION.md
++++ b/packages/ui/src/components/overview/DOCUMENTATION.md
+@@ -156,6 +156,7 @@ up sections (too simple per row, too much as a whole).
+ 
+ They come from one search across the registered projects
+ (`useRepositoryAcrossReferenceList`), which asks a single provider: the first
+-in registry order whose descriptor has `features.referencesAcross`. Only
+-GitHub has it today, so projects on GitLab, Gitea or Gerrit are left out until their
+-provider offers that search.
++in registry order among the projects' providers whose descriptor has
++`features.referencesAcross` (GitHub, and Gitea and Forgejo since their across
++search landed). Projects on a provider without that search (GitLab, Gerrit) are
++left out.
+diff --git a/packages/ui/src/components/references/DOCUMENTATION.md b/packages/ui/src/components/references/DOCUMENTATION.md
+index d65add5b4..b60a74a76 100644
+--- a/packages/ui/src/components/references/DOCUMENTATION.md
++++ b/packages/ui/src/components/references/DOCUMENTATION.md
+@@ -135,6 +135,8 @@ the list-backed reads have none and refuse the kind.
+ - A list is cached per key `[runtime, account or tracker and its account, project, kind, filter, search text]`. Switching tabs or filters, or reopening the picker, shows the cached list at once; one older than 60 s refreshes in the background and is replaced when the answer lands. `revalidateReferences` makes every mounted list, preview and PR status check its age again.
+ - A failed first load is an `error` state with Retry. A failed refresh keeps the shown items and shows the error above them. Failure never becomes an empty list.
+ - Every first-page request bumps the key's generation; an answer or a later page from an older generation is dropped.
++- A list across repositories also drops a row an appended page repeats, by its repository and number: a result set that shifted between pages repeats rows at the seam, and the same item never appears twice. The server's cursor carries the scope it was built for, so a changed binding, filter or query starts the list again instead of showing a shifted window.
++- A forced read (`retry`, the board's list refresh) sends `refresh` with the across request, which skips the provider's short-lived page cache; the single-repository list has no such cache.
+ - Keys someone is subscribed to are never evicted; the 40-entry bound is a soft target.
+ - Searched pages come from `sourceControl.references`, `GET /api/source-control/<provider>/references` (server: `packages/web/server/lib/github/DOCUMENTATION.md` for GitHub); the preview's detail from `referenceDetail` and PR colours from `changeRequestListStatuses` go through the same provider prefix, read with the project's read context (`useRepositoryReadContext`): the account its binding names, or the current account of the host for a repository nobody bound. List and preview cache keys carry that account. Tracker lists use `trackers.list(provider, …)` with the filter's state, whose items (`me` or `created`) and priority, combined; picking in the filter menu keeps it open. The state menu is the descriptor's `stateFilters` in its order (Linear adds In Review and Duplicate), and people and priority appear only where the descriptor's `capabilities.filters` offers them; a filter the tracker does not offer reads as its default. The last filter is remembered per tracker for the app run.
+ 
+@@ -348,8 +350,9 @@ preview's footer holds actions instead of what the agent gets.
+   `invalid-context`, `error`) is reported with the page (`ListPage.skipped`),
+   and a later page adds to that list rather than replacing it. When the answer
+   read no folder at all, the list fails if any folder failed, and otherwise
+-  reads as disconnected or as having no repository: a failure never shows as an
+-  empty list. A
++  reads as disconnected or as having no repository; a folder that exists but
++  has no read context yet answers its own `unbound` state rather than the
++  "no remote" one: a failure never shows as an empty list. A
+   quiet note above the rows (`SourceBoardAcrossNote`) counts the repositories
+   left out of the list, and its menu names them with the reason. Rows name
+   their repository (the upstream-chip pattern, shown on every row). Each item
+diff --git a/packages/ui/src/components/references/ReferenceBrowser.tsx b/packages/ui/src/components/references/ReferenceBrowser.tsx
+index f7e0ef1dc..4ba1e5ade 100644
+--- a/packages/ui/src/components/references/ReferenceBrowser.tsx
++++ b/packages/ui/src/components/references/ReferenceBrowser.tsx
+@@ -282,6 +282,16 @@ export const ReferenceBrowserList: React.FC<{
+             </>
+         );
+     }
++    // Repositories exist but nothing could read them yet: not the same as a
++    // project with no remote, which is what `no-repo` says.
++    if (list.unavailable === 'unbound') {
++        return (
++            <>
++                {notice}
++                {centered(t('references.picker.empty.unbound'))}
++            </>
++        );
++    }
+     if (list.status === 'loading') {
+         return centered(
+             <span className="inline-flex items-center gap-2">
+diff --git a/packages/ui/src/components/references/acrossRepositories.test.ts b/packages/ui/src/components/references/acrossRepositories.test.ts
+index f92d57c90..4fe4c57bc 100644
+--- a/packages/ui/src/components/references/acrossRepositories.test.ts
++++ b/packages/ui/src/components/references/acrossRepositories.test.ts
+@@ -10,6 +10,7 @@ import type {
+ 
+ import {
+   NO_ACROSS_CONTEXTS,
++  type AcrossContexts,
+   ensurePullStatuses,
+   fetchAcrossPage,
+   groupPullsByDirectory,
+@@ -101,7 +102,8 @@ describe('what a list leaves out', () => {
+ });
+ 
+ describe('fetchAcrossPage', () => {
+-  const github = [{ directory: '/w/a', context: context('/w/a') }, { directory: '/w/b', context: context('/w/b') }];
++  const asked = [{ directory: '/w/a', context: context('/w/a') }, { directory: '/w/b', context: context('/w/b') }];
++  const github: AcrossContexts = { ready: true, provider: 'github', asked, excluded: [] };
+   const result = (overrides: Partial<RepositoryReferencesAcrossResult>): RepositoryReferencesAcrossResult => ({
+     items: [], cursor: null, hasMore: false, total: 0, repositories: [], ...overrides,
+   });
+@@ -121,7 +123,12 @@ describe('fetchAcrossPage', () => {
+   test('asks nothing without an asked folder or where the runtime cannot', async () => {
+     let asked = 0;
+     const search = async () => { asked += 1; return result({}); };
+-    expect(await fetchAcrossPage(search, [], { kind: 'issue' })).toEqual({ kind: 'unavailable', reason: 'no-repo' });
++    expect(await fetchAcrossPage(search, { ready: true, provider: null, asked: [], excluded: [] }, { kind: 'issue' }))
++      .toEqual({ kind: 'unavailable', reason: 'no-repo' });
++    // Folders exist but no account or binding could read them: not the same as no remote.
++    expect(await fetchAcrossPage(search, {
++      ready: true, provider: null, asked: [], excluded: [{ directory: '/w/a', reason: 'missing' }],
++    }, { kind: 'issue' })).toEqual({ kind: 'unavailable', reason: 'unbound' });
+     expect(await fetchAcrossPage(undefined, github, { kind: 'issue' })).toEqual({ kind: 'unavailable', reason: 'no-repo' });
+     expect(asked).toBe(0);
+   });
+diff --git a/packages/ui/src/components/references/acrossRepositories.ts b/packages/ui/src/components/references/acrossRepositories.ts
+index 0afacdc73..d4abaa711 100644
+--- a/packages/ui/src/components/references/acrossRepositories.ts
++++ b/packages/ui/src/components/references/acrossRepositories.ts
+@@ -75,6 +75,15 @@ export function partitionAcrossContexts(
+     return { ready, provider, asked, excluded };
+ }
+ 
++/**
++ * How one listed item is identified across pages: its repository and number.
++ * Two items of the same repository share a number space, two repositories do
++ * not, so this is what tells two same-numbered rows apart.
++ */
++export const acrossReferenceKey = (item: AcrossReference): string => (
++    `${joinProjectPath(item.sourceRepo.owner, item.sourceRepo.repo)}#${item.number}`.toLowerCase()
++);
++
+ /** The folders left out of a list: those never asked, then those the answer skipped. */
+ export function leftOutFolders(contexts: AcrossContexts, skipped: readonly ListSkip[]): AcrossExclusion[] {
+     return [...contexts.excluded, ...skipped];
+@@ -157,16 +166,23 @@ export function ensurePullStatuses(
+ /**
+  * One page of the search across repositories, sent the contexts of the asked
+  * folders. Without any, or where the runtime cannot search across repositories,
+- * there is nothing to list. When no folder was read, the list fails if one
+- * of them failed, and otherwise reads as disconnected or as having no
+- * repository, never as an empty list.
++ * there is nothing to list: `unbound` when folders exist but none could be
++ * read yet (no account or no binding), which is not the same as a project with
++ * no remote. When no folder was read, the list fails if one of them failed, and
++ * otherwise reads as disconnected or as having no repository, never as an
++ * empty list.
+  */
+ export async function fetchAcrossPage(
+     search: ((contexts: SourceControlReadContext[], options: RepositoryReferenceQuery) => Promise<RepositoryReferencesAcrossResult>) | undefined,
+-    asked: AcrossContexts['asked'],
++    contexts: AcrossContexts,
+     options: RepositoryReferenceQuery,
+ ): Promise<ListPage<AcrossReference>> {
+-    if (!search || asked.length === 0) return { kind: 'unavailable', reason: 'no-repo' };
++    const { asked } = contexts;
++    if (!search) return { kind: 'unavailable', reason: 'no-repo' };
++    if (asked.length === 0) {
++        const unreadable = contexts.excluded.some((exclusion) => exclusion.reason === 'missing');
++        return { kind: 'unavailable', reason: unreadable ? 'unbound' : 'no-repo' };
++    }
+     const result = await search(asked.map(({ context }) => context), options);
+     // Nothing read: a failure is never shown as an empty list, only an answer
+     // that there is nothing to read.
+diff --git a/packages/ui/src/components/references/referenceCache.test.ts b/packages/ui/src/components/references/referenceCache.test.ts
+index d64cb8928..d74645f1d 100644
+--- a/packages/ui/src/components/references/referenceCache.test.ts
++++ b/packages/ui/src/components/references/referenceCache.test.ts
+@@ -219,3 +219,25 @@ test('a folder a list across repositories left out stays left out after the next
+         skipped: [{ directory: '/w/b', reason: 'error' }, { directory: '/w/c', reason: 'disconnected' }],
+     });
+ });
++
++test('an appended page drops rows already shown, and a forced page is read again', async () => {
++    const reads: boolean[] = [];
++    const cache = createListCache<string>(40, Date.now, (item) => item);
++    cache.ensure('k', async (_cursor, options) => {
++        reads.push(options.refresh);
++        return page(['a', 'b'], 'next');
++    });
++    await flush();
++
++    // A result set that shifted repeats rows at the seam; each row stays once.
++    cache.loadMore('k');
++    await flush();
++    expect(cache.read('k')?.items).toEqual(['a', 'b']);
++    expect(reads).toEqual([false, false]);
++
++    await cache.ensure('k', async (_cursor, options) => {
++        reads.push(options.refresh);
++        return page(['a', 'b']);
++    }, { force: true });
++    expect(reads).toEqual([false, false, true]);
++});
+diff --git a/packages/ui/src/components/references/referenceCache.ts b/packages/ui/src/components/references/referenceCache.ts
+index c55588271..284dc032d 100644
+--- a/packages/ui/src/components/references/referenceCache.ts
++++ b/packages/ui/src/components/references/referenceCache.ts
+@@ -29,13 +29,13 @@ const mergeSkipped = (shown: readonly ListSkip[], next: readonly ListSkip[]): Li
+ 
+ export type ListPage<T> =
+     | { kind: 'page'; items: T[]; cursor: string | null; hasMore: boolean; skipped?: ListSkip[] }
+-    /** The source answered but cannot list: not connected, or no repo. */
+-    | { kind: 'unavailable'; reason: 'disconnected' | 'no-repo' };
++    /** The source answered but cannot list: not connected, no repo, or repositories that cannot be read yet. */
++    | { kind: 'unavailable'; reason: 'disconnected' | 'no-repo' | 'unbound' };
+ 
+ export type CachedList<T> = {
+     /** `loading` only until the first answer; a refresh keeps the last one. */
+     status: 'loading' | 'ready' | 'unavailable' | 'error';
+-    unavailable: 'disconnected' | 'no-repo' | null;
++    unavailable: 'disconnected' | 'no-repo' | 'unbound' | null;
+     items: T[];
+     hasMore: boolean;
+     refreshing: boolean;
+@@ -63,7 +63,10 @@ export type CachedValue<T> =
+     | { status: 'ready'; value: T }
+     | { status: 'error'; error: string };
+ 
+-type PageFetcher<T> = (cursor: string | null) => Promise<ListPage<T>>;
++/** How a page is being read: a forced read (a refresh) is answered without the server's short-lived cache. */
++type PageReadOptions = { refresh: boolean };
++
++type PageFetcher<T> = (cursor: string | null, options: PageReadOptions) => Promise<ListPage<T>>;
+ 
+ type ListRecord<T> = CachedList<T> & {
+     cursor: string | null;
+@@ -161,7 +164,17 @@ export type ListCache<T> = {
+ };
+ 
+ /** `now` is the clock freshness is measured on; tests pass their own. */
+-export function createListCache<T>(limit = 40, now: () => number = Date.now): ListCache<T> {
++export function createListCache<T>(
++    limit = 40,
++    now: () => number = Date.now,
++    /**
++     * How a row is identified when a later page is appended. A result set that
++     * shifts between pages repeats rows; where a row is one item of one
++     * repository (`owner/repo#number`), the repeat is dropped instead of shown
++     * twice. Left out, pages are appended as they come.
++     */
++    itemKey: ((item: T) => string) | null = null,
++): ListCache<T> {
+     const store = new KeyedStore<ListRecord<T>>(limit);
+ 
+     const update = (key: string, record: ListRecord<T>, patch: Partial<ListRecord<T>>) => {
+@@ -192,7 +205,7 @@ export function createListCache<T>(limit = 40, now: () => number = Date.now): Li
+                 generation,
+                 fetchPage,
+             });
+-        return settle(fetchPage(null)).then((outcome) => {
++        return settle(fetchPage(null, { refresh: options?.force === true })).then((outcome) => {
+             const current = store.get(key);
+             if (!current || current.generation !== generation) return;
+             if (!outcome.ok) {
+@@ -240,7 +253,7 @@ export function createListCache<T>(limit = 40, now: () => number = Date.now): Li
+         if (!record || !record.hasMore || record.loadingMore || record.refreshing || record.status !== 'ready') return;
+         const { generation, cursor } = record;
+         update(key, record, { loadingMore: true });
+-        void settle(record.fetchPage(cursor)).then((outcome) => {
++        void settle(record.fetchPage(cursor, { refresh: false })).then((outcome) => {
+             const current = store.get(key);
+             if (!current || current.generation !== generation) return;
+             if (!outcome.ok) {
+@@ -252,8 +265,17 @@ export function createListCache<T>(limit = 40, now: () => number = Date.now): Li
+                 update(key, current, { loadingMore: false, hasMore: false });
+                 return;
+             }
++            // A result set that shifted since the previous page repeats rows at
++            // its seam; an item already shown keeps its place instead of twice.
++            const seen = new Set(itemKey ? current.items.map(itemKey) : []);
++            const added = itemKey ? page.items.filter((item) => {
++                const identity = itemKey(item);
++                if (seen.has(identity)) return false;
++                seen.add(identity);
++                return true;
++            }) : page.items;
+             update(key, current, {
+-                items: [...current.items, ...page.items],
++                items: [...current.items, ...added],
+                 pageReads: [...current.pageReads, { start: current.items.length, read: { at: now(), forced: false } }],
+                 cursor: page.cursor,
+                 hasMore: page.hasMore,
+diff --git a/packages/ui/src/components/references/referenceSources.ts b/packages/ui/src/components/references/referenceSources.ts
+index 441401d0c..9591ee7b5 100644
+--- a/packages/ui/src/components/references/referenceSources.ts
++++ b/packages/ui/src/components/references/referenceSources.ts
+@@ -52,6 +52,7 @@ import {
+     NO_ACROSS_CONTEXTS,
+     fetchAcrossPage,
+     ensurePullStatuses,
++    acrossReferenceKey,
+     groupPullsByDirectory,
+     needsPullStatus,
+     partitionAcrossContexts,
+@@ -68,7 +69,7 @@ import type { TrackerReferenceFilter } from './referencePickerItems';
+ import { joinProjectPath } from '@/lib/source-control/projectPath';
+ 
+ const repositoryLists = createListCache<RepositoryReference>();
+-const repositoryAcrossLists = createListCache<AcrossReference>();
++const repositoryAcrossLists = createListCache<AcrossReference>(40, Date.now, acrossReferenceKey);
+ const trackerLists = createListCache<TrackerItemSummary>();
+ const trackerDetails = createValueCache<TrackerItem>();
+ const repositoryDetails = createValueCache<RepositoryReferenceDetail>();
+@@ -376,11 +377,11 @@ export function useRepositoryAcrossReferenceList(options: {
+     const key = enabled && contexts.ready
+         ? JSON.stringify([getRuntimeKey(), contexts.asked.map(({ directory, context }) => [directory, readContextCacheKey(context)]), kind, state, people, text])
+         : null;
+-    const fetchPage = React.useCallback(async (cursor: string | null): Promise<ListPage<AcrossReference>> => {
++    const fetchPage = React.useCallback(async (cursor: string | null, read: { refresh: boolean }): Promise<ListPage<AcrossReference>> => {
+         // Absent where the runtime cannot (VS Code); the board never offers the search there.
+         const search = sourceControl.referencesAcross?.bind(sourceControl);
+-        return fetchAcrossPage(search, contexts.asked, { kind, state, people, query: text, cursor });
+-    }, [contexts.asked, kind, people, sourceControl, state, text]);
++        return fetchAcrossPage(search, contexts, { kind, state, people, query: text, cursor, refresh: read.refresh });
++    }, [contexts, kind, people, sourceControl, state, text]);
+     const list = useCachedList(repositoryAcrossLists, key, fetchPage);
+     const contextOf = React.useCallback(
+         (item: AcrossReference) => contexts.asked.find((entry) => entry.directory === item.directory)?.context ?? null,
+diff --git a/packages/ui/src/components/references/resolveComposerReferences.ts b/packages/ui/src/components/references/resolveComposerReferences.ts
+index e0c9baf5f..7ff0cc79f 100644
+--- a/packages/ui/src/components/references/resolveComposerReferences.ts
++++ b/packages/ui/src/components/references/resolveComposerReferences.ts
+@@ -22,6 +22,7 @@ import type {
+     SourceControlReadContext,
+     TrackerItem,
+ } from '@/lib/api/types';
++import { joinProjectPath } from '@/lib/source-control/projectPath';
+ import { buildTrackerItemContextText } from '@/lib/trackers/itemContext';
+ 
+ import { referencePickerItemKey, type ReferencePickerSelection } from './referencePickerItems';
+@@ -30,6 +31,8 @@ export type ReferenceResolveDeps = {
+     sourceControl: Pick<SourceControlAPI, 'issueGet' | 'issueComments' | 'changeRequestContext' | 'referenceDetail'>;
+     /** The read context of the project the items belong to. */
+     context: SourceControlReadContext | null;
++    /** The project's own repository (`owner/repo`), when the binding names it; a chip names any other one. */
++    projectRepo?: string | null;
+     /** A tracker item with its comments, by tracker and the tracker's id; the preview's cache. */
+     readTrackerDetail: (provider: string, itemId: string) => Promise<TrackerItem>;
+     /** The tracker's name for the agent's context header (`Linear`). */
+@@ -110,6 +113,10 @@ async function resolveOne(selection: ReferencePickerSelection, deps: ReferenceRe
+     const { reference } = selection;
+     const project = { owner: reference.sourceRepo.owner, name: reference.sourceRepo.repo };
+     const author = reference.author ? { login: reference.author.login, avatarUrl: reference.author.avatarUrl } : undefined;
++    // Two items from different repositories can share a number; the chip names
++    // the repository unless it is the project's own.
++    const repo = joinProjectPath(reference.sourceRepo.owner, reference.sourceRepo.repo);
++    const namedRepo = deps.projectRepo?.toLowerCase() === repo.toLowerCase() ? undefined : repo;
+ 
+     if (reference.kind === 'discussion') {
+         const result = await sourceControl.referenceDetail(context, {
+@@ -117,7 +124,7 @@ async function resolveOne(selection: ReferencePickerSelection, deps: ReferenceRe
+         });
+         if (!result.connected) throw new Error(`${context.provider} is not connected`);
+         if (!result.detail) throw new Error('Discussion not found');
+-        return {
++        const mapped: Extract<ComposerReference, { kind: 'repository-discussion' }> = {
+             kind: 'repository-discussion',
+             provider: reference.provider,
+             number: reference.number,
+@@ -126,6 +133,8 @@ async function resolveOne(selection: ReferencePickerSelection, deps: ReferenceRe
+             contextText: `Source control discussion context (JSON)\n${buildDiscussionContextText(reference, result.detail)}`,
+             author,
+         };
++        if (namedRepo) mapped.repo = namedRepo;
++        return mapped;
+     }
+ 
+     if (reference.kind === 'issue') {
+@@ -134,7 +143,7 @@ async function resolveOne(selection: ReferencePickerSelection, deps: ReferenceRe
+             sourceControl.issueComments(context, reference.number, project),
+         ]);
+         if (!issue) throw new Error('Issue not found');
+-        return {
++        const mapped: Extract<ComposerReference, { kind: 'repository-issue' }> = {
+             kind: 'repository-issue',
+             provider: issue.provider,
+             number: issue.number,
+@@ -143,6 +152,8 @@ async function resolveOne(selection: ReferencePickerSelection, deps: ReferenceRe
+             contextText: buildIssueContextText(issue, comments),
+             author,
+         };
++        if (namedRepo) mapped.repo = namedRepo;
++        return mapped;
+     }
+ 
+     const changeRequestContext = await sourceControl.changeRequestContext(context, reference.number, {
+@@ -152,7 +163,7 @@ async function resolveOne(selection: ReferencePickerSelection, deps: ReferenceRe
+     });
+     const changeRequest = changeRequestContext.changeRequest;
+     if (!changeRequest) throw new Error('Pull request not found');
+-    return {
++    const mapped: Extract<ComposerReference, { kind: 'change-request' }> = {
+         kind: 'change-request',
+         provider: changeRequest.provider,
+         number: changeRequest.number,
+@@ -164,6 +175,8 @@ async function resolveOne(selection: ReferencePickerSelection, deps: ReferenceRe
+         contextText: buildChangeRequestContextText(changeRequestContext),
+         author,
+     };
++    if (namedRepo) mapped.repo = namedRepo;
++    return mapped;
+ }
+ 
+ /** Resolve every choice; successes keep the picker's order. */
+diff --git a/packages/ui/src/components/references/useAttachReferences.ts b/packages/ui/src/components/references/useAttachReferences.ts
+index b73a18ddc..1c39ec561 100644
+--- a/packages/ui/src/components/references/useAttachReferences.ts
++++ b/packages/ui/src/components/references/useAttachReferences.ts
+@@ -3,6 +3,8 @@ import * as React from 'react';
+ import type { ComposerReference } from '@/components/chat/composer/composerReferences';
+ import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
+ import { useI18n } from '@/lib/i18n';
++import { useRepositoryBinding } from '@/lib/source-control/repository-binding';
++import { joinProjectPath } from '@/lib/source-control/projectPath';
+ 
+ import type { ReferencePickerConfirmFailure } from './ReferencePickerDialog';
+ import type { ReferencePickerSelection } from './referencePickerItems';
+@@ -21,11 +23,25 @@ export function useAttachReferences(
+ ): (selections: ReferencePickerSelection[]) => Promise<ReferencePickerConfirmFailure | null> {
+     const { sourceControl, trackers } = useRuntimeAPIs();
+     const repositoryContext = useRepositoryReadContext(directory);
++    const binding = useRepositoryBinding(directory, sourceControl);
++    // The project's own repository, from the binding, so a chip can tell an item
++    // read from another repository of the folder apart from this one's.
++    const projectRepo = React.useMemo(() => {
++        if (!repositoryContext || repositoryContext === 'missing') return null;
++        const provider = binding.read?.binding?.providers.find((candidate) => (
++            candidate.provider === repositoryContext.provider
++            && candidate.primaryRemote === repositoryContext.primaryRemote
++        ));
++        return provider?.repository
++            ? joinProjectPath(provider.repository.owner, provider.repository.name)
++            : null;
++    }, [binding.read, repositoryContext]);
+     const { t } = useI18n();
+     return React.useCallback(async (selections) => {
+         const resolved = await resolveComposerReferences(selections, {
+             sourceControl,
+             context: repositoryContext && repositoryContext !== 'missing' ? repositoryContext : null,
++            projectRepo,
+             readTrackerDetail: (provider, itemId) => (trackers
+                 ? readTrackerItemDetail(trackers, provider, itemId)
+                 : Promise.reject(new Error('Trackers are not available here'))),
+@@ -40,5 +56,5 @@ export function useAttachReferences(
+                 error: resolved.failures[0]?.error ?? '',
+             }),
+         };
+-    }, [repositoryContext, trackers, onAttach, sourceControl, t]);
++    }, [projectRepo, repositoryContext, trackers, onAttach, sourceControl, t]);
+ }
+diff --git a/packages/ui/src/components/sourceBoard/SourceBoardAcrossNote.tsx b/packages/ui/src/components/sourceBoard/SourceBoardAcrossNote.tsx
+index 2fd4d238b..0673aa211 100644
+--- a/packages/ui/src/components/sourceBoard/SourceBoardAcrossNote.tsx
++++ b/packages/ui/src/components/sourceBoard/SourceBoardAcrossNote.tsx
+@@ -11,12 +11,11 @@ import { repositoryLabel } from './boardRepository';
+ 
+ const REASON_KEYS = {
+     unsupportedProvider: 'sourceBoard.across.reason.unsupportedProvider',
+-    missing: 'sourceBoard.across.reason.noRepo',
+     'no-repo': 'sourceBoard.across.reason.noRepo',
+     disconnected: 'sourceBoard.across.reason.disconnected',
+     'invalid-context': 'sourceBoard.across.reason.invalidAccount',
+     error: 'sourceBoard.across.reason.error',
+-} as const satisfies Record<AcrossExclusionReason, I18nKey>;
++} as const satisfies Record<Exclude<AcrossExclusionReason, 'missing'>, I18nKey>;
+ 
+ const labelOf = (descriptors: readonly SourceControlProviderDescriptor[], provider: string): string => (
+     (descriptors.find((descriptor) => descriptor.id === provider) ?? unknownProviderDescriptor(provider)).label
+@@ -26,7 +25,9 @@ const labelOf = (descriptors: readonly SourceControlProviderDescriptor[], provid
+  * Above a list across repositories: how many repositories it leaves out, and
+  * in a menu which ones and why, so a list that looks complete never hides a gap.
+  * A reason names the provider it is about: the one a folder is on when that
+- * one is not searched, else the one the search asked (`askedProvider`).
++ * one is not searched, else the one the search asked (`askedProvider`). With
++ * no provider known — a folder nothing could read yet — the line says so
++ * without naming one.
+  */
+ export const SourceBoardAcrossNote: React.FC<{ leftOut: readonly AcrossExclusion[]; root: string; askedProvider: string | null }> = ({ leftOut, root, askedProvider }) => {
+     const { t } = useI18n();
+@@ -36,6 +37,14 @@ export const SourceBoardAcrossNote: React.FC<{ leftOut: readonly AcrossExclusion
+         if (exclusion.reason === 'unsupportedProvider') return labelOf(descriptors, exclusion.provider);
+         return askedProvider ? labelOf(descriptors, askedProvider) : '';
+     };
++    const reasonOf = (exclusion: AcrossExclusion) => {
++        // A folder no account or binding could read names no provider it failed on.
++        if (exclusion.reason === 'missing') return t('sourceBoard.across.reason.unbound');
++        const provider = providerOf(exclusion);
++        return provider
++            ? t(REASON_KEYS[exclusion.reason], { provider })
++            : t('sourceBoard.across.reason.unreadable');
++    };
+     return (
+         <DropdownMenu>
+             <DropdownMenuTrigger asChild>
+@@ -48,7 +57,7 @@ export const SourceBoardAcrossNote: React.FC<{ leftOut: readonly AcrossExclusion
+                 {leftOut.map((exclusion) => (
+                     <div key={exclusion.directory} className="flex flex-col px-2 py-1.5">
+                         <span className="truncate typography-ui-label">{repositoryLabel(exclusion.directory, root)}</span>
+-                        <span className="typography-micro text-muted-foreground">{t(REASON_KEYS[exclusion.reason], { provider: providerOf(exclusion) })}</span>
++                        <span className="typography-micro text-muted-foreground">{reasonOf(exclusion)}</span>
+                     </div>
+                 ))}
+             </DropdownMenuContent>
+diff --git a/packages/ui/src/lib/api/types.ts b/packages/ui/src/lib/api/types.ts
+index 1b4240114..b1269aa7f 100644
+--- a/packages/ui/src/lib/api/types.ts
++++ b/packages/ui/src/lib/api/types.ts
+@@ -1712,6 +1712,12 @@ export type RepositoryReferenceQuery = {
+   /** Search text, or a pasted link or number, which names one item of either kind. */
+   query?: string;
+   cursor?: string | null;
++  /**
++   * A forced read (the board's list refresh): the across request skips the
++   * provider's short-lived page cache. Ignored by the single-repository list,
++   * which has no page cache of its own.
++   */
++  refresh?: boolean;
+ };
+ 
+ type RepositoryReferenceCommon = {
+diff --git a/packages/ui/src/lib/i18n/messages/ar.ts b/packages/ui/src/lib/i18n/messages/ar.ts
+index a267cccaa..72b4a456c 100644
+--- a/packages/ui/src/lib/i18n/messages/ar.ts
++++ b/packages/ui/src/lib/i18n/messages/ar.ts
+@@ -3976,7 +3976,7 @@ export const dict = {
+   'settings.openchamber.visual.field.liveBrowserTabsInfo': 'يبقى حتى هذا العدد من علامات تبويب المتصفح في كل المشاريع محمّلًا، فعند العودة إلى علامة تبويب ترى الصفحة كما تركتها. تعيد علامات التبويب الأقدم تحميل صفحتها عند فتحها. تستهلك كل علامة تبويب محمّلة ذاكرة.',
+   'settings.openchamber.visual.field.liveBrowserTabsUnit': 'علامات تبويب',
+   'settings.openchamber.visual.field.openTrackerLinksOnBoard': 'فتح المشكلات وطلبات السحب في OpenChamber',
+-  'settings.openchamber.visual.field.openTrackerLinksOnBoardInfo': "تُفتح روابط مشكلات GitHub وGitLab وطلبات السحب والدمج ومشكلات Linear في المتتبع بجانب المحادثة عندما يكون مشروعها مفتوحًا هنا، وعلى الهاتف في لوحة المشكلات وطلبات السحب. يفتح Cmd+نقر أو Ctrl+نقر الرابط نفسه.",
++  'settings.openchamber.visual.field.openTrackerLinksOnBoardInfo': "تُفتح روابط المشكلات وطلبات السحب والدمج ومشكلات Linear في المتتبع بجانب المحادثة عندما يكون مشروعها مفتوحًا هنا، وعلى الهاتف في لوحة المشكلات وطلبات السحب. يفتح Cmd+نقر أو Ctrl+نقر الرابط نفسه.",
+   'settings.openchamber.visual.field.fileTreeSide': 'جانب شجرة الملفات',
+   'settings.openchamber.visual.option.fileTreeSide.left': 'اليمين',
+   'settings.openchamber.visual.option.fileTreeSide.right': 'اليسار',
+diff --git a/packages/ui/src/lib/i18n/messages/de.settings.ts b/packages/ui/src/lib/i18n/messages/de.settings.ts
+index f07c05142..34f13972a 100644
+--- a/packages/ui/src/lib/i18n/messages/de.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/de.settings.ts
+@@ -2652,7 +2652,7 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.liveBrowserTabsInfo': 'So viele deiner Browser-Tabs bleiben projektübergreifend geladen, sodass ein Tab beim Zurückkehren die Seite so zeigt, wie du sie verlassen hast. Ältere Tabs laden ihre Seite neu, wenn du sie öffnest. Jeder geladene Tab belegt Arbeitsspeicher.',
+   'settings.openchamber.visual.field.liveBrowserTabsUnit': 'Tabs',
+   'settings.openchamber.visual.field.openTrackerLinksOnBoard': 'Issues und Pull Requests in OpenChamber öffnen',
+-  'settings.openchamber.visual.field.openTrackerLinksOnBoardInfo': "Links zu GitHub- und GitLab-Issues, Pull und Merge Requests sowie Linear-Issues öffnen sich im Tracker neben dem Chat, wenn ihr Projekt hier geöffnet ist, und auf dem Smartphone auf dem Board Issues und PRs. Cmd+Klick oder Strg+Klick öffnet den Link selbst.",
++  'settings.openchamber.visual.field.openTrackerLinksOnBoardInfo': "Links zu Issues, Pull- und Merge-Requests sowie Linear-Issues öffnen sich im Tracker neben dem Chat, wenn ihr Projekt hier geöffnet ist, und auf dem Smartphone auf dem Board Issues und PRs. Cmd+Klick oder Strg+Klick öffnet den Link selbst.",
+   'settings.openchamber.visual.field.fileTreeSide': 'Seite des Dateibaums',
+   'settings.openchamber.visual.option.fileTreeSide.left': 'Links',
+   'settings.openchamber.visual.option.fileTreeSide.right': 'Rechts',
+diff --git a/packages/ui/src/lib/i18n/messages/en.settings.ts b/packages/ui/src/lib/i18n/messages/en.settings.ts
+index 575ef345d..b5dbd558a 100644
+--- a/packages/ui/src/lib/i18n/messages/en.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/en.settings.ts
+@@ -2489,7 +2489,7 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.liveBrowserTabsInfo': 'Your browser tabs across all projects stay loaded up to this number, so a tab you return to shows the page as you left it. Older tabs load their page again when you open them. Each loaded tab uses memory.',
+   'settings.openchamber.visual.field.liveBrowserTabsUnit': 'tabs',
+   'settings.openchamber.visual.field.openTrackerLinksOnBoard': 'Open issues and pull requests in OpenChamber',
+-  'settings.openchamber.visual.field.openTrackerLinksOnBoardInfo': "Links to GitHub and GitLab issues, pull and merge requests, and Linear issues open in the Tracker beside the chat when their project is open here, and on a phone on the Issues and PRs board. Cmd+click or Ctrl+click opens the link itself.",
++  'settings.openchamber.visual.field.openTrackerLinksOnBoardInfo': "Links to issues and pull/merge requests, and to Linear issues, open in the Tracker beside the chat when their project is open here, and on a phone on the Issues and PRs board. Cmd+click or Ctrl+click opens the link itself.",
+   'settings.openchamber.visual.field.fileTreeSide': 'File tree side',
+   'settings.openchamber.visual.option.fileTreeSide.left': 'Left',
+   'settings.openchamber.visual.option.fileTreeSide.right': 'Right',
+diff --git a/packages/ui/src/lib/i18n/messages/es.settings.ts b/packages/ui/src/lib/i18n/messages/es.settings.ts
+index a0a828828..0df6689ee 100644
+--- a/packages/ui/src/lib/i18n/messages/es.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/es.settings.ts
+@@ -2444,7 +2444,7 @@ export const settingsDict = {
+   "settings.openchamber.visual.field.liveBrowserTabsInfo": "Hasta este número de tus pestañas del navegador, en todos los proyectos, siguen cargadas, así que al volver a una ves la página tal como la dejaste. Las pestañas más antiguas vuelven a cargar su página cuando las abres. Cada pestaña cargada usa memoria.",
+   "settings.openchamber.visual.field.liveBrowserTabsUnit": "pestañas",
+   "settings.openchamber.visual.field.openTrackerLinksOnBoard": "Abrir issues y pull requests en OpenChamber",
+-  'settings.openchamber.visual.field.openTrackerLinksOnBoardInfo': "Los enlaces a issues, pull requests y merge requests de GitHub y GitLab, y a issues de Linear se abren en Seguimiento junto al chat cuando su proyecto está abierto aquí, y en el teléfono en el tablero Issues y PR. Cmd+clic o Ctrl+clic abre el enlace en sí.",
++  'settings.openchamber.visual.field.openTrackerLinksOnBoardInfo': "Los enlaces a issues, pull requests y merge requests, y a issues de Linear se abren en Seguimiento junto al chat cuando su proyecto está abierto aquí, y en el teléfono en el tablero Issues y PR. Cmd+clic o Ctrl+clic abre el enlace en sí.",
+   "settings.openchamber.visual.field.fileTreeSide": "Lado del árbol de archivos",
+   "settings.openchamber.visual.option.fileTreeSide.left": "Izquierda",
+   "settings.openchamber.visual.option.fileTreeSide.right": "Derecha",
+diff --git a/packages/ui/src/lib/i18n/messages/fr.settings.ts b/packages/ui/src/lib/i18n/messages/fr.settings.ts
+index d7af6eb71..f88f86e0f 100644
+--- a/packages/ui/src/lib/i18n/messages/fr.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/fr.settings.ts
+@@ -2333,7 +2333,7 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.liveBrowserTabsInfo': 'Jusqu’à ce nombre de vos onglets de navigateur, tous projets confondus, restent chargés, donc en revenant sur un onglet vous retrouvez la page telle que vous l’avez laissée. Les onglets plus anciens rechargent leur page quand vous les ouvrez. Chaque onglet chargé utilise de la mémoire.',
+   'settings.openchamber.visual.field.liveBrowserTabsUnit': 'onglets',
+   'settings.openchamber.visual.field.openTrackerLinksOnBoard': 'Ouvrir les issues et pull requests dans OpenChamber',
+-  'settings.openchamber.visual.field.openTrackerLinksOnBoardInfo': "Les liens vers les issues, pull requests et merge requests GitHub et GitLab, et les issues Linear s’ouvrent dans le Suivi à côté du chat quand leur projet est ouvert ici, et sur téléphone dans le tableau Issues et PR. Cmd+clic ou Ctrl+clic ouvre le lien lui-même.",
++  'settings.openchamber.visual.field.openTrackerLinksOnBoardInfo': "Les liens vers les issues, pull requests et merge requests, et les issues Linear s’ouvrent dans le Suivi à côté du chat quand leur projet est ouvert ici, et sur téléphone dans le tableau Issues et PR. Cmd+clic ou Ctrl+clic ouvre le lien lui-même.",
+   'settings.openchamber.visual.field.fileTreeSide': 'Côté de l’arborescence des fichiers',
+   'settings.openchamber.visual.option.fileTreeSide.left': 'Gauche',
+   'settings.openchamber.visual.option.fileTreeSide.right': 'Droite',
+diff --git a/packages/ui/src/lib/i18n/messages/he.ts b/packages/ui/src/lib/i18n/messages/he.ts
+index 6e18140db..830c173b8 100644
+--- a/packages/ui/src/lib/i18n/messages/he.ts
++++ b/packages/ui/src/lib/i18n/messages/he.ts
+@@ -3976,7 +3976,7 @@ export const dict = {
+   'settings.openchamber.visual.field.liveBrowserTabsInfo': 'עד מספר זה של לשוניות הדפדפן שלך, בכל הפרויקטים, נשארות טעונות, כך שכשחוזרים ללשונית רואים את הדף כפי שהשארת אותו. לשוניות ישנות יותר טוענות את הדף מחדש כשפותחים אותן. כל לשונית טעונה צורכת זיכרון.',
+   'settings.openchamber.visual.field.liveBrowserTabsUnit': 'לשוניות',
+   'settings.openchamber.visual.field.openTrackerLinksOnBoard': 'פתיחת בעיות ובקשות משיכה ב-OpenChamber',
+-  'settings.openchamber.visual.field.openTrackerLinksOnBoardInfo': "קישורים לבעיות, בקשות משיכה ובקשות מיזוג ב-GitHub וב-GitLab ולבעיות Linear נפתחים במעקב לצד הצ'אט כשהפרויקט שלהם פתוח כאן, ובטלפון בלוח בעיות ו-PR. Cmd+לחיצה או Ctrl+לחיצה פותחת את הקישור עצמו.",
++  'settings.openchamber.visual.field.openTrackerLinksOnBoardInfo': "קישורים לבעיות, בקשות משיכה ובקשות מיזוג ולבעיות Linear נפתחים במעקב לצד הצ'אט כשהפרויקט שלהם פתוח כאן, ובטלפון בלוח בעיות ו-PR. Cmd+לחיצה או Ctrl+לחיצה פותחת את הקישור עצמו.",
+   'settings.openchamber.visual.field.fileTreeSide': 'צד עץ הקבצים',
+   'settings.openchamber.visual.option.fileTreeSide.left': 'ימין',
+   'settings.openchamber.visual.option.fileTreeSide.right': 'שמאל',
+diff --git a/packages/ui/src/lib/i18n/messages/ja.settings.ts b/packages/ui/src/lib/i18n/messages/ja.settings.ts
+index 06717e65f..3f63e7e00 100644
+--- a/packages/ui/src/lib/i18n/messages/ja.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/ja.settings.ts
+@@ -2477,7 +2477,7 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.liveBrowserTabsInfo': 'すべてのプロジェクトのブラウザタブのうち、この数までは読み込まれたままになり、戻ったときにページが離れたときのまま表示されます。それより古いタブは、開いたときにページを再読み込みします。読み込まれたタブはそれぞれメモリを使用します。',
+   'settings.openchamber.visual.field.liveBrowserTabsUnit': 'タブ',
+   'settings.openchamber.visual.field.openTrackerLinksOnBoard': 'Issue とプルリクエストを OpenChamber で開く',
+-  'settings.openchamber.visual.field.openTrackerLinksOnBoardInfo': "GitHub と GitLab の Issue、プルリクエスト、マージリクエスト、Linear の Issue へのリンクは、そのプロジェクトがここで開いていればチャットの横のトラッカーで、スマートフォンでは「Issue と PR」ボードで開きます。Cmd+クリックまたは Ctrl+クリックでリンク自体を開きます。",
++  'settings.openchamber.visual.field.openTrackerLinksOnBoardInfo': "Issue、プルリクエスト、マージリクエスト、Linear の Issue へのリンクは、そのプロジェクトがここで開いていればチャットの横のトラッカーで、スマートフォンでは「Issue と PR」ボードで開きます。Cmd+クリックまたは Ctrl+クリックでリンク自体を開きます。",
+   'settings.openchamber.visual.field.fileTreeSide': 'ファイルツリーの位置',
+   'settings.openchamber.visual.option.fileTreeSide.left': '左',
+   'settings.openchamber.visual.option.fileTreeSide.right': '右',
+diff --git a/packages/ui/src/lib/i18n/messages/ko.settings.ts b/packages/ui/src/lib/i18n/messages/ko.settings.ts
+index e10db2ba8..837870720 100644
+--- a/packages/ui/src/lib/i18n/messages/ko.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/ko.settings.ts
+@@ -2444,7 +2444,7 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.liveBrowserTabsInfo': '모든 프로젝트의 브라우저 탭 중 이 개수까지 로드된 상태로 유지되어, 탭으로 돌아오면 떠날 때의 페이지 그대로 보입니다. 더 오래된 탭은 열 때 페이지를 다시 로드합니다. 로드된 탭마다 메모리를 사용합니다.',
+   'settings.openchamber.visual.field.liveBrowserTabsUnit': '개',
+   'settings.openchamber.visual.field.openTrackerLinksOnBoard': '이슈와 풀 리퀘스트를 OpenChamber에서 열기',
+-  'settings.openchamber.visual.field.openTrackerLinksOnBoardInfo': "GitHub와 GitLab의 이슈, 풀 리퀘스트, 머지 리퀘스트, Linear 이슈 링크는 해당 프로젝트가 여기에서 열려 있으면 채팅 옆 트래커에서, 휴대폰에서는 이슈와 PR 보드에서 열립니다. Cmd+클릭 또는 Ctrl+클릭하면 링크 자체가 열립니다.",
++  'settings.openchamber.visual.field.openTrackerLinksOnBoardInfo': "이슈, 풀 리퀘스트, 머지 리퀘스트, Linear 이슈 링크는 해당 프로젝트가 여기에서 열려 있으면 채팅 옆 트래커에서, 휴대폰에서는 이슈와 PR 보드에서 열립니다. Cmd+클릭 또는 Ctrl+클릭하면 링크 자체가 열립니다.",
+   'settings.openchamber.visual.field.fileTreeSide': '파일 트리 위치',
+   'settings.openchamber.visual.option.fileTreeSide.left': '왼쪽',
+   'settings.openchamber.visual.option.fileTreeSide.right': '오른쪽',
+diff --git a/packages/ui/src/lib/i18n/messages/nl.settings.ts b/packages/ui/src/lib/i18n/messages/nl.settings.ts
+index 5ecbed0e9..5f9a35080 100644
+--- a/packages/ui/src/lib/i18n/messages/nl.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/nl.settings.ts
+@@ -2467,7 +2467,7 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.liveBrowserTabsInfo': 'Zoveel van je browsertabbladen blijven geladen, over alle projecten heen, zodat een tabblad waar je naar terugkeert de pagina toont zoals je die verliet. Oudere tabbladen laden hun pagina opnieuw wanneer je ze opent. Elk geladen tabblad gebruikt geheugen.',
+   'settings.openchamber.visual.field.liveBrowserTabsUnit': 'tabbladen',
+   'settings.openchamber.visual.field.openTrackerLinksOnBoard': 'Issues en pull requests openen in OpenChamber',
+-  'settings.openchamber.visual.field.openTrackerLinksOnBoardInfo': "Links naar GitHub- en GitLab-issues, pull en merge requests en Linear-issues openen in de Tracker naast de chat als hun project hier open is, en op een telefoon op het bord Issues en PR’s. Cmd+klik of Ctrl+klik opent de link zelf.",
++  'settings.openchamber.visual.field.openTrackerLinksOnBoardInfo': "Links naar issues, pull en merge requests en Linear-issues openen in de Tracker naast de chat als hun project hier open is, en op een telefoon op het bord Issues en PR’s. Cmd+klik of Ctrl+klik opent de link zelf.",
+   'settings.openchamber.visual.field.fileTreeSide': 'Kant van de bestandsboom',
+   'settings.openchamber.visual.option.fileTreeSide.left': 'Links',
+   'settings.openchamber.visual.option.fileTreeSide.right': 'Rechts',
+diff --git a/packages/ui/src/lib/i18n/messages/pl.settings.ts b/packages/ui/src/lib/i18n/messages/pl.settings.ts
+index 8f990ad2c..201c38e25 100644
+--- a/packages/ui/src/lib/i18n/messages/pl.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/pl.settings.ts
+@@ -1408,7 +1408,7 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.liveBrowserTabsInfo': 'Tyle Twoich kart przeglądarki we wszystkich projektach pozostaje załadowanych, więc po powrocie do karty widzisz stronę taką, jaką ją zostawiłeś. Starsze karty ładują stronę ponownie, gdy je otworzysz. Każda załadowana karta zużywa pamięć.',
+   'settings.openchamber.visual.field.liveBrowserTabsUnit': 'kart',
+   'settings.openchamber.visual.field.openTrackerLinksOnBoard': 'Otwieraj issues i pull requesty w OpenChamber',
+-  'settings.openchamber.visual.field.openTrackerLinksOnBoardInfo': "Linki do issues, pull i merge requestów z GitHuba i GitLaba oraz do zadań Linear otwierają się w Trackerze obok czatu, gdy ich projekt jest tu otwarty, a na telefonie na tablicy Issues i PR-y. Cmd+kliknięcie lub Ctrl+kliknięcie otwiera sam link.",
++  'settings.openchamber.visual.field.openTrackerLinksOnBoardInfo': "Linki do issues, pull i merge requestów oraz do zadań Linear otwierają się w Trackerze obok czatu, gdy ich projekt jest tu otwarty, a na telefonie na tablicy Issues i PR-y. Cmd+kliknięcie lub Ctrl+kliknięcie otwiera sam link.",
+   'settings.openchamber.visual.field.fileTreeSide': 'Strona drzewa plików',
+   'settings.openchamber.visual.option.fileTreeSide.left': 'Lewa',
+   'settings.openchamber.visual.option.fileTreeSide.right': 'Prawa',
+diff --git a/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts b/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
+index 818bb01ca..a6df127e2 100644
+--- a/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
+@@ -2444,7 +2444,7 @@ export const settingsDict = {
+   "settings.openchamber.visual.field.liveBrowserTabsInfo": "Até este número de abas do navegador, em todos os projetos, continuam carregadas, então ao voltar para uma aba você vê a página como a deixou. Abas mais antigas carregam a página de novo quando você as abre. Cada aba carregada usa memória.",
+   "settings.openchamber.visual.field.liveBrowserTabsUnit": "abas",
+   "settings.openchamber.visual.field.openTrackerLinksOnBoard": "Abrir issues e pull requests no OpenChamber",
+-  'settings.openchamber.visual.field.openTrackerLinksOnBoardInfo': "Links para issues, pull requests e merge requests do GitHub e do GitLab e para issues do Linear abrem em Acompanhamento ao lado do chat quando o projeto deles está aberto aqui, e no celular no quadro Issues e PRs. Cmd+clique ou Ctrl+clique abre o próprio link.",
++  'settings.openchamber.visual.field.openTrackerLinksOnBoardInfo': "Links para issues, pull requests e merge requests e para issues do Linear abrem em Acompanhamento ao lado do chat quando o projeto deles está aberto aqui, e no celular no quadro Issues e PRs. Cmd+clique ou Ctrl+clique abre o próprio link.",
+   "settings.openchamber.visual.field.fileTreeSide": "Lado da árvore de arquivos",
+   "settings.openchamber.visual.option.fileTreeSide.left": "Esquerda",
+   "settings.openchamber.visual.option.fileTreeSide.right": "Direita",
 diff --git a/packages/ui/src/lib/i18n/messages/reference-picker.i18n.ts b/packages/ui/src/lib/i18n/messages/reference-picker.i18n.ts
-index 0421fd069..5a846cf16 100644
+index 0421fd069..42053b586 100644
 --- a/packages/ui/src/lib/i18n/messages/reference-picker.i18n.ts
 +++ b/packages/ui/src/lib/i18n/messages/reference-picker.i18n.ts
-@@ -70,7 +70,7 @@ export const referencePickerI18n = {
+@@ -70,7 +70,8 @@ export const referencePickerI18n = {
      'references.picker.empty.notConnected.change': 'Connect {provider} to pick changes.',
      'references.picker.empty.tracker.notConnected': 'Connect {provider} to pick issues.',
      'references.picker.empty.noProject': 'Open a project to pick its issues and pull requests.',
 -    'references.picker.empty.noRepo': 'This project has no GitHub or GitLab remote.',
 +    'references.picker.empty.noRepo': 'This project has no GitHub, GitLab, Gitea or Forgejo remote.',
++    'references.picker.empty.unbound': "These repositories can't be read yet. Connect an account or bind them in the Git panel.",
      'references.picker.empty.unsupported': 'Not available in this app.',
      'references.picker.empty.issues': 'No open issues.',
      'references.picker.empty.pulls': 'No open pull requests.',
-@@ -205,7 +205,7 @@ export const referencePickerI18n = {
+@@ -205,7 +206,8 @@ export const referencePickerI18n = {
      'references.picker.empty.notConnected.change': 'Verbinden Sie {provider}, um Änderungen auszuwählen.',
      'references.picker.empty.tracker.notConnected': 'Verbinden Sie {provider}, um Issues auszuwählen.',
      'references.picker.empty.noProject': 'Öffnen Sie ein Projekt, um seine Issues und Pull Requests auszuwählen.',
 -    'references.picker.empty.noRepo': 'Dieses Projekt hat kein GitHub- oder GitLab-Remote.',
 +    'references.picker.empty.noRepo': 'Dieses Projekt hat kein GitHub-, GitLab-, Gitea- oder Forgejo-Remote.',
++    'references.picker.empty.unbound': "Diese Repositorys lassen sich noch nicht lesen. Verbinde ein Konto oder binde sie im Git-Bereich.",
      'references.picker.empty.unsupported': 'In dieser App nicht verfügbar.',
      'references.picker.empty.issues': 'Keine offenen Issues.',
      'references.picker.empty.pulls': 'Keine offenen Pull Requests.',
-@@ -340,7 +340,7 @@ export const referencePickerI18n = {
+@@ -340,7 +342,8 @@ export const referencePickerI18n = {
      'references.picker.empty.notConnected.change': 'Connectez {provider} pour choisir des changements.',
      'references.picker.empty.tracker.notConnected': 'Connectez {provider} pour choisir des issues.',
      'references.picker.empty.noProject': 'Ouvrez un projet pour choisir ses issues et pull requests.',
 -    'references.picker.empty.noRepo': 'Ce projet n’a pas de remote GitHub ou GitLab.',
 +    'references.picker.empty.noRepo': 'Ce projet n’a pas de remote GitHub, GitLab, Gitea ou Forgejo.',
++    'references.picker.empty.unbound': "Ces dépôts ne sont pas encore lisibles. Connectez un compte ou associez-les dans le panneau Git.",
      'references.picker.empty.unsupported': 'Indisponible dans cette application.',
      'references.picker.empty.issues': 'Aucune issue ouverte.',
      'references.picker.empty.pulls': 'Aucune pull request ouverte.',
-@@ -475,7 +475,7 @@ export const referencePickerI18n = {
+@@ -475,7 +478,8 @@ export const referencePickerI18n = {
      'references.picker.empty.notConnected.change': 'Verbind {provider} om wijzigingen te kiezen.',
      'references.picker.empty.tracker.notConnected': 'Verbind {provider} om issues te kiezen.',
      'references.picker.empty.noProject': 'Open een project om de issues en pull requests ervan te kiezen.',
 -    'references.picker.empty.noRepo': 'Dit project heeft geen GitHub- of GitLab-remote.',
 +    'references.picker.empty.noRepo': 'Dit project heeft geen GitHub-, GitLab-, Gitea- of Forgejo-remote.',
++    'references.picker.empty.unbound': "Deze repositories kunnen nog niet worden gelezen. Verbind een account of koppel ze in het Git-paneel.",
      'references.picker.empty.unsupported': 'Niet beschikbaar in deze app.',
      'references.picker.empty.issues': 'Geen open issues.',
      'references.picker.empty.pulls': 'Geen open pull requests.',
-@@ -610,7 +610,7 @@ export const referencePickerI18n = {
+@@ -610,7 +614,8 @@ export const referencePickerI18n = {
      'references.picker.empty.notConnected.change': 'Conecta {provider} para elegir cambios.',
      'references.picker.empty.tracker.notConnected': 'Conecta {provider} para elegir issues.',
      'references.picker.empty.noProject': 'Abre un proyecto para elegir sus issues y pull requests.',
 -    'references.picker.empty.noRepo': 'Este proyecto no tiene un remoto de GitHub ni de GitLab.',
-+    'references.picker.empty.noRepo': 'Este proyecto no tiene un remoto de GitHub, GitLab, Gitea ni de Forgejo.',
++    'references.picker.empty.noRepo': 'Este proyecto no tiene un remoto de GitHub, GitLab, Gitea ni Forgejo.',
++    'references.picker.empty.unbound': "Estos repositorios aún no se pueden leer. Conecta una cuenta o vincúlalos en el panel de Git.",
      'references.picker.empty.unsupported': 'No disponible en esta app.',
      'references.picker.empty.issues': 'No hay issues abiertas.',
      'references.picker.empty.pulls': 'No hay pull requests abiertas.',
-@@ -745,7 +745,7 @@ export const referencePickerI18n = {
+@@ -745,7 +750,8 @@ export const referencePickerI18n = {
      'references.picker.empty.notConnected.change': '変更を選ぶには {provider} を接続してください。',
      'references.picker.empty.tracker.notConnected': 'Issue を選ぶには {provider} を接続してください。',
      'references.picker.empty.noProject': 'Issue やプルリクエストを選ぶにはプロジェクトを開いてください。',
 -    'references.picker.empty.noRepo': 'このプロジェクトには GitHub や GitLab のリモートがありません。',
 +    'references.picker.empty.noRepo': 'このプロジェクトには GitHub、GitLab、Gitea、Forgejo のリモートがありません。',
++    'references.picker.empty.unbound': "これらのリポジトリはまだ読み取れません。アカウントを接続するか、Git パネルで紐付けてください。",
      'references.picker.empty.unsupported': 'このアプリでは利用できません。',
      'references.picker.empty.issues': 'オープンな Issue はありません。',
      'references.picker.empty.pulls': 'オープンなプルリクエストはありません。',
-@@ -880,7 +880,7 @@ export const referencePickerI18n = {
+@@ -880,7 +886,8 @@ export const referencePickerI18n = {
      'references.picker.empty.notConnected.change': 'Conecte o {provider} para escolher alterações.',
      'references.picker.empty.tracker.notConnected': 'Conecte o {provider} para escolher issues.',
      'references.picker.empty.noProject': 'Abra um projeto para escolher as issues e pull requests dele.',
 -    'references.picker.empty.noRepo': 'Este projeto não tem remoto do GitHub nem do GitLab.',
 +    'references.picker.empty.noRepo': 'Este projeto não tem remoto do GitHub, GitLab, Gitea nem do Forgejo.',
++    'references.picker.empty.unbound': "これらのリポジトリはまだ読み取れません。アカウントを接続するか、Git パネルで紐付けてください。",
      'references.picker.empty.unsupported': 'Indisponível neste app.',
      'references.picker.empty.issues': 'Nenhuma issue aberta.',
      'references.picker.empty.pulls': 'Nenhuma pull request aberta.',
-@@ -1015,7 +1015,7 @@ export const referencePickerI18n = {
+@@ -1015,7 +1022,8 @@ export const referencePickerI18n = {
      'references.picker.empty.notConnected.change': 'Підключіть {provider}, щоб вибирати зміни.',
      'references.picker.empty.tracker.notConnected': 'Підключіть {provider}, щоб вибирати задачі.',
      'references.picker.empty.noProject': 'Відкрийте проєкт, щоб вибрати його issues і pull requests.',
 -    'references.picker.empty.noRepo': 'У цього проєкту немає remote на GitHub чи GitLab.',
 +    'references.picker.empty.noRepo': 'У цього проєкту немає remote на GitHub, GitLab, Gitea чи Forgejo.',
++    'references.picker.empty.unbound': "Ці репозиторії ще не можна прочитати. Підключіть обліковий запис або прив’яжіть їх на панелі Git.",
      'references.picker.empty.unsupported': 'Недоступно в цьому застосунку.',
      'references.picker.empty.issues': 'Відкритих issues немає.',
      'references.picker.empty.pulls': 'Відкритих pull requests немає.',
-@@ -1150,7 +1150,7 @@ export const referencePickerI18n = {
+@@ -1150,7 +1158,8 @@ export const referencePickerI18n = {
      'references.picker.empty.notConnected.change': '변경을 고르려면 {provider} 계정을 연결하세요.',
      'references.picker.empty.tracker.notConnected': '이슈를 고르려면 {provider} 계정을 연결하세요.',
      'references.picker.empty.noProject': '이슈와 풀 리퀘스트를 고르려면 프로젝트를 여세요.',
 -    'references.picker.empty.noRepo': '이 프로젝트에는 GitHub 또는 GitLab 원격 저장소가 없습니다.',
 +    'references.picker.empty.noRepo': '이 프로젝트에는 GitHub, GitLab, Gitea 또는 Forgejo 원격 저장소가 없습니다.',
++    'references.picker.empty.unbound': "이 저장소는 아직 읽을 수 없습니다. 계정을 연결하거나 Git 패널에서 연결하세요.",
      'references.picker.empty.unsupported': '이 앱에서는 사용할 수 없습니다.',
      'references.picker.empty.issues': '열린 이슈가 없습니다.',
      'references.picker.empty.pulls': '열린 풀 리퀘스트가 없습니다.',
-@@ -1285,7 +1285,7 @@ export const referencePickerI18n = {
+@@ -1285,7 +1294,8 @@ export const referencePickerI18n = {
      'references.picker.empty.notConnected.change': 'Połącz konto {provider}, aby wybierać zmiany.',
      'references.picker.empty.tracker.notConnected': 'Połącz konto {provider}, aby wybierać zgłoszenia.',
      'references.picker.empty.noProject': 'Otwórz projekt, aby wybrać jego issues i pull requesty.',
 -    'references.picker.empty.noRepo': 'Ten projekt nie ma remote’a na GitHubie ani GitLabie.',
 +    'references.picker.empty.noRepo': 'Ten projekt nie ma remote’a na GitHubie, GitLabie, Gitei ani Forgejo.',
++    'references.picker.empty.unbound': "Tych repozytoriów nie można jeszcze odczytać. Połącz konto lub powiąż je w panelu Git.",
      'references.picker.empty.unsupported': 'Niedostępne w tej aplikacji.',
      'references.picker.empty.issues': 'Brak otwartych issues.',
      'references.picker.empty.pulls': 'Brak otwartych pull requestów.',
-@@ -1420,7 +1420,7 @@ export const referencePickerI18n = {
+@@ -1420,7 +1430,8 @@ export const referencePickerI18n = {
      'references.picker.empty.notConnected.change': '连接 {provider} 后即可选择变更。',
      'references.picker.empty.tracker.notConnected': '连接 {provider} 后即可选择 Issue。',
      'references.picker.empty.noProject': '打开一个项目，才能选择它的 Issue 和拉取请求。',
 -    'references.picker.empty.noRepo': '这个项目没有 GitHub 或 GitLab 远程仓库。',
 +    'references.picker.empty.noRepo': '这个项目没有 GitHub、GitLab、Gitea 或 Forgejo 远程仓库。',
++    'references.picker.empty.unbound': "Tych repozytoriów nie można jeszcze odczytać. Połącz konto lub powiąż je w panelu Git.",
      'references.picker.empty.unsupported': '此应用中不可用。',
      'references.picker.empty.issues': '没有打开的 Issue。',
      'references.picker.empty.pulls': '没有打开的拉取请求。',
-@@ -1555,7 +1555,7 @@ export const referencePickerI18n = {
+@@ -1555,7 +1566,8 @@ export const referencePickerI18n = {
      'references.picker.empty.notConnected.change': '連接 {provider} 後即可選擇變更。',
      'references.picker.empty.tracker.notConnected': '連接 {provider} 後即可選擇 Issue。',
      'references.picker.empty.noProject': '開啟一個專案，才能選擇它的 Issue 和拉取請求。',
 -    'references.picker.empty.noRepo': '這個專案沒有 GitHub 或 GitLab 遠端儲存庫。',
 +    'references.picker.empty.noRepo': '這個專案沒有 GitHub、GitLab、Gitea 或 Forgejo 遠端儲存庫。',
++    'references.picker.empty.unbound': "Tych repozytoriów nie można jeszcze odczytać. Połącz konto lub powiąż je w panelu Git.",
      'references.picker.empty.unsupported': '此應用程式中無法使用。',
      'references.picker.empty.issues': '沒有開啟中的 Issue。',
      'references.picker.empty.pulls': '沒有開啟中的拉取請求。',
-@@ -1690,7 +1690,7 @@ export const referencePickerI18n = {
+@@ -1690,7 +1702,8 @@ export const referencePickerI18n = {
      'references.picker.empty.notConnected.change': 'Değişiklik seçmek için {provider} hesabını bağlayın.',
      'references.picker.empty.tracker.notConnected': 'Issue seçmek için {provider} hesabını bağlayın.',
      'references.picker.empty.noProject': 'Issue ve pull request’lerini seçmek için bir proje açın.',
 -    'references.picker.empty.noRepo': 'Bu projenin GitHub veya GitLab remote’u yok.',
 +    'references.picker.empty.noRepo': 'Bu projenin GitHub, GitLab, Gitea veya Forgejo remote’u yok.',
++    'references.picker.empty.unbound': "Bu depolar henüz okunamıyor. Bir hesap bağlayın veya Git panelinden bağlayın.",
      'references.picker.empty.unsupported': 'Bu uygulamada kullanılamıyor.',
      'references.picker.empty.issues': 'Açık issue yok.',
      'references.picker.empty.pulls': 'Açık pull request yok.',
-@@ -1825,7 +1825,7 @@ export const referencePickerI18n = {
+@@ -1825,7 +1838,8 @@ export const referencePickerI18n = {
      'references.picker.empty.notConnected.change': 'اربط {provider} لاختيار التغييرات.',
      'references.picker.empty.tracker.notConnected': 'اربط {provider} لاختيار المشكلات.',
      'references.picker.empty.noProject': 'افتح مشروعًا لاختيار مشكلاته وطلبات السحب فيه.',
 -    'references.picker.empty.noRepo': 'لا يملك هذا المشروع مستودعًا بعيدًا على GitHub أو GitLab.',
 +    'references.picker.empty.noRepo': 'لا يملك هذا المشروع مستودعًا بعيدًا على GitHub أو GitLab أو Gitea أو Forgejo.',
++    'references.picker.empty.unbound': "لا يمكن قراءة هذه المستودعات بعد. اتصل بحساب أو اربطها من لوحة Git.",
      'references.picker.empty.unsupported': 'غير متاح في هذا التطبيق.',
      'references.picker.empty.issues': 'لا توجد مشكلات مفتوحة.',
      'references.picker.empty.pulls': 'لا توجد طلبات سحب مفتوحة.',
-@@ -1960,7 +1960,7 @@ export const referencePickerI18n = {
+@@ -1960,7 +1974,8 @@ export const referencePickerI18n = {
      'references.picker.empty.notConnected.change': 'יש לחבר את {provider} כדי לבחור שינויים.',
      'references.picker.empty.tracker.notConnected': 'יש לחבר את {provider} כדי לבחור בעיות.',
      'references.picker.empty.noProject': 'יש לפתוח פרויקט כדי לבחור את הבעיות ובקשות המשיכה שלו.',
 -    'references.picker.empty.noRepo': 'לפרויקט הזה אין מאגר מרוחק ב-GitHub או ב-GitLab.',
 +    'references.picker.empty.noRepo': 'לפרויקט הזה אין מאגר מרוחק ב-GitHub, ב-GitLab, ב-Gitea או ב-Forgejo.',
++    'references.picker.empty.unbound': "לא ניתן לקרוא את המאגרים האלה עדיין. חברו חשבון או קשרו אותם בלוח Git.",
      'references.picker.empty.unsupported': 'לא זמין באפליקציה הזו.',
      'references.picker.empty.issues': 'אין בעיות פתוחות.',
      'references.picker.empty.pulls': 'אין בקשות משיכה פתוחות.',
 diff --git a/packages/ui/src/lib/i18n/messages/source-board.i18n.ts b/packages/ui/src/lib/i18n/messages/source-board.i18n.ts
-index f61a31e84..2d83f1d8d 100644
+index f61a31e84..9088d7a2d 100644
 --- a/packages/ui/src/lib/i18n/messages/source-board.i18n.ts
 +++ b/packages/ui/src/lib/i18n/messages/source-board.i18n.ts
-@@ -30,7 +30,7 @@ export const sourceBoardI18n = {
+@@ -21,6 +21,8 @@ export const sourceBoardI18n = {
+     'sourceBoard.across.reason.disconnected': 'No {provider} account is connected for it',
+     'sourceBoard.across.reason.invalidAccount': 'Its {provider} account could not be used',
+     'sourceBoard.across.reason.error': 'Could not be read',
++    'sourceBoard.across.reason.unbound': "No bound repository it can read yet — bind it in the Git panel",
++    'sourceBoard.across.reason.unreadable': "Cannot be read yet",
+     'sourceBoard.team.label': 'Linear team',
+     'sourceBoard.tracker.container.label': 'Group',
+     'sourceBoard.team.all': 'All teams',
+@@ -30,7 +32,7 @@ export const sourceBoardI18n = {
      'sourceBoard.list.repository.change': '{provider} changes',
      'sourceBoard.list.tracker': '{provider} issues',
      'sourceBoard.empty.noProjects': 'Add a project to see its issues and pull requests here.',
@@ -150,7 +927,16 @@ index f61a31e84..2d83f1d8d 100644
      'sourceBoard.tracker.startIn': 'Start in',
      'sourceBoard.actions.checkoutWorktree': 'Check out in worktree…',
      'sourceBoard.actions.newSession': 'New session',
-@@ -134,7 +134,7 @@ export const sourceBoardI18n = {
+@@ -125,6 +127,8 @@ export const sourceBoardI18n = {
+     'sourceBoard.across.reason.disconnected': 'Für dieses ist kein {provider}-Konto verbunden',
+     'sourceBoard.across.reason.invalidAccount': 'Das {provider}-Konto dafür ließ sich nicht verwenden',
+     'sourceBoard.across.reason.error': 'Konnte nicht gelesen werden',
++    'sourceBoard.across.reason.unbound': "Noch kein gebundenes Repository, das gelesen werden kann — im Git-Bereich binden",
++    'sourceBoard.across.reason.unreadable': "Kann noch nicht gelesen werden",
+     'sourceBoard.team.label': 'Linear-Team',
+     'sourceBoard.tracker.container.label': 'Gruppe',
+     'sourceBoard.team.all': 'Alle Teams',
+@@ -134,7 +138,7 @@ export const sourceBoardI18n = {
      'sourceBoard.list.repository.change': '{provider}-Änderungen',
      'sourceBoard.list.tracker': '{provider}-Issues',
      'sourceBoard.empty.noProjects': 'Füge ein Projekt hinzu, um hier seine Issues und Pull Requests zu sehen.',
@@ -159,7 +945,16 @@ index f61a31e84..2d83f1d8d 100644
      'sourceBoard.tracker.startIn': 'Starten in',
      'sourceBoard.actions.checkoutWorktree': 'In Worktree auschecken…',
      'sourceBoard.actions.newSession': 'Neue Sitzung',
-@@ -238,7 +238,7 @@ export const sourceBoardI18n = {
+@@ -229,6 +233,8 @@ export const sourceBoardI18n = {
+     'sourceBoard.across.reason.disconnected': 'Aucun compte {provider} connecté pour ce dépôt',
+     'sourceBoard.across.reason.invalidAccount': 'Son compte {provider} n’a pas pu être utilisé',
+     'sourceBoard.across.reason.error': 'Lecture impossible',
++    'sourceBoard.across.reason.unbound': "Aucun dépôt associé lisible pour l’instant — associez-le dans le panneau Git",
++    'sourceBoard.across.reason.unreadable': "Lecture pas encore possible",
+     'sourceBoard.team.label': 'Équipe Linear',
+     'sourceBoard.tracker.container.label': 'Groupe',
+     'sourceBoard.team.all': 'Toutes les équipes',
+@@ -238,7 +244,7 @@ export const sourceBoardI18n = {
      'sourceBoard.list.repository.change': 'Changements {provider}',
      'sourceBoard.list.tracker': 'Tickets {provider}',
      'sourceBoard.empty.noProjects': 'Ajoutez un projet pour voir ici ses issues et pull requests.',
@@ -168,7 +963,16 @@ index f61a31e84..2d83f1d8d 100644
      'sourceBoard.tracker.startIn': 'Démarrer dans',
      'sourceBoard.actions.checkoutWorktree': 'Récupérer dans un worktree…',
      'sourceBoard.actions.newSession': 'Nouvelle session',
-@@ -342,7 +342,7 @@ export const sourceBoardI18n = {
+@@ -333,6 +339,8 @@ export const sourceBoardI18n = {
+     'sourceBoard.across.reason.disconnected': 'Er is geen {provider}-account verbonden voor deze repository',
+     'sourceBoard.across.reason.invalidAccount': 'Het {provider}-account ervoor kon niet worden gebruikt',
+     'sourceBoard.across.reason.error': 'Kon niet worden gelezen',
++    'sourceBoard.across.reason.unbound': "Nog geen gekoppelde repository die gelezen kan worden — koppel deze in het Git-paneel",
++    'sourceBoard.across.reason.unreadable': "Kan nog niet worden gelezen",
+     'sourceBoard.team.label': 'Linear-team',
+     'sourceBoard.tracker.container.label': 'Groep',
+     'sourceBoard.team.all': 'Alle teams',
+@@ -342,7 +350,7 @@ export const sourceBoardI18n = {
      'sourceBoard.list.repository.change': '{provider}-wijzigingen',
      'sourceBoard.list.tracker': '{provider}-issues',
      'sourceBoard.empty.noProjects': 'Voeg een project toe om hier de issues en pull requests ervan te zien.',
@@ -177,7 +981,16 @@ index f61a31e84..2d83f1d8d 100644
      'sourceBoard.tracker.startIn': 'Starten in',
      'sourceBoard.actions.checkoutWorktree': 'Uitchecken in worktree…',
      'sourceBoard.actions.newSession': 'Nieuwe sessie',
-@@ -446,7 +446,7 @@ export const sourceBoardI18n = {
+@@ -437,6 +445,8 @@ export const sourceBoardI18n = {
+     'sourceBoard.across.reason.disconnected': 'No hay una cuenta de {provider} conectada para él',
+     'sourceBoard.across.reason.invalidAccount': 'No se pudo usar su cuenta de {provider}',
+     'sourceBoard.across.reason.error': 'No se pudo leer',
++    'sourceBoard.across.reason.unbound': "Aún no hay un repositorio vinculado que se pueda leer: vincúlalo en el panel de Git",
++    'sourceBoard.across.reason.unreadable': "Aún no se puede leer",
+     'sourceBoard.team.label': 'Equipo de Linear',
+     'sourceBoard.tracker.container.label': 'Grupo',
+     'sourceBoard.team.all': 'Todos los equipos',
+@@ -446,7 +456,7 @@ export const sourceBoardI18n = {
      'sourceBoard.list.repository.change': 'Cambios de {provider}',
      'sourceBoard.list.tracker': 'Issues de {provider}',
      'sourceBoard.empty.noProjects': 'Añade un proyecto para ver aquí sus issues y pull requests.',
@@ -186,7 +999,16 @@ index f61a31e84..2d83f1d8d 100644
      'sourceBoard.tracker.startIn': 'Empezar en',
      'sourceBoard.actions.checkoutWorktree': 'Hacer checkout en un worktree…',
      'sourceBoard.actions.newSession': 'Nueva sesión',
-@@ -550,7 +550,7 @@ export const sourceBoardI18n = {
+@@ -541,6 +551,8 @@ export const sourceBoardI18n = {
+     'sourceBoard.across.reason.disconnected': '{provider} アカウントが接続されていません',
+     'sourceBoard.across.reason.invalidAccount': '{provider} アカウントを使用できませんでした',
+     'sourceBoard.across.reason.error': '読み取れませんでした',
++    'sourceBoard.across.reason.unbound': "まだ読み取れる紐付け済みリポジトリがありません — Git パネルで紐付けてください",
++    'sourceBoard.across.reason.unreadable': "まだ読み取れません",
+     'sourceBoard.team.label': 'Linear チーム',
+     'sourceBoard.tracker.container.label': 'グループ',
+     'sourceBoard.team.all': 'すべてのチーム',
+@@ -550,7 +562,7 @@ export const sourceBoardI18n = {
      'sourceBoard.list.repository.change': '{provider} の変更',
      'sourceBoard.list.tracker': '{provider} の Issue',
      'sourceBoard.empty.noProjects': 'プロジェクトを追加すると、その Issue とプルリクエストがここに表示されます。',
@@ -195,7 +1017,16 @@ index f61a31e84..2d83f1d8d 100644
      'sourceBoard.tracker.startIn': '開始先',
      'sourceBoard.actions.checkoutWorktree': 'ワークツリーにチェックアウト…',
      'sourceBoard.actions.newSession': '新しいセッション',
-@@ -654,7 +654,7 @@ export const sourceBoardI18n = {
+@@ -645,6 +657,8 @@ export const sourceBoardI18n = {
+     'sourceBoard.across.reason.disconnected': 'Nenhuma conta do {provider} conectada para ele',
+     'sourceBoard.across.reason.invalidAccount': 'Não foi possível usar a conta do {provider} dele',
+     'sourceBoard.across.reason.error': 'Não foi possível ler',
++    'sourceBoard.across.reason.unbound': "まだ読み取れる紐付け済みリポジトリがありません — Git パネルで紐付けてください",
++    'sourceBoard.across.reason.unreadable': "まだ読み取れません",
+     'sourceBoard.team.label': 'Time do Linear',
+     'sourceBoard.tracker.container.label': 'Grupo',
+     'sourceBoard.team.all': 'Todos os times',
+@@ -654,7 +668,7 @@ export const sourceBoardI18n = {
      'sourceBoard.list.repository.change': 'Alterações do {provider}',
      'sourceBoard.list.tracker': 'Issues do {provider}',
      'sourceBoard.empty.noProjects': 'Adicione um projeto para ver aqui as issues e pull requests dele.',
@@ -204,7 +1035,16 @@ index f61a31e84..2d83f1d8d 100644
      'sourceBoard.tracker.startIn': 'Começar em',
      'sourceBoard.actions.checkoutWorktree': 'Fazer checkout em um worktree…',
      'sourceBoard.actions.newSession': 'Nova sessão',
-@@ -758,7 +758,7 @@ export const sourceBoardI18n = {
+@@ -749,6 +763,8 @@ export const sourceBoardI18n = {
+     'sourceBoard.across.reason.disconnected': 'Для нього не підключено акаунт {provider}',
+     'sourceBoard.across.reason.invalidAccount': 'Не вдалося використати його акаунт {provider}',
+     'sourceBoard.across.reason.error': 'Не вдалося прочитати',
++    'sourceBoard.across.reason.unbound': "Ще немає прив’язаного репозиторію, який можна прочитати — прив’яжіть його на панелі Git",
++    'sourceBoard.across.reason.unreadable': "Ще не можна прочитати",
+     'sourceBoard.team.label': 'Команда Linear',
+     'sourceBoard.tracker.container.label': 'Група',
+     'sourceBoard.team.all': 'Усі команди',
+@@ -758,7 +774,7 @@ export const sourceBoardI18n = {
      'sourceBoard.list.repository.change': 'Зміни з {provider}',
      'sourceBoard.list.tracker': 'Issues з {provider}',
      'sourceBoard.empty.noProjects': 'Додайте проєкт, щоб бачити тут його issues і pull requests.',
@@ -213,7 +1053,16 @@ index f61a31e84..2d83f1d8d 100644
      'sourceBoard.tracker.startIn': 'Почати в',
      'sourceBoard.actions.checkoutWorktree': 'Відкрити у worktree…',
      'sourceBoard.actions.newSession': 'Нова сесія',
-@@ -862,7 +862,7 @@ export const sourceBoardI18n = {
+@@ -853,6 +869,8 @@ export const sourceBoardI18n = {
+     'sourceBoard.across.reason.disconnected': '{provider} 계정이 연결되어 있지 않습니다',
+     'sourceBoard.across.reason.invalidAccount': '{provider} 계정을 사용할 수 없었습니다',
+     'sourceBoard.across.reason.error': '읽을 수 없었습니다',
++    'sourceBoard.across.reason.unbound': "아직 읽을 수 있는 연결된 저장소가 없습니다 — Git 패널에서 연결하세요",
++    'sourceBoard.across.reason.unreadable': "아직 읽을 수 없습니다",
+     'sourceBoard.team.label': 'Linear 팀',
+     'sourceBoard.tracker.container.label': '그룹',
+     'sourceBoard.team.all': '모든 팀',
+@@ -862,7 +880,7 @@ export const sourceBoardI18n = {
      'sourceBoard.list.repository.change': '{provider} 변경',
      'sourceBoard.list.tracker': '{provider} 이슈',
      'sourceBoard.empty.noProjects': '프로젝트를 추가하면 여기에서 이슈와 풀 리퀘스트를 볼 수 있습니다.',
@@ -222,7 +1071,16 @@ index f61a31e84..2d83f1d8d 100644
      'sourceBoard.tracker.startIn': '시작할 곳',
      'sourceBoard.actions.checkoutWorktree': 'worktree로 체크아웃…',
      'sourceBoard.actions.newSession': '새 세션',
-@@ -966,7 +966,7 @@ export const sourceBoardI18n = {
+@@ -957,6 +975,8 @@ export const sourceBoardI18n = {
+     'sourceBoard.across.reason.disconnected': 'Brak połączonego konta {provider} dla tego repozytorium',
+     'sourceBoard.across.reason.invalidAccount': 'Nie udało się użyć jego konta {provider}',
+     'sourceBoard.across.reason.error': 'Nie udało się odczytać',
++    'sourceBoard.across.reason.unbound': "Brak powiązanego repozytorium, które można odczytać — powiąż je w panelu Git",
++    'sourceBoard.across.reason.unreadable': "Nie można jeszcze odczytać",
+     'sourceBoard.team.label': 'Zespół w Linear',
+     'sourceBoard.tracker.container.label': 'Grupa',
+     'sourceBoard.team.all': 'Wszystkie zespoły',
+@@ -966,7 +986,7 @@ export const sourceBoardI18n = {
      'sourceBoard.list.repository.change': 'Zmiany z {provider}',
      'sourceBoard.list.tracker': 'Issues z {provider}',
      'sourceBoard.empty.noProjects': 'Dodaj projekt, aby zobaczyć tu jego issues i pull requesty.',
@@ -231,7 +1089,16 @@ index f61a31e84..2d83f1d8d 100644
      'sourceBoard.tracker.startIn': 'Zacznij w',
      'sourceBoard.actions.checkoutWorktree': 'Pobierz do worktree…',
      'sourceBoard.actions.newSession': 'Nowa sesja',
-@@ -1070,7 +1070,7 @@ export const sourceBoardI18n = {
+@@ -1061,6 +1081,8 @@ export const sourceBoardI18n = {
+     'sourceBoard.across.reason.disconnected': '没有为它连接 {provider} 账户',
+     'sourceBoard.across.reason.invalidAccount': '无法使用它的 {provider} 账户',
+     'sourceBoard.across.reason.error': '无法读取',
++    'sourceBoard.across.reason.unbound': "Brak powiązanego repozytorium, które można odczytać — powiąż je w panelu Git",
++    'sourceBoard.across.reason.unreadable': "Nie można jeszcze odczytać",
+     'sourceBoard.team.label': 'Linear 团队',
+     'sourceBoard.tracker.container.label': '分组',
+     'sourceBoard.team.all': '所有团队',
+@@ -1070,7 +1092,7 @@ export const sourceBoardI18n = {
      'sourceBoard.list.repository.change': '{provider} 的变更',
      'sourceBoard.list.tracker': '{provider} 的 Issue',
      'sourceBoard.empty.noProjects': '添加项目后，这里会显示它的 Issue 和拉取请求。',
@@ -240,7 +1107,16 @@ index f61a31e84..2d83f1d8d 100644
      'sourceBoard.tracker.startIn': '开始于',
      'sourceBoard.actions.checkoutWorktree': '检出到工作树…',
      'sourceBoard.actions.newSession': '新会话',
-@@ -1174,7 +1174,7 @@ export const sourceBoardI18n = {
+@@ -1165,6 +1187,8 @@ export const sourceBoardI18n = {
+     'sourceBoard.across.reason.disconnected': '沒有為它連線 {provider} 帳號',
+     'sourceBoard.across.reason.invalidAccount': '無法使用它的 {provider} 帳號',
+     'sourceBoard.across.reason.error': '無法讀取',
++    'sourceBoard.across.reason.unbound': "Brak powiązanego repozytorium, które można odczytać — powiąż je w panelu Git",
++    'sourceBoard.across.reason.unreadable': "Nie można jeszcze odczytać",
+     'sourceBoard.team.label': 'Linear 團隊',
+     'sourceBoard.tracker.container.label': '群組',
+     'sourceBoard.team.all': '所有團隊',
+@@ -1174,7 +1198,7 @@ export const sourceBoardI18n = {
      'sourceBoard.list.repository.change': '{provider} 的變更',
      'sourceBoard.list.tracker': '{provider} 的 Issue',
      'sourceBoard.empty.noProjects': '新增專案後，這裡會顯示它的 Issue 與拉取請求。',
@@ -249,7 +1125,16 @@ index f61a31e84..2d83f1d8d 100644
      'sourceBoard.tracker.startIn': '開始於',
      'sourceBoard.actions.checkoutWorktree': '簽出到 worktree…',
      'sourceBoard.actions.newSession': '新工作階段',
-@@ -1278,7 +1278,7 @@ export const sourceBoardI18n = {
+@@ -1269,6 +1293,8 @@ export const sourceBoardI18n = {
+     'sourceBoard.across.reason.disconnected': 'Bunun için bağlı bir {provider} hesabı yok',
+     'sourceBoard.across.reason.invalidAccount': '{provider} hesabı kullanılamadı',
+     'sourceBoard.across.reason.error': 'Okunamadı',
++    'sourceBoard.across.reason.unbound': "Henüz okunabilen bağlı bir depo yok — Git panelinden bağlayın",
++    'sourceBoard.across.reason.unreadable': "Henüz okunamıyor",
+     'sourceBoard.team.label': 'Linear ekibi',
+     'sourceBoard.tracker.container.label': 'Grup',
+     'sourceBoard.team.all': 'Tüm ekipler',
+@@ -1278,7 +1304,7 @@ export const sourceBoardI18n = {
      'sourceBoard.list.repository.change': '{provider} değişiklikleri',
      'sourceBoard.list.tracker': '{provider} issue’ları',
      'sourceBoard.empty.noProjects': 'Issue’larını ve pull request’lerini burada görmek için bir proje ekleyin.',
@@ -258,7 +1143,16 @@ index f61a31e84..2d83f1d8d 100644
      'sourceBoard.tracker.startIn': 'Şurada başlat',
      'sourceBoard.actions.checkoutWorktree': 'Worktree’ye checkout et…',
      'sourceBoard.actions.newSession': 'Yeni oturum',
-@@ -1382,7 +1382,7 @@ export const sourceBoardI18n = {
+@@ -1373,6 +1399,8 @@ export const sourceBoardI18n = {
+     'sourceBoard.across.reason.disconnected': 'لا يوجد حساب {provider} متصل به',
+     'sourceBoard.across.reason.invalidAccount': 'تعذّر استخدام حساب {provider} الخاص به',
+     'sourceBoard.across.reason.error': 'تعذّرت قراءته',
++    'sourceBoard.across.reason.unbound': "لا يوجد مستودع مرتبط يمكن قراءته بعد — اربطه من لوحة Git",
++    'sourceBoard.across.reason.unreadable': "لا يمكن قراءته بعد",
+     'sourceBoard.team.label': 'فريق Linear',
+     'sourceBoard.tracker.container.label': 'المجموعة',
+     'sourceBoard.team.all': 'كل الفرق',
+@@ -1382,7 +1410,7 @@ export const sourceBoardI18n = {
      'sourceBoard.list.repository.change': 'تغييرات {provider}',
      'sourceBoard.list.tracker': 'مشكلات {provider}',
      'sourceBoard.empty.noProjects': 'أضف مشروعًا لترى مشكلاته وطلبات السحب الخاصة به هنا.',
@@ -267,7 +1161,16 @@ index f61a31e84..2d83f1d8d 100644
      'sourceBoard.tracker.startIn': 'البدء في',
      'sourceBoard.actions.checkoutWorktree': 'سحب في شجرة عمل (worktree)…',
      'sourceBoard.actions.newSession': 'جلسة جديدة',
-@@ -1486,7 +1486,7 @@ export const sourceBoardI18n = {
+@@ -1477,6 +1505,8 @@ export const sourceBoardI18n = {
+     'sourceBoard.across.reason.disconnected': 'לא מחובר חשבון {provider} עבור המאגר',
+     'sourceBoard.across.reason.invalidAccount': 'לא ניתן היה להשתמש בחשבון ה-{provider} שלו',
+     'sourceBoard.across.reason.error': 'לא ניתן היה לקרוא אותו',
++    'sourceBoard.across.reason.unbound': "אין עדיין מאגר מקושר שניתן לקרוא — קשרו אותו בלוח Git",
++    'sourceBoard.across.reason.unreadable': "לא ניתן לקרוא עדיין",
+     'sourceBoard.team.label': 'צוות Linear',
+     'sourceBoard.tracker.container.label': 'קבוצה',
+     'sourceBoard.team.all': 'כל הצוותים',
+@@ -1486,7 +1516,7 @@ export const sourceBoardI18n = {
      'sourceBoard.list.repository.change': 'שינויים ב-{provider}',
      'sourceBoard.list.tracker': 'בעיות ב-{provider}',
      'sourceBoard.empty.noProjects': 'יש להוסיף פרויקט כדי לראות כאן את הבעיות ובקשות המשיכה שלו.',
@@ -276,20 +1179,96 @@ index f61a31e84..2d83f1d8d 100644
      'sourceBoard.tracker.startIn': 'התחל ב',
      'sourceBoard.actions.checkoutWorktree': 'בצע checkout בעץ עבודה…',
      'sourceBoard.actions.newSession': 'הפעלה חדשה',
+diff --git a/packages/ui/src/lib/i18n/messages/tr.settings.ts b/packages/ui/src/lib/i18n/messages/tr.settings.ts
+index 1b3f79e48..e69557c6d 100644
+--- a/packages/ui/src/lib/i18n/messages/tr.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/tr.settings.ts
+@@ -2334,7 +2334,7 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.liveBrowserTabsInfo': 'Tüm projelerdeki tarayıcı sekmelerinden bu sayıya kadarı yüklü kalır, böylece bir sekmeye döndüğünde sayfayı bıraktığın gibi görürsün. Daha eski sekmeler, onları açtığında sayfalarını yeniden yükler. Yüklü her sekme bellek kullanır.',
+   'settings.openchamber.visual.field.liveBrowserTabsUnit': 'sekme',
+   'settings.openchamber.visual.field.openTrackerLinksOnBoard': 'Issue’ları ve pull request’leri OpenChamber’da aç',
+-  'settings.openchamber.visual.field.openTrackerLinksOnBoardInfo': "GitHub ve GitLab issue’larına, pull ve merge request’lerine ve Linear issue’larına giden bağlantılar, projeleri burada açıksa sohbetin yanındaki Takip panelinde, telefonda ise Issue’lar ve PR’lar panosunda açılır. Cmd+tık veya Ctrl+tık bağlantının kendisini açar.",
++  'settings.openchamber.visual.field.openTrackerLinksOnBoardInfo': "Issue’lara, pull ve merge request’lere ve Linear issue’larına giden bağlantılar, projeleri burada açıksa sohbetin yanındaki Takip panelinde, telefonda ise Issue’lar ve PR’lar panosunda açılır. Cmd+tık veya Ctrl+tık bağlantının kendisini açar.",
+   'settings.openchamber.visual.field.fileTreeSide': 'Dosya ağacının tarafı',
+   'settings.openchamber.visual.option.fileTreeSide.left': 'Sol',
+   'settings.openchamber.visual.option.fileTreeSide.right': 'Sağ',
+diff --git a/packages/ui/src/lib/i18n/messages/uk.settings.ts b/packages/ui/src/lib/i18n/messages/uk.settings.ts
+index c032c406e..bde01f8a7 100644
+--- a/packages/ui/src/lib/i18n/messages/uk.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/uk.settings.ts
+@@ -2444,7 +2444,7 @@ export const settingsDict = {
+   "settings.openchamber.visual.field.liveBrowserTabsInfo": "Стільки ваших вкладок браузера в усіх проектах лишаються завантаженими, тож повернувшись до вкладки, ви бачите сторінку такою, як її залишили. Старіші вкладки завантажують сторінку знову, коли ви їх відкриваєте. Кожна завантажена вкладка займає пам’ять.",
+   "settings.openchamber.visual.field.liveBrowserTabsUnit": "вкладок",
+   "settings.openchamber.visual.field.openTrackerLinksOnBoard": "Відкривати issues і pull requests в OpenChamber",
+-  'settings.openchamber.visual.field.openTrackerLinksOnBoardInfo': "Посилання на issues, pull і merge requests GitHub та GitLab і на задачі Linear відкриваються в Трекері поруч із чатом, якщо їхній проєкт відкритий тут, а на телефоні на дошці Issues і PR. Cmd+клік або Ctrl+клік відкриває саме посилання.",
++  'settings.openchamber.visual.field.openTrackerLinksOnBoardInfo': "Посилання на issues, pull і merge requests та на задачі Linear відкриваються в Трекері поруч із чатом, якщо їхній проєкт відкритий тут, а на телефоні на дошці Issues і PR. Cmd+клік або Ctrl+клік відкриває саме посилання.",
+   "settings.openchamber.visual.field.fileTreeSide": "Бік дерева файлів",
+   "settings.openchamber.visual.option.fileTreeSide.left": "Ліворуч",
+   "settings.openchamber.visual.option.fileTreeSide.right": "Праворуч",
+diff --git a/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts b/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
+index 89064ad92..3f1c17cb4 100644
+--- a/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
+@@ -2444,7 +2444,7 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.liveBrowserTabsInfo': '所有项目中最多这么多个浏览器标签页会保持加载，返回某个标签页时页面仍是你离开时的样子。更早的标签页在你打开时会重新加载页面。每个已加载的标签页都会占用内存。',
+   'settings.openchamber.visual.field.liveBrowserTabsUnit': '个标签页',
+   'settings.openchamber.visual.field.openTrackerLinksOnBoard': '在 OpenChamber 中打开 Issue 和拉取请求',
+-  'settings.openchamber.visual.field.openTrackerLinksOnBoardInfo': "GitHub 和 GitLab 的 Issue、拉取请求、合并请求以及 Linear Issue 的链接，在其项目已在此打开时会在聊天旁的“跟踪”中打开，在手机上则在“Issue 和 PR”看板中打开。Cmd+点击或 Ctrl+点击会打开链接本身。",
++  'settings.openchamber.visual.field.openTrackerLinksOnBoardInfo': "Issue、拉取请求、合并请求以及 Linear Issue 的链接，在其项目已在此打开时会在聊天旁的“跟踪”中打开，在手机上则在“Issue 和 PR”看板中打开。Cmd+点击或 Ctrl+点击会打开链接本身。",
+   'settings.openchamber.visual.field.fileTreeSide': '文件树位置',
+   'settings.openchamber.visual.option.fileTreeSide.left': '左侧',
+   'settings.openchamber.visual.option.fileTreeSide.right': '右侧',
+diff --git a/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts b/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
+index 300bb25f6..24255be6c 100644
+--- a/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
+@@ -2322,7 +2322,7 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.liveBrowserTabsInfo': '所有專案中最多這麼多個瀏覽器分頁會保持載入，回到某個分頁時頁面仍是你離開時的樣子。較舊的分頁在你開啟時會重新載入頁面。每個已載入的分頁都會佔用記憶體。',
+   'settings.openchamber.visual.field.liveBrowserTabsUnit': '個分頁',
+   'settings.openchamber.visual.field.openTrackerLinksOnBoard': '在 OpenChamber 中開啟 Issue 與拉取請求',
+-  'settings.openchamber.visual.field.openTrackerLinksOnBoardInfo': "GitHub 與 GitLab 的 Issue、拉取請求、合併請求以及 Linear Issue 的連結，在其專案已在此開啟時會在聊天旁的「追蹤」中開啟，在手機上則在「Issue 與 PR」看板中開啟。Cmd+點擊或 Ctrl+點擊會開啟連結本身。",
++  'settings.openchamber.visual.field.openTrackerLinksOnBoardInfo': "Issue、拉取請求、合併請求以及 Linear Issue 的連結，在其專案已在此開啟時會在聊天旁的「追蹤」中開啟，在手機上則在「Issue 與 PR」看板中開啟。Cmd+點擊或 Ctrl+點擊會開啟連結本身。",
+   'settings.openchamber.visual.field.fileTreeSide': '檔案樹位置',
+   'settings.openchamber.visual.option.fileTreeSide.left': '左側',
+   'settings.openchamber.visual.option.fileTreeSide.right': '右側',
 diff --git a/packages/web/server/lib/gitea/DOCUMENTATION.md b/packages/web/server/lib/gitea/DOCUMENTATION.md
-index 29585d90e..1adcea68c 100644
+index 29585d90e..569be16ed 100644
 --- a/packages/web/server/lib/gitea/DOCUMENTATION.md
 +++ b/packages/web/server/lib/gitea/DOCUMENTATION.md
-@@ -33,7 +33,8 @@ Target: Gitea 1.21 or newer, verified against live 1.21.11 and 1.27.3 (see *Veri
+@@ -26,14 +26,15 @@ Target: Gitea 1.21 or newer, verified against live 1.21.11 and 1.27.3 (see *Veri
+ - CI is the head commit's combined status (`/commits/{sha}/status`) on the base repository; Gitea Actions report there too. `success` and `skipped` count as success; `error`, `failure` and `warning` as failure, because Gitea's own combined state never reads success with a warning. A failed CI read leaves `ci: null` except a 401, which fails the read.
+ - Whole collections (reviews, changed files, branches, labels, collaborators) are read page by page up to 2000 items; past that the read fails instead of answering a part. Issue and pull request comments are one request: Gitea answers them all and ignores `page` and `limit` there.
+ - The timeline reads the first page of `/pulls/{n}/commits` (Gitea lists them newest first) and reverses it, so it shows the newest 50 oldest first, in Gitea's order even within one second.
+-- Drafts are the title prefix Gitea recognizes by default (`WIP:`, `[WIP]`, case-insensitive) or the pull request's `draft` flag. Create as draft writes `WIP: `; ready strips the prefix. An instance with custom `WORK_IN_PROGRESS_PREFIXES` is read by the `draft` flag, but ready only strips the default prefixes.
++- Drafts are the title prefix Gitea recognizes by default (`WIP:`, `[WIP]`, case-insensitive) or the pull request's `draft` flag, read only while the pull request is open: a merged or closed one is not a draft whatever its title still says. Create as draft writes `WIP: `; ready strips the prefix. An instance with custom `WORK_IN_PROGRESS_PREFIXES` is read by the `draft` flag, but ready only strips the default prefixes.
+ - Mutation kinds are GitLab's names (`change-request-create`, `change-request-merge`, `issue-labels`, ...) and the digest is `digestMutationInput({ kind, actor, credential, target, ...fields })` as GitLab computes it. Both are persisted in `source-control-mutations.json`; changing either turns a stored record's replay into a conflict.
+ - Merge sends `{ Do: merge|squash|rebase, head_commit_id }`. Gitea answers 409 for a stale `head_commit_id`, but checks mergeability first, so a push that also made the pull request unmergeable answers 405. On a 409 or a 405 the pull request is read again: a head that moved is `SOURCE_CONTROL_MUTATION_TARGET_MISMATCH`; otherwise Gitea's answer stands (405: work in progress, not mergeable, already merged).
+ - A review is checked against the current head first and pinned with `commit_id`: Gitea itself accepts any `commit_id`, even one outside the pull request. A request for changes needs a body, refused with 400 before anything is sent, because Gitea answers it with 422.
  - Labels are set as a whole set by name; names are turned into the repository's label ids (`PUT /issues/{n}/labels`). A name the repository does not have is a 422. Organization labels are not looked up.
  - Reviewers are set as a whole set by numeric user id, like GitLab's. Ids are turned into usernames through the collaborators and the current review requests, then the difference is sent as `POST` (add) and `DELETE` (remove) on `requested_reviewers`. The two calls are not atomic; reconciliation succeeds only when the current set matches. Gitea lists in `requested_reviewers` everyone with a standing review, not only open requests, and a `DELETE` for someone who already reviewed answers 204 and changes nothing. So before any write, a removal reads `/pulls/{n}/reviews` and refuses with `400 GITEA_REVIEWER_HAS_REVIEWED`, naming the logins, when someone to remove has a submitted review (`APPROVED`, `REQUEST_CHANGES` or `COMMENT`, not dismissed). 1.21 answers an empty set as `null`, read as empty.
- - `head.label` is the bare branch name even for a fork's branch, so `headLabel` is built as `owner:branch` from `head.repo`, the form the worktree flow reads an owner from.
+-- `head.label` is the bare branch name even for a fork's branch, so `headLabel` is built as `owner:branch` from `head.repo`, the form the worktree flow reads an owner from.
 -- Capabilities off: review threads (no reply or resolve API), uploads (attachments are served to a browser session), stacks, the reference picker.
-+- The reference picker's per-repository lists stay list-backed (`referenceSearch`, `referenceDetail` and `listStatuses` off): the client reads them through `listIssues` and `listChangeRequests` and previews them through `getIssue`, `issueComments` and `changeRequestContext`. The one provider-owned read is the search across a folder's repositories (`references/across`, `referencesAcross`): Gitea has no search that names a set of repositories, so `references-across.js` reads the newest page of each folder's repository (`/pulls` for an unfiltered pull list, `/issues?type=pulls` for a filtered or merged one, `/repos/issues/search` for review requests) and merges them by activity. A pull request from the issue search carries no head or base, so only the items that land on the page are read as `/pulls/{n}` before they are mapped; one that moved away is dropped from the page, not failed. A page covers at most four pages per repository (200 items at the 50-item cap), and per-repository pages are cached for 30 s so paging does not read every repository again. A folder with no repository on the instance answers `no-repo`, a stale binding `invalid-context`, a signed-out account `disconnected`; the other folders still answer.
++- `head.label` is the bare branch name even for a fork's branch, so `headLabel` is built as `owner:branch` from `head.repo`, the form the worktree flow reads an owner from. Once the source branch is deleted, Forgejo answers `head.ref` as `refs/pull/<n>/head`; the mapper then takes the branch name from `head.label`, in the neutral DTO and in the picker item alike.
++- The reference picker's per-repository lists stay list-backed (`referenceSearch`, `referenceDetail` and `listStatuses` off): the client reads them through `listIssues` and `listChangeRequests` and previews them through `getIssue`, `issueComments` and `changeRequestContext`. The one provider-owned read is the search across a folder's repositories (`references/across`, `referencesAcross`): Gitea has no search that names a set of repositories, so `references-across.js` reads the newest page of each folder's repository (`/pulls` for an unfiltered pull list, `/issues?type=pulls` for a filtered or merged one, `/repos/issues/search` for review requests) and merges them by activity. Pull requests read the network's upstream (`targets.at(-1)`), the repository `listChangeRequests` lists, while issues stay on the folder's own repository; the review-request search is narrowed to the upstream's id. A query that is a link or `#number` reads that item (`/issues/{n}` or `/pulls/{n}`) instead of searching for its text: a number in every asked repository, a link in the folder whose repository and instance it names. A pull request from the issue search carries no head or base, so only the items that land on the page are read as `/pulls/{n}` before they are mapped; one answered 404 or 410 has moved away and is dropped from the page, a 401 writes the account off, and any other failure fails the page rather than shortening it. A folder that fails on a later page keeps none of its rows, so a folder reported `error` never also has items on the page. A page covers at most four pages per repository (200 items at the 50-item cap), per-repository pages are cached for 30 s keyed by the folder's binding, and a forced read (the board's list refresh) skips that cache. The cursor is an offset plus a hash of the request's scope, so a changed binding, filter or query starts the list again instead of shifting it. A folder with no repository on the instance (a remote whose repository was deleted or is invisible included) answers `no-repo`, a stale binding `invalid-context`, a signed-out account `disconnected`; the other folders still answer.
 +- Capabilities off: review threads (no reply or resolve API), uploads (attachments are served to a browser session), stacks, discussions.
  
  ## Enterprise mode
  
+@@ -93,6 +94,14 @@ A branch whose pull request lies past the scanned pages would otherwise read as
+ 
+ The direct base/head lookup answers one pull request of the pair, and on 1.27.3 it answered the oldest closed one while a newer pull request from the same branch existed. Taking it as history would show a stale state. The first page of recently updated closed pull requests costs one request when nothing is open and also covers 1.21, which has no direct lookup.
+ 
++### Why a picker page comes from each repository's newest pages and stops at four
++
++Gitea has no search that names a set of repositories, so the only way to merge them is to read each repository's list and order the union by activity. Four pages per repository (200 items at the 50-item cap) bound one page's cost at `folders × 4` list reads; scanning deeper would read older items nobody asked for, and the list's "more" ends at the cap instead of pretending the folder holds nothing older. A single search cursor like GitHub's does not exist here, so the cursor carries the offset plus a hash of the scope; when the scope changed, the offset would index another result set, so the list starts again.
++
++### Why per-repository pages are cached for 30 s and skipped on a forced read
++
++Paging a merged list re-reads every repository for each page; without the cache the second page of ten repositories costs ten list reads again. Thirty seconds matches the shell's own list reads, so a page is never older than the list it extends. The board's list refresh sends `refresh: true`, which skips the cache, so a change made on the instance shows on a refresh instead of waiting out the TTL.
++
+ ### Why the timeline trusts Gitea's commit order and not the commit dates
+ 
+ Both versions list a pull request's commits newest first. Sorting by committer date instead reorders commits made within one second, which scripted commits and rebases produce, and needs a second page read.
 diff --git a/packages/web/server/lib/gitea/descriptor.js b/packages/web/server/lib/gitea/descriptor.js
 index 4eb2323de..a92b512eb 100644
 --- a/packages/web/server/lib/gitea/descriptor.js
@@ -314,6 +1293,82 @@ index 4eb2323de..a92b512eb 100644
        // Gitea refuses a review of your own pull request.
        startThread: false, reviewDrafts: true, reviewDraftFileComments: false, authorCanReview: false, projectUploads: false, issueCloseReason: false,
        changeRequestTemplates: Object.freeze([
+diff --git a/packages/web/server/lib/gitea/mappers.js b/packages/web/server/lib/gitea/mappers.js
+index eb82419d8..01fe2652d 100644
+--- a/packages/web/server/lib/gitea/mappers.js
++++ b/packages/web/server/lib/gitea/mappers.js
+@@ -85,10 +85,24 @@ const pullState = (value) => {
+ /** The id of the repository a pull request branch lives in, or null (a deleted fork). */
+ export const branchRepoId = (branch) => integer(branch?.repo_id) ?? integer(branch?.repo?.id);
+ 
++/**
++ * The branch name of a pull request side. Forgejo answers `head.ref` as
++ * `refs/pull/<n>/head` once the source branch is deleted, and keeps the real
++ * name in `head.label`, so the label is preferred there.
++ */
++export const headBranch = (branch) => {
++  const ref = text(branch?.ref);
++  if (!ref) return '';
++  const label = text(branch?.label);
++  return /^refs\/pull\//.test(ref) && label ? label : ref;
++};
++
+ export function mapGiteaPull(value, identity, project) {
+   if (!isPlainObject(value) || integer(value.number) === null || !text(value.title) || !text(value.html_url)) return null;
+   const state = pullState(value);
+-  if (!state || !text(value.head?.ref) || !text(value.base?.ref)) return null;
++  const head = headBranch(value.head);
++  const base = text(value.base?.ref);
++  if (!state || !head || !base) return null;
+   const request = {
+     ...identity,
+     id: `${project.id}#${value.number}`,
+@@ -97,9 +111,10 @@ export function mapGiteaPull(value, identity, project) {
+     title: value.title,
+     url: value.html_url,
+     state,
+-    draft: value.draft === true || isDraftTitle(value.title),
+-    base: value.base.ref,
+-    head: value.head.ref,
++    // A merged or closed pull request is not a draft, whatever its title still says.
++    draft: state === 'open' && (value.draft === true || isDraftTitle(value.title)),
++    base,
++    head,
+   };
+   if (isString(value.body)) request.body = value.body;
+   if (text(value.head.sha)) request.headSha = value.head.sha;
+@@ -109,7 +124,7 @@ export function mapGiteaPull(value, identity, project) {
+   if (text(value.updated_at)) request.updatedAt = value.updated_at;
+   // Gitea's `head.label` is the bare branch name even for a fork's branch;
+   // the label other providers send is `owner:branch`.
+-  if (text(value.head.repo?.owner?.login)) request.headLabel = `${value.head.repo.owner.login}:${value.head.ref}`;
++  if (text(value.head.repo?.owner?.login)) request.headLabel = `${value.head.repo.owner.login}:${head}`;
+   request.labels = mapLabels(value.labels);
+   if (state === 'open' && (value.mergeable === true || value.mergeable === false)) {
+     request.mergeable = value.mergeable;
+diff --git a/packages/web/server/lib/gitea/mappers.test.js b/packages/web/server/lib/gitea/mappers.test.js
+index 41f2cc32d..c0374a621 100644
+--- a/packages/web/server/lib/gitea/mappers.test.js
++++ b/packages/web/server/lib/gitea/mappers.test.js
+@@ -29,6 +29,8 @@ describe('Gitea mappers', () => {
+     });
+     expect(mapGiteaPull({ ...fixtures.forkPull, merged: true, state: 'closed' }, identity, project).state).toBe('merged');
+     expect(mapGiteaPull({ ...fixtures.forkPull, title: '[WIP] Add feature' }, identity, project).draft).toBe(true);
++    // A merged or closed pull request is not a draft, whatever its title says.
++    expect(mapGiteaPull({ ...fixtures.forkPull, title: 'WIP: Add feature', merged: true, state: 'closed' }, identity, project).draft).toBe(false);
+   });
+ 
+   it('labels a fork head owner:branch, though Gitea labels it with the bare branch', () => {
+@@ -36,6 +38,9 @@ describe('Gitea mappers', () => {
+     expect(fixtures.forkPull.head.label).toBe('feature');
+     expect(mapGiteaPull(fixtures.forkPull, identity, project).headLabel).toBe('bob:feature');
+     expect(mapGiteaPull({ ...fixtures.forkPull, head: { ...fixtures.forkPull.head, repo: null } }, identity, project).headLabel).toBeUndefined();
++    // A deleted source branch answers `refs/pull/<n>/head`; the label keeps the name.
++    const gone = { ...fixtures.forkPull, head: { ...fixtures.forkPull.head, ref: 'refs/pull/1/head', label: 'fix/thing' } };
++    expect(mapGiteaPull(gone, identity, project)).toMatchObject({ head: 'fix/thing', headLabel: 'bob:fix/thing' });
+   });
+ 
+   it('maps a 1.21 pull request, which has no draft flag, by its title', () => {
 diff --git a/packages/web/server/lib/gitea/provider.js b/packages/web/server/lib/gitea/provider.js
 index 611a390bd..ddac9f1bf 100644
 --- a/packages/web/server/lib/gitea/provider.js
@@ -366,17 +1421,10 @@ index 611a390bd..ddac9f1bf 100644
        readChangeRequestHead: async ({ session, directory, remote, number }) => {
          const { request, headProject } = await serviceFor(session).findChangeRequest(directory, number, null, remote);
 diff --git a/packages/web/server/lib/gitea/provider.test.js b/packages/web/server/lib/gitea/provider.test.js
-index 2076afe8a..ac8f0c4ed 100644
+index 2076afe8a..652847393 100644
 --- a/packages/web/server/lib/gitea/provider.test.js
 +++ b/packages/web/server/lib/gitea/provider.test.js
-@@ -427,18 +427,87 @@ describe('Gitea behind the route shell', () => {
-     expect(events.invalidated).toHaveBeenCalledWith({ provider: 'gitea', instance: ORIGIN, accountId });
-   });
- 
--  it('answers 501 for review threads, uploads and the reference picker', async () => {
-+  it('answers 501 for review threads, uploads and the searched reference list', async () => {
-     const { app } = await appWith();
-     for (const [method, url] of [
+@@ -433,12 +433,99 @@ describe('Gitea behind the route shell', () => {
        ['post', '/api/source-control/gitea/pr/thread/reply'],
        ['post', '/api/source-control/gitea/pr/thread/resolve'],
        ['get', '/api/source-control/gitea/uploads/0123456789abcdef0123456789abcdef/a.png'],
@@ -388,9 +1436,27 @@ index 2076afe8a..ac8f0c4ed 100644
      }
 +    // The picker's lists stay list-backed (`referenceSearch` off), so nothing
 +    // serves the searched list; the across search is the provider's own read.
++    // A complete context is sent so the route reaches the missing resource
++    // instead of failing on the missing instance.
 +    const references = await request(app).get('/api/source-control/gitea/references')
-+      .query({ directory: '/repo', kind: 'issue' });
-+    expect(references.status).toBe(500);
++      .query({
++        instance: ORIGIN, directory: '/repo', kind: 'issue',
++        accountId: 'acct-1', repositoryId: 'repo-1', bindingRevision: '1', primaryRemote: 'origin',
++      });
++    expect(references.status).toBe(501);
++  });
++
++  it('answers 501 for an across request for discussions, which Gitea does not keep', async () => {
++    const { app } = await appWith();
++    const response = await request(app).post('/api/source-control/gitea/references/across').send({
++      contexts: [{
++        directory: '/repo', repositoryId: 'repo-1', provider: 'gitea', instance: ORIGIN,
++        accountId: 'acct-1', bindingRevision: 1, primaryRemote: 'origin',
++      }],
++      kind: 'discussion',
++    });
++    expect(response.status).toBe(501);
++    expect(response.body.code).toBe('SOURCE_CONTROL_CAPABILITY_UNSUPPORTED');
 +  });
 +
 +  it('searches across a folder\'s bound repositories through the across route', async () => {
@@ -461,10 +1527,10 @@ index 2076afe8a..ac8f0c4ed 100644
  
 diff --git a/packages/web/server/lib/gitea/references-across.js b/packages/web/server/lib/gitea/references-across.js
 new file mode 100644
-index 000000000..095befe25
+index 000000000..fee4312a4
 --- /dev/null
 +++ b/packages/web/server/lib/gitea/references-across.js
-@@ -0,0 +1,349 @@
+@@ -0,0 +1,451 @@
 +/**
 + * The reference picker's search across a folder's repositories, for Gitea and
 + * Forgejo. The board asks one provider for every repository under a project
@@ -484,9 +1550,11 @@ index 000000000..095befe25
 + * account as `disconnected`, the same statuses the GitHub search answers.
 + */
 +
++import { createHash } from 'node:crypto';
 +import { z } from 'zod';
 +import { isPlainObject, isString } from '../shared/guards.js';
 +import { mapLimited } from '../shared/map-limited.js';
++import { headBranch, isDraftTitle } from './mappers.js';
 +
 +const PAGE_SIZE = 30;
 +// Gitea caps a page at `[api] MAX_RESPONSE_ITEMS` (50 by default).
@@ -520,6 +1588,8 @@ index 000000000..095befe25
 +  query: z.string().optional(),
 +  // The first page sends no cursor as null, like the single-repository list.
 +  cursor: z.string().max(100_000).nullable().optional(),
++  // A forced read (the board's list refresh) skips the page cache.
++  refresh: z.boolean().optional(),
 +});
 +
 +const invalidCursor = () => Object.assign(new Error('Invalid references cursor'), {
@@ -544,13 +1614,69 @@ index 000000000..095befe25
 +  };
 +}
 +
-+const readCursor = (value) => {
++/**
++ * The cursor is an offset into a result set plus a hash of the scope that set
++ * was read for. The scope changes when a folder's binding, the kind, filters
++ * or the query do; the cursor is then not an offset into what this request
++ * would read, so the request starts again instead of showing a shifted window.
++ */
++const cursorScope = (input, kind, state, people, query) => createHash('sha256').update(JSON.stringify({
++  provider: input.contexts.map((context) => [
++    context.directory, context.repositoryId, context.bindingRevision, context.primaryRemote,
++    context.instance, context.accountId,
++  ]),
++  kind,
++  state,
++  people,
++  query,
++})).digest('hex');
++
++const CURSOR = /^(\d+)\.([a-f0-9]{64})$/;
++
++const readCursor = (value, scope) => {
 +  if (value === null || value === undefined || value === '') return 0;
-+  if (!/^\d+$/.test(value)) throw invalidCursor();
-+  const offset = Number(value);
++  const match = CURSOR.exec(value);
++  if (!match) throw invalidCursor();
++  const offset = Number(match[1]);
 +  if (!Number.isSafeInteger(offset)) throw invalidCursor();
-+  return offset;
++  return match[2] === scope ? offset : 0;
 +};
++
++const NUMBERED = /^(\D{0,4})(\d+)$/u;
++// An item's page on the instance: `/owner/repo/issues/12`,
++// `/owner/repo/pulls/12`, with an optional trailing `/files`, `/commits`, ...
++const ITEM_PATH = /^\/([^/]+)\/([^/]+)\/(?:issues|pulls)\/(\d+)(?:\/.*)?$/;
++
++/**
++ * The one item a query names: `#12` or `12` (a bare number reads every asked
++ * repository), or a link to an item on the instance. Anything else is a text
++ * search. It mirrors the single-repository list's lookup, which also reads
++ * the item rather than searching for its number.
++ */
++function parseReferenceLookup(query) {
++  const trimmed = query.trim();
++  const numbered = NUMBERED.exec(trimmed);
++  if (numbered) {
++    const prefix = numbered[1];
++    const number = Number(numbered[2]);
++    return (prefix === '' || prefix === '#') && Number.isSafeInteger(number) && number > 0 ? { number } : null;
++  }
++  if (!/^https?:\/\//i.test(trimmed)) return null;
++  let url;
++  try {
++    url = new URL(trimmed);
++  } catch {
++    return null;
++  }
++  const match = ITEM_PATH.exec(decodeURIComponent(url.pathname));
++  if (!match) return null;
++  const number = Number(match[3]);
++  if (!Number.isSafeInteger(number) || number <= 0) return null;
++  return { number, host: url.origin.toLowerCase(), project: { owner: match[1], repo: match[2] } };
++}
++
++const sameRepository = (repo, project) => repo.owner.toLowerCase() === project.owner.toLowerCase()
++  && repo.name.toLowerCase() === project.repo.toLowerCase();
 +
 +const previewBody = (body) => {
 +  const value = isString(body) ? body : '';
@@ -577,10 +1703,11 @@ index 000000000..095befe25
 +  });
 +};
 +
-+const sourceRepoOf = (repo) => ({ owner: repo.owner, repo: repo.name, source: 'origin' });
++/** `source` is the folder's primary remote: an item read through `upstream` says so. */
++const sourceRepoOf = (repo, source = 'origin') => ({ owner: repo.owner, repo: repo.name, source });
 +
 +/** One issue of the folder's repository as a picker item, or null when it does not map. */
-+export function issueReference(raw, repo, directory) {
++export function issueReference(raw, repo, directory, source = 'origin') {
 +  if (!isPlainObject(raw) || integer(raw.number) === null || !text(raw.title) || !text(raw.html_url)) return null;
 +  if (raw.pull_request != null) return null;
 +  if (raw.state !== 'open' && raw.state !== 'closed') return null;
@@ -595,7 +1722,7 @@ index 000000000..095befe25
 +    author: authorOf(raw),
 +    labels: labelsOf(raw),
 +    commentCount: integer(raw.comments) ?? 0,
-+    sourceRepo: sourceRepoOf(repo),
++    sourceRepo: sourceRepoOf(repo, source),
 +    // Gitea sends no close reason, so a closed issue reads as done.
 +    state: raw.state === 'open' ? 'open' : 'completed',
 +    directory,
@@ -617,13 +1744,15 @@ index 000000000..095befe25
 +};
 +
 +/** One pull request of the folder's repository as a picker item, or null when it does not map. */
-+export function pullReference(raw, repo, directory) {
++export function pullReference(raw, repo, directory, source = 'origin') {
 +  if (!isPlainObject(raw) || integer(raw.number) === null || !text(raw.title) || !text(raw.html_url)) return null;
-+  if (!text(raw.head?.ref) || !text(raw.base?.ref) || !text(raw.head?.sha)) return null;
++  const head = headBranch(raw.head);
++  if (!head || !text(raw.base?.ref) || !text(raw.head?.sha)) return null;
 +  const state = raw.merged === true ? 'merged' : raw.state;
 +  if (state !== 'open' && state !== 'closed' && state !== 'merged') return null;
 +  // Gitea's own work-in-progress prefixes (`[repository.pull-request] WORK_IN_PROGRESS_PREFIXES`).
-+  const draft = raw.draft === true || /^\s*(?:wip:|\[wip\])\s*/i.test(raw.title);
++  // A merged or closed pull request is not a draft, whatever its title still says.
++  const draft = state === 'open' && (raw.draft === true || isDraftTitle(raw.title));
 +  return {
 +    kind: 'pull',
 +    number: raw.number,
@@ -635,10 +1764,10 @@ index 000000000..095befe25
 +    author: authorOf(raw),
 +    labels: labelsOf(raw),
 +    commentCount: integer(raw.comments) ?? 0,
-+    sourceRepo: sourceRepoOf(repo),
++    sourceRepo: sourceRepoOf(repo, source),
 +    state,
 +    draft,
-+    head: raw.head.ref,
++    head,
 +    base: raw.base.ref,
 +    headSha: raw.head.sha,
 +    headRepo: headRepoOf(raw),
@@ -650,8 +1779,11 @@ index 000000000..095befe25
 +  if (error?.sourceControlAccountUnavailable) return 'disconnected';
 +  if ((error?.status ?? error?.response?.status) === 401) return 'disconnected';
 +  if (error?.code === 'SOURCE_CONTROL_NO_REPOSITORY') return 'no-repo';
-+  if (error?.code?.startsWith('SOURCE_CONTROL_BINDING_') || error?.code?.startsWith('SOURCE_CONTROL_LOCK_')
-+    || error?.code === 'INVALID_SOURCE_CONTROL_READ_CONTEXT' || error?.code === 'INVALID_SOURCE_CONTROL_BINDING') {
++  // A local Git or exec failure carries its exit status as a numeric `code`;
++  // only this module's own codes are strings.
++  const code = isString(error?.code) ? error.code : '';
++  if (code.startsWith('SOURCE_CONTROL_BINDING_') || code.startsWith('SOURCE_CONTROL_LOCK_')
++    || code === 'INVALID_SOURCE_CONTROL_READ_CONTEXT' || code === 'INVALID_SOURCE_CONTROL_BINDING') {
 +    return 'invalid-context';
 +  }
 +  return 'error';
@@ -664,10 +1796,12 @@ index 000000000..095befe25
 +/** Drop every cached page; tests use it between cases. */
 +export const resetReferencePageCache = () => pageCache.clear();
 +
-+const cachedPage = async (key, read) => {
++const cachedPage = async (key, read, { refresh = false } = {}) => {
 +  const now = Date.now();
-+  const held = pageCache.get(key);
-+  if (held && now - held.at < CACHE_TTL_MS) return held.value;
++  if (!refresh) {
++    const held = pageCache.get(key);
++    if (held && now - held.at < CACHE_TTL_MS) return held.value;
++  }
 +  const value = await read();
 +  pageCache.delete(key);
 +  pageCache.set(key, { at: now, value });
@@ -689,23 +1823,13 @@ index 000000000..095befe25
 +export async function readReferencesAcross({
 +  input, providerId, validateReadContext, resolveService, onFolderFailure,
 +}) {
-+  const offset = readCursor(input.cursor);
 +  const kind = input.kind;
 +  const state = input.state ?? 'open';
 +  const people = input.people ?? 'any';
 +  const query = input.query?.trim() ?? '';
-+
-+  // No Gitea discussion search: the tab is absent on these providers, and an
-+  // asked-for one answers empty rather than failing the page.
-+  if (kind === 'discussion') {
-+    return {
-+      items: [],
-+      cursor: null,
-+      hasMore: false,
-+      total: 0,
-+      repositories: input.directories.map((directory) => ({ directory, status: 'included', repo: null })),
-+    };
-+  }
++  const scope = cursorScope(input, kind, state, people, query);
++  const offset = readCursor(input.cursor, scope);
++  const refresh = input.refresh === true;
 +
 +  const folders = new Map();
 +  const services = new Map();
@@ -743,6 +1867,45 @@ index 000000000..095befe25
 +    }
 +  });
 +
++  const repositoriesOf = () => input.directories.map((directory) => {
++    const entry = folders.get(directory);
++    if (!entry || entry.status || !entry.repo) return { directory, status: entry?.status ?? 'error' };
++    return {
++      directory,
++      status: 'included',
++      repo: { owner: entry.repo.owner, repo: entry.repo.name, url: entry.repo.url },
++    };
++  });
++
++  // A link or a number names one item, as on the single-repository list: read
++  // that item instead of searching for its text, and answer a one-item page.
++  const lookup = kind === 'issue' || kind === 'pull' ? parseReferenceLookup(query) : null;
++  if (lookup) {
++    const found = await mapLimited([...folders.entries()], ACROSS_CONCURRENCY, async ([directory, entry]) => {
++      if (entry.status) return null;
++      try {
++        const result = await entry.service.readReferenceItem(directory, {
++          kind, number: lookup.number, remote: entry.trusted.primaryRemote,
++        });
++        entry.repo = result.repo;
++        // A link names one host and one repository; a folder elsewhere, or
++        // with another repository, still answers with its repository alone.
++        if (lookup.host && lookup.host !== String(entry.trusted.instance ?? '').toLowerCase()) return null;
++        if (!result.item) return null;
++        if (lookup.project && !sameRepository(result.repo, lookup.project)) return null;
++        const mapped = kind === 'pull'
++          ? pullReference(result.item, result.repo, directory, entry.trusted.primaryRemote)
++          : issueReference(result.item, result.repo, directory, entry.trusted.primaryRemote);
++        return mapped;
++      } catch (error) {
++        entry.status = await failed(error, entry.trusted);
++        return null;
++      }
++    });
++    const items = found.filter(Boolean);
++    return { items, cursor: null, hasMore: false, total: items.length, repositories: repositoriesOf() };
++  }
++
 +  // Enough pages per repository that the next window can be told to have
 +  // more, within the cap: one more page than the offset itself needs.
 +  const pages = Math.min(MAX_PAGES_PER_REPO, Math.floor((offset + PAGE_SIZE) / REPO_PAGE_LIMIT) + 1);
@@ -750,22 +1913,27 @@ index 000000000..095befe25
 +
 +  await mapLimited([...folders.entries()], ACROSS_CONCURRENCY, async ([directory, entry]) => {
 +    if (entry.status) return;
++    // A folder that fails on a later page contributes none of its rows: a
++    // page that says the folder could not be read must not also show them.
++    const local = [];
 +    try {
 +      for (let page = 1; page <= pages; page += 1) {
 +        const key = JSON.stringify([
 +          providerId, entry.trusted.instance ?? '', entry.trusted.accountId ?? '',
-+          directory, entry.trusted.primaryRemote ?? '', kind, state, people, query, page,
++          directory, entry.trusted.repositoryId ?? '', entry.trusted.bindingRevision ?? 0,
++          entry.trusted.primaryRemote ?? '', kind, state, people, query, page,
 +        ]);
 +        const result = await cachedPage(key, () => entry.service.listReferenceCandidates(directory, {
 +          kind, state, people, query, page, remote: entry.trusted.primaryRemote,
-+        }));
++        }), { refresh });
 +        entry.repo ??= result.repo;
 +        for (const raw of result.items) {
-+          candidates.push({ raw, repo: result.repo, needsDetail: result.needsDetail === true, directory, entry });
++          local.push({ raw, repo: result.repo, needsDetail: result.needsDetail === true, directory, entry });
 +        }
 +        if (!result.hasMore) break;
 +      }
 +      if (!entry.repo) entry.status = 'no-repo';
++      else candidates.push(...local);
 +    } catch (error) {
 +      entry.status = await failed(error, entry.trusted);
 +    }
@@ -777,7 +1945,7 @@ index 000000000..095befe25
 +  });
 +
 +  const window = candidates.slice(offset, offset + PAGE_SIZE);
-+  const items = (await mapLimited(window, DETAIL_CONCURRENCY, async (candidate) => {
++  const read = await mapLimited(window, DETAIL_CONCURRENCY, async (candidate) => {
 +    let raw = candidate.raw;
 +    if (candidate.needsDetail) {
 +      try {
@@ -785,41 +1953,41 @@ index 000000000..095befe25
 +          candidate.directory, candidate.raw.number, candidate.entry.trusted.primaryRemote,
 +        );
 +      } catch (error) {
-+        // The pull request moved or went away between the list and this read;
-+        // the rest of the page still answers.
-+        return null;
++        const status = error?.status ?? error?.response?.status;
++        // A pull request that moved or went away between the list and this
++        // read is dropped from the page; anything else is not an empty page.
++        if (status === 404 || status === 410) return null;
++        if (status === 401) {
++          candidate.entry.status = await failed(error, candidate.entry.trusted);
++          return null;
++        }
++        throw error;
 +      }
 +    }
-+    return kind === 'pull'
-+      ? pullReference(raw, candidate.repo, candidate.directory)
-+      : issueReference(raw, candidate.repo, candidate.directory);
-+  })).filter(Boolean);
-+
-+  const hasMore = candidates.length > offset + PAGE_SIZE;
-+  const repositories = input.directories.map((directory) => {
-+    const entry = folders.get(directory);
-+    if (!entry || entry.status || !entry.repo) return { directory, status: entry?.status ?? 'error' };
-+    return {
-+      directory,
-+      status: 'included',
-+      repo: { owner: entry.repo.owner, repo: entry.repo.name, url: entry.repo.url },
-+    };
++    const mapped = kind === 'pull'
++      ? pullReference(raw, candidate.repo, candidate.directory, candidate.entry.trusted.primaryRemote)
++      : issueReference(raw, candidate.repo, candidate.directory, candidate.entry.trusted.primaryRemote);
++    return mapped ? { candidate, item: mapped } : null;
 +  });
++  // A folder that a detail read wrote off (401) keeps its rows off the page too.
++  const shown = candidates.filter((candidate) => !candidate.entry.status);
++  const items = read.filter((entry) => entry && !entry.candidate.entry.status).map((entry) => entry.item);
 +
++  const hasMore = shown.length > offset + PAGE_SIZE;
 +  return {
 +    items,
-+    cursor: hasMore ? String(offset + PAGE_SIZE) : null,
++    cursor: hasMore ? `${offset + PAGE_SIZE}.${scope}` : null,
 +    hasMore,
-+    total: candidates.length,
-+    repositories,
++    total: shown.length,
++    repositories: repositoriesOf(),
 +  };
 +}
 diff --git a/packages/web/server/lib/gitea/references-across.test.js b/packages/web/server/lib/gitea/references-across.test.js
 new file mode 100644
-index 000000000..6de80702a
+index 000000000..76ff72db8
 --- /dev/null
 +++ b/packages/web/server/lib/gitea/references-across.test.js
-@@ -0,0 +1,349 @@
+@@ -0,0 +1,515 @@
 +import { beforeEach, describe, expect, it, vi } from 'vitest';
 +import {
 +  issueReference, pullReference, readReferencesAcross, readReferencesAcrossRequest, resetReferencePageCache,
@@ -878,12 +2046,13 @@ index 000000000..6de80702a
 +});
 +
 +/** A resource service whose pages are given per page number. */
-+const serviceWith = (pages, { repo = REPO, detail } = {}) => ({
++const serviceWith = (pages, { repo = REPO, detail, item } = {}) => ({
 +  listReferenceCandidates: vi.fn(async (_directory, options) => {
 +    const page = pages[options.page] ?? { items: [], hasMore: false };
 +    return { repo, items: page.items, hasMore: page.hasMore, needsDetail: page.needsDetail };
 +  }),
 +  readPullDetail: vi.fn(async (_directory, number) => detail(number)),
++  readReferenceItem: vi.fn(async (_directory, options) => (item ? item(options) : { repo, item: null })),
 +});
 +
 +const healthy = async (context) => ({ ...context, primaryRemote: 'origin' });
@@ -957,7 +2126,8 @@ index 000000000..6de80702a
 +  });
 +
 +  it('maps a pull request with its branches, head repository and state', () => {
-+    expect(pullReference(rawPull(3, '2026-10-02T00:00:00Z'), REPO, '/repo')).toEqual({
++    const mapped = pullReference(rawPull(3, '2026-10-02T00:00:00Z'), REPO, '/repo');
++    expect(mapped).toEqual({
 +      kind: 'pull',
 +      number: 3,
 +      title: 'PR 3',
@@ -987,6 +2157,25 @@ index 000000000..6de80702a
 +    expect(pullReference(rawPull(4, '2026-10-02T00:00:00Z', { merged: true }), REPO, '/repo')).toMatchObject({ state: 'merged' });
 +    expect(pullReference(rawPull(5, '2026-10-02T00:00:00Z', { draft: true }), REPO, '/repo')).toMatchObject({ draft: true });
 +    expect(pullReference(rawPull(6, '2026-10-02T00:00:00Z', { title: 'WIP: half done' }), REPO, '/repo')).toMatchObject({ draft: true });
++    // A merged or closed pull request is not a draft, whatever its title still says.
++    expect(pullReference(rawPull(7, '2026-10-02T00:00:00Z', { title: 'WIP: half done', merged: true }), REPO, '/repo'))
++      .toMatchObject({ state: 'merged', draft: false });
++    expect(pullReference(rawPull(8, '2026-10-02T00:00:00Z', { title: '[WIP] done', state: 'closed' }), REPO, '/repo'))
++      .toMatchObject({ state: 'closed', draft: false });
++  });
++
++  it('names the branch the label carries once the ref is a pull request ref', () => {
++    const deleted = rawPull(10, '2026-10-02T00:00:00Z', {
++      head: { ...rawPull(10, '2026-10-02T00:00:00Z').head, ref: 'refs/pull/10/head', label: 'fix/thing' },
++    });
++    expect(pullReference(deleted, REPO, '/repo')).toMatchObject({ head: 'fix/thing' });
++  });
++
++  it('carries the folder\'s primary remote as the source', () => {
++    expect(pullReference(rawPull(11, '2026-10-02T00:00:00Z'), REPO, '/repo', 'upstream'))
++      .toMatchObject({ sourceRepo: { owner: 'acme', repo: 'app', source: 'upstream' } });
++    expect(issueReference(rawIssue(12, '2026-10-01T00:00:00Z'), REPO, '/repo', 'upstream'))
++      .toMatchObject({ sourceRepo: { owner: 'acme', repo: 'app', source: 'upstream' } });
 +  });
 +
 +  it('skips a pull request without a head commit or base branch, and one with a gone head repository', () => {
@@ -996,6 +2185,9 @@ index 000000000..6de80702a
 +      .toMatchObject({ headRepo: null });
 +  });
 +});
++
++const cursorOffset = (cursor) => Number(String(cursor).split('.')[0]);
++const SCOPED_CURSOR = /^\d+\.[a-f0-9]{64}$/;
 +
 +describe('readReferencesAcross', () => {
 +  it('merges the folders newest first and pages through them', async () => {
@@ -1019,13 +2211,15 @@ index 000000000..6de80702a
 +    expect(first.items).toHaveLength(30);
 +    expect(first.items[0]).toMatchObject({ number: 20, directory: '/a' });
 +    expect(first.items.at(-1)).toMatchObject({ number: 111, directory: '/b' });
-+    expect(first).toMatchObject({ cursor: '30', hasMore: true, total: 40 });
++    expect(first).toMatchObject({ hasMore: true, total: 40 });
++    expect(first.cursor).toMatch(SCOPED_CURSOR);
++    expect(cursorOffset(first.cursor)).toBe(30);
 +    expect(first.repositories).toEqual([
 +      { directory: '/a', status: 'included', repo: { owner: 'acme', repo: 'app', url: `${ORIGIN}/acme/app` } },
 +      { directory: '/b', status: 'included', repo: { owner: 'acme', repo: 'app', url: `${ORIGIN}/acme/app` } },
 +    ]);
 +
-+    const second = await read('30');
++    const second = await read(first.cursor);
 +    expect(second.items).toHaveLength(10);
 +    expect(second.items[0]).toMatchObject({ number: 110, directory: '/b' });
 +    expect(second.items.at(-1)).toMatchObject({ number: 101, directory: '/b' });
@@ -1050,24 +2244,82 @@ index 000000000..6de80702a
 +    });
 +
 +    const first = await read(null);
-+    expect(first).toMatchObject({ total: 50, cursor: '30', hasMore: true });
-+    const second = await read('30');
-+    expect(second).toMatchObject({ total: 100, cursor: '60', hasMore: true });
++    expect(first).toMatchObject({ total: 50, hasMore: true });
++    expect(cursorOffset(first.cursor)).toBe(30);
++    const second = await read(first.cursor);
++    expect(second).toMatchObject({ total: 100, hasMore: true });
++    expect(cursorOffset(second.cursor)).toBe(60);
 +    expect(service.listReferenceCandidates.mock.calls.map((call) => call[1].page)).toEqual([1, 2]);
-+    const third = await read('60');
-+    expect(third).toMatchObject({ total: 100, cursor: '90', hasMore: true });
-+    const fourth = await read('90');
-+    expect(fourth).toMatchObject({ total: 150, cursor: '120', hasMore: true });
-+    const fifth = await read('120');
-+    expect(fifth).toMatchObject({ total: 200, cursor: '150', hasMore: true });
++    const third = await read(second.cursor);
++    expect(third).toMatchObject({ total: 100, hasMore: true });
++    expect(cursorOffset(third.cursor)).toBe(90);
++    const fourth = await read(third.cursor);
++    expect(fourth).toMatchObject({ total: 150, hasMore: true });
++    expect(cursorOffset(fourth.cursor)).toBe(120);
++    const fifth = await read(fourth.cursor);
++    expect(fifth).toMatchObject({ total: 200, hasMore: true });
++    expect(cursorOffset(fifth.cursor)).toBe(150);
 +    expect(service.listReferenceCandidates.mock.calls.map((call) => call[1].page)).toEqual([1, 2, 3, 4]);
-+    const sixth = await read('150');
-+    expect(sixth).toMatchObject({ total: 200, cursor: '180', hasMore: true });
++    const sixth = await read(fifth.cursor);
++    expect(sixth).toMatchObject({ total: 200, hasMore: true });
++    expect(cursorOffset(sixth.cursor)).toBe(180);
 +    // The cap holds: page 4 is the deepest page read, and the search ends there.
-+    const last = await read('180');
++    const last = await read(sixth.cursor);
 +    expect(last.items).toHaveLength(20);
 +    expect(last).toMatchObject({ total: 200, cursor: null, hasMore: false });
 +    expect(service.listReferenceCandidates.mock.calls.map((call) => call[1].page)).toEqual([1, 2, 3, 4]);
++  });
++
++  it('starts again when the cursor was built for another scope', async () => {
++    const service = serviceWith({
++      1: { items: Array.from({ length: 40 }, (_value, index) => rawIssue(index + 1, '2026-10-01T00:00:00Z')), hasMore: false },
++    });
++    const input = request([context('/a')]);
++    const read = (overrides) => readReferencesAcross({
++      input: { ...input, ...overrides }, providerId: 'gitea', validateReadContext: healthy, resolveService: async () => service,
++    });
++
++    const first = await read({ cursor: null, query: 'crash' });
++    expect(cursorOffset(first.cursor)).toBe(30);
++    // The same offset under another query is not an offset into this result
++    // set: the page starts over instead of skipping rows.
++    const shifted = await read({ cursor: first.cursor, query: 'other' });
++    expect(shifted.items[0]).toMatchObject({ number: 40 });
++    expect(shifted.items).toHaveLength(30);
++  });
++
++  it('keys a cached page by the binding it was read under', async () => {
++    let repo = { id: '1', owner: 'acme', name: 'alpha', url: `${ORIGIN}/acme/alpha` };
++    const service = {
++      listReferenceCandidates: vi.fn(async () => ({ repo, items: [rawIssue(1, '2026-10-01T00:00:00Z')], hasMore: false })),
++      readPullDetail: vi.fn(),
++      readReferenceItem: vi.fn(),
++    };
++    const read = (extra) => readReferencesAcross({
++      input: request([{ ...context('/a'), ...extra }]),
++      providerId: 'gitea',
++      validateReadContext: healthy,
++      resolveService: async () => service,
++    });
++
++    expect((await read({})).repositories[0]).toMatchObject({ status: 'included', repo: { repo: 'alpha' } });
++    repo = { id: '2', owner: 'acme', name: 'beta', url: `${ORIGIN}/acme/beta` };
++    const rebound = await read({ repositoryId: 'repo-2', bindingRevision: 2 });
++    expect(rebound.repositories[0]).toMatchObject({ status: 'included', repo: { repo: 'beta' } });
++  });
++
++  it('reads every repository again for a forced page', async () => {
++    const service = serviceWith({ 1: { items: [rawIssue(1, '2026-10-01T00:00:00Z')], hasMore: false } });
++    const input = request([context('/a')]);
++    const read = (refresh) => readReferencesAcross({
++      input: { ...input, refresh }, providerId: 'gitea', validateReadContext: healthy, resolveService: async () => service,
++    });
++
++    await read(false);
++    await read(false);
++    expect(service.listReferenceCandidates).toHaveBeenCalledTimes(1);
++    await read(true);
++    expect(service.listReferenceCandidates).toHaveBeenCalledTimes(2);
 +  });
 +
 +  it('reports each folder it could not read and still answers the others', async () => {
@@ -1081,10 +2333,12 @@ index 000000000..6de80702a
 +    const service = {
 +      listReferenceCandidates: vi.fn(async (directory) => {
 +        if (directory === '/no-repo') throw Object.assign(new Error('no repo'), { code: 'SOURCE_CONTROL_NO_REPOSITORY' });
-+        if (directory === '/broken') throw new Error('boom');
++        // A local Git failure carries its exit status as a numeric code.
++        if (directory === '/broken') throw Object.assign(new Error('git failed'), { code: 128 });
 +        return { repo: REPO, items: [rawIssue(1, '2026-10-01T00:00:00Z')], hasMore: false };
 +      }),
 +      readPullDetail: vi.fn(async () => null),
++      readReferenceItem: vi.fn(),
 +    };
 +    const input = request([context('/ok'), context('/signed-out'), context('/no-repo'), context('/stale'), context('/broken'), context('/empty')]);
 +    const page = await readReferencesAcross({
@@ -1115,6 +2369,34 @@ index 000000000..6de80702a
 +    ]);
 +  });
 +
++  it('drops a folder\'s rows when a later page of it fails', async () => {
++    const service = {
++      listReferenceCandidates: vi.fn(async (_directory, options) => {
++        if (options.page === 2) throw new Error('second page failed');
++        return {
++          repo: REPO,
++          items: Array.from({ length: 50 }, (_value, index) => rawIssue(index + 1, `2026-10-01T00:00:${String(index).padStart(2, '0')}Z`)),
++          hasMore: true,
++        };
++      }),
++      readPullDetail: vi.fn(),
++      readReferenceItem: vi.fn(),
++    };
++    const read = (cursor) => readReferencesAcross({
++      input: { ...request([context('/a')]), cursor },
++      providerId: 'gitea',
++      validateReadContext: healthy,
++      resolveService: async () => service,
++    });
++
++    // The first window needs one page only; the second reads page 2, which fails.
++    const first = await read(null);
++    expect(first.items).toHaveLength(30);
++    const second = await read(first.cursor);
++    expect(second.items).toEqual([]);
++    expect(second.repositories).toEqual([{ directory: '/a', status: 'error' }]);
++  });
++
 +  it('reads the pull requests that land on the page and drops one that moved away', async () => {
 +    const listed = [
 +      rawIssue(1, '2026-10-03T00:00:00Z', { pull_request: { merged: false } }),
@@ -1140,29 +2422,81 @@ index 000000000..6de80702a
 +    ]);
 +  });
 +
-+  it('answers an empty page for discussions, which these providers do not keep', async () => {
-+    const input = request([context('/a'), context('/b')], { kind: 'discussion' });
++  it('writes the account off when a detail read is refused', async () => {
++    const service = serviceWith(
++      { 1: { items: [rawIssue(1, '2026-10-03T00:00:00Z', { pull_request: { merged: false } })], hasMore: false, needsDetail: true } },
++      { detail: () => { throw Object.assign(new Error('refused'), { status: 401 }); } },
++    );
++    const failureCalls = [];
 +    const page = await readReferencesAcross({
-+      input,
++      input: request([context('/a')], { kind: 'pull' }),
 +      providerId: 'gitea',
-+      validateReadContext: () => { throw new Error('should not be read'); },
-+      resolveService: () => { throw new Error('should not be read'); },
++      validateReadContext: healthy,
++      resolveService: async () => service,
++      onFolderFailure: async (error, identity) => failureCalls.push({ error, identity }),
 +    });
-+    expect(page).toEqual({
-+      items: [],
-+      cursor: null,
-+      hasMore: false,
-+      total: 0,
-+      repositories: [
-+        { directory: '/a', status: 'included', repo: null },
-+        { directory: '/b', status: 'included', repo: null },
-+      ],
++
++    expect(failureCalls).toHaveLength(1);
++    expect(page.items).toEqual([]);
++    expect(page.repositories).toEqual([{ directory: '/a', status: 'disconnected' }]);
++  });
++
++  it('fails the page when a detail read breaks rather than dropping the row', async () => {
++    const service = serviceWith(
++      { 1: { items: [rawIssue(1, '2026-10-03T00:00:00Z', { pull_request: { merged: false } })], hasMore: false, needsDetail: true } },
++      { detail: () => { throw Object.assign(new Error('broken'), { status: 500 }); } },
++    );
++
++    await expect(readReferencesAcross({
++      input: request([context('/a')], { kind: 'pull' }),
++      providerId: 'gitea',
++      validateReadContext: healthy,
++      resolveService: async () => service,
++    })).rejects.toMatchObject({ status: 500 });
++  });
++
++  it('reads the item a number or a link names', async () => {
++    const itemOf = (repo) => (options) => ({
++      repo,
++      item: options.number === 12
++        ? rawIssue(12, '2026-10-01T00:00:00Z', { html_url: `${ORIGIN}/${repo.owner}/${repo.name}/issues/12` })
++        : null,
 +    });
++    const services = {
++      '/a': serviceWith({}, { item: itemOf(REPO) }),
++      '/b': serviceWith({}, { item: itemOf({ id: '9', owner: 'acme', name: 'beta', url: `${ORIGIN}/acme/beta` }) }),
++    };
++    const read = (servicesById, extra) => readReferencesAcross({
++      input: request([context('/a'), context('/b')], extra),
++      providerId: 'gitea',
++      validateReadContext: healthy,
++      resolveService: async (trusted) => servicesById[trusted.directory],
++    });
++
++    const numbered = await read(services, { query: '#12' });
++    expect(numbered.items.map((entry) => [entry.number, entry.sourceRepo.repo])).toEqual([[12, 'app'], [12, 'beta']]);
++    expect(numbered.repositories).toEqual([
++      { directory: '/a', status: 'included', repo: { owner: 'acme', repo: 'app', url: `${ORIGIN}/acme/app` } },
++      { directory: '/b', status: 'included', repo: { owner: 'acme', repo: 'beta', url: `${ORIGIN}/acme/beta` } },
++    ]);
++    expect(services['/a'].readReferenceItem).toHaveBeenCalledTimes(1);
++    expect(services['/b'].readReferenceItem).toHaveBeenCalledTimes(1);
++    expect(services['/a'].listReferenceCandidates).not.toHaveBeenCalled();
++
++    // A link names one repository: the folder holding it answers, and the
++    // text is not searched for.
++    const linked = await read(services, { query: `${ORIGIN}/acme/beta/issues/12` });
++    expect(linked.items.map((entry) => entry.sourceRepo.repo)).toEqual(['beta']);
++    const elsewhere = await read(services, { query: `${ORIGIN}/acme/other/issues/12` });
++    expect(elsewhere.items).toEqual([]);
++    const text = await read(services, { query: 'crash on start' });
++    expect(text.items).toEqual([]);
++    expect(services['/a'].listReferenceCandidates).toHaveBeenCalledTimes(1);
 +  });
 +
 +  it('refuses a cursor that is not an offset', async () => {
 +    const input = request([context('/a')]);
-+    for (const cursor of ['abc', '-1', '1.5', '9007199254740992']) {
++    for (const cursor of ['abc', '-1', '1.5', '30', '9007199254740992.'.padEnd(80, '0')]) {
 +      await expect(readReferencesAcross({
 +        input: { ...input, cursor }, providerId: 'gitea', validateReadContext: healthy, resolveService: async () => serviceWith({}),
 +      })).rejects.toMatchObject({ status: 400, code: 'INVALID_REFERENCES_CURSOR' });
@@ -1170,23 +2504,39 @@ index 000000000..6de80702a
 +  });
 +});
 diff --git a/packages/web/server/lib/gitea/resources.js b/packages/web/server/lib/gitea/resources.js
-index b5e56b044..b3151367a 100644
+index b5e56b044..2c8ff2caa 100644
 --- a/packages/web/server/lib/gitea/resources.js
 +++ b/packages/web/server/lib/gitea/resources.js
-@@ -68,7 +68,11 @@ export function createGiteaResourceService({
-       const item = await showRepo({ owner: candidate.owner, name: candidate.name }, candidate.remoteName);
+@@ -65,10 +65,26 @@ export function createGiteaResourceService({
+     const resolved = await resolveRepos(directory, origin, remote, { sshUrl });
+     const repos = [];
+     for (const candidate of resolved.repos) {
+-      const item = await showRepo({ owner: candidate.owner, name: candidate.name }, candidate.remoteName);
++      let item;
++      try {
++        item = await showRepo({ owner: candidate.owner, name: candidate.name }, candidate.remoteName);
++      } catch (error) {
++        // A repository deleted or renamed on the instance is a remote this
++        // account can no longer read, not a read that broke: the folder reads
++        // as having no repository, as the module's documentation says.
++        if (statusOf(error) === 404 || statusOf(error) === 410) continue;
++        throw error;
++      }
        if (!repos.some((known) => known.project.id === item.project.id)) repos.push(item);
      }
 -    if (!repos.length) throw malformed(`No ${providerLabel} repository found for the repository remotes`);
 +    if (!repos.length) {
 +      throw Object.assign(new Error(`No ${providerLabel} repository found for the repository remotes`), {
 +        code: 'SOURCE_CONTROL_NO_REPOSITORY',
++        // `no repository` is a missing target, not a stale one (the shell's
++        // generic mutation answer for a coded error is 409).
++        status: 404,
 +      });
 +    }
      return repos;
    };
  
-@@ -450,6 +454,64 @@ export function createGiteaResourceService({
+@@ -450,6 +466,93 @@ export function createGiteaResourceService({
        return { items, page, hasMore: result.hasMore };
      },
  
@@ -1196,14 +2546,20 @@ index b5e56b044..b3151367a 100644
 +     * lists above this keeps the host's own fields, so the picker's rows and
 +     * preview get their branches, draft flag and comment count.
 +     *
++     * Pull requests read the network's upstream, the repository
++     * `listChangeRequests` lists, while issues stay on the folder's own
++     * repository. A review request lives on the upstream's pull requests, so
++     * the owner-wide search is narrowed to that repository's id.
++     *
 +     * Gitea's issue search answers a pull request without its head or base;
 +     * `needsDetail` says the page has to read those pull requests before
 +     * mapping them. The unfiltered pull list already carries them.
 +     */
 +    async listReferenceCandidates(directory, options = {}) {
 +      const page = options.page ?? 1;
-+      const { primary } = await network(directory, null, options.remote);
-+      const repo = primary.project;
++      const { primary, targets } = await network(directory, null, options.remote);
++      const target = options.kind === 'issue' ? primary : targets.at(-1);
++      const repo = target.project;
 +      const state = LIST_STATES[options.state] ?? 'open';
 +      if (options.kind === 'issue') {
 +        const query = { type: 'issues', state, q: options.query };
@@ -1228,7 +2584,7 @@ index b5e56b044..b3151367a 100644
 +          type: 'pulls', state, q: options.query, owner: repo.owner, review_requested: true,
 +        }, { page, limit: PAGE_LIMIT });
 +        result.items = result.items.filter((item) => isPlainObject(item?.repository)
-+          && Number(item.repository.id) === primary.raw.id);
++          && Number(item.repository.id) === target.raw.id);
 +      } else {
 +        const query = { type: 'pulls', state, q: options.query };
 +        if (options.people === 'created') query.created_by = await readCurrentLogin();
@@ -1244,18 +2600,153 @@ index b5e56b044..b3151367a 100644
 +
 +    /** One pull request of the folder's repository, for a search hit that needs its head and base. */
 +    async readPullDetail(directory, number, remote) {
-+      const { primary } = await network(directory, null, remote);
-+      return client.get(`${repoPath(primary.project)}/pulls/${number}`);
++      const { targets } = await network(directory, null, remote);
++      const target = targets.at(-1);
++      return client.get(`${repoPath(target.project)}/pulls/${number}`);
++    },
++
++    /**
++     * One issue or pull request by number, for the picker's link or `#number`
++     * lookup. A number the repository does not have is `item: null` with the
++     * repository it was looked up in, so a link that names another repository
++     * is told apart from a read that failed.
++     */
++    async readReferenceItem(directory, options = {}) {
++      const { primary, targets } = await network(directory, null, options.remote);
++      const target = options.kind === 'issue' ? primary : targets.at(-1);
++      const path = options.kind === 'issue' ? 'issues' : 'pulls';
++      try {
++        return {
++          repo: target.project,
++          item: await client.get(`${repoPath(target.project)}/${path}/${options.number}`),
++        };
++      } catch (error) {
++        const status = statusOf(error);
++        if (status === 404 || status === 410) return { repo: target.project, item: null };
++        throw error;
++      }
 +    },
 +
      async getIssue(directory, number, selector, remote, { linked } = {}) {
        const { target } = await network(directory, selector, remote, { linked });
        return requireIssue(await client.get(`${repoPath(target.project)}/issues/${number}`), target.project);
+diff --git a/packages/web/server/lib/gitea/resources.test.js b/packages/web/server/lib/gitea/resources.test.js
+index f7868e607..ee1f5a18d 100644
+--- a/packages/web/server/lib/gitea/resources.test.js
++++ b/packages/web/server/lib/gitea/resources.test.js
+@@ -431,3 +431,85 @@ describe('Gitea mutations', () => {
+       .resolves.toMatchObject({ state: 'failed' });
+   });
+ });
++
++describe('Gitea reference candidates across a folder\'s repositories', () => {
++  it('lists issues from the folder\'s own repository', async () => {
++    const { service, calls } = setup({ 'GET /repos/bob/app/issues': [fixtures.issue] });
++
++    const result = await service.listReferenceCandidates('/repo', { kind: 'issue', state: 'open', people: 'any', remote: 'origin' });
++
++    expect(result.repo).toMatchObject({ id: '2', owner: 'bob', name: 'app' });
++    expect(result.items.map((item) => item.number)).toEqual([6]);
++    const read = calls.find((call) => call.url.pathname === '/api/v1/repos/bob/app/issues');
++    expect(read.url.searchParams.get('type')).toBe('issues');
++    expect(read.url.searchParams.get('state')).toBe('open');
++  });
++
++  it('lists pull requests from the network\'s upstream, not the fork', async () => {
++    const { service, calls } = setup({ 'GET /repos/alice/app/pulls': [fixtures.forkPull] });
++
++    const result = await service.listReferenceCandidates('/repo', { kind: 'pull', state: 'open', people: 'any', remote: 'origin' });
++
++    expect(result.repo).toMatchObject({ id: '1', owner: 'alice', name: 'app' });
++    expect(result.items.map((item) => item.number)).toEqual([1]);
++    expect(calls.some((call) => call.url.pathname === '/api/v1/repos/alice/app/pulls')).toBe(true);
++    expect(calls.some((call) => call.url.pathname === '/api/v1/repos/bob/app/pulls')).toBe(false);
++    expect(result.needsDetail).toBeUndefined();
++  });
++
++  it('finds a review request on the upstream\'s repository id', async () => {
++    const onUpstream = { ...fixtures.issue, number: 3, repository: { id: 1 } };
++    const onFork = { ...fixtures.issue, number: 4, repository: { id: 2 } };
++    const { service, calls } = setup({ 'GET /repos/issues/search': [onUpstream, onFork] });
++
++    const result = await service.listReferenceCandidates('/repo', { kind: 'pull', state: 'open', people: 'reviewRequested', remote: 'origin' });
++
++    expect(result.repo).toMatchObject({ id: '1', owner: 'alice' });
++    expect(result.items.map((item) => item.number)).toEqual([3]);
++    expect(result.needsDetail).toBe(true);
++    const search = calls.find((call) => call.url.pathname === '/api/v1/repos/issues/search');
++    expect(search.url.searchParams.get('owner')).toBe('alice');
++    expect(search.url.searchParams.get('review_requested')).toBe('true');
++  });
++
++  it('filters the merged list after the issue search', async () => {
++    const merged = { ...fixtures.issue, number: 5, pull_request: { merged: true } };
++    const unmerged = { ...fixtures.issue, number: 6, pull_request: { merged: false } };
++    const { service, calls } = setup({ 'GET /repos/alice/app/issues': [merged, unmerged] });
++
++    const result = await service.listReferenceCandidates('/repo', { kind: 'pull', state: 'merged', query: 'ship', remote: 'origin' });
++
++    expect(result.items.map((item) => item.number)).toEqual([5]);
++    expect(result.needsDetail).toBe(true);
++    const read = calls.find((call) => call.url.pathname === '/api/v1/repos/alice/app/issues');
++    expect(read.url.searchParams.get('type')).toBe('pulls');
++    expect(read.url.searchParams.get('state')).toBe('closed');
++    expect(read.url.searchParams.get('q')).toBe('ship');
++  });
++
++  it('reads a listed pull request\'s detail from the upstream', async () => {
++    const { service, calls } = setup({ 'GET /repos/alice/app/pulls/1': fixtures.forkPull });
++
++    await expect(service.readPullDetail('/repo', 1, 'origin')).resolves.toMatchObject({ number: 1 });
++    expect(calls.some((call) => call.url.pathname === '/api/v1/repos/alice/app/pulls/1')).toBe(true);
++  });
++
++  it('reads one item of the repository a lookup names', async () => {
++    const issue = { ...fixtures.issue, html_url: `https://gitea.example.com/bob/app/issues/6` };
++    const { service, calls } = setup({ 'GET /repos/bob/app/issues/6': issue });
++
++    await expect(service.readReferenceItem('/repo', { kind: 'issue', number: 6, remote: 'origin' }))
++      .resolves.toMatchObject({ repo: { id: '2', owner: 'bob' }, item: { number: 6 } });
++    expect(calls.some((call) => call.url.pathname === '/api/v1/repos/bob/app/issues/6')).toBe(true);
++  });
++
++  it('answers a missing number as no item and a vanished repository as no repository', async () => {
++    const missing = setup({ 'GET /repos/bob/app/issues/9': () => new Response('{}', { status: 404 }) });
++    await expect(missing.service.readReferenceItem('/repo', { kind: 'issue', number: 9, remote: 'origin' }))
++      .resolves.toMatchObject({ repo: { id: '2' }, item: null });
++
++    const vanished = setup({ 'GET /repos/bob/app': () => new Response('{}', { status: 404 }) });
++    await expect(vanished.service.listReferenceCandidates('/repo', { kind: 'issue', remote: 'origin' }))
++      .rejects.toMatchObject({ code: 'SOURCE_CONTROL_NO_REPOSITORY', status: 404 });
++  });
++});
+diff --git a/packages/web/server/lib/source-control/DOCUMENTATION.md b/packages/web/server/lib/source-control/DOCUMENTATION.md
+index e2c69cd84..d9fcaa83c 100644
+--- a/packages/web/server/lib/source-control/DOCUMENTATION.md
++++ b/packages/web/server/lib/source-control/DOCUMENTATION.md
+@@ -23,7 +23,7 @@ The route shell's optional `onMutationSucceeded` callback receives the validated
+ - `review-position.js` holds what every provider's review draft shares: the position of a comment, the `/pr/review/comment*` and `/pr/review/discard` entries of a mutation table, and both line numbers of a line in a unified diff. Capability `reviewDrafts` (`{ fileComments }`, published as `features.reviewDrafts` and `features.reviewDraftFileComments`) turns on those routes and `GET /pr/review/state`. The draft lives on the host, never here: a device, a browser tab or an agent writing to the host all see one draft. Extension providers do not declare the capability.
+ - `provider-routes.js` is the generic shell. For each provider it registers literal `/api/source-control/<id>/...` routes: capabilities, auth (status, accounts, device flow through `oauth-flow-registry.js`, token, activate, CLI switch, removal), bound reads (status, lists, context, issues, upstream, branches, labels, reviewers), the reference picker (`references`, `references/across`, `references/detail`, `references/status`, capability `referencePicker`), uploads, the mutation routes and the retired `/me`. A descriptor's `routeAliases` adds the provider's legacy aliases declaratively: its account routes and `/me` under another prefix, extra names for a route, and retired paths answering `410` (GitHub's `/api/github/*`). A request without `instance` names the descriptor's legacy instance, if it has one. It validates the read or mutation context through the binding service before any account lookup, resolves the exact bound account through the implementation, keeps one status cache per provider, maps errors (`401` writes off only the acting account after renewal, transient failures answer the last-known status, a `4xx` after dispatch is a definite failure and anything else `outcome-unknown`; a provider may classify and word its own mutation failures through `mutations.classifyError` / `presentError`, and an error carrying `sourceControlResponse` is answered as the provider chose) and drives the durable mutation executor. A provider's `mutations.afterSuccess` (GitHub drops its pull context and pull-list caches there) runs after the executor returns, best effort: the record is already durable, so a failure there never turns a landed write into `outcome-unknown`. A create whose result names the number it made gets that number in the receipt's target. A capability the descriptor turns off still gets its route and answers `501 SOURCE_CONTROL_CAPABILITY_UNSUPPORTED`; so does one the implementation lacks. It also returns the reads other modules make with an already validated context (`readChangeRequestPatch`/`File` for walkthroughs and the comparison view, `readLiveSummaries` for tracked items, `readChangeRequestHead`, `resolveChangeRequestSource`), dispatched by the context's provider; these provider-neutral names are the only ones `routes.js` returns. The first three resolve the account through the implementation (`auth.resolveAccount`); live summaries pass `orCurrent`, so a provider may read with the instance's current account when the named one no longer resolves (GitHub does, GitLab does not).
+ - `GET /api/source-control/providers` answers `{ providers }`: each descriptor's public fields in the shape the UI registry parses (`publicProviderDescriptor`, with `order` from registry priority). No function, pattern or transport policy leaves the server. The web adapter's fallback for a server without this route is GitHub and GitLab only, because a server old enough to lack the route serves exactly those two; a test holds the fallback equal to the leading entries of the published list.
+-- Gitea (`../gitea/`) is the third built-in provider and the template for further in-core ones: one module folder with `descriptor.js` and `provider.js`, one entry in the descriptor list and one in the loader map, and no UI code (its icon is a path in the descriptor). It signs in with personal access tokens only, keeps its accounts in `section('gitea')` of the auth store (so a file holding a Gitea account is written as version 4, or version 5 when an instance also has a separate SSH address), has no default instance, and turns off review threads, uploads, stacks and the reference picker, so those routes answer 501. What was verified against live Gitea 1.21 and 1.27, and what is still unverified, is listed in `../gitea/DOCUMENTATION.md`.
++- Gitea (`../gitea/`) is the third built-in provider and the template for further in-core ones: one module folder with `descriptor.js` and `provider.js`, one entry in the descriptor list and one in the loader map, and no UI code (its icon is a path in the descriptor). It signs in with personal access tokens only, keeps its accounts in `section('gitea')` of the auth store (so a file holding a Gitea account is written as version 4, or version 5 when an instance also has a separate SSH address), has no default instance, and turns off review threads, uploads, stacks and discussions, so those routes answer 501. Its reference picker is on with the per-repository lists list-backed (`referenceSearch` off) and only the search across a folder's repositories provider-owned; `../gitea/DOCUMENTATION.md` owns that read. What was verified against live Gitea 1.21 and 1.27, and what is still unverified, is listed in `../gitea/DOCUMENTATION.md`.
+ - Forgejo (`../forgejo/`) is Gitea's implementation with its own descriptor: section `forgejo`, the same capabilities, and `https://codeberg.org` as its default instance. Gitea and Forgejo accept any origin, so an instance belongs to one card: the one its own API namespace names, else the one its `/version` names (Forgejo's carries a `+gitea-` suffix); Forgejo serves `/api/forgejo/v1/version`, which no Gitea release does, and Forgejo 16 names no edition on the compatible `/version`, so the namespace is what still tells them apart. The other card refuses it at connect (`ownerElsewhere` above), and no instance is known to both. What was verified against live Forgejo is in `../forgejo/DOCUMENTATION.md`.
+ - GitHub, GitLab, Gitea, Gerrit and Forgejo all answer at `/api/source-control/<id>/*` with the same neutral DTOs. GitHub's descriptor keeps its auth and user aliases under `/api/github/*`; its retired PR, repository, issue, and pull-context aliases return `410` before authority or provider work.
+ - `GET /api/source-control/instances` returns, per provider in registry order, its default instances plus the ones its implementation knows: self-managed GitLab origins, Gitea and Forgejo origins and GitHub Enterprise hosts already present in the server credential store (a host the user registered a PAT for, or one gh has a stored login for), and the Gitea instances gt has a token login for. A provider instance with a separate SSH address carries it as `instanceSshUrl`, so clients recognise remotes on that host. It never exposes accounts or tokens. A provider that fails to load or list is named in `unavailableProviders` instead of failing the whole answer, so one broken provider never hides the others' instances.
+@@ -181,7 +181,7 @@ No other file changes. The shell registers every route for the new id, accounts
+ 
+ The UI renders the provider from the published descriptor alone: a Settings card with the sign-in methods in `authMethods` and fields in `settings`, the mark from `presentation.icon`, a sprite name or path data, wording by `terminology.changeRequest`, link matching from `presentation.urls`, and the board and picker gated by `presentation.features`. `features.changeRequestPatch` is published from `capabilities.changeRequestPatch`, so a host that lists change requests without serving their diff shows no comparison or walkthrough for them. The term and the field kinds are closed lists the UI translates; a provider that needs another one needs a UI change first.
+ 
+-Capabilities say what the provider does. A flag that is off still gets its route, which answers `501 SOURCE_CONTROL_CAPABILITY_UNSUPPORTED`, and so does a resource method the implementation leaves out. Gitea turns off review threads, uploads, stacks and the reference picker this way.
++Capabilities say what the provider does. A flag that is off still gets its route, which answers `501 SOURCE_CONTROL_CAPABILITY_UNSUPPORTED`, and so does a resource method the implementation leaves out. Gitea turns off review threads, uploads, stacks and discussions this way; its picker routes exist and work, with `kind=discussion` answering that 501.
+ 
+ A host that reviews one commit at a time, the way Gerrit does, also picks from the options under *Change-based review hosts*: the `change` term, `reviewModel: 'votes'`, `revisions`, the `submit` method alone, `createVia: 'push'`, `repositoryPath: 'path'` with `projectPathOfRemote`, the `username` and `http-password` settings kinds, and the presentation's `branchHeads: false` and `submitRequirements`. Each one is off when left out, and `../gerrit/` is the reference. A host without forks checks a change request against its bound project instead of `changeRequestNetworkTarget`, as `../gerrit/resources.js` does.
+ 
 diff --git a/packages/web/server/lib/source-control/provider-descriptors.test.js b/packages/web/server/lib/source-control/provider-descriptors.test.js
-index fbb10b3cc..5f81056f1 100644
+index fbb10b3cc..7e7f2f1af 100644
 --- a/packages/web/server/lib/source-control/provider-descriptors.test.js
 +++ b/packages/web/server/lib/source-control/provider-descriptors.test.js
-@@ -76,7 +76,7 @@ describe('source control provider descriptors', () => {
+@@ -76,13 +76,22 @@ describe('source control provider descriptors', () => {
      expect(gitea.capabilities).toMatchObject({
        merge: { methods: ['merge', 'squash', 'rebase'] },
        reviewThreads: { start: false, reply: false, resolve: false },
@@ -1264,6 +2755,21 @@ index fbb10b3cc..5f81056f1 100644
      });
      const published = publicProviderDescriptor(gitea, 2);
      expect(published).toMatchObject({ id: 'gitea', auth: { methods: ['pat', 'cli'], cliName: 'gt', cliTransport: false }, instances: { defaultInstance: null } });
+     expect(published.icon.path).toMatch(/^[MmLlHhVvCcSsQqTtAaZz0-9eE.,\s+-]+$/);
+   });
+ 
++  it('lets Forgejo inherit the reference picker and the search across repositories', () => {
++    const forgejo = sourceControlProviderDescriptors.get('forgejo');
++
++    expect(forgejo.capabilities.referencePicker).toBe(true);
++    expect(publicProviderDescriptor(forgejo, 4).features).toMatchObject({
++      referenceSearch: false, referenceDetail: false, listStatuses: false, referencesAcross: true,
++    });
++  });
++
+   it('builds the origin every caller used to spell out per provider', () => {
+     expect(github.instance.origin('github.com').origin).toBe('https://github.com');
+     expect(github.instance.origin('ghe.example.com').origin).toBe('https://ghe.example.com');
 diff --git a/packages/web/server/lib/source-control/provider-publication-freeze.json b/packages/web/server/lib/source-control/provider-publication-freeze.json
 index 19c450905..ed637d541 100644
 --- a/packages/web/server/lib/source-control/provider-publication-freeze.json
@@ -1277,3 +2783,17 @@ index 19c450905..ed637d541 100644
          "reviewDraftFileComments": false,
          "reviewDrafts": true,
          "startThread": false,
+diff --git a/packages/web/server/lib/source-control/provider-routes.js b/packages/web/server/lib/source-control/provider-routes.js
+index a77292100..150d194dc 100644
+--- a/packages/web/server/lib/source-control/provider-routes.js
++++ b/packages/web/server/lib/source-control/provider-routes.js
+@@ -889,6 +889,9 @@ export function registerProviderRoutes(app, {
+     route('post', '/references/across', 'referencePicker', async (req, res) => {
+       let impl;
+       try {
++        // A kind the descriptor turns off is the shell's own answer, the same
++        // 501 the single-repository list gives, not a provider failure.
++        if (!discussions && req.body?.kind === 'discussion') return unsupportedCapability(res);
+         impl = await loadImplementation(id);
+         const read = requireResource(impl, 'referencesAcross');
+         if (!(validateReadContext instanceof Function)) return res.status(501).json({ error: 'Bound source control read is unavailable' });
