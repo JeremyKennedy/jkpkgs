@@ -75,6 +75,7 @@ let
       ./patches/recap-full-note.patch
       ./patches/question-rows.patch
       ./patches/question-rows-polish.patch
+      ./patches/question-rows-compact.patch
       ./patches/instance-attention.patch
       ./patches/image-viewer-zoom.patch
     ];
