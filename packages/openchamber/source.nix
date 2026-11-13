@@ -86,6 +86,10 @@ let
       # Voice: the assistant gesture's dictation waits for the draft's own
       # composer instead of starting against the chat still on screen.
       ./patches/dictation-origin-wait.patch
+      # Sidebar: a display toggle leaves out worktree rows with nothing in
+      # them (no session, draft, pin, archived session or removal in flight),
+      # while a search still finds them.
+      ./patches/hide-empty-worktrees.patch
     ];
   };
 in
