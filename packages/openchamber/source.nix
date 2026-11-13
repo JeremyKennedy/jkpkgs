@@ -79,6 +79,10 @@ let
       ./patches/question-cards.patch
       ./patches/instance-attention.patch
       ./patches/image-viewer-zoom.patch
+      # Voice: no silent dictation loss (empty results fail loudly, a silent
+      # capture is called out, kept transcripts name their chat, and the
+      # capture context is created in the gesture). Relative to the queue above.
+      ./patches/dictation-recovery.patch
     ];
   };
 in
