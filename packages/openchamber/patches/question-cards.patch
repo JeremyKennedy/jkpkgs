@@ -164,10 +164,10 @@ index 43284997d..225b7726c 100644
          turnExpansion,
 diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
 new file mode 100644
-index 000000000..8da6930d8
+index 000000000..724b9fb15
 --- /dev/null
 +++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
-@@ -0,0 +1,135 @@
+@@ -0,0 +1,147 @@
 +import React from 'react';
 +import { expect, test } from 'bun:test';
 +import { plugin } from 'bun';
@@ -297,18 +297,30 @@ index 000000000..8da6930d8
 +test('the card fits its content, aligns right and uses transcript typography', () => {
 +    const markup = render(card(ask([{ question: 'Ship it?', answer: 'Yes' }])));
 +    expect(markup).toContain('flex flex-col items-end');
-+    expect(markup).toContain('w-fit max-w-[85%]');
++    expect(markup).toContain('max-w-[85%]');
 +    expect(markup).toContain('typography-meta');
 +    expect(markup).toContain('typography-markdown');
 +    expect(markup).not.toContain('text-base');
 +    expect(markup).toContain('color-mix(in srgb, var(--status-question-background) 55%, transparent)');
 +});
++
++test('text is selectable and expansion uses the native message link instead of a clickable card', () => {
++    const part = ask([{ question: 'Ship it?', answer: 'Yes' }]);
++    const markup = render(card(part));
++    expect(markup).toContain('select-text');
++    expect(markup).not.toContain('role="button"');
++    expect(markup).not.toContain('cursor-pointer');
++    expect(markup).not.toContain('brightness-110');
++    expect(text(card(part))).toContain('Show more');
++    expect(text(card(part, true))).toContain('Show less');
++    expect(markup).toContain('hover:underline');
++});
 diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
 new file mode 100644
-index 000000000..5c7d55a04
+index 000000000..91be24fae
 --- /dev/null
 +++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
-@@ -0,0 +1,157 @@
+@@ -0,0 +1,163 @@
 +import React from 'react';
 +
 +import { useDeviceInfo } from '@/lib/device';
@@ -323,6 +335,7 @@ index 000000000..5c7d55a04
 +    withoutRecommendation,
 +} from '../lib/questionEntries';
 +import { stickyHeaderBackground } from './stickyHeaderBackground';
++import { USER_BUBBLE_TEXT_LINK_CLASS } from '../message/MessageBody';
 +
 +const RAIL_STYLE: React.CSSProperties = { borderColor: 'var(--status-question)' };
 +
@@ -347,7 +360,7 @@ index 000000000..5c7d55a04
 +
 +/**
 + * An answered question as its own transcript row: a purple card with each
-+ * question and the answer it got on a rail. Activating it opens the card in
++ * question and the answer it got on a rail. Show more opens the card in
 + * place to every option offered, the chosen one marked; a typed answer is one
 + * more marked row. With the sticky user header on, the card sticks like a
 + * prompt until the next prompt or answered question pushes it up, and an open
@@ -381,80 +394,85 @@ index 000000000..5c7d55a04
 +            data-question-turn-header=""
 +            data-message-id={startsMessage ? messageId : undefined}
 +        >
-+            <div className="chat-message-column relative flex flex-col items-end">
-+                <div
-+                    role="button"
-+                    tabIndex={0}
-+                    aria-expanded={open}
-+                    aria-label={t(open ? 'chat.questionCard.hideOptions' : 'chat.questionCard.showOptions')}
-+                    className="w-fit max-w-[85%] cursor-pointer border border-primary/5 px-5 py-3 transition-[filter] hover:brightness-110 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--status-question)]"
-+                    style={CARD_STYLE}
-+                    onClick={toggle}
-+                    onKeyDown={(event) => {
-+                        if (event.key !== 'Enter' && event.key !== ' ') return;
-+                        event.preventDefault();
-+                        toggle();
-+                    }}
-+                >
-+                    <div className={cn('space-y-2.5', open && 'max-h-[40dvh] overflow-y-auto overscroll-contain')}>
-+                        {answered.map(({ entry, answer }) => {
-+                            const picked = selectedOptionLabels(entry.options, entry.answer, entry.multiple);
-+                            return (
-+                                <div
-+                                    key={entry.partId}
-+                                    className="min-w-0 space-y-0.5 border-s-2 ps-2.5"
-+                                    style={RAIL_STYLE}
-+                                >
-+                                    <div
-+                                        dir="auto"
-+                                        className={cn('typography-meta text-foreground/70', !open && 'line-clamp-2')}
-+                                        title={entry.question}
-+                                    >
-+                                        {questionSentence(entry.question)}
-+                                    </div>
-+                                    {open ? (
-+                                        <div className="space-y-1.5 pt-1">
-+                                            {entry.options.map((option) => {
-+                                                const chosen = picked.has(option.label);
-+                                                return (
-+                                                    <div key={option.label} className="flex items-start gap-2.5">
-+                                                        <OptionMark chosen={chosen} />
-+                                                        <span className="min-w-0">
-+                                                            <span
-+                                                                dir="auto"
-+                                                                className={cn('block break-words typography-markdown leading-snug', chosen ? 'font-medium text-foreground' : 'text-foreground/60')}
-+                                                            >
-+                                                                {option.label}
-+                                                            </span>
-+                                                            {option.description ? (
-+                                                                <span dir="auto" className="block break-words typography-meta text-foreground/50">
-+                                                                    {option.description}
++            <div className="chat-message-column relative">
++                <div className="relative flex flex-col items-end">
++                    <div className="max-w-[85%]">
++                        <div
++                            className="select-text border border-primary/5 px-5 py-3 shadow-none"
++                            style={CARD_STYLE}
++                        >
++                            <div className={cn('space-y-2.5', open && 'max-h-[40dvh] overflow-y-auto overscroll-contain')}>
++                                {answered.map(({ entry, answer }) => {
++                                    const picked = selectedOptionLabels(entry.options, entry.answer, entry.multiple);
++                                    return (
++                                        <div
++                                            key={entry.partId}
++                                            className="min-w-0 space-y-0.5 border-s-2 ps-2.5"
++                                            style={RAIL_STYLE}
++                                        >
++                                            <div
++                                                dir="auto"
++                                                className={cn('typography-meta text-foreground/70', !open && 'line-clamp-2')}
++                                                title={entry.question}
++                                            >
++                                                {questionSentence(entry.question)}
++                                            </div>
++                                            {open ? (
++                                                <div className="space-y-1.5 pt-1">
++                                                    {entry.options.map((option) => {
++                                                        const chosen = picked.has(option.label);
++                                                        return (
++                                                            <div key={option.label} className="flex items-start gap-2.5">
++                                                                <OptionMark chosen={chosen} />
++                                                                <span className="min-w-0">
++                                                                    <span
++                                                                        dir="auto"
++                                                                        className={cn('block break-words typography-markdown leading-snug', chosen ? 'font-medium text-foreground' : 'text-foreground/60')}
++                                                                    >
++                                                                        {option.label}
++                                                                    </span>
++                                                                    {option.description ? (
++                                                                        <span dir="auto" className="block break-words typography-meta text-foreground/50">
++                                                                            {option.description}
++                                                                        </span>
++                                                                    ) : null}
 +                                                                </span>
-+                                                            ) : null}
-+                                                        </span>
-+                                                    </div>
-+                                                );
-+                                            })}
-+                                            {picked.size === 0 ? (
-+                                                <div className="flex items-start gap-2.5">
-+                                                    <OptionMark chosen />
-+                                                    <span dir="auto" className="min-w-0 whitespace-pre-wrap break-words typography-markdown font-medium leading-snug text-foreground">
-+                                                        {answer}
-+                                                    </span>
++                                                            </div>
++                                                        );
++                                                    })}
++                                                    {picked.size === 0 ? (
++                                                        <div className="flex items-start gap-2.5">
++                                                            <OptionMark chosen />
++                                                            <span dir="auto" className="min-w-0 whitespace-pre-wrap break-words typography-markdown font-medium leading-snug text-foreground">
++                                                                {answer}
++                                                            </span>
++                                                        </div>
++                                                    ) : null}
 +                                                </div>
-+                                            ) : null}
++                                            ) : (
++                                                <div dir="auto" className="whitespace-pre-wrap break-words typography-markdown font-medium leading-snug text-foreground line-clamp-3">
++                                                    {answer}
++                                                </div>
++                                            )}
 +                                        </div>
-+                                    ) : (
-+                                        <div dir="auto" className="whitespace-pre-wrap break-words typography-markdown font-medium leading-snug text-foreground line-clamp-3">
-+                                            {answer}
-+                                        </div>
-+                                    )}
-+                                </div>
-+                            );
-+                        })}
-+                    </div>
++                                    );
++                                })}
++                            </div>
++                            <div className="mt-1 flex min-w-0 items-center justify-end gap-1.5 text-sm text-muted-foreground">
++                                <button
++                                    type="button"
++                                    onClick={toggle}
++                                    className={cn('shrink-0', USER_BUBBLE_TEXT_LINK_CLASS)}
++                                    style={{ minHeight: 0, minWidth: 0 }}
++                                    aria-expanded={open}
++                                >
++                                    {t(open ? 'chat.message.userText.showLess' : 'chat.message.userText.showMore')}
++                                </button>
++                            </div>
++                        </div>
 +                </div>
-+                <div aria-hidden="true" className={isMobile ? 'h-9' : 'h-11'} />
++                    <div aria-hidden="true" className={isMobile ? 'h-9' : 'h-11'} />
++                </div>
 +            </div>
 +        </div>
 +    );
@@ -870,198 +888,3 @@ index f4ebed69c..b90ffafb8 100644
      }
      return true;
  };
-diff --git a/packages/ui/src/lib/i18n/messages/ar.ts b/packages/ui/src/lib/i18n/messages/ar.ts
-index ccae5ca45..c41a5e18f 100644
---- a/packages/ui/src/lib/i18n/messages/ar.ts
-+++ b/packages/ui/src/lib/i18n/messages/ar.ts
-@@ -2510,6 +2510,8 @@ export const dict = {
-   'chat.questionCard.recommended': 'موصى به',
-   'chat.questionCard.other': 'أخرى…',
-   'chat.questionCard.yourAnswer': 'إجابتك',
-+  'chat.questionCard.showOptions': 'إظهار كل الخيارات',
-+  'chat.questionCard.hideOptions': 'إخفاء كل الخيارات',
-   'chat.questionCard.submit': 'إرسال',
-   'chat.questionCard.next': 'التالي',
-   'chat.questionCard.dismiss': 'تجاهل',
-diff --git a/packages/ui/src/lib/i18n/messages/de.ts b/packages/ui/src/lib/i18n/messages/de.ts
-index c01c78791..87e2d80a7 100644
---- a/packages/ui/src/lib/i18n/messages/de.ts
-+++ b/packages/ui/src/lib/i18n/messages/de.ts
-@@ -2315,6 +2315,8 @@ export const dict = {
-   'chat.questionCard.recommended': 'empfohlen',
-   'chat.questionCard.other': 'Andere…',
-   'chat.questionCard.yourAnswer': 'Ihre Antwort',
-+  'chat.questionCard.showOptions': 'Alle Optionen anzeigen',
-+  'chat.questionCard.hideOptions': 'Alle Optionen ausblenden',
-   'chat.questionCard.submit': 'Senden',
-   'chat.questionCard.next': 'Weiter',
-   'chat.questionCard.dismiss': 'Verwerfen',
-diff --git a/packages/ui/src/lib/i18n/messages/en.ts b/packages/ui/src/lib/i18n/messages/en.ts
-index 20b83c221..8b49da955 100644
---- a/packages/ui/src/lib/i18n/messages/en.ts
-+++ b/packages/ui/src/lib/i18n/messages/en.ts
-@@ -2598,6 +2598,8 @@ export const dict = {
-   'chat.questionCard.recommended': 'recommended',
-   'chat.questionCard.other': 'Other…',
-   'chat.questionCard.yourAnswer': 'Your answer',
-+  'chat.questionCard.showOptions': 'Show all options',
-+  'chat.questionCard.hideOptions': 'Hide all options',
-   'chat.questionCard.submit': 'Submit',
-   'chat.questionCard.next': 'Next',
-   'chat.questionCard.dismiss': 'Dismiss',
-diff --git a/packages/ui/src/lib/i18n/messages/es.ts b/packages/ui/src/lib/i18n/messages/es.ts
-index 74844ae17..282b8b0ab 100644
---- a/packages/ui/src/lib/i18n/messages/es.ts
-+++ b/packages/ui/src/lib/i18n/messages/es.ts
-@@ -2566,6 +2566,8 @@ export const dict: Record<I18nKey, string> = {
-   "chat.questionCard.recommended": "recomendado",
-   "chat.questionCard.other": "Otro…",
-   "chat.questionCard.yourAnswer": "Tu respuesta",
-+  "chat.questionCard.showOptions": "Mostrar todas las opciones",
-+  "chat.questionCard.hideOptions": "Ocultar todas las opciones",
-   "chat.questionCard.submit": "Enviar",
-   "chat.questionCard.next": "Siguiente",
-   "chat.questionCard.dismiss": "Descartar",
-diff --git a/packages/ui/src/lib/i18n/messages/fr.ts b/packages/ui/src/lib/i18n/messages/fr.ts
-index aff896e29..8c347ff52 100644
---- a/packages/ui/src/lib/i18n/messages/fr.ts
-+++ b/packages/ui/src/lib/i18n/messages/fr.ts
-@@ -2314,6 +2314,8 @@ export const dict = {
-   'chat.questionCard.recommended': 'recommandé',
-   'chat.questionCard.other': 'Autre…',
-   'chat.questionCard.yourAnswer': 'Votre réponse',
-+  'chat.questionCard.showOptions': 'Afficher toutes les options',
-+  'chat.questionCard.hideOptions': 'Masquer toutes les options',
-   'chat.questionCard.submit': 'Soumettre',
-   'chat.questionCard.next': 'Suivant',
-   'chat.questionCard.dismiss': 'Ignorer',
-diff --git a/packages/ui/src/lib/i18n/messages/he.ts b/packages/ui/src/lib/i18n/messages/he.ts
-index 2141cde65..a583a0556 100644
---- a/packages/ui/src/lib/i18n/messages/he.ts
-+++ b/packages/ui/src/lib/i18n/messages/he.ts
-@@ -2510,6 +2510,8 @@ export const dict = {
-   'chat.questionCard.recommended': 'מומלץ',
-   'chat.questionCard.other': 'אחר…',
-   'chat.questionCard.yourAnswer': 'התשובה שלך',
-+  'chat.questionCard.showOptions': 'הצג את כל האפשרויות',
-+  'chat.questionCard.hideOptions': 'הסתר את כל האפשרויות',
-   'chat.questionCard.submit': 'שלח',
-   'chat.questionCard.next': 'הבא',
-   'chat.questionCard.dismiss': 'דלג',
-diff --git a/packages/ui/src/lib/i18n/messages/ja.ts b/packages/ui/src/lib/i18n/messages/ja.ts
-index a083df639..9dca89a8c 100644
---- a/packages/ui/src/lib/i18n/messages/ja.ts
-+++ b/packages/ui/src/lib/i18n/messages/ja.ts
-@@ -2594,6 +2594,8 @@ export const dict: Record<I18nKey, string> = {
-   'chat.questionCard.recommended': '推奨',
-   'chat.questionCard.other': 'その他…',
-   'chat.questionCard.yourAnswer': 'あなたの回答',
-+  'chat.questionCard.showOptions': 'すべての選択肢を表示',
-+  'chat.questionCard.hideOptions': 'すべての選択肢を隠す',
-   'chat.questionCard.submit': '送信',
-   'chat.questionCard.next': '次へ',
-   'chat.questionCard.dismiss': '閉じる',
-diff --git a/packages/ui/src/lib/i18n/messages/ko.ts b/packages/ui/src/lib/i18n/messages/ko.ts
-index 1a2a4438c..92f648e86 100644
---- a/packages/ui/src/lib/i18n/messages/ko.ts
-+++ b/packages/ui/src/lib/i18n/messages/ko.ts
-@@ -2598,6 +2598,8 @@ export const dict: Record<I18nKey, string> = {
-   'chat.questionCard.recommended': '추천',
-   'chat.questionCard.other': '기타…',
-   'chat.questionCard.yourAnswer': '내 답변',
-+  'chat.questionCard.showOptions': '모든 옵션 보기',
-+  'chat.questionCard.hideOptions': '모든 옵션 숨기기',
-   'chat.questionCard.submit': '제출',
-   'chat.questionCard.next': '다음',
-   'chat.questionCard.dismiss': '닫기',
-diff --git a/packages/ui/src/lib/i18n/messages/nl.ts b/packages/ui/src/lib/i18n/messages/nl.ts
-index d26e9a9ce..75058b7f8 100644
---- a/packages/ui/src/lib/i18n/messages/nl.ts
-+++ b/packages/ui/src/lib/i18n/messages/nl.ts
-@@ -2598,6 +2598,8 @@ export const dict = {
-   'chat.questionCard.recommended': 'aanbevolen',
-   'chat.questionCard.other': 'Anders…',
-   'chat.questionCard.yourAnswer': 'Uw antwoord',
-+  'chat.questionCard.showOptions': 'Alle opties tonen',
-+  'chat.questionCard.hideOptions': 'Alle opties verbergen',
-   'chat.questionCard.submit': 'Verzenden',
-   'chat.questionCard.next': 'Volgende',
-   'chat.questionCard.dismiss': 'Sluiten',
-diff --git a/packages/ui/src/lib/i18n/messages/pl.ts b/packages/ui/src/lib/i18n/messages/pl.ts
-index fa2a0a921..0f6621050 100644
---- a/packages/ui/src/lib/i18n/messages/pl.ts
-+++ b/packages/ui/src/lib/i18n/messages/pl.ts
-@@ -1161,6 +1161,8 @@ export const dict: Record<I18nKey, string> = {
-   'chat.questionCard.recommended': 'rekomendowane',
-   'chat.questionCard.other': 'Inne...',
-   'chat.questionCard.yourAnswer': 'Twoja odpowiedź',
-+  'chat.questionCard.showOptions': 'Pokaż wszystkie opcje',
-+  'chat.questionCard.hideOptions': 'Ukryj wszystkie opcje',
-   'chat.questionCard.submit': 'Wyślij',
-   'chat.questionCard.next': 'Następne',
-   'chat.questionCard.dismiss': 'Odrzuć',
-diff --git a/packages/ui/src/lib/i18n/messages/pt-BR.ts b/packages/ui/src/lib/i18n/messages/pt-BR.ts
-index d542efc72..9d36adc88 100644
---- a/packages/ui/src/lib/i18n/messages/pt-BR.ts
-+++ b/packages/ui/src/lib/i18n/messages/pt-BR.ts
-@@ -2568,6 +2568,8 @@ export const dict: Record<I18nKey, string> = {
-   "chat.questionCard.recommended": "recomendado",
-   "chat.questionCard.other": "Outro…",
-   "chat.questionCard.yourAnswer": "Sua resposta",
-+  "chat.questionCard.showOptions": "Mostrar todas as opções",
-+  "chat.questionCard.hideOptions": "Ocultar todas as opções",
-   "chat.questionCard.submit": "Enviar",
-   "chat.questionCard.next": "Próximo",
-   "chat.questionCard.dismiss": "Descartar",
-diff --git a/packages/ui/src/lib/i18n/messages/tr.ts b/packages/ui/src/lib/i18n/messages/tr.ts
-index 321e6cf80..c3d736570 100644
---- a/packages/ui/src/lib/i18n/messages/tr.ts
-+++ b/packages/ui/src/lib/i18n/messages/tr.ts
-@@ -2440,6 +2440,8 @@ export const dict = {
-   'chat.questionCard.recommended': 'önerilen',
-   'chat.questionCard.other': 'Diğer…',
-   'chat.questionCard.yourAnswer': 'Yanıtın',
-+  'chat.questionCard.showOptions': 'Tüm seçenekleri göster',
-+  'chat.questionCard.hideOptions': 'Tüm seçenekleri gizle',
-   'chat.questionCard.submit': 'Gönder',
-   'chat.questionCard.next': 'İleri',
-   'chat.questionCard.dismiss': 'Yok say',
-diff --git a/packages/ui/src/lib/i18n/messages/uk.ts b/packages/ui/src/lib/i18n/messages/uk.ts
-index 727fced9e..39ed32de5 100644
---- a/packages/ui/src/lib/i18n/messages/uk.ts
-+++ b/packages/ui/src/lib/i18n/messages/uk.ts
-@@ -2566,6 +2566,8 @@ export const dict: Record<I18nKey, string> = {
-   "chat.questionCard.recommended": "рекомендований",
-   "chat.questionCard.other": "Інше…",
-   "chat.questionCard.yourAnswer": "Ваша відповідь",
-+  "chat.questionCard.showOptions": "Показати всі варіанти",
-+  "chat.questionCard.hideOptions": "Сховати всі варіанти",
-   "chat.questionCard.submit": "Надіслати",
-   "chat.questionCard.next": "Далі",
-   "chat.questionCard.dismiss": "Відхилити",
-diff --git a/packages/ui/src/lib/i18n/messages/zh-CN.ts b/packages/ui/src/lib/i18n/messages/zh-CN.ts
-index 3b7ab1e2a..e8f0d80d7 100644
---- a/packages/ui/src/lib/i18n/messages/zh-CN.ts
-+++ b/packages/ui/src/lib/i18n/messages/zh-CN.ts
-@@ -2564,6 +2564,8 @@ export const dict: Record<I18nKey, string> = {
-   'chat.questionCard.recommended': '推荐',
-   'chat.questionCard.other': '其他…',
-   'chat.questionCard.yourAnswer': '你的回答',
-+  'chat.questionCard.showOptions': '显示所有选项',
-+  'chat.questionCard.hideOptions': '隐藏所有选项',
-   'chat.questionCard.submit': '提交',
-   'chat.questionCard.next': '下一个',
-   'chat.questionCard.dismiss': '忽略',
-diff --git a/packages/ui/src/lib/i18n/messages/zh-TW.ts b/packages/ui/src/lib/i18n/messages/zh-TW.ts
-index 048ac233d..d566449dd 100644
---- a/packages/ui/src/lib/i18n/messages/zh-TW.ts
-+++ b/packages/ui/src/lib/i18n/messages/zh-TW.ts
-@@ -2575,6 +2575,8 @@ export const dict: Record<I18nKey, string> = {
-   'chat.questionCard.recommended': '推薦',
-   'chat.questionCard.other': '其他…',
-   'chat.questionCard.yourAnswer': '你的回答',
-+  'chat.questionCard.showOptions': '顯示所有選項',
-+  'chat.questionCard.hideOptions': '隱藏所有選項',
-   'chat.questionCard.submit': '提交',
-   'chat.questionCard.next': '下一個',
-   'chat.questionCard.dismiss': '忽略',
