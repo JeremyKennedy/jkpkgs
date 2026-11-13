@@ -1,5 +1,22 @@
+diff --git a/packages/ui/src/apps/MobileSessionStateBadges.tsx b/packages/ui/src/apps/MobileSessionStateBadges.tsx
+index 4a97ebd4a..d877e4c03 100644
+--- a/packages/ui/src/apps/MobileSessionStateBadges.tsx
++++ b/packages/ui/src/apps/MobileSessionStateBadges.tsx
+@@ -39,10 +39,10 @@ export const MobileSessionPendingBadges: React.FC<PendingRequests> = ({ hasPermi
+       ) : null}
+       {hasForm ? (
+         <span
+-          className="inline-flex shrink-0 items-center text-status-warning"
++          className="inline-flex shrink-0 items-center rounded border border-status-question-border bg-status-question px-1.5 text-status-question-foreground"
+           aria-label={t('sessions.sidebar.session.status.questionPending')}
+         >
+-          <Icon name="question" className="size-3" />
++          <Icon name="question" className="size-3.5" />
+         </span>
+       ) : null}
+     </>
 diff --git a/packages/ui/src/apps/MobileSessionSwitcher.tsx b/packages/ui/src/apps/MobileSessionSwitcher.tsx
-index 2256595..4896077 100644
+index 225659546..489607758 100644
 --- a/packages/ui/src/apps/MobileSessionSwitcher.tsx
 +++ b/packages/ui/src/apps/MobileSessionSwitcher.tsx
 @@ -1,12 +1,15 @@
@@ -97,8 +114,34 @@ index 2256595..4896077 100644
                    meta={meta}
                    active={session.id === currentSessionId}
                    onSelect={() => {
+diff --git a/packages/ui/src/components/multirun/LaneStatusIcon.tsx b/packages/ui/src/components/multirun/LaneStatusIcon.tsx
+index 9cd1322b1..d10c782e6 100644
+--- a/packages/ui/src/components/multirun/LaneStatusIcon.tsx
++++ b/packages/ui/src/components/multirun/LaneStatusIcon.tsx
+@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils';
+ // grey: it only means the turn ended, not that the work is good.
+ const STATUS_ICON = {
+   permission: { name: 'shield', className: 'text-destructive' },
+-  question: { name: 'question', className: 'text-status-info' },
++  question: { name: 'question', className: 'text-status-question' },
+   working: { name: 'loader-4', className: 'text-[var(--status-warning)]' },
+   failed: { name: 'error-warning', className: 'text-[var(--status-error)]' },
+   stopped: { name: 'stop', className: 'text-muted-foreground' },
+diff --git a/packages/ui/src/components/overview/OverviewView.tsx b/packages/ui/src/components/overview/OverviewView.tsx
+index c3327c968..ab25eabb4 100644
+--- a/packages/ui/src/components/overview/OverviewView.tsx
++++ b/packages/ui/src/components/overview/OverviewView.tsx
+@@ -49,7 +49,7 @@ type Mark = { icon: IconName; color: string; tint?: boolean };
+ 
+ const WAITING_MARK = {
+   permission: { icon: 'shield', color: 'var(--status-error)', tint: true },
+-  question: { icon: 'question', color: 'var(--status-info)', tint: true },
++  question: { icon: 'question', color: 'var(--status-question)', tint: true },
+   error: { icon: 'error-warning', color: 'var(--status-error)' },
+   conflict: { icon: 'git-pull-request', color: 'var(--pr-blocked)' },
+   checks: { icon: 'git-pull-request', color: 'var(--pr-blocked)' },
 diff --git a/packages/ui/src/components/session/SessionSwitcherDropdown.tsx b/packages/ui/src/components/session/SessionSwitcherDropdown.tsx
-index 63cfefd..09bbea9 100644
+index 63cfefde6..09bbea98e 100644
 --- a/packages/ui/src/components/session/SessionSwitcherDropdown.tsx
 +++ b/packages/ui/src/components/session/SessionSwitcherDropdown.tsx
 @@ -14,11 +14,13 @@ import { SessionActivityIndicator } from '@/components/session/SessionActivityIn
@@ -194,3 +237,138 @@ index 63cfefd..09bbea9 100644
          <span className="flex h-3 w-3 flex-shrink-0 items-center justify-center self-center">
            <SessionActivityIndicator
              state={turnActivity ?? 'unread'}
+diff --git a/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.tsx b/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.tsx
+index 1eed3eeb4..6d8a29344 100644
+--- a/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.tsx
++++ b/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.tsx
+@@ -1608,8 +1608,8 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode
+       ) : null}
+       {hasPendingForm ? (
+         <RowMarkTooltip label={pendingFormLabel}>
+-          <span className="inline-flex flex-shrink-0 items-center text-status-warning" aria-label={pendingFormLabel}>
+-            <Icon name="question" className="h-3 w-3" />
++          <span className="inline-flex flex-shrink-0 items-center rounded border border-status-question-border bg-status-question px-1.5 text-status-question-foreground" aria-label={pendingFormLabel}>
++            <Icon name="question" className="h-3.5 w-3.5" />
+           </span>
+         </RowMarkTooltip>
+       ) : null}
+diff --git a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.tsx b/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.tsx
+index 83752e671..06803e8db 100644
+--- a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.tsx
++++ b/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.tsx
+@@ -20,17 +20,25 @@ export function CollapsedActivityIndicator({
+   className?: string;
+ }): React.ReactNode {
+   const { t } = useI18n();
+-  if (state === 'permission' || state === 'form') {
+-    const label = state === 'permission'
+-      ? t('sessions.sidebar.session.status.permissionRequired')
+-      : t('sessions.sidebar.session.status.questionPending');
++  if (state === 'permission') {
++    const label = t('sessions.sidebar.session.status.permissionRequired');
++    return (
++      <RowMarkTooltip label={label}>
++        <span className={cn('inline-flex shrink-0 items-center text-status-warning', className)} aria-label={label}>
++          <Icon name="shield" className="h-3 w-3" />
++        </span>
++      </RowMarkTooltip>
++    );
++  }
++  if (state === 'form') {
++    const label = t('sessions.sidebar.session.status.questionPending');
+     return (
+       <RowMarkTooltip label={label}>
+         <span
+-          className={cn('inline-flex shrink-0 items-center text-status-warning', className)}
++          className={cn('inline-flex shrink-0 items-center rounded border border-status-question-border bg-status-question px-1.5 text-status-question-foreground', className)}
+           aria-label={label}
+         >
+-          <Icon name={state === 'permission' ? 'shield' : 'question'} className="h-3 w-3" />
++          <Icon name="question" className="h-3.5 w-3.5" />
+         </span>
+       </RowMarkTooltip>
+     );
+diff --git a/packages/ui/src/lib/theme/cssGenerator.ts b/packages/ui/src/lib/theme/cssGenerator.ts
+index a9f6361c0..c816e3ed5 100644
+--- a/packages/ui/src/lib/theme/cssGenerator.ts
++++ b/packages/ui/src/lib/theme/cssGenerator.ts
+@@ -2,7 +2,7 @@ import type { Theme } from '@/types/theme';
+ import { SEMANTIC_TYPOGRAPHY, VSCODE_TYPOGRAPHY } from '@/lib/typography';
+ import { isVSCodeRuntime } from '@/lib/desktop';
+ import { resolveSyntaxTokens } from './syntax';
+-import { withOpacity } from './color';
++import { onColor, withOpacity } from './color';
+ import { getReadableThemeColors } from './readableColors';
+ 
+ const hexToRgb = (value: string | undefined | null): string | null => {
+@@ -46,6 +46,7 @@ export class CSSVariableGenerator {
+     cssVars.push(...this.generateSurfaceColors(theme.colors.surface));
+     cssVars.push(...this.generateInteractiveColors(theme.colors.interactive));
+     cssVars.push(...this.generateStatusColors(theme.colors.status));
++    cssVars.push(...this.generateQuestionColors(theme));
+     cssVars.push(...this.generatePullRequestColors(theme));
+ 
+     cssVars.push(...this.generateSyntaxColors(theme.colors.syntax));
+@@ -240,6 +241,23 @@ const sidebarBaseRgb = hexToRgb(theme.colors.surface.muted);
+     return vars;
+   }
+ 
++  /**
++   * The pending-question mark is not "info": a turn that is still running and a
++   * turn blocked on the user's answer must not read the same. The violet is
++   * app-owned like the merged-PR default, so every theme, built-in or imported,
++   * gets it without the theme schema having to declare it.
++   */
++  private generateQuestionColors(theme: Theme): string[] {
++    const dark = theme.metadata.variant === 'dark';
++    const base = dark ? '#a78bfa' : '#7c3aed';
++    return [
++      `  --status-question: ${base};`,
++      `  --status-question-foreground: ${onColor(base, theme.colors.surface.background)};`,
++      `  --status-question-background: ${withOpacity(base, 0.16)};`,
++      `  --status-question-border: ${withOpacity(base, 0.5)};`,
++    ];
++  }
++
+   private generatePullRequestColors(theme: Theme): string[] {
+     const vars: string[] = [];
+     const pr = theme.colors.pr;
+diff --git a/packages/ui/src/lib/theme/definition.test.ts b/packages/ui/src/lib/theme/definition.test.ts
+index 8d7797ec3..63e838eaf 100644
+--- a/packages/ui/src/lib/theme/definition.test.ts
++++ b/packages/ui/src/lib/theme/definition.test.ts
+@@ -263,6 +263,19 @@ describe('rendered theme color pairs', () => {
+     }
+   });
+ 
++  test('keeps the pending-question mark readable on its own fill', () => {
++    const generator = new CSSVariableGenerator();
++    for (const theme of themes) {
++      const css = generator.generate(theme);
++      const base = /--status-question: ([^;]+);/.exec(css)?.[1];
++      const foreground = /--status-question-foreground: ([^;]+);/.exec(css)?.[1];
++      expect(base).toBeDefined();
++      expect(foreground).toBeDefined();
++      expect(contrastRatio(foreground!, base!)).toBeGreaterThanOrEqual(4.5);
++      expect(contrastRatio(base!, theme.colors.surface.background)).toBeGreaterThanOrEqual(3);
++    }
++  });
++
+   test('keeps error text readable on the terminal alert surface', () => {
+     for (const theme of themes) {
+       const css = new CSSVariableGenerator().generate(theme);
+diff --git a/packages/ui/src/styles/design-system.css b/packages/ui/src/styles/design-system.css
+index 85f73335b..4caa6d173 100644
+--- a/packages/ui/src/styles/design-system.css
++++ b/packages/ui/src/styles/design-system.css
+@@ -985,6 +985,10 @@ html[data-glass-redraw-guard] body::before {
+   --color-status-warning: var(--status-warning);
+   --color-status-error: var(--status-error);
+   --color-status-info: var(--status-info);
++  --color-status-question: var(--status-question);
++  --color-status-question-foreground: var(--status-question-foreground);
++  --color-status-question-background: var(--status-question-background);
++  --color-status-question-border: var(--status-question-border);
+   --color-sidebar-primary: var(--sidebar-primary);
+   --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+   --color-sidebar-accent: var(--sidebar-accent);
