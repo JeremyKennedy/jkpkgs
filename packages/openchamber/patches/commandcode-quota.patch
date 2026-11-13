@@ -1,5 +1,5 @@
 diff --git a/packages/ui/src/lib/quota/providers/index.ts b/packages/ui/src/lib/quota/providers/index.ts
-index 08ee5d062..48670b229 100644
+index aa73f5f40..de35d0d75 100644
 --- a/packages/ui/src/lib/quota/providers/index.ts
 +++ b/packages/ui/src/lib/quota/providers/index.ts
 @@ -14,6 +14,7 @@ export interface QuotaProviderMeta {
@@ -11,7 +11,7 @@ index 08ee5d062..48670b229 100644
    { id: 'cursor', name: 'Cursor' },
    { id: 'github-copilot', name: 'GitHub Copilot' },
 diff --git a/packages/ui/src/types/quota.ts b/packages/ui/src/types/quota.ts
-index 0ef378cd1..49593b6e8 100644
+index f9988ca72..0eb289d48 100644
 --- a/packages/ui/src/types/quota.ts
 +++ b/packages/ui/src/types/quota.ts
 @@ -5,6 +5,7 @@ type BuiltInQuotaProviderId =
@@ -23,7 +23,7 @@ index 0ef378cd1..49593b6e8 100644
    | 'github-copilot-addon'
    | 'google'
 diff --git a/packages/web/server/lib/quota/DOCUMENTATION.md b/packages/web/server/lib/quota/DOCUMENTATION.md
-index 5a04dcb98..38d14a232 100644
+index dbc95b62a..9cdab153d 100644
 --- a/packages/web/server/lib/quota/DOCUMENTATION.md
 +++ b/packages/web/server/lib/quota/DOCUMENTATION.md
 @@ -40,6 +40,7 @@ the list loses its usage card with no error.
@@ -34,7 +34,7 @@ index 5a04dcb98..38d14a232 100644
  | `cursor` | Cursor | `providers/cursor.js` | Environment/token files, OpenChamber-managed credentials, or explicit one-time Cursor import |
  | `deepinfra` | DeepInfra | `providers/deepinfra.js` | `deepinfra`, `deep-infra`, `deep_infra` (API key under `key` or `token`) |
  | `deepseek` | DeepSeek | `providers/deepseek.js` | `deepseek` (API key under `key` or `token`) |
-@@ -83,6 +84,8 @@ Provider modules must export `providerId`, `providerName`, `aliases`, `isConfigu
+@@ -84,6 +85,8 @@ Provider modules must export `providerId`, `providerName`, `aliases`, `isConfigu
  
  exe.dev, Cursor, and ZenMux credentials are explicitly managed through Settings. exe.dev usage uses a separately generated HTTPS API token restricted to `billing credits usage` and aggregates every `exe-*` model provider into one monthly credit window. Generate the token with `ssh exe.dev "ssh-key generate-api-key --label=openchamber --exp=30d --cmds='billing credits usage'"`. ZenMux usage uses an optional Platform API key pasted on the Usage page; the OpenCode chat key is never used, and a missing Platform API key means ZenMux quota is not fetched. The server validates managed credentials before atomic `0600` writes and never returns secrets through its API. OpenChamber never scans browser cookie stores or automatically reads Cursor storage; Cursor import is an explicit one-time user action and never modifies Cursor's database.
  
@@ -237,7 +237,7 @@ index 000000000..f6293bddf
 +  }
 +};
 diff --git a/packages/web/server/lib/quota/providers/index.js b/packages/web/server/lib/quota/providers/index.js
-index f9070b2f8..dcbc2993e 100644
+index c809ac4a9..66db73131 100644
 --- a/packages/web/server/lib/quota/providers/index.js
 +++ b/packages/web/server/lib/quota/providers/index.js
 @@ -12,6 +12,7 @@ import { buildResult } from '../utils/index.js';
@@ -248,7 +248,7 @@ index f9070b2f8..dcbc2993e 100644
  import * as codex from './codex.js';
  import * as copilot from './copilot.js';
  import * as cursor from './cursor.js';
-@@ -51,6 +52,12 @@ const registry = {
+@@ -52,6 +53,12 @@ const registry = {
      isConfigured: clinePass.isConfigured,
      fetchQuota: clinePass.fetchQuota
    },

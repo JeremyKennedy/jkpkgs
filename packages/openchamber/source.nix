@@ -53,38 +53,12 @@ let
     name = "openchamber-${version}-source";
     src = openchamberSource;
     patches = [
+      # Batch 1: ports untouched by the base bump (they apply clean onto 2.7.1).
       ./patches/commandcode-quota.patch
       ./patches/codex-credits-balance.patch
-      ./patches/question-indicator.patch
-      ./patches/stale-pending-badge.patch
-      ./patches/chat-width.patch
-      ./patches/gitea-references-across.patch
-      ./patches/reply-start-scroll.patch
       ./patches/mobile-boot-overlay.patch
       ./patches/dictation-thread-count.patch
       ./patches/dictation-sherpa-platform.patch
-      ./patches/mobile-guest-extensions.patch
-      ./patches/android-notification-dismiss.patch
-      ./patches/in-work-paging.patch
-      ./patches/send-past-open-question.patch
-      ./patches/mobile-voice-launch.patch
-      ./patches/mobile-assist-trigger.patch
-      ./patches/draft-heading-project-picker.patch
-      ./patches/recap-full-note.patch
-      ./patches/question-rows.patch
-      ./patches/question-cards.patch
-      ./patches/instance-attention.patch
-      ./patches/image-viewer-zoom.patch
-      # Voice: no silent dictation loss (empty results fail loudly, a silent
-      # capture is called out, kept transcripts name their chat, and the
-      # capture context is created in the gesture), and the assistant gesture's
-      # dictation waits for the draft's own composer instead of starting
-      # against the chat still on screen. Relative to the queue above.
-      ./patches/dictation-recovery.patch
-      # Sidebar: a display toggle leaves out worktree rows with nothing in
-      # them (no session, draft, pin, archived session or removal in flight),
-      # while a search still finds them.
-      ./patches/hide-empty-worktrees.patch
     ];
   };
 in

@@ -1,8 +1,8 @@
 diff --git a/packages/vscode/src/quotaProviders.test.ts b/packages/vscode/src/quotaProviders.test.ts
-index c85d994fe..af2cd6112 100644
+index 82941cfc5..5650b382e 100644
 --- a/packages/vscode/src/quotaProviders.test.ts
 +++ b/packages/vscode/src/quotaProviders.test.ts
-@@ -1069,10 +1069,11 @@ describe('Codex quota provider (VS Code parity)', () => {
+@@ -1149,10 +1149,11 @@ describe('Codex quota provider (VS Code parity)', () => {
    });
  
    for (const { balance, unlimited, expected } of [
@@ -19,10 +19,10 @@ index c85d994fe..af2cd6112 100644
      { balance: null, unlimited: true, expected: 'Unlimited' },
      { balance: 62500, unlimited: true, expected: 'Unlimited' },
 diff --git a/packages/vscode/src/quotaProviders.ts b/packages/vscode/src/quotaProviders.ts
-index 311c1e549..33cf493ca 100644
+index 5ed117dc7..313cd8ddf 100644
 --- a/packages/vscode/src/quotaProviders.ts
 +++ b/packages/vscode/src/quotaProviders.ts
-@@ -14,6 +14,7 @@ import { readConsoleBudgets, withConsoleBudgets, type ConsoleBudgets } from '../
+@@ -15,6 +15,7 @@ import { readConsoleBudgets, withConsoleBudgets, type ConsoleBudgets } from '../
  import { antigravityHeaders, warnIfGeminiGroupMissing } from '../../web/server/lib/quota/providers/antigravity/client.js';
  import { miniMaxStatusError } from '../../web/server/lib/quota/providers/minimax-status.js';
  import { readCodexCliLogin, signInEmailOf } from '../../web/server/lib/quota/providers/codex-cli.js';
@@ -30,7 +30,7 @@ index 311c1e549..33cf493ca 100644
  
  type AuthEntry = Record<string, unknown> | string;
  type AuthFile = Record<string, AuthEntry>;
-@@ -1073,7 +1074,7 @@ const codexUsageWindowsOf = (payload: OpenAiUsagePayload) => {
+@@ -1078,7 +1079,7 @@ const codexUsageWindowsOf = (payload: OpenAiUsagePayload) => {
      const valueLabel = unlimited
        ? 'Unlimited'
        : balance !== null
@@ -40,10 +40,10 @@ index 311c1e549..33cf493ca 100644
      windows.credits_balance = toUsageWindow({
        usedPercent: null,
 diff --git a/packages/web/server/lib/quota/DOCUMENTATION.md b/packages/web/server/lib/quota/DOCUMENTATION.md
-index 5a04dcb98..484c6d084 100644
+index dbc95b62a..6290518c7 100644
 --- a/packages/web/server/lib/quota/DOCUMENTATION.md
 +++ b/packages/web/server/lib/quota/DOCUMENTATION.md
-@@ -150,7 +150,7 @@ Both runtimes read the same Console contract. Sharing the reader keeps budget ow
+@@ -165,7 +165,7 @@ Both runtimes read the same Console contract. Sharing the reader keeps provider
  
  ## Codex credit balance semantics
  
