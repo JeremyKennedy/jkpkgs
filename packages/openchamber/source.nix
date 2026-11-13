@@ -83,6 +83,9 @@ let
       # capture is called out, kept transcripts name their chat, and the
       # capture context is created in the gesture). Relative to the queue above.
       ./patches/dictation-recovery.patch
+      # Voice: the assistant gesture's dictation waits for the draft's own
+      # composer instead of starting against the chat still on screen.
+      ./patches/dictation-origin-wait.patch
     ];
   };
 in
