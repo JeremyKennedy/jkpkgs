@@ -69,7 +69,6 @@
           herdr-drovr = pkgs.callPackage ./packages/herdr-drovr/package.nix {
             drovrSource = drovr;
           };
-          paseo = pkgs.callPackage ./packages/paseo/package.nix { };
           openchamber = pkgs.callPackage ./packages/openchamber/package.nix {
             openchamberSource = openchamber;
             inherit (packages) opencode;
@@ -82,7 +81,6 @@
         }
         // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
           claude-desktop = pkgs.callPackage ./packages/claude-desktop/package.nix { };
-          paseo-desktop = pkgs.callPackage ./packages/paseo-desktop/package.nix { };
           openchamber-desktop = pkgs.callPackage ./packages/openchamber-desktop/package.nix {
             inherit (packages) openchamber opencode;
           };

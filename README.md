@@ -134,7 +134,7 @@ nix build .#pi
 Merges to `main` are gated on buildbot status contexts; the live list for
 this repo is the Forgejo branch-protection config (`status_check_contexts`)
 or `dotman buildbot status jeremy/jkpkgs`. CI evaluates all systems but
-builds only `x86_64-linux`, so darwin outputs (dsh, paseo on Cedar) are
+builds only `x86_64-linux`, so darwin outputs (dsh on Cedar) are
 proven by evaluation here and by the actual download/build on the target
 machine at deploy time.
 
