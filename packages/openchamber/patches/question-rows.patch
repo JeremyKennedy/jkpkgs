@@ -1,12 +1,12 @@
 diff --git a/packages/ui/src/components/chat/ChatContainer.tsx b/packages/ui/src/components/chat/ChatContainer.tsx
-index 02687e9dd..733babc3e 100644
+index c7e0eb7eb..d8ce04fb9 100644
 --- a/packages/ui/src/components/chat/ChatContainer.tsx
 +++ b/packages/ui/src/components/chat/ChatContainer.tsx
 @@ -123,6 +123,7 @@ import { useShownSessionSelection } from './useShownSessionSelection';
  import { usePinnedSessionDirectory } from './usePinnedSessionDirectory';
  import { useRightSlotStore } from '@/components/layout/rightSlot';
  import { buildPromptPreviewsByTurnId } from './lib/promptPreviews';
-+import { buildQuestionEntriesByPromptId, questionEntriesMapsEqual, type QuestionAnswerEntry } from './lib/questionEntries';
++import { buildQuestionEntriesByTurnId, type QuestionAnswerEntry } from './lib/questionEntries';
  import { resolveChatPromptReadOnly } from './chatPromptReadOnly';
  import { PermissionDock } from './PermissionDock';
  import { FormDock } from './FormDock';
@@ -26,28 +26,47 @@ index 02687e9dd..733babc3e 100644
      showPromptNavigator,
      canLoadEarlierPrompts,
      isLoadingOlderPrompts,
-@@ -354,6 +357,20 @@ const ChatViewport = React.memo(({
+@@ -354,11 +357,35 @@ const ChatViewport = React.memo(({
          promptPreviewsByTurnIdRef.current = next;
          return next;
      }, [renderedMessages]);
-+    // Keyed by the prompt's message id, the same keys the previews use, so a
-+    // question shows under the prompt row that asked it. Kept across streamed
-+    // part updates, like the previews above, so the rail's entries memo stays
+-    // Only real (non-synthetic) prompts become rail entries; selection still
+-    // targets the same turn anchors as the timeline.
++    // Keyed by the turn's id, the same keys the previews use, so a question
++    // shows under the prompt row that asked it. Kept across streamed part
++    // updates, like the previews above, so the rail's entries memo stays
 +    // stable while a reply streams.
-+    const questionsByPromptIdRef = React.useRef<Map<string, QuestionAnswerEntry[]>>(new Map());
++    const questionsByTurnIdRef = React.useRef<Map<string, QuestionAnswerEntry[]>>(new Map());
 +    const questionsByTurnId = React.useMemo(() => {
-+        const next = buildQuestionEntriesByPromptId(renderedMessages);
-+        const previous = questionsByPromptIdRef.current;
-+        if (questionEntriesMapsEqual(previous, next)) {
-+            return previous;
++        const next = buildQuestionEntriesByTurnId(renderedMessages);
++        const previous = questionsByTurnIdRef.current;
++        if (previous.size === next.size) {
++            let unchanged = true;
++            for (const [turnId, entries] of next) {
++                if (previous.get(turnId) !== entries) {
++                    unchanged = false;
++                    break;
++                }
++            }
++            if (unchanged) {
++                return previous;
++            }
 +        }
-+        questionsByPromptIdRef.current = next;
++        questionsByTurnIdRef.current = next;
 +        return next;
 +    }, [renderedMessages]);
-     // Only real (non-synthetic) prompts become rail entries; selection still
-     // targets the same turn anchors as the timeline.
++    // Only real (non-synthetic) prompts become rail entries; a turn whose
++    // prompt has no readable text still appears when it asked a question.
++    // Selection still targets the same turn anchors as the timeline.
      const promptTurnIds = React.useMemo(
-@@ -646,8 +663,10 @@ const ChatViewport = React.memo(({
+-        () => turnIds.filter((id) => promptPreviewsByTurnId.has(id)),
+-        [promptPreviewsByTurnId, turnIds],
++        () => turnIds.filter((id) => promptPreviewsByTurnId.has(id) || (questionsByTurnId.get(id)?.length ?? 0) > 0),
++        [promptPreviewsByTurnId, questionsByTurnId, turnIds],
+     );
+     // If the viewport sits in a filtered-out (synthetic) turn, treat the
+     // nearest preceding real prompt as active so the rail doesn't jump.
+@@ -646,8 +673,10 @@ const ChatViewport = React.memo(({
                              directory={directory}
                              turnIds={promptTurnIds}
                              previewsByTurnId={promptPreviewsByTurnId}
@@ -58,7 +77,7 @@ index 02687e9dd..733babc3e 100644
                              canLoadEarlier={canLoadEarlierPrompts}
                              isLoadingOlder={isLoadingOlderPrompts}
                              onLoadEarlier={onLoadEarlierPrompts}
-@@ -686,6 +705,7 @@ const ChatViewport = React.memo(({
+@@ -686,6 +715,7 @@ const ChatViewport = React.memo(({
          && prev.turnIds === next.turnIds
          && prev.activeTurnId === next.activeTurnId
          && prev.onSelectTurn === next.onSelectTurn
@@ -66,7 +85,7 @@ index 02687e9dd..733babc3e 100644
          && prev.showPromptNavigator === next.showPromptNavigator
          && prev.canLoadEarlierPrompts === next.canLoadEarlierPrompts
          && prev.isLoadingOlderPrompts === next.isLoadingOlderPrompts
-@@ -1678,6 +1698,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
+@@ -1706,6 +1736,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
          // wrong message; a teleport always arrives.
          void navigation.scrollToTurnId(turnId, { behavior: 'auto' });
      }, [navigation]);
@@ -76,7 +95,7 @@ index 02687e9dd..733babc3e 100644
      const canLoadEarlierPrompts = timelineController.historySignals.canLoadEarlier;
      // The mini chat window is too narrow for the navigator's panel.
      const showPromptNavigator = !isMobile
-@@ -2053,6 +2076,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
+@@ -2081,6 +2114,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
              turnIds={timelineController.turnIds}
              activeTurnId={timelineController.activeTurnId}
              onSelectTurn={handlePromptNavigatorSelect}
@@ -85,108 +104,47 @@ index 02687e9dd..733babc3e 100644
              canLoadEarlierPrompts={canLoadEarlierPrompts}
              isLoadingOlderPrompts={timelineController.isLoadingOlder}
 diff --git a/packages/ui/src/components/chat/ChatMessage.tsx b/packages/ui/src/components/chat/ChatMessage.tsx
-index 176b1d5a4..811b2b83c 100644
+index 176b1d5a4..f8d3aee66 100644
 --- a/packages/ui/src/components/chat/ChatMessage.tsx
 +++ b/packages/ui/src/components/chat/ChatMessage.tsx
-@@ -46,27 +46,89 @@ import { getContextObligatoryMessages } from '@/lib/contextObligatoryMessages';
+@@ -46,26 +46,19 @@ import { getContextObligatoryMessages } from '@/lib/contextObligatoryMessages';
  import { setContextObligatoryMessage } from '@/sync/session-actions';
  import { isVSCodeRuntime } from '@/lib/desktop';
  import { useChatColumnActions } from './chatColumnSession';
-+import { isAnsweredQuestionPart } from './lib/questionEntries';
-+import { isQuestionTool } from '@/lib/opencode/tools';
++import {
++    answeredQuestionIds,
++    questionIds,
++    readCollapsedQuestionsCache,
++    readExpandedQuestionsCache,
++    seedExpandedTools,
++    writeCollapsedQuestionsCache,
++    writeExpandedQuestionsCache,
++    writeExpandedToolsCache,
++} from './lib/questionExpandedState';
  
  const ToolOutputDialog = lazyWithChunkRecovery(() => import('./message/ToolOutputDialog'));
  
- const EXPANDED_TOOLS_CACHE_MAX = 4000;
- const expandedToolsStateCache = new Map<string, Set<string>>();
-+// Question rows the reader collapsed on purpose. They stay collapsed when the
-+// message is shown again, even though answered questions open by default.
-+const collapsedQuestionStateCache = new Map<string, Set<string>>();
-+// Question rows the reader opened on purpose. They stay open when the setting
-+// that opens answered questions is off.
-+const expandedQuestionStateCache = new Map<string, Set<string>>();
-+
-+const trimCache = (cache: Map<string, Set<string>>, messageId: string): void => {
-+    if (cache.size >= EXPANDED_TOOLS_CACHE_MAX && !cache.has(messageId)) {
-+        const oldest = cache.keys().next().value;
-+        if (typeof oldest === 'string') {
-+            cache.delete(oldest);
-+        }
-+    }
-+};
- 
+-const EXPANDED_TOOLS_CACHE_MAX = 4000;
+-const expandedToolsStateCache = new Map<string, Set<string>>();
+-
 -const readExpandedToolsCache = (messageId: string): Set<string> => {
-+const readExpandedToolsCache = (messageId: string): Set<string> | undefined => {
-     const cached = expandedToolsStateCache.get(messageId);
+-    const cached = expandedToolsStateCache.get(messageId);
 -    return cached ? new Set(cached) : new Set();
-+    return cached ? new Set(cached) : undefined;
- };
- 
- const writeExpandedToolsCache = (messageId: string, value: Set<string>): void => {
+-};
+-
+-const writeExpandedToolsCache = (messageId: string, value: Set<string>): void => {
 -    if (expandedToolsStateCache.size >= EXPANDED_TOOLS_CACHE_MAX && !expandedToolsStateCache.has(messageId)) {
 -        const oldest = expandedToolsStateCache.keys().next().value;
 -        if (typeof oldest === 'string') {
 -            expandedToolsStateCache.delete(oldest);
 -        }
 -    }
-+    trimCache(expandedToolsStateCache, messageId);
-     expandedToolsStateCache.set(messageId, new Set(value));
- };
+-    expandedToolsStateCache.set(messageId, new Set(value));
+-};
  
-+const readCollapsedQuestionsCache = (messageId: string): Set<string> => {
-+    const cached = collapsedQuestionStateCache.get(messageId);
-+    return cached ? new Set(cached) : new Set();
-+};
-+
-+const writeCollapsedQuestionsCache = (messageId: string, value: Set<string>): void => {
-+    trimCache(collapsedQuestionStateCache, messageId);
-+    collapsedQuestionStateCache.set(messageId, new Set(value));
-+};
-+
-+const readExpandedQuestionsCache = (messageId: string): Set<string> => {
-+    const cached = expandedQuestionStateCache.get(messageId);
-+    return cached ? new Set(cached) : new Set();
-+};
-+
-+const writeExpandedQuestionsCache = (messageId: string, value: Set<string>): void => {
-+    trimCache(expandedQuestionStateCache, messageId);
-+    expandedQuestionStateCache.set(messageId, new Set(value));
-+};
-+
-+const answeredQuestionIds = (parts: readonly Part[]): string[] =>
-+    parts.filter(isAnsweredQuestionPart).map((part) => part.id);
-+
-+const questionIds = (parts: readonly Part[]): Set<string> =>
-+    new Set(parts.filter((part) => part.type === 'tool' && isQuestionTool(part.tool)).map((part) => part.id));
-+
-+/**
-+ * The tool rows open when this message is shown. A question row follows the
-+ * setting and the reader's own decisions instead of the generic tool cache, so
-+ * turning the setting off closes them and a row the reader opened stays open.
-+ */
-+const seedExpandedTools = (
-+    messageId: string,
-+    parts: readonly Part[],
-+    autoExpandAnsweredQuestions: boolean,
-+): Set<string> => {
-+    const cached = readExpandedToolsCache(messageId);
-+    const collapsed = readCollapsedQuestionsCache(messageId);
-+    const explicit = readExpandedQuestionsCache(messageId);
-+    const ids = questionIds(parts);
-+    const answered = answeredQuestionIds(parts);
-+    const expanded = cached ? new Set(cached) : new Set<string>();
-+    for (const id of ids) expanded.delete(id);
-+    for (const id of explicit) if (ids.has(id)) expanded.add(id);
-+    if (autoExpandAnsweredQuestions) {
-+        for (const id of answered) if (!collapsed.has(id)) expanded.add(id);
-+    }
-+    return expanded;
-+};
-+
  function useStickyDisplayValue<T>(value: T | null | undefined): T | null | undefined {
      const [stickyValue, setStickyValue] = React.useState<T | null | undefined>(value);
- 
-@@ -148,11 +210,17 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
+@@ -148,11 +141,17 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
  
      const providers = useConfigStore((state) => state.providers);
      const showReasoningTraces = useUIStore((state) => state.showReasoningTraces);
@@ -205,7 +163,7 @@ index 176b1d5a4..811b2b83c 100644
      const [popupContent, setPopupContent] = React.useState<ToolPopupContent>({
          open: false,
          title: '',
-@@ -160,9 +228,49 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
+@@ -160,9 +159,49 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
      });
  
      React.useEffect(() => {
@@ -256,7 +214,7 @@ index 176b1d5a4..811b2b83c 100644
  
  
      const messageRole = React.useMemo(() => deriveMessageRole(message.info), [message.info]);
-@@ -558,10 +666,22 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
+@@ -558,10 +597,22 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
      const handleToggleTool = React.useCallback((toolId: string) => {
          setExpandedTools((prev) => {
              const next = new Set(prev);
@@ -282,19 +240,105 @@ index 176b1d5a4..811b2b83c 100644
              }
              writeExpandedToolsCache(message.info.id, next);
              return next;
+diff --git a/packages/ui/src/components/chat/MessageList.tsx b/packages/ui/src/components/chat/MessageList.tsx
+index 970a4c3de..873ebd5d6 100644
+--- a/packages/ui/src/components/chat/MessageList.tsx
++++ b/packages/ui/src/components/chat/MessageList.tsx
+@@ -751,6 +751,7 @@ type TimelineListProps = {
+     rowContext: TimelineRowContextValue;
+     showReasoningTraces: boolean;
+     collapsibleThinkingBlocks: boolean;
++    autoExpandAnsweredQuestions: boolean;
+ };
+ 
+ const TimelineList = React.memo(({
+@@ -768,6 +769,7 @@ const TimelineList = React.memo(({
+     rowContext,
+     showReasoningTraces,
+     collapsibleThinkingBlocks,
++    autoExpandAnsweredQuestions,
+ }: TimelineListProps) => {
+     const listRef = React.useRef<LegendListRef | null>(null);
+     const isAtEndRef = React.useRef(true);
+@@ -775,9 +777,10 @@ const TimelineList = React.memo(({
+ 
+     // Each row is placed at an estimate of its own height until measured
+     // (`rowSizeEstimate.ts`).
+-    const sizeMetricsRef = React.useRef<RowSizeMetrics>({ columnWidth: 0, lineHeight: 32, showReasoningTraces, collapsibleThinkingBlocks });
++    const sizeMetricsRef = React.useRef<RowSizeMetrics>({ columnWidth: 0, lineHeight: 32, showReasoningTraces, collapsibleThinkingBlocks, autoExpandAnsweredQuestions });
+     sizeMetricsRef.current.showReasoningTraces = showReasoningTraces;
+     sizeMetricsRef.current.collapsibleThinkingBlocks = collapsibleThinkingBlocks;
++    sizeMetricsRef.current.autoExpandAnsweredQuestions = autoExpandAnsweredQuestions;
+     const sizeMetrics = React.useCallback((): RowSizeMetrics => {
+         const metrics = sizeMetricsRef.current;
+         if (metrics.columnWidth <= 0) {
+@@ -791,7 +794,7 @@ const TimelineList = React.memo(({
+     const estimatesRef = React.useRef(new WeakMap<RenderRow, { metrics: string; size: number | undefined }>());
+     const estimateRowSize = React.useCallback((row: RenderRow): number | undefined => {
+         const metrics = sizeMetrics();
+-        const signature = `${metrics.columnWidth}|${metrics.lineHeight}|${metrics.showReasoningTraces}|${metrics.collapsibleThinkingBlocks}`;
++        const signature = `${metrics.columnWidth}|${metrics.lineHeight}|${metrics.showReasoningTraces}|${metrics.collapsibleThinkingBlocks}|${metrics.autoExpandAnsweredQuestions}`;
+         const cached = estimatesRef.current.get(row);
+         if (cached && cached.metrics === signature) return cached.size;
+         const size = estimateTimelineRowSize(row, metrics);
+@@ -949,6 +952,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
+     const showTurnChangedFiles = useUIStore((state) => state.showTurnChangedFiles);
+     const showReasoningTraces = useUIStore((state) => state.showReasoningTraces);
+     const collapsibleThinkingBlocks = useUIStore((state) => state.collapsibleThinkingBlocks);
++    const autoExpandAnsweredQuestions = useUIStore((state) => state.autoExpandAnsweredQuestions);
+     const stickyUserHeader = useUIStore((state) => state.stickyUserHeader);
+     const defaultActivityExpanded = activityRenderMode === 'summary';
+     const reviewTransferDirection = useGlobalSessionsStore((state) => {
+@@ -1774,6 +1778,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
+                     endPinningReleased={endPinningReleased}
+                     showReasoningTraces={showReasoningTraces}
+                     collapsibleThinkingBlocks={collapsibleThinkingBlocks}
++                    autoExpandAnsweredQuestions={autoExpandAnsweredQuestions}
+                 />
+         </FadeInDisabledProvider>
+     );
 diff --git a/packages/ui/src/components/chat/TimelineDialog.tsx b/packages/ui/src/components/chat/TimelineDialog.tsx
-index c09d961af..7d27dbdf0 100644
+index c09d961af..1784fc488 100644
 --- a/packages/ui/src/components/chat/TimelineDialog.tsx
 +++ b/packages/ui/src/components/chat/TimelineDialog.tsx
-@@ -17,6 +17,7 @@ import { getCurrentIntlLocale, useI18n } from '@/lib/i18n';
+@@ -17,6 +17,9 @@ import { getCurrentIntlLocale, useI18n } from '@/lib/i18n';
  import { getFullText, getMessagePreview } from './lib/messagePreview';
  import { useSourceControlDescriptorOf } from '@/lib/source-control/providers/registry';
  import { foldPromptEntries } from './lib/promptPreviews';
-+import { buildQuestionEntriesByPromptId } from './lib/questionEntries';
++import { buildQuestionEntriesByTurnId, type QuestionAnswerEntry } from './lib/questionEntries';
++import { buildTurnWindowModel } from './lib/turns/windowTurns';
++import type { ChatMessageEntry } from './lib/turns/types';
  import { useDeviceInfo } from '@/lib/device';
  import { cn } from '@/lib/utils';
  import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
-@@ -110,6 +111,7 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
+@@ -96,6 +99,26 @@ interface TimelineDialogBodyProps extends Omit<TimelineDialogProps, 'open'> {
+     onSearchQueryChange: (query: string) => void;
+ }
+ 
++type TimelinePromptGroup = {
++    message: ChatMessageEntry;
++    turnId: string;
++    isUserPrompt: boolean;
++    questions: QuestionAnswerEntry[];
++};
++
++// The dialog navigates one flat run of rows, the same model the prompt rail
++// uses: a prompt, then the answered questions it asked.
++type TimelineRow =
++    | { kind: 'prompt'; group: TimelinePromptGroup; showDateGroup: boolean }
++    | { kind: 'question'; question: QuestionAnswerEntry };
++
++const lastPromptRowIndex = (rows: readonly TimelineRow[]): number => {
++    for (let index = rows.length - 1; index >= 0; index -= 1) {
++        if (rows[index].kind === 'prompt') return index;
++    }
++    return 0;
++};
++
+ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
+     onOpenChange,
+     onScrollToMessage,
+@@ -110,6 +133,7 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
      onSearchQueryChange,
  }) => {
      const { t } = useI18n();
@@ -302,81 +346,330 @@ index c09d961af..7d27dbdf0 100644
      const descriptorOf = useSourceControlDescriptorOf();
      const messages = useSessionMessageRecords(currentSessionId, currentSessionDirectory);
      const messageLoader = useSessionMessageLoader();
-@@ -137,8 +139,10 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
-     const userMessages = React.useMemo(() => {
-         return foldPromptEntries(messages).map((message) => ({ message }));
-     }, [messages]);
-+    const questionsByPromptId = React.useMemo(() => buildQuestionEntriesByPromptId(messages), [messages]);
+@@ -134,26 +158,63 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
+     // Timeline actions are only valid for user messages. Folding the injected
+     // context back on is what gives a quote-only prompt a title, and makes the
+     // quote itself searchable.
+-    const userMessages = React.useMemo(() => {
+-        return foldPromptEntries(messages).map((message) => ({ message }));
+-    }, [messages]);
++    const turnModel = React.useMemo(() => buildTurnWindowModel(messages), [messages]);
++    const questionsByTurnId = React.useMemo(() => buildQuestionEntriesByTurnId(messages), [messages]);
++    const promptGroups = React.useMemo(() => {
++        const folded = new Map(foldPromptEntries(messages).map((message) => [message.info.id, message]));
++        const turnIds = new Set(turnModel.turnIds);
++        const groups: TimelinePromptGroup[] = [];
++        for (const message of messages) {
++            if (!turnIds.has(message.info.id)) continue;
++            const questions = questionsByTurnId.get(message.info.id) ?? [];
++            const foldedMessage = folded.get(message.info.id);
++            // A prompt with nothing readable still gets a row when its turn
++            // asked a question, so the question keeps a place to hang.
++            if (!foldedMessage && questions.length === 0) continue;
++            groups.push({
++                message: foldedMessage ?? message,
++                turnId: message.info.id,
++                isUserPrompt: message.info.role === 'user',
++                questions,
++            });
++        }
++        return groups;
++    }, [messages, questionsByTurnId, turnModel.turnIds]);
  
 -    // Filter by search query using all text parts in each user message.
-+    // Filter by search query using all text parts in each user message, and the
-+    // questions that followed it.
-     const filteredMessages = React.useMemo(() => {
+-    const filteredMessages = React.useMemo(() => {
++    // Filter by search query using all text parts in each prompt, and the
++    // questions its turn asked.
++    const filteredGroups = React.useMemo(() => {
          const trimmedQuery = searchQuery.trim();
-         if (!trimmedQuery) return userMessages;
-@@ -146,9 +150,12 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
+-        if (!trimmedQuery) return userMessages;
++        if (!trimmedQuery) return promptGroups;
+ 
          const query = trimmedQuery.toLowerCase();
-         return userMessages.filter(({ message }) => {
+-        return userMessages.filter(({ message }) => {
++        return promptGroups.filter(({ message, questions }) => {
              const fullText = getFullText(message.parts).toLowerCase();
 -            return fullText.includes(query);
 +            if (fullText.includes(query)) return true;
-+            return (questionsByPromptId.get(message.info.id) ?? []).some((question) => (
++            return questions.some((question) => (
 +                `${question.question} ${question.answer ?? ''}`.toLowerCase().includes(query)
 +            ));
          });
 -    }, [userMessages, searchQuery]);
-+    }, [questionsByPromptId, userMessages, searchQuery]);
++    }, [promptGroups, searchQuery]);
++
++    const rows = React.useMemo<TimelineRow[]>(() => {
++        const next: TimelineRow[] = [];
++        let previousDateGroup: string | null = null;
++        for (const group of filteredGroups) {
++            const dateGroup = formatDateGroup(group.message.info.time.created);
++            next.push({ kind: 'prompt', group, showDateGroup: dateGroup !== previousDateGroup });
++            previousDateGroup = dateGroup;
++            for (const question of group.questions) {
++                next.push({ kind: 'question', question });
++            }
++        }
++        return next;
++    }, [filteredGroups]);
  
      // The body mounts on open, so start on the row the reset below would pick;
      // starting at 0 would scroll the first row into view after the open scroll.
-@@ -454,6 +461,39 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
-                                             </div>
-                                         </div>
-                                     </div>
-+                                    {(questionsByPromptId.get(message.info.id) ?? []).map((question) => {
-+                                        const questionText = `${question.question} ${question.answer ?? ''}`;
-+                                        const questionSnippet = searchQuery.trim()
-+                                            ? getSearchSnippet(questionText, searchQuery)
-+                                            : null;
-+                                        return (
-+                                            <div
-+                                                key={question.partId}
-+                                                role="button"
-+                                                tabIndex={0}
-+                                                className="group flex items-start gap-3 py-1 ps-6 hover:bg-interactive-hover/30 focus-visible:bg-interactive-hover/30 focus-visible:outline-none rounded transition-colors cursor-pointer"
-+                                                onClick={() => void navigateToMessage(question.messageId)}
-+                                                onKeyDown={(event) => {
-+                                                    if (event.key !== 'Enter' && event.key !== ' ') return;
-+                                                    event.preventDefault();
-+                                                    void navigateToMessage(question.messageId);
-+                                                }}
-+                                                title={`${question.question} — ${question.answer ?? noAnswerLabel}`}
+     const [selectedIndex, setSelectedIndex] = React.useState(() => (
+-        searchQuery.trim() ? 0 : Math.max(0, filteredMessages.length - 1)
++        searchQuery.trim() ? 0 : lastPromptRowIndex(rows)
+     ));
+ 
+     React.useEffect(() => {
+@@ -161,12 +222,12 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
+             return;
+         }
+ 
+-        setSelectedIndex(searchQuery.trim() ? 0 : Math.max(0, filteredMessages.length - 1));
+-    }, [filteredMessages, searchQuery]);
++        setSelectedIndex(searchQuery.trim() ? 0 : lastPromptRowIndex(rows));
++    }, [rows, searchQuery]);
+ 
+     React.useEffect(() => {
+-        itemRefs.current = itemRefs.current.slice(0, filteredMessages.length);
+-    }, [filteredMessages.length]);
++        itemRefs.current = itemRefs.current.slice(0, rows.length);
++    }, [rows.length]);
+ 
+     React.useEffect(() => {
+         if (preservingLoadPositionRef.current) {
+@@ -184,7 +245,7 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
+         }
+ 
+         preservingLoadPositionRef.current = false;
+-    }, [filteredMessages.length, isLoadingEarlier]);
++    }, [rows.length, isLoadingEarlier]);
+ 
+     // Opening the dialog mounts the body: start at the latest message unless
+     // a search query is active.
+@@ -213,7 +274,7 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
+ 
+         const nextTop = anchoredRow.getBoundingClientRect().top - container.getBoundingClientRect().top;
+         container.scrollTop += nextTop - anchor.top;
+-    }, [filteredMessages.length, isLoadingEarlier]);
++    }, [rows.length, isLoadingEarlier]);
+ 
+     const handleLoadEarlier = React.useCallback(() => {
+         const container = listRef.current;
+@@ -245,7 +306,7 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
+     }, [onOpenChange, onScrollToMessage]);
+ 
+     const handleSearchKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
+-        const total = filteredMessages.length;
++        const total = rows.length;
+         if (total === 0) {
+             return;
+         }
+@@ -265,12 +326,12 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
+         if (event.key === 'Enter') {
+             event.preventDefault();
+             const safeIndex = ((selectedIndex % total) + total) % total;
+-            const selected = filteredMessages[safeIndex];
++            const selected = rows[safeIndex];
+             if (selected) {
+-                void navigateToMessage(selected.message.info.id);
++                void navigateToMessage(selected.kind === 'question' ? selected.question.messageId : selected.group.message.info.id);
+             }
+         }
+-    }, [filteredMessages, navigateToMessage, selectedIndex]);
++    }, [navigateToMessage, rows, selectedIndex]);
+ 
+     // Handle fork with loading state and session refresh
+     const handleFork = async (messageId: string) => {
+@@ -354,20 +415,69 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
+                 )}
+ 
+                 <ScrollableOverlay ref={listRef} outerClassName="min-h-0 flex-1" disableHorizontal>
+-                    {filteredMessages.length === 0 ? (
++                    {rows.length === 0 ? (
+                         <div className="text-center text-muted-foreground py-8">
+                             {searchQuery ? t('chat.timeline.empty.search') : t('chat.timeline.empty.session')}
+                         </div>
+                     ) : (
+-                        filteredMessages.map(({ message }, index) => {
++                        rows.map((row, index) => {
++                            if (row.kind === 'question') {
++                                const { question } = row;
++                                const questionText = `${question.question} ${question.answer ?? ''}`;
++                                const questionSnippet = searchQuery.trim()
++                                    ? getSearchSnippet(questionText, searchQuery)
++                                    : null;
++                                const isSelected = index === selectedIndex;
++                                return (
++                                    <div
++                                        key={question.partId}
++                                        ref={(element) => {
++                                            itemRefs.current[index] = element;
++                                        }}
++                                        className={cn(
++                                            'group flex items-start gap-3 rounded py-1 ps-6 transition-colors cursor-pointer',
++                                            isSelected
++                                                ? 'bg-interactive-selection text-interactive-selection-foreground'
++                                                : 'hover:bg-interactive-hover/30',
++                                        )}
++                                        onClick={() => void navigateToMessage(question.messageId)}
++                                        onMouseEnter={() => setSelectedIndex(index)}
++                                        title={`${question.question} — ${question.answer ?? noAnswerLabel}`}
++                                    >
++                                        <span className={cn(
++                                            'typography-meta min-w-16 flex-shrink-0 text-end',
++                                            isSelected ? 'text-interactive-selection-foreground' : 'text-muted-foreground',
++                                        )}>
++                                            ?
++                                        </span>
++                                        <span className="min-w-0 flex-1">
++                                            <span
++                                                className={cn(
++                                                    'block truncate typography-small oc-ui-start-align',
++                                                    isSelected ? 'text-interactive-selection-foreground' : 'text-muted-foreground',
++                                                )}
++                                                dir="auto"
 +                                            >
-+                                                <span className="typography-meta min-w-16 flex-shrink-0 text-end text-muted-foreground/70">
-+                                                    ?
-+                                                </span>
-+                                                <span className="min-w-0 flex-1">
-+                                                    <span className="block truncate typography-small text-muted-foreground">
-+                                                        {questionSnippet ?? question.question}
-+                                                    </span>
-+                                                    <span className="block truncate typography-meta text-muted-foreground/80">
-+                                                        {question.answer ?? noAnswerLabel}
-+                                                    </span>
-+                                                </span>
-+                                            </div>
-+                                        );
-+                                    })}
++                                                {questionSnippet ?? question.question}
++                                            </span>
++                                            <span
++                                                className={cn(
++                                                    'block truncate typography-meta oc-ui-start-align',
++                                                    isSelected ? 'text-interactive-selection-foreground' : 'text-muted-foreground',
++                                                )}
++                                                dir="auto"
++                                            >
++                                                {question.answer ?? noAnswerLabel}
++                                            </span>
++                                        </span>
++                                    </div>
++                                );
++                            }
++
++                            const { group } = row;
++                            const { message } = group;
+                             const preview = getMessagePreview(message.parts, undefined, t, descriptorOf);
+                             const timestamp = message.info.time.created;
+-                            const dateGroup = formatDateGroup(timestamp);
+-                            const previous = filteredMessages[index - 1];
+-                            const previousDateGroup = previous
+-                                ? formatDateGroup(previous.message.info.time.created)
+-                                : null;
+-                            const showDateGroup = dateGroup !== previousDateGroup;
+                             const messageTime = formatMessageTime(timestamp);
+                             const isSelected = index === selectedIndex;
+ 
+@@ -377,11 +487,11 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
+ 
+                             return (
+                                 <React.Fragment key={message.info.id}>
+-                                    {showDateGroup && (
++                                    {row.showDateGroup && (
+                                         <div className="sticky top-0 z-10 flex items-center gap-3 bg-background/95 py-2 backdrop-blur-sm">
+                                             <div className="h-px flex-1 bg-edge" />
+                                             <span className="typography-meta text-muted-foreground">
+-                                                {dateGroup}
++                                                {formatDateGroup(timestamp)}
+                                             </span>
+                                             <div className="h-px flex-1 bg-edge" />
+                                         </div>
+@@ -412,47 +522,49 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
+                                             {!snippet && preview && preview.length >= 80 && '…'}
+                                         </p>
+ 
+-                                        <div className="flex-shrink-0 h-5 flex items-center me-2">
+-                                            <div className={cn("gap-1", alwaysShowActions ? "flex" : "hidden group-hover:flex")}>
+-                                                <Tooltip>
+-                                                    <TooltipTrigger asChild>
+-                                                        <button
+-                                                            type="button"
+-                                                            className="h-5 w-5 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
+-                                                            onClick={async (e) => {
+-                                                                e.stopPropagation();
+-                                                                await revertToMessage(currentSessionId, message.info.id);
+-                                                                onOpenChange(false);
+-                                                            }}
+-                                                        >
+-                                                            <Icon name="arrow-go-back" className="h-4 w-4" />
+-                                                        </button>
+-                                                    </TooltipTrigger>
+-                                                    <TooltipContent sideOffset={6}>{t('chat.timeline.actions.revertFromHere')}</TooltipContent>
+-                                                </Tooltip>
+-
+-                                                <Tooltip>
+-                                                    <TooltipTrigger asChild>
+-                                                        <button
+-                                                            type="button"
+-                                                            className="h-5 w-5 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+-                                                            onClick={(e) => {
+-                                                                e.stopPropagation();
+-                                                                handleFork(message.info.id);
+-                                                            }}
+-                                                            disabled={forkingMessageId === message.info.id}
+-                                                        >
+-                                                            {forkingMessageId === message.info.id ? (
+-                                                                <Icon name="loader-4" className="h-4 w-4 animate-spin" />
+-                                                            ) : (
+-                                                                <Icon name="git-branch" className="h-4 w-4" />
+-                                                            )}
+-                                                        </button>
+-                                                    </TooltipTrigger>
+-                                                    <TooltipContent sideOffset={6}>{t('chat.timeline.actions.forkFromHere')}</TooltipContent>
+-                                                </Tooltip>
++                                        {group.isUserPrompt ? (
++                                            <div className="flex-shrink-0 h-5 flex items-center me-2">
++                                                <div className={cn("gap-1", alwaysShowActions ? "flex" : "hidden group-hover:flex")}>
++                                                    <Tooltip>
++                                                        <TooltipTrigger asChild>
++                                                            <button
++                                                                type="button"
++                                                                className="h-5 w-5 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
++                                                                onClick={async (e) => {
++                                                                    e.stopPropagation();
++                                                                    await revertToMessage(currentSessionId, message.info.id);
++                                                                    onOpenChange(false);
++                                                                }}
++                                                            >
++                                                                <Icon name="arrow-go-back" className="h-4 w-4" />
++                                                            </button>
++                                                        </TooltipTrigger>
++                                                        <TooltipContent sideOffset={6}>{t('chat.timeline.actions.revertFromHere')}</TooltipContent>
++                                                    </Tooltip>
++
++                                                    <Tooltip>
++                                                        <TooltipTrigger asChild>
++                                                            <button
++                                                                type="button"
++                                                                className="h-5 w-5 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
++                                                                onClick={(e) => {
++                                                                    e.stopPropagation();
++                                                                    handleFork(message.info.id);
++                                                                }}
++                                                                disabled={forkingMessageId === message.info.id}
++                                                            >
++                                                                {forkingMessageId === message.info.id ? (
++                                                                    <Icon name="loader-4" className="h-4 w-4 animate-spin" />
++                                                                ) : (
++                                                                    <Icon name="git-branch" className="h-4 w-4" />
++                                                                )}
++                                                            </button>
++                                                        </TooltipTrigger>
++                                                        <TooltipContent sideOffset={6}>{t('chat.timeline.actions.forkFromHere')}</TooltipContent>
++                                                    </Tooltip>
++                                                </div>
+                                             </div>
+-                                        </div>
++                                        ) : null}
+                                     </div>
                                  </React.Fragment>
                              );
-                         })
 diff --git a/packages/ui/src/components/chat/components/PromptNavigatorRail.test.tsx b/packages/ui/src/components/chat/components/PromptNavigatorRail.test.tsx
 new file mode 100644
-index 000000000..774c68167
+index 000000000..175620945
 --- /dev/null
 +++ b/packages/ui/src/components/chat/components/PromptNavigatorRail.test.tsx
-@@ -0,0 +1,180 @@
+@@ -0,0 +1,200 @@
 +import React, { act } from 'react';
-+import { expect, test } from 'bun:test';
++import { afterEach, expect, test } from 'bun:test';
 +import { createRoot, type Root } from 'react-dom/client';
 +import { Window } from 'happy-dom';
 +import { OpenCode } from '@opencode/client';
@@ -430,7 +723,12 @@ index 000000000..774c68167
 +    options: [{ label: 'Yes' }, { label: 'No' }],
 +    multiple: false,
 +    answer: 'Yes',
++    pending: false,
 +};
++
++afterEach(() => {
++    useUIStore.setState({ listQuestionsInPromptSelector: false, isPromptNavigatorPanelOpen: false });
++});
 +
 +const renderRail = async (listQuestions: boolean, onSelectQuestion: (messageId: string) => void) => {
 +    useUIStore.setState({ listQuestionsInPromptSelector: listQuestions, isPromptNavigatorPanelOpen: true });
@@ -555,8 +853,23 @@ index 000000000..774c68167
 +        container.remove();
 +    }
 +});
++
++test('turning the setting off closes question rows in an open selector', async () => {
++    const { container, root } = await renderRail(true, () => {});
++    try {
++        expect(container.textContent).toContain('Ship it?');
++        await act(async () => {
++            useUIStore.setState({ listQuestionsInPromptSelector: false });
++        });
++        expect(container.textContent).toContain('Deploy the release');
++        expect(container.textContent).not.toContain('Ship it?');
++    } finally {
++        await act(async () => { root.unmount(); });
++        container.remove();
++    }
++});
 diff --git a/packages/ui/src/components/chat/components/PromptNavigatorRail.tsx b/packages/ui/src/components/chat/components/PromptNavigatorRail.tsx
-index eb238b92e..7f11d62d8 100644
+index eb238b92e..617be06e4 100644
 --- a/packages/ui/src/components/chat/components/PromptNavigatorRail.tsx
 +++ b/packages/ui/src/components/chat/components/PromptNavigatorRail.tsx
 @@ -11,10 +11,12 @@ import { cn } from '@/lib/utils';
@@ -822,7 +1135,7 @@ index eb238b92e..7f11d62d8 100644
              listRef.current?.blur();
          }
 -    }, [close, currentIndex, handleSelect, highlightedIndex, moveHighlight, prompts.length]);
-+    }, [close, currentIndex, handleSelect, handleSelectQuestion, highlightedRowIndex, moveHighlight, navRows]);
++    }, [close, currentIndex, currentRowIndex, handleSelect, handleSelectQuestion, highlightedRowIndex, moveHighlight, navRows]);
  
      const handleListBlur = React.useCallback((event: React.FocusEvent<HTMLDivElement>) => {
          if (event.currentTarget.contains(event.relatedTarget)) {
@@ -844,7 +1157,7 @@ index eb238b92e..7f11d62d8 100644
                          // Positioned, so row offsets are measured within the list.
                          outerClassName="min-h-0"
                          className="relative overscroll-contain p-1 outline-none"
-@@ -359,37 +412,78 @@ export function PromptNavigatorRail({
+@@ -359,37 +412,74 @@ export function PromptNavigatorRail({
                      >
                          {prompts.map((prompt, index) => {
                              const isActive = index === activeIndex;
@@ -892,13 +1205,14 @@ index eb238b92e..7f11d62d8 100644
 +                                        // The current prompt carries the only fill; the row
 +                                        // under the pointer or keyboard brightens its text.
 +                                        className={cn(
-+                                            'cursor-pointer truncate rounded-lg px-2 py-1.5 typography-meta',
++                                            'cursor-pointer truncate rounded-lg px-2 py-1.5 typography-meta oc-ui-start-align',
 +                                            isActive
 +                                                ? 'bg-interactive-selection text-interactive-selection-foreground'
 +                                                : isHighlighted
 +                                                    ? 'text-foreground'
 +                                                    : 'oc-title-rest',
 +                                        )}
++                                        dir="auto"
 +                                        onMouseMove={() => {
 +                                            if (highlightedRowId !== promptId) {
 +                                                setHighlightedRowId(promptId);
@@ -931,19 +1245,14 @@ index eb238b92e..7f11d62d8 100644
 +                                                onMouseDown={(event) => event.preventDefault()}
 +                                                onClick={() => handleSelectQuestion(question.messageId)}
 +                                            >
-+                                                <span
-+                                                    aria-hidden="true"
-+                                                    className="mt-[1px] flex size-3.5 flex-shrink-0 items-center justify-center rounded-full border border-edge typography-micro text-muted-foreground"
-+                                                >
-+                                                    ?
-+                                                </span>
-+                                                <span className="min-w-0 flex-1">
-+                                                    <span className="block truncate typography-meta text-muted-foreground">
-+                                                        {question.question}
-+                                                    </span>
-+                                                    <span className="block truncate typography-micro text-muted-foreground/80">
-+                                                        {question.answer ?? noAnswerLabel}
-+                                                    </span>
++                                                <Icon
++                                                    name="question"
++                                                    className="mt-[1px] size-3.5 flex-shrink-0 text-muted-foreground"
++                                                />
++                                                <span dir="auto" className="min-w-0 flex-1 truncate typography-meta text-muted-foreground oc-ui-start-align">
++                                                    {question.question}
++                                                    {' · '}
++                                                    <span className="text-muted-foreground">{question.answer ?? noAnswerLabel}</span>
 +                                                </span>
 +                                            </div>
 +                                        );
@@ -971,20 +1280,19 @@ index de928c744..d157f4563 100644
              const result = await new Promise<boolean>((resolve) => {
 diff --git a/packages/ui/src/components/chat/lib/questionEntries.test.ts b/packages/ui/src/components/chat/lib/questionEntries.test.ts
 new file mode 100644
-index 000000000..7632701c0
+index 000000000..88f12b6fa
 --- /dev/null
 +++ b/packages/ui/src/components/chat/lib/questionEntries.test.ts
-@@ -0,0 +1,228 @@
+@@ -0,0 +1,251 @@
 +import { describe, expect, test } from 'bun:test';
 +
 +import type { ChatMessageEntry } from './turns/types';
 +import type { Part, ToolInput, ToolPart } from '@/lib/opencode/model';
 +import {
-+    buildQuestionEntriesByPromptId,
++    buildQuestionEntriesByTurnId,
 +    isAnsweredQuestionPart,
 +    parseQuestionAnswers,
 +    questionEntriesForPart,
-+    questionEntriesMapsEqual,
 +    readQuestionInput,
 +    selectedOptionLabels,
 +} from './questionEntries';
@@ -1017,6 +1325,19 @@ index 000000000..7632701c0
 +        modelID: 'test',
 +    },
 +    parts,
++});
++
++const compactionMessage = (id: string): ChatMessageEntry => ({
++    info: {
++        id,
++        sessionID: 'ses_1',
++        role: 'compaction',
++        time: { created: 2 },
++        status: 'completed',
++        reason: 'auto',
++        summary: 'Earlier context was compacted.',
++    },
++    parts: [],
 +});
 +
 +const answered = (pairs: Array<[string, string]>): string =>
@@ -1097,10 +1418,13 @@ index 000000000..7632701c0
 +        expect(entries.map((entry) => entry.answer)).toEqual(['main', 'dev']);
 +    });
 +
-+    test('leaves an unanswered question open', () => {
++    test('leaves an unanswered question open and marks it pending while the call runs', () => {
 +        const input = { questions: [{ question: 'Ship it?', options: [{ label: 'Yes' }] }] };
 +        const [entry] = questionEntriesForPart(questionPart(input), 'msg_assistant');
 +        expect(entry.answer).toBeNull();
++        expect(entry.pending).toBe(true);
++        const [answeredEntry] = questionEntriesForPart(questionPart(input, answered([['Ship it?', 'Yes']])), 'msg_assistant');
++        expect(answeredEntry.pending).toBe(false);
 +    });
 +
 +    test('reads a reply whose input is gone', () => {
@@ -1127,6 +1451,19 @@ index 000000000..7632701c0
 +        expect([...selectedOptionLabels(options, 'Yes, Later', true)]).toEqual(['Yes', 'Later']);
 +    });
 +
++    test('matches the option the question tool marked as recommended', () => {
++        expect([...selectedOptionLabels(options, 'Yes (Recommended)', false)]).toEqual(['Yes']);
++        expect([...selectedOptionLabels(options, 'Yes, Later (Recommended)', true)]).toEqual(['Yes', 'Later']);
++    });
++
++    test('marks a recommended pick in the middle of a multi-select reply', () => {
++        expect([...selectedOptionLabels(options, 'Later (Recommended), Yes', true)]).toEqual(['Yes', 'Later']);
++    });
++
++    test('keeps a label that itself ends with the recommendation marker', () => {
++        expect([...selectedOptionLabels([{ label: 'Yes (Recommended)' }], 'Yes (Recommended)', false)]).toEqual(['Yes (Recommended)']);
++    });
++
 +    test('does not split a label that contains a comma when the answer is that label', () => {
 +        expect([...selectedOptionLabels([{ label: 'Yes, please' }, { label: 'No' }], 'Yes, please', true)]).toEqual(['Yes, please']);
 +    });
@@ -1147,35 +1484,6 @@ index 000000000..7632701c0
 +    });
 +});
 +
-+describe('questionEntriesMapsEqual', () => {
-+    test('a rebuilt map with the same rows is equal', () => {
-+        const build = () => buildQuestionEntriesByPromptId([
-+            userMessage('msg_user', 'Deploy the release'),
-+            assistantMessage('msg_assistant', [
-+                questionPart({ questions: [{ question: 'Ship it?', options: [{ label: 'Yes' }] }] }, answered([['Ship it?', 'Yes']])),
-+            ]),
-+        ]);
-+        expect(questionEntriesMapsEqual(build(), build())).toBe(true);
-+    });
-+
-+    test('a changed answer or a new question is not equal', () => {
-+        const answeredYes = buildQuestionEntriesByPromptId([
-+            userMessage('msg_user', 'Deploy the release'),
-+            assistantMessage('msg_assistant', [
-+                questionPart({ questions: [{ question: 'Ship it?', options: [{ label: 'Yes' }] }] }, answered([['Ship it?', 'Yes']])),
-+            ]),
-+        ]);
-+        const answeredNo = buildQuestionEntriesByPromptId([
-+            userMessage('msg_user', 'Deploy the release'),
-+            assistantMessage('msg_assistant', [
-+                questionPart({ questions: [{ question: 'Ship it?', options: [{ label: 'Yes' }] }] }, answered([['Ship it?', 'No']])),
-+            ]),
-+        ]);
-+        expect(questionEntriesMapsEqual(answeredYes, answeredNo)).toBe(false);
-+        expect(questionEntriesMapsEqual(answeredYes, new Map())).toBe(false);
-+    });
-+});
-+
 +describe('question builders', () => {
 +    const turnPart = questionPart(
 +        { questions: [{ question: 'Ship it?', options: [{ label: 'Yes' }, { label: 'No' }] }] },
@@ -1191,24 +1499,48 @@ index 000000000..7632701c0
 +        assistantMessage('msg_assistant', [turnPart, openPart]),
 +    ];
 +
-+    test('answered questions attach to the prompt they followed', () => {
-+        const byPrompt = buildQuestionEntriesByPromptId(messages);
-+        expect([...byPrompt.keys()]).toEqual(['msg_user']);
-+        expect(byPrompt.get('msg_user')?.map((entry) => entry.answer)).toEqual(['Yes']);
-+        expect(byPrompt.get('msg_user')?.[0]).toMatchObject({ question: 'Ship it?', answer: 'Yes' });
++    test('answered questions attach to the turn that asked them', () => {
++        const byTurn = buildQuestionEntriesByTurnId(messages);
++        expect([...byTurn.keys()]).toEqual(['msg_user']);
++        expect(byTurn.get('msg_user')?.map((entry) => entry.answer)).toEqual(['Yes']);
++        expect(byTurn.get('msg_user')?.[0]).toMatchObject({ question: 'Ship it?', answer: 'Yes' });
 +    });
 +
 +    test('an unanswered question stays out of the selector and the timeline', () => {
-+        const byPrompt = buildQuestionEntriesByPromptId(messages);
-+        expect(byPrompt.get('msg_user')?.some((entry) => entry.question === 'Why?')).toBe(false);
++        const byTurn = buildQuestionEntriesByTurnId(messages);
++        expect(byTurn.get('msg_user')?.some((entry) => entry.question === 'Why?')).toBe(false);
++    });
++
++    test('a question keeps its turn when the prompt has no readable text', () => {
++        const byTurn = buildQuestionEntriesByTurnId([
++            userMessage('msg_empty', ''),
++            assistantMessage('msg_assistant', [turnPart]),
++        ]);
++        expect(byTurn.get('msg_empty')?.map((entry) => entry.question)).toEqual(['Ship it?']);
++    });
++
++    test('a question asked after a mid-run compaction anchors to the compaction turn', () => {
++        const byTurn = buildQuestionEntriesByTurnId([
++            userMessage('msg_user', 'Deploy the release'),
++            compactionMessage('msg_compact'),
++            assistantMessage('msg_assistant', [turnPart]),
++        ]);
++        expect([...byTurn.keys()]).toEqual(['msg_compact']);
++        expect(byTurn.get('msg_compact')?.[0]).toMatchObject({ question: 'Ship it?', answer: 'Yes' });
++    });
++
++    test('rebuilding unchanged messages keeps the same entry array', () => {
++        const first = buildQuestionEntriesByTurnId(messages);
++        const second = buildQuestionEntriesByTurnId(messages);
++        expect(second.get('msg_user')).toBe(first.get('msg_user'));
 +    });
 +});
 diff --git a/packages/ui/src/components/chat/lib/questionEntries.ts b/packages/ui/src/components/chat/lib/questionEntries.ts
 new file mode 100644
-index 000000000..ac258267a
+index 000000000..bc8236ea0
 --- /dev/null
 +++ b/packages/ui/src/components/chat/lib/questionEntries.ts
-@@ -0,0 +1,265 @@
+@@ -0,0 +1,301 @@
 +/**
 + * The questions an assistant turn asked and the answers the user gave.
 + *
@@ -1220,6 +1552,7 @@ index 000000000..ac258267a
 +import { z } from 'zod';
 +
 +import type { ChatMessageEntry } from './turns/types';
++import { buildTurnWindowModel, type TurnWindowModel } from './turns/windowTurns';
 +import { isQuestionTool } from '@/lib/opencode/tools';
 +import type { Part, ToolInput } from '@/lib/opencode/model';
 +
@@ -1238,13 +1571,14 @@ index 000000000..ac258267a
 +export interface QuestionAnswerEntry {
 +    partId: string;
 +    messageId: string;
-+    askedAt?: number;
 +    header?: string;
 +    question: string;
 +    options: QuestionOption[];
 +    multiple: boolean;
 +    /** The reply the user gave, or null when the question was not answered. */
 +    answer: string | null;
++    /** True while the call still waits for the reply. */
++    pending: boolean;
 +}
 +
 +interface QuestionAnswerPair {
@@ -1283,6 +1617,18 @@ index 000000000..ac258267a
 +};
 +
 +const unescapeQuoted = (value: string): string => value.replace(/\\(["\\])/g, '$1');
++
++/**
++ * The question tool appends this marker to the option it recommends, so the
++ * recorded answer carries it even though the option's label does not. Matching
++ * the label needs the marker gone.
++ */
++const RECOMMENDATION_SUFFIX = ' (Recommended)';
++export const withoutRecommendation = (value: string): string => (
++    value.endsWith(RECOMMENDATION_SUFFIX)
++        ? value.slice(0, -RECOMMENDATION_SUFFIX.length)
++        : value
++);
 +
 +/**
 + * Parses the question tool's reply:
@@ -1330,29 +1676,29 @@ index 000000000..ac258267a
 +    const asked = readQuestionInput(state.input);
 +    const output = state.status === 'completed' ? state.output : '';
 +    const answers = output ? parseQuestionAnswers(output) ?? [] : [];
-+    const askedAt = 'time' in state ? state.time.start : undefined;
++    const pending = state.status === 'pending' || state.status === 'running';
 +
 +    if (asked.length === 0) {
 +        return answers.map((pair, index) => ({
 +            partId: `${part.id}:${index}`,
 +            messageId,
-+            askedAt,
 +            question: pair.question,
 +            options: [],
 +            multiple: false,
 +            answer: pair.answer,
++            pending: false,
 +        }));
 +    }
 +
 +    return asked.map((question, index) => ({
 +        partId: `${part.id}:${index}`,
 +        messageId,
-+        askedAt,
 +        header: question.header,
 +        question: question.question,
 +        options: question.options,
 +        multiple: question.multiple,
 +        answer: answerForQuestion(question.question, index, answers),
++        pending,
 +    }));
 +};
 +
@@ -1402,80 +1748,370 @@ index 000000000..ac258267a
 +    if (!trimmed) return selected;
 +
 +    const labels = options.map((option) => option.label);
-+    const exact = labels.find((label) => label === trimmed);
++    // The tool marks its recommended option in the recorded answer, so the
++    // label match has to ignore that marker.
++    const bare = withoutRecommendation(trimmed);
++    const exact = labels.find((label) => label === trimmed || label === bare);
 +    if (exact) {
 +        selected.add(exact);
 +        return selected;
 +    }
 +    if (!multiple) return selected;
 +
-+    const parsed = parseJoinedLabels(trimmed, labels);
++    const parsed = parseJoinedLabels(bare, labels) ?? parseJoinedLabels(trimmed, labels);
 +    if (parsed) {
 +        for (const label of parsed) selected.add(label);
 +        return selected;
 +    }
 +
 +    // A reply that is not exactly the joined labels (free text alongside picks)
-+    // still marks the labels it names as whole comma segments.
++    // still marks the labels it names as whole comma segments. The tool's
++    // recommendation marker can sit on any pick, not only the last one.
 +    const segments = trimmed.split(/\s*,\s*/).map((segment) => segment.trim());
++    const bareSegments = segments.map(withoutRecommendation);
 +    for (const label of labels) {
-+        if (segments.includes(label)) selected.add(label);
++        if (segments.includes(label) || bareSegments.includes(label)) selected.add(label);
 +    }
 +    return selected;
 +};
 +
 +/**
-+ * Whether two maps of answered questions carry the same rows. A caller that
-+ * rebuilds them while a reply streams can keep the previous map's identity, so
-+ * a consumer memoized on it does not rebuild.
++ * The turn whose opening is the latest at or before `index`. The turn model's
++ * ordered openings place a step after a mid-run compaction in the compaction's
++ * turn; v2 assistant messages carry no parent id, so the position is what
++ * anchors them.
 + */
-+export const questionEntriesMapsEqual = (
-+    previous: ReadonlyMap<string, QuestionAnswerEntry[]>,
-+    next: ReadonlyMap<string, QuestionAnswerEntry[]>,
-+): boolean => {
-+    if (previous.size !== next.size) return false;
-+    for (const [promptId, entries] of next) {
-+        const current = previous.get(promptId);
-+        if (!current || current.length !== entries.length) return false;
-+        for (let index = 0; index < entries.length; index += 1) {
-+            const left = current[index];
-+            const right = entries[index];
-+            if (left.partId !== right.partId || left.answer !== right.answer || left.question !== right.question) {
-+                return false;
-+            }
-+        }
++const turnIdForMessageIndex = (model: TurnWindowModel, index: number): string | null => {
++    let turnId: string | null = null;
++    for (let position = 0; position < model.turnMessageStartIndexes.length; position += 1) {
++        if (model.turnMessageStartIndexes[position] > index) break;
++        turnId = model.turnIds[position] ?? turnId;
 +    }
-+    return true;
++    return turnId;
 +};
 +
 +/**
-+ * Answered questions keyed by the prompt they followed, for the prompt
-+ * selector and the timeline. A question belongs to the most recent user prompt
-+ * before its assistant message, which is the prompt row both surfaces show.
++ * The answered entries a turn's question parts carry. Cached by the parts
++ * sequence, so a rebuild over unchanged messages hands the caller the same
++ * array and a memoized consumer can keep its previous map.
 + */
-+export const buildQuestionEntriesByPromptId = (
++const turnQuestionEntriesCache = new WeakMap<Part, { parts: readonly Part[]; entries: QuestionAnswerEntry[] }>();
++
++const entriesForQuestionParts = (parts: readonly Part[]): QuestionAnswerEntry[] => {
++    const first = parts[0];
++    if (!first) return [];
++    const cached = turnQuestionEntriesCache.get(first);
++    if (cached && cached.parts.length === parts.length && cached.parts.every((part, index) => part === parts[index])) {
++        return cached.entries;
++    }
++    const entries: QuestionAnswerEntry[] = [];
++    for (const part of parts) {
++        entries.push(...questionEntriesForPart(part, part.messageID).filter((entry) => entry.answer !== null));
++    }
++    turnQuestionEntriesCache.set(first, { parts: [...parts], entries });
++    return entries;
++};
++
++/**
++ * Answered questions keyed by the turn they were asked in, for the prompt
++ * selector and the timeline. The turn comes from the same fold/turn model the
++ * transcript uses (`buildTurnWindowModel`), so a question keeps its row when
++ * its prompt has no readable text, and a question asked after a mid-run
++ * compaction belongs to the turn the compaction opened.
++ */
++export const buildQuestionEntriesByTurnId = (
 +    messages: readonly ChatMessageEntry[],
 +): Map<string, QuestionAnswerEntry[]> => {
-+    const byPrompt = new Map<string, QuestionAnswerEntry[]>();
-+    let promptId: string | null = null;
-+    for (const message of messages) {
-+        if (message.info.role === 'user') {
-+            promptId = message.info.id;
-+            continue;
-+        }
-+        if (message.info.role !== 'assistant' || !promptId) continue;
++    const model = buildTurnWindowModel([...messages]);
++    const partsByTurn = new Map<string, Part[]>();
++    messages.forEach((message, index) => {
++        if (message.info.role !== 'assistant') return;
++        const turnId = turnIdForMessageIndex(model, index);
++        if (!turnId) return;
 +        for (const part of message.parts) {
-+            const entries = questionEntriesForPart(part, message.info.id).filter((entry) => entry.answer !== null);
-+            if (entries.length === 0) continue;
-+            const current = byPrompt.get(promptId) ?? [];
-+            current.push(...entries);
-+            byPrompt.set(promptId, current);
++            if (part.type !== 'tool' || !isQuestionTool(part.tool)) continue;
++            const parts = partsByTurn.get(turnId) ?? [];
++            parts.push(part);
++            partsByTurn.set(turnId, parts);
++        }
++    });
++    const byTurn = new Map<string, QuestionAnswerEntry[]>();
++    for (const [turnId, parts] of partsByTurn) {
++        const entries = entriesForQuestionParts(parts);
++        if (entries.length > 0) byTurn.set(turnId, entries);
++    }
++    return byTurn;
++};
+diff --git a/packages/ui/src/components/chat/lib/questionExpandedState.test.ts b/packages/ui/src/components/chat/lib/questionExpandedState.test.ts
+new file mode 100644
+index 000000000..ff692d5c9
+--- /dev/null
++++ b/packages/ui/src/components/chat/lib/questionExpandedState.test.ts
+@@ -0,0 +1,54 @@
++import { describe, expect, test } from 'bun:test';
++
++import type { Part, ToolPart } from '@/lib/opencode/model';
++import {
++    seedExpandedTools,
++    writeCollapsedQuestionsCache,
++    writeExpandedQuestionsCache,
++} from './questionExpandedState';
++
++const answeredQuestion = (id: string): ToolPart => ({
++    id,
++    sessionID: 'ses_1',
++    messageID: 'msg_assistant',
++    type: 'tool',
++    callID: id,
++    tool: 'question',
++    state: {
++        status: 'completed',
++        input: { questions: [{ question: 'Ship it?', options: [{ label: 'Yes' }] }] },
++        output: 'User has answered your questions: "Ship it?"="Yes". You can now continue with the user\'s answers in mind.',
++        metadata: {},
++        time: { start: 1, end: 2 },
++    },
++});
++
++const parts = (id: string): Part[] => [answeredQuestion(id)];
++
++describe('seedExpandedTools', () => {
++    test('opens an answered question while the setting is on', () => {
++        expect(seedExpandedTools('msg_setting_on', parts('call_on'), true)).toContain('call_on');
++    });
++
++    test('the setting toggle closes a row it opened', () => {
++        const messageId = 'msg_setting_off';
++        const question = parts('call_off');
++        expect(seedExpandedTools(messageId, question, true)).toContain('call_off');
++        expect(seedExpandedTools(messageId, question, false)).not.toContain('call_off');
++    });
++
++    test('a row the reader collapsed stays collapsed when it is shown again', () => {
++        const messageId = 'msg_reader_collapsed';
++        const question = parts('call_collapsed');
++        writeCollapsedQuestionsCache(messageId, new Set(['call_collapsed']));
++        expect(seedExpandedTools(messageId, question, true)).not.toContain('call_collapsed');
++        expect(seedExpandedTools(messageId, question, true)).not.toContain('call_collapsed');
++    });
++
++    test('a row the reader opened stays open while the setting is off', () => {
++        const messageId = 'msg_reader_open';
++        const question = parts('call_open');
++        writeExpandedQuestionsCache(messageId, new Set(['call_open']));
++        expect(seedExpandedTools(messageId, question, false)).toContain('call_open');
++    });
++});
+diff --git a/packages/ui/src/components/chat/lib/questionExpandedState.ts b/packages/ui/src/components/chat/lib/questionExpandedState.ts
+new file mode 100644
+index 000000000..c7c010dc8
+--- /dev/null
++++ b/packages/ui/src/components/chat/lib/questionExpandedState.ts
+@@ -0,0 +1,86 @@
++import type { Part } from '@/lib/opencode/model';
++import { isQuestionTool } from '@/lib/opencode/tools';
++
++import { isAnsweredQuestionPart } from './questionEntries';
++
++/**
++ * Which tool rows a message opens with. A question row follows the
++ * `autoExpandAnsweredQuestions` setting and the reader's own decisions instead
++ * of the generic tool cache, so turning the setting off closes them and a row
++ * the reader opened stays open.
++ *
++ * The caches are keyed by message id and survive session switches until a
++ * reload or the 4000-entry trim.
++ */
++const EXPANDED_TOOLS_CACHE_MAX = 4000;
++const expandedToolsStateCache = new Map<string, Set<string>>();
++// Question rows the reader collapsed on purpose. They stay collapsed when the
++// message is shown again, even though answered questions open by default.
++const collapsedQuestionStateCache = new Map<string, Set<string>>();
++// Question rows the reader opened on purpose. They stay open when the setting
++// that opens answered questions is off.
++const expandedQuestionStateCache = new Map<string, Set<string>>();
++
++const trimCache = (cache: Map<string, Set<string>>, messageId: string): void => {
++    if (cache.size >= EXPANDED_TOOLS_CACHE_MAX && !cache.has(messageId)) {
++        const oldest = cache.keys().next().value;
++        if (typeof oldest === 'string') {
++            cache.delete(oldest);
 +        }
 +    }
-+    return byPrompt;
 +};
++
++const readExpandedToolsCache = (messageId: string): Set<string> | undefined => {
++    const cached = expandedToolsStateCache.get(messageId);
++    return cached ? new Set(cached) : undefined;
++};
++
++export const writeExpandedToolsCache = (messageId: string, value: Set<string>): void => {
++    trimCache(expandedToolsStateCache, messageId);
++    expandedToolsStateCache.set(messageId, new Set(value));
++};
++
++export const readCollapsedQuestionsCache = (messageId: string): Set<string> => {
++    const cached = collapsedQuestionStateCache.get(messageId);
++    return cached ? new Set(cached) : new Set();
++};
++
++export const writeCollapsedQuestionsCache = (messageId: string, value: Set<string>): void => {
++    trimCache(collapsedQuestionStateCache, messageId);
++    collapsedQuestionStateCache.set(messageId, new Set(value));
++};
++
++export const readExpandedQuestionsCache = (messageId: string): Set<string> => {
++    const cached = expandedQuestionStateCache.get(messageId);
++    return cached ? new Set(cached) : new Set();
++};
++
++export const writeExpandedQuestionsCache = (messageId: string, value: Set<string>): void => {
++    trimCache(expandedQuestionStateCache, messageId);
++    expandedQuestionStateCache.set(messageId, new Set(value));
++};
++
++export const answeredQuestionIds = (parts: readonly Part[]): string[] =>
++    parts.filter(isAnsweredQuestionPart).map((part) => part.id);
++
++export const questionIds = (parts: readonly Part[]): Set<string> =>
++    new Set(parts.filter((part) => part.type === 'tool' && isQuestionTool(part.tool)).map((part) => part.id));
++
++export const seedExpandedTools = (
++    messageId: string,
++    parts: readonly Part[],
++    autoExpandAnsweredQuestions: boolean,
++): Set<string> => {
++    const cached = readExpandedToolsCache(messageId);
++    const collapsed = readCollapsedQuestionsCache(messageId);
++    const explicit = readExpandedQuestionsCache(messageId);
++    const ids = questionIds(parts);
++    const answered = answeredQuestionIds(parts);
++    const expanded = cached ? new Set(cached) : new Set<string>();
++    for (const id of ids) expanded.delete(id);
++    for (const id of explicit) if (ids.has(id)) expanded.add(id);
++    if (autoExpandAnsweredQuestions) {
++        for (const id of answered) if (!collapsed.has(id)) expanded.add(id);
++    }
++    return expanded;
++};
+diff --git a/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.test.ts b/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.test.ts
+index e903a0457..5bbaf8764 100644
+--- a/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.test.ts
++++ b/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.test.ts
+@@ -6,7 +6,7 @@ import { buildTimelineRows, type TimelineRow } from './timelineRows';
+ import type { TimelineEntry } from './timelineEntries';
+ import type { ChatMessageEntry } from './types';
+ 
+-const metrics: RowSizeMetrics = { columnWidth: 360, lineHeight: 36, showReasoningTraces: true, collapsibleThinkingBlocks: true };
++const metrics: RowSizeMetrics = { columnWidth: 360, lineHeight: 36, showReasoningTraces: true, collapsibleThinkingBlocks: true, autoExpandAnsweredQuestions: false };
+ 
+ const text = (id: string, value: string): TextPart => ({ type: 'text', id, text: value, sessionID: 'session', messageID: 'message', time: { start: 1, end: 2 } });
+ const reasoning = (id: string, value: string): ReasoningPart => ({ type: 'reasoning', id, text: value, sessionID: 'session', messageID: 'message', time: { start: 1, end: 2 } });
+@@ -15,6 +15,17 @@ const tool = (id: string, name: string, metadata: Metadata = {}): ToolPart => ({
+     state: { status: 'completed', input: {}, output: '', metadata, time: { start: 1, end: 2 } },
+ });
+ 
++const questionTool = (id: string): ToolPart => ({
++    type: 'tool', tool: 'question', id, callID: id, sessionID: 'session', messageID: 'message',
++    state: {
++        status: 'completed',
++        input: { questions: [{ question: 'Ship it?', options: [{ label: 'Yes', description: 'Merge now' }, { label: 'No' }] }] },
++        output: 'User has answered your questions: "Ship it?"="Yes". You can now continue with the user\'s answers in mind.',
++        metadata: {},
++        time: { start: 1, end: 2 },
++    },
++});
++
+ const assistant = (id: string, parts: Part[]): ChatMessageEntry => {
+     const info: AssistantMessage = {
+         id, sessionID: 'session', role: 'assistant', time: { created: 2, completed: 3 },
+@@ -82,6 +93,17 @@ test('nothing is estimated before the column has a width', () => {
+     expect(estimateTimelineRowSize(rows[0]!, { ...metrics, columnWidth: 0 })).toBeUndefined();
+ });
+ 
++test('a question row grows with its questions, options and answer', () => {
++    const rows = rowsOf([
++        assistant('question', [questionTool('q')]),
++        assistant('answer', [text('done', 'Done.')]),
++    ]);
++    const collapsed = estimateTimelineRowSize(messageRow(rows, 'question'), metrics)!;
++    const expanded = estimateTimelineRowSize(messageRow(rows, 'question'), { ...metrics, autoExpandAnsweredQuestions: true })!;
++    expect(collapsed).toBeGreaterThan(metrics.lineHeight);
++    expect(expanded).toBeGreaterThan(collapsed + 80);
++});
++
+ test('reasoning drawn as text when thinking blocks do not fold', () => {
+     const rows = rowsOf([
+         assistant('step', [reasoning('thought', 'Thinking it through. '.repeat(40)), tool('shell', 'shell')]),
+diff --git a/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.ts b/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.ts
+index 26750fb94..d5e814000 100644
+--- a/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.ts
++++ b/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.ts
+@@ -1,5 +1,6 @@
+ import type { Part } from '@/lib/opencode/model';
+-import { isShownInPlace } from '@/lib/opencode/tools';
++import { isQuestionTool, isShownInPlace } from '@/lib/opencode/tools';
++import { questionEntriesForPart } from '../questionEntries';
+ import { filterVisibleParts, isEmptyTextPart } from '../../message/partUtils';
+ import { getShownPages, isSettledAsk, type ShownPart } from './liveActivity';
+ import type { TimelineRow } from './timelineRows';
+@@ -23,6 +24,8 @@ export type RowSizeMetrics = {
+     showReasoningTraces: boolean;
+     /** Reasoning folds to one line; off, it is drawn as text. */
+     collapsibleThinkingBlocks: boolean;
++    /** Answered question rows open with their options and answer. */
++    autoExpandAnsweredQuestions: boolean;
+ };
+ 
+ const TEXT_LINE_PX = 26;
+@@ -59,7 +62,32 @@ const patchFileCount = (part: Part & { type: 'tool' }): number => {
+     return Array.isArray(files) ? files.length : 0;
+ };
+ 
++// A question row draws its header, then one line per question with its answer.
++// Opened, each question also draws its options, descriptions and answer block.
++const questionRowHeight = (part: Part & { type: 'tool' }, metrics: RowSizeMetrics): number => {
++    const entries = questionEntriesForPart(part, part.messageID);
++    if (entries.length === 0) return metrics.lineHeight;
++    const charsPerLine = Math.max(20, Math.floor(metrics.columnWidth / CHAR_WIDTH_PX));
++    let height = metrics.lineHeight;
++    if (!metrics.autoExpandAnsweredQuestions) {
++        return height + entries.length * metrics.lineHeight * 2;
++    }
++    for (const entry of entries) {
++        height += metrics.lineHeight;
++        height += markdownHeight(entry.question, metrics.columnWidth);
++        for (const option of entry.options) {
++            height += metrics.lineHeight;
++            if (option.description) height += textLines(option.description, charsPerLine) * metrics.lineHeight;
++        }
++        height += metrics.lineHeight * 2;
++    }
++    return height;
++};
++
+ const toolHeight = (part: Part & { type: 'tool' }, metrics: RowSizeMetrics): number => {
++    if (isQuestionTool(part.tool)) {
++        return questionRowHeight(part, metrics);
++    }
+     const files = part.tool === 'patch' ? patchFileCount(part) : 0;
+     if (files > 1) {
+         const perRow = Math.max(1, metrics.columnWidth / PATCH_FILE_CHIP_PX);
+diff --git a/packages/ui/src/components/chat/message/MessageBody.tsx b/packages/ui/src/components/chat/message/MessageBody.tsx
+index 8798a0476..a330a3c94 100644
+--- a/packages/ui/src/components/chat/message/MessageBody.tsx
++++ b/packages/ui/src/components/chat/message/MessageBody.tsx
+@@ -857,7 +857,7 @@ const isInStuckTurnHeader = (element: HTMLElement | null): boolean => {
+     return Math.abs(header.getBoundingClientRect().top - chat.getBoundingClientRect().top) < 1;
+ };
+ 
+-const USER_BUBBLE_TEXT_LINK_CLASS = 'py-0.5 underline-offset-2 transition-colors hover:text-foreground hover:underline focus-visible:underline focus-visible:outline-none focus-visible:text-foreground';
++export const USER_BUBBLE_TEXT_LINK_CLASS = 'py-0.5 underline-offset-2 transition-colors hover:text-foreground hover:underline focus-visible:underline focus-visible:outline-none focus-visible:text-foreground';
+ const INLINE_TEXT_LINK_STYLE = { minHeight: 0, minWidth: 0 };
+ const TITLE_SLOT = '\u0000';
+ const selectSessionTitle = (session: Session | undefined): string | undefined => session?.title?.trim() || undefined;
 diff --git a/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md b/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
-index 354d94c9d..168e91e98 100644
+index c3c297725..e310b4474 100644
 --- a/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
 +++ b/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
 @@ -27,6 +27,11 @@ Use this doc when you ask an agent to change tool/header/description behavior.
@@ -1490,15 +2126,15 @@ index 354d94c9d..168e91e98 100644
  - `taskToolModel.ts`
    - Owns subagent output preparation and child identity parsing. `ToolPart.tsx` resolves the call's child identity.
    - A subagent's `state.metadata.sessionID` is the preferred child identity from progress/result updates. Legacy part metadata and output IDs remain readable, then a non-empty `state.input.sessionID` identifies a resumed child when those IDs are absent.
-@@ -685,6 +690,7 @@ update, with the `shellID`, when the command starts.
+@@ -699,6 +704,7 @@ update, with the `shellID`, when the command starts.
    (`openContextFile` with `expanded`). Only web and desktop show it: VS Code
    and mobile open files full size already, through the path itself.
  - Every other tool, including search/fetch, OpenCode built-ins, custom tools, plugins, and MCP tools, is **expandable** and renders through `ToolPart`.
-+- `question` rows render through `QuestionToolContent.tsx` with entries from `lib/questionEntries.ts`. Collapsed, the row shows one line per question with the answer; expanded, every option with its description, the chosen ones marked, and the answer clamped at two lines behind Show more. Answered questions open by default while `autoExpandAnsweredQuestions` is on; the reader's own collapse or expand wins and is remembered for the session. The prompt selector and the timeline nest the same entries under the prompt they followed (`buildQuestionEntriesByPromptId`) and only jump to the row. Question results stay whole on history pages (`toolContentShells.ts`, `v1,question`), so answers render without a per-row fetch.
++- `question` rows render through `QuestionToolContent.tsx` with entries from `lib/questionEntries.ts`. Collapsed, the row shows one line per question with the answer; expanded, every option with its description, the chosen ones marked, and the answer clamped at two lines behind Show more. Answered questions open by default while `autoExpandAnsweredQuestions` is on; the reader's own collapse or expand wins and is remembered for the session. Turning the setting off closes rows the reader did not open themselves, and a row they opened stays open. Those decisions live in `lib/questionExpandedState.ts` and survive session switches until a reload or the 4000-entry trim. The prompt selector and the timeline nest the same entries under the turn they followed (`buildQuestionEntriesByTurnId`) and only jump to the row. Question results stay whole on history pages (`toolContentShells.ts`, `v1,question`), so answers render without a per-row fetch.
  - OpenChamber's own tools (`openchamber`, `openchamber_*`, and an `execute` script that made exactly one of their calls) use the expandable path. Their result is a versioned envelope (`{ ok, action, data }`, `openChamberToolEnvelope.ts`):
    - The row keeps the tool's name as its title. Once the envelope says the action succeeded, the description is the action's verb from the i18n map (`OPENCHAMBER_ACTION_VERB_KEYS`, "Remembered · Uses bun"); a running, failed, or unreadable call keeps the action's own name (`memory.save`). A history page leaves results out (`toolContentShells.ts`), so the row reads the action and outcome the server kept in the shell marker; without them every reloaded row fell back to `memory.save` until opened.
    - The expanded row draws the action's own view (`OpenChamberToolOutput.tsx`) when `hasOpenChamberView` finds a successful action it knows with the data that view reads; anything else keeps the neutral JSON views, so a changed answer never leaves the row empty. A failed call shows its error message as text. "Show the raw answer" switches to the JSON views.
-@@ -794,6 +800,7 @@ Why: only navigation tools use the compact static path; all other tools need obs
+@@ -808,6 +814,7 @@ Why: only navigation tools use the compact static path; all other tools need obs
    via text sniffing (`<terminal_context>` blocks, `GitHub issue context (JSON)`
    and `Linear issue context (JSON)` prefixes).
  - Tools: `ToolPart.tsx`, `ToolPartDiffPreview.tsx`, `PlainDiffFallback.tsx`, `ProgressiveGroup.tsx`, `toolPresentation.tsx`, `toolRenderUtils.ts`, `GuestToolTable.tsx`
@@ -1508,10 +2144,10 @@ index 354d94c9d..168e91e98 100644
  - Utility renderers: `VirtualizedCodeBlock.tsx`, `MinDurationShineText.tsx`
 diff --git a/packages/ui/src/components/chat/message/parts/QuestionToolContent.test.tsx b/packages/ui/src/components/chat/message/parts/QuestionToolContent.test.tsx
 new file mode 100644
-index 000000000..3d4656775
+index 000000000..c669a584b
 --- /dev/null
 +++ b/packages/ui/src/components/chat/message/parts/QuestionToolContent.test.tsx
-@@ -0,0 +1,114 @@
+@@ -0,0 +1,146 @@
 +import React from 'react';
 +import { expect, test } from 'bun:test';
 +import { plugin } from 'bun';
@@ -1572,6 +2208,7 @@ index 000000000..3d4656775
 +    options: [{ label: 'Yes' }, { label: 'No' }, { label: 'Later' }],
 +    multiple: false,
 +    answer: 'Yes',
++    pending: false,
 +    ...overrides,
 +});
 +
@@ -1588,20 +2225,45 @@ index 000000000..3d4656775
 +    return container.textContent ?? '';
 +};
 +
-+test('expanded rows show the question, every option, the pick and the answer', () => {
++test('expanded rows show the question and every option, and omit an answer that is the marked option', () => {
 +    const content = text(<QuestionExpandedContent entries={[entry()]} />);
 +    expect(content).toContain('Ship it?');
 +    expect(content).toContain('Yes');
 +    expect(content).toContain('No');
 +    expect(content).toContain('Later');
-+    expect(content).toContain('Your answer');
++    expect(content).not.toContain('Your answer');
 +});
 +
-+test('expanded rows show the multi-select marker and an unanswered row says so', () => {
-+    const multiple = text(<QuestionExpandedContent entries={[entry({ multiple: true, answer: 'Yes, Later' })]} />);
-+    expect(multiple).toContain('Select multiple');
-+    const open = text(<QuestionExpandedContent entries={[entry({ answer: null })]} />);
++test('expanded rows show a typed answer as one more chosen option, without labels', () => {
++    const markup = render(<QuestionExpandedContent entries={[entry({ answer: 'Ship it on Friday' })]} />);
++    const content = text(<QuestionExpandedContent entries={[entry({ answer: 'Ship it on Friday' })]} />);
++    expect(content).toContain('Ship it on Friday');
++    expect(content).not.toContain('Your answer');
++    // No option matches, so the only filled radio is the typed answer's.
++    expect(markup.split('size-1.5 rounded-full bg-[var(--interactive-selection)]').length - 1).toBe(1);
++});
++
++test('expanded rows carry no header or selection-mode label, and an unanswered row says so', () => {
++    const multiple = text(<QuestionExpandedContent entries={[entry({ header: 'Release gate', multiple: true, answer: 'Yes, Later' })]} />);
++    expect(multiple).not.toContain('Release gate');
++    expect(multiple).not.toContain('Select multiple');
++    expect(multiple).not.toContain('Select one');
++    const open = text(<QuestionExpandedContent entries={[entry({ answer: null, pending: false })]} />);
 +    expect(open).toContain('No answer');
++});
++
++test('a question whose call is still running says it is awaiting the answer', () => {
++    const open = text(<QuestionExpandedContent entries={[entry({ answer: null, pending: true })]} />);
++    expect(open).toContain('Awaiting response');
++    expect(open).not.toContain('No answer');
++    const collapsed = text(<QuestionCollapsedSummary entries={[entry({ answer: null, pending: true })]} />);
++    expect(collapsed).toContain('Awaiting response');
++    expect(collapsed).not.toContain('No answer');
++});
++
++test('expanded rows mark the option the tool recommended', () => {
++    const content = render(<QuestionExpandedContent entries={[entry({ answer: 'Yes (Recommended)' })]} />);
++    expect(content).toContain('size-1.5 rounded-full bg-[var(--interactive-selection)]');
 +});
 +
 +test('expanded rows show an option description', () => {
@@ -1609,6 +2271,12 @@ index 000000000..3d4656775
 +        options: [{ label: 'Yes', description: 'Ships the release now' }, { label: 'No' }],
 +    })]} />);
 +    expect(content).toContain('Ships the release now');
++});
++
++test('collapsed rows drop the recommendation marker from the answer', () => {
++    const content = text(<QuestionCollapsedSummary entries={[entry({ answer: 'Yes (Recommended)' })]} />);
++    expect(content).toContain('Yes');
++    expect(content).not.toContain('(Recommended)');
 +});
 +
 +test('collapsed rows keep the question and answer but leave options out', () => {
@@ -1628,26 +2296,26 @@ index 000000000..3d4656775
 +});
 diff --git a/packages/ui/src/components/chat/message/parts/QuestionToolContent.tsx b/packages/ui/src/components/chat/message/parts/QuestionToolContent.tsx
 new file mode 100644
-index 000000000..cf77f7702
+index 000000000..25f1796e9
 --- /dev/null
 +++ b/packages/ui/src/components/chat/message/parts/QuestionToolContent.tsx
-@@ -0,0 +1,220 @@
+@@ -0,0 +1,255 @@
 +import React from 'react';
 +
 +import { Icon } from '@/components/icon/Icon';
 +import { useI18n } from '@/lib/i18n';
 +import { cn } from '@/lib/utils';
 +import { FormMarkdown } from '../../FormMarkdown';
++import { USER_BUBBLE_TEXT_LINK_CLASS } from '../MessageBody';
 +import {
 +    selectedOptionLabels,
++    withoutRecommendation,
 +    type QuestionAnswerEntry,
 +    type QuestionOption,
 +} from '../../lib/questionEntries';
 +
 +const ANSWER_CLAMP_CLASS = 'line-clamp-2';
 +const LONG_ANSWER_HINT_LENGTH = 160;
-+
-+const textLinkClass = 'shrink-0 py-0.5 underline-offset-2 transition-colors hover:text-foreground hover:underline focus-visible:underline focus-visible:outline-none focus-visible:text-foreground';
 +
 +/**
 + * A long answer follows the same two-line clamp and inline Show more link as a
@@ -1687,8 +2355,9 @@ index 000000000..cf77f7702
 +        <div className="min-w-0">
 +            <div
 +                ref={textRef}
++                dir="auto"
 +                className={cn(
-+                    'typography-meta whitespace-pre-wrap break-words text-foreground',
++                    'typography-meta whitespace-pre-wrap break-words text-foreground [unicode-bidi:plaintext]',
 +                    !expanded && ANSWER_CLAMP_CLASS,
 +                )}
 +            >
@@ -1698,7 +2367,7 @@ index 000000000..cf77f7702
 +                <div className="mt-0.5 flex justify-end">
 +                    <button
 +                        type="button"
-+                        className={textLinkClass}
++                        className={USER_BUBBLE_TEXT_LINK_CLASS}
 +                        style={{ minHeight: 0, minWidth: 0 }}
 +                        aria-expanded={expanded}
 +                        onClick={(event) => {
@@ -1706,7 +2375,7 @@ index 000000000..cf77f7702
 +                            setExpanded((current) => !current);
 +                        }}
 +                    >
-+                        {t(expanded ? 'chat.toolPart.question.showLess' : 'chat.toolPart.question.showMore')}
++                        {t(expanded ? 'chat.message.userText.showLess' : 'chat.message.userText.showMore')}
 +                    </button>
 +                </div>
 +            ) : null}
@@ -1752,17 +2421,38 @@ index 000000000..cf77f7702
 +    <div className="flex items-start gap-2 py-0.5">
 +        <OptionMark selected={selected} multiple={multiple} />
 +        <span className="min-w-0">
-+            <span className={cn('block typography-meta break-words', selected ? 'text-foreground' : 'text-muted-foreground')}>
++            <span
++                dir="auto"
++                className={cn(
++                    'block typography-meta break-words oc-ui-start-align',
++                    selected ? 'text-foreground' : 'text-muted-foreground',
++                )}
++            >
 +                {option.label}
 +            </span>
 +            {option.description ? (
-+                <span className="block typography-micro break-words text-muted-foreground/80">
++                <span dir="auto" className="block typography-micro break-words text-muted-foreground oc-ui-start-align">
 +                    {option.description}
 +                </span>
 +            ) : null}
 +        </span>
 +    </div>
 +);
++
++/** Whether the reply is exactly the option labels the row marks. */
++const answerNamesSelectedOptions = (
++    entry: QuestionAnswerEntry,
++    selected: ReadonlySet<string>,
++): boolean => {
++    if (!entry.answer || selected.size === 0) return false;
++    const trimmed = entry.answer.trim();
++    if (selected.size === 1) return selected.has(trimmed);
++    const joined = entry.options
++        .filter((option) => selected.has(option.label))
++        .map((option) => option.label)
++        .join(', ');
++    return trimmed === joined;
++};
 +
 +/** The block a collapsed question row draws under its header: one line per question with the answer. */
 +export const QuestionCollapsedSummary: React.FC<{
@@ -1775,25 +2465,44 @@ index 000000000..cf77f7702
 +
 +    return (
 +        <div
-+            className={cn('ms-5 space-y-1 border-s border-edge/60 py-1 ps-2.5', onActivate && 'cursor-pointer')}
++            role={onActivate ? 'button' : undefined}
++            tabIndex={onActivate ? 0 : undefined}
++            className={cn(
++                'ms-5 space-y-1 border-s border-edge/60 py-1 ps-2.5',
++                onActivate && 'cursor-pointer focus-visible:outline-none focus-visible:bg-interactive-hover/30',
++            )}
 +            onClick={onActivate}
++            onKeyDown={onActivate ? (event) => {
++                if (event.key !== 'Enter' && event.key !== ' ') return;
++                event.preventDefault();
++                onActivate();
++            } : undefined}
 +        >
-+            {entries.map((entry) => (
-+                <div key={entry.partId} className="min-w-0">
-+                    <div className="typography-meta truncate text-muted-foreground" title={entry.question}>
-+                        {entry.question}
++            {entries.map((entry) => {
++                const answer = entry.answer
++                    ? withoutRecommendation(entry.answer.trim())
++                    : (entry.pending
++                        ? t('chat.toolPart.awaitingResponse')
++                        : t('chat.toolPart.question.noAnswer'));
++                return (
++                    <div key={entry.partId} className="flex min-w-0 items-baseline gap-1.5 typography-meta">
++                        <span dir="auto" className="min-w-0 truncate text-muted-foreground oc-ui-start-align" title={entry.question}>
++                            {entry.question}
++                        </span>
++                        <span aria-hidden="true" className="flex-shrink-0 text-muted-foreground">—</span>
++                        <span
++                            dir="auto"
++                            className={cn(
++                                'min-w-0 max-w-[50%] flex-shrink-0 truncate oc-ui-start-align',
++                                entry.answer ? 'text-foreground' : 'text-muted-foreground',
++                            )}
++                            title={answer}
++                        >
++                            {answer}
++                        </span>
 +                    </div>
-+                    <div
-+                        className={cn(
-+                            'typography-meta truncate',
-+                            entry.answer ? 'text-foreground/85' : 'text-muted-foreground',
-+                        )}
-+                        title={entry.answer ?? t('chat.toolPart.question.noAnswer')}
-+                    >
-+                        {entry.answer ?? t('chat.toolPart.question.noAnswer')}
-+                    </div>
-+                </div>
-+            ))}
++                );
++            })}
 +        </div>
 +    );
 +};
@@ -1807,20 +2516,17 @@ index 000000000..cf77f7702
 +
 +    return (
 +        <div className="w-full min-w-0 space-y-3">
-+            {entries.map((entry, index) => {
++            {entries.map((entry) => {
 +                const selected = selectedOptionLabels(entry.options, entry.answer, entry.multiple);
++                const answerIsSelection = answerNamesSelectedOptions(entry, selected);
++                const emptyAnswer = entry.answer ? null : (entry.pending
++                    ? t('chat.toolPart.awaitingResponse')
++                    : t('chat.toolPart.question.noAnswer'));
 +                return (
 +                    <div
 +                        key={entry.partId}
 +                        className="min-w-0 border-t border-edge/60 pt-3 first:border-t-0 first:pt-0"
 +                    >
-+                        <div className="mb-1 flex min-w-0 items-center gap-1.5 typography-micro uppercase tracking-wide text-muted-foreground">
-+                            <span className="truncate">{entry.header || t('chat.questionCard.questionFallback', { index: index + 1 })}</span>
-+                            <span aria-hidden="true">·</span>
-+                            <span className="flex-shrink-0">
-+                                {t(entry.multiple ? 'chat.questionCard.selectMultiple' : 'chat.toolPart.question.selectOne')}
-+                            </span>
-+                        </div>
 +                        <FormMarkdown content={entry.question} size="meta" className="text-foreground" />
 +                        {entry.options.length > 0 ? (
 +                            <div className="mt-1.5">
@@ -1834,18 +2540,15 @@ index 000000000..cf77f7702
 +                                ))}
 +                            </div>
 +                        ) : null}
-+                        <div className="mt-2 border-t border-edge/60 pt-2">
-+                            <div className="mb-1 typography-micro uppercase tracking-wide text-muted-foreground">
-+                                {t('chat.questionCard.yourAnswer')}
-+                            </div>
-+                            {entry.answer ? (
++                        {answerIsSelection ? null : entry.answer ? (
++                            // A typed answer reads as one more option, marked chosen.
++                            <div className="flex items-start gap-2 py-0.5">
++                                <OptionMark selected multiple={entry.multiple} />
 +                                <QuestionAnswerText answer={entry.answer} />
-+                            ) : (
-+                                <div className="typography-meta text-muted-foreground">
-+                                    {t('chat.toolPart.question.noAnswer')}
-+                                </div>
-+                            )}
-+                        </div>
++                            </div>
++                        ) : (
++                            <div className="mt-1 typography-meta text-muted-foreground">{emptyAnswer}</div>
++                        )}
 +                    </div>
 +                );
 +            })}
@@ -1853,7 +2556,7 @@ index 000000000..cf77f7702
 +    );
 +};
 diff --git a/packages/ui/src/components/chat/message/parts/ToolPart.tsx b/packages/ui/src/components/chat/message/parts/ToolPart.tsx
-index 7f21b8569..7d843526d 100644
+index 7f21b8569..85df5ea2e 100644
 --- a/packages/ui/src/components/chat/message/parts/ToolPart.tsx
 +++ b/packages/ui/src/components/chat/message/parts/ToolPart.tsx
 @@ -5,7 +5,6 @@ import { RuntimeAPIContext } from '@/contexts/runtimeAPIContext';
@@ -1989,23 +2692,7 @@ index 7f21b8569..7d843526d 100644
      const showToolFileIcons = useUIStore((s) => s.showToolFileIcons);
      const currentDirectory = useEffectiveDirectory() ?? '';
  
-@@ -2256,10 +2199,26 @@ const ToolPartContent: React.FC<ToolPartProps & { header?: ToolRowHeader; subage
-                                 </Button>
-                             </HoverTooltip>
-                         ) : null}
-+                        {isQuestionTool(part.tool) && isExpanded ? (
-+                            <button
-+                                type="button"
-+                                className="flex-shrink-0 typography-micro text-muted-foreground transition-colors hover:text-foreground"
-+                                onClick={(event) => {
-+                                    event.stopPropagation();
-+                                    onToggle(part.id);
-+                                }}
-+                            >
-+                                {t('chat.toolPart.question.collapse')}
-+                            </button>
-+                        ) : null}
-                     </div>
+@@ -2260,6 +2203,10 @@ const ToolPartContent: React.FC<ToolPartProps & { header?: ToolRowHeader; subage
                  )}
              </div>
  
@@ -2067,179 +2754,322 @@ index 6b6d2b1be..43fb87610 100644
        <SettingsSection title={t('settings.layout.chat.section.formatting')} contentClassName="space-y-3">
          <div>
            <SettingsFieldRow label={t('settings.openchamber.visual.section.userMessageRendering')} settingsItem="chat.user-message-rendering">
+diff --git a/packages/ui/src/lib/i18n/messages/ar.settings.ts b/packages/ui/src/lib/i18n/messages/ar.settings.ts
+index 3980d8d81..d9835276c 100644
+--- a/packages/ui/src/lib/i18n/messages/ar.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/ar.settings.ts
+@@ -2452,6 +2452,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'يعرض تفكير النموذج وملخص الضغط فور وصولهما. عند التعطيل، يبقيان مطويين ويُفتحان بنقرة.',
+   'settings.openchamber.visual.field.collapsibleUserMessagesAria': 'طي رسائل المستخدم الطويلة',
+   'settings.openchamber.visual.field.collapsibleUserMessages': 'طي رسائل المستخدم الطويلة',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsAria': 'فتح الأسئلة المجاب عنها تلقائيًا',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestions': 'فتح الأسئلة المجاب عنها تلقائيًا',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsInfo': 'تُفتح الأسئلة المجاب عنها في السجل مع جميع الخيارات وإجابتك. يبقى السؤال المطوي مطويًا.',
++  'settings.openchamber.visual.field.questionsInPromptSelectorAria': 'إدراج الأسئلة في منتقي المطالبات',
++  'settings.openchamber.visual.field.questionsInPromptSelector': 'إدراج الأسئلة في منتقي المطالبات',
++  'settings.openchamber.visual.field.questionsInPromptSelectorInfo': 'يعرض كل سؤال مجاب عنه تحت المطالبة الخاصة به في المنتقي أعلى اليمين.',
+   'settings.openchamber.visual.field.stickyUserHeaderAria': 'تثبيت رأس رسالة المستخدم',
+   'settings.openchamber.visual.field.stickyUserHeader': 'تثبيت رأس رسالة المستخدم',
+   'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'متصفح الطلبات',
 diff --git a/packages/ui/src/lib/i18n/messages/ar.ts b/packages/ui/src/lib/i18n/messages/ar.ts
-index 4f1f4969d..77e3ed4e0 100644
+index f3592b1fd..32f8ffe00 100644
 --- a/packages/ui/src/lib/i18n/messages/ar.ts
 +++ b/packages/ui/src/lib/i18n/messages/ar.ts
-@@ -2706,6 +2706,11 @@ export const dict = {
+@@ -2706,6 +2706,7 @@ export const dict = {
    'chat.toolPart.awaitingResponse': 'بانتظار الرد…',
    'chat.toolPart.noOutputProduced': 'لا توجد مخرجات',
    'chat.toolPart.questionsAsked': 'الأسئلة المطروحة: {count}',
-+  'chat.toolPart.question.collapse': 'طي',
 +  'chat.toolPart.question.noAnswer': 'لا إجابة',
-+  'chat.toolPart.question.selectOne': 'اختر واحدًا',
-+  'chat.toolPart.question.showMore': 'عرض المزيد',
-+  'chat.toolPart.question.showLess': 'عرض أقل',
    'chat.toolPart.filesCount': 'الملفات: {count}',
    'chat.toolPart.moreToolCalls': '+{count} أخرى',
    'chat.toolPart.scriptCalls': 'استدعاءات الأدوات',
+diff --git a/packages/ui/src/lib/i18n/messages/de.settings.ts b/packages/ui/src/lib/i18n/messages/de.settings.ts
+index 59adaba18..a7d993574 100644
+--- a/packages/ui/src/lib/i18n/messages/de.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/de.settings.ts
+@@ -2383,6 +2383,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'Zeigt die Gedanken des Modells und die Zusammenfassung beim Komprimieren, während sie eintreffen. Wenn aus, bleiben die Blöcke eingeklappt und öffnen sich per Klick.',
+   'settings.openchamber.visual.field.collapsibleUserMessagesAria': 'Lange Benutzernachrichten einklappen',
+   'settings.openchamber.visual.field.collapsibleUserMessages': 'Lange Benutzernachrichten einklappen',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsAria': 'Beantwortete Fragen automatisch öffnen',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestions': 'Beantwortete Fragen automatisch öffnen',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsInfo': 'Beantwortete Fragen im Verlauf öffnen sich mit allen Optionen und deiner Antwort. Eine eingeklappte Frage bleibt eingeklappt.',
++  'settings.openchamber.visual.field.questionsInPromptSelectorAria': 'Fragen im Prompt-Auswahlmenü auflisten',
++  'settings.openchamber.visual.field.questionsInPromptSelector': 'Fragen im Prompt-Auswahlmenü auflisten',
++  'settings.openchamber.visual.field.questionsInPromptSelectorInfo': 'Zeigt jede beantwortete Frage unter ihrem Prompt im Auswahlmenü oben rechts.',
+   'settings.openchamber.visual.field.stickyUserHeaderAria': 'Fixierter Benutzerheader',
+   'settings.openchamber.visual.field.stickyUserHeader': 'Fixierter Benutzerkopf',
+   'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'Prompt-Navigator',
 diff --git a/packages/ui/src/lib/i18n/messages/de.ts b/packages/ui/src/lib/i18n/messages/de.ts
-index b396763a4..a7e02d469 100644
+index b396763a4..cd9f230d0 100644
 --- a/packages/ui/src/lib/i18n/messages/de.ts
 +++ b/packages/ui/src/lib/i18n/messages/de.ts
-@@ -2501,6 +2501,11 @@ export const dict = {
+@@ -2501,6 +2501,7 @@ export const dict = {
    'chat.toolPart.awaitingResponse': 'Warte auf Antwort...',
    'chat.toolPart.noOutputProduced': 'Keine Ausgabe erzeugt',
    'chat.toolPart.questionsAsked': 'Gestellte Fragen: {count}',
-+  'chat.toolPart.question.collapse': 'Einklappen',
 +  'chat.toolPart.question.noAnswer': 'Keine Antwort',
-+  'chat.toolPart.question.selectOne': 'Eine auswählen',
-+  'chat.toolPart.question.showMore': 'Mehr anzeigen',
-+  'chat.toolPart.question.showLess': 'Weniger anzeigen',
    'chat.toolPart.filesCount': 'Dateien: {count}',
    'chat.toolPart.moreToolCalls': '+{count} weitere',
    'chat.toolPart.scriptCalls': 'Tool-Aufrufe',
+diff --git a/packages/ui/src/lib/i18n/messages/en.settings.ts b/packages/ui/src/lib/i18n/messages/en.settings.ts
+index 503bdfd12..0982da80e 100644
+--- a/packages/ui/src/lib/i18n/messages/en.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/en.settings.ts
+@@ -2476,6 +2476,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'Shows the model\'s thinking and the compaction summary as they arrive. When off, they stay folded and open with a click.',
+   'settings.openchamber.visual.field.collapsibleUserMessagesAria': 'Collapse long user messages',
+   'settings.openchamber.visual.field.collapsibleUserMessages': 'Collapse long user messages',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsAria': 'Open answered questions automatically',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestions': 'Open answered questions automatically',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsInfo': 'Answered questions in the transcript open with every option and your answer. Collapsing one keeps it collapsed.',
++  'settings.openchamber.visual.field.questionsInPromptSelectorAria': 'List questions in the prompt selector',
++  'settings.openchamber.visual.field.questionsInPromptSelector': 'List questions in the prompt selector',
++  'settings.openchamber.visual.field.questionsInPromptSelectorInfo': 'Shows each answered question under its prompt in the selector at the top right.',
+   'settings.openchamber.visual.field.stickyUserHeaderAria': 'Sticky user header',
+   'settings.openchamber.visual.field.stickyUserHeader': 'Sticky user header',
+   'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'Prompt navigator',
 diff --git a/packages/ui/src/lib/i18n/messages/en.ts b/packages/ui/src/lib/i18n/messages/en.ts
-index b07aca147..ab33c3b3c 100644
+index b07aca147..9875bd9b2 100644
 --- a/packages/ui/src/lib/i18n/messages/en.ts
 +++ b/packages/ui/src/lib/i18n/messages/en.ts
-@@ -2793,6 +2793,11 @@ export const dict = {
+@@ -2793,6 +2793,7 @@ export const dict = {
    'chat.toolPart.awaitingResponse': 'Awaiting response...',
    'chat.toolPart.noOutputProduced': 'No output produced',
    'chat.toolPart.questionsAsked': 'Questions asked: {count}',
-+  'chat.toolPart.question.collapse': 'Collapse',
 +  'chat.toolPart.question.noAnswer': 'No answer',
-+  'chat.toolPart.question.selectOne': 'Select one',
-+  'chat.toolPart.question.showMore': 'Show more',
-+  'chat.toolPart.question.showLess': 'Show less',
    'chat.toolPart.filesCount': 'Files: {count}',
    'chat.toolPart.moreToolCalls': '+{count} more',
    'chat.toolPart.scriptCalls': 'Tool calls',
+diff --git a/packages/ui/src/lib/i18n/messages/es.settings.ts b/packages/ui/src/lib/i18n/messages/es.settings.ts
+index 2ce21186d..1f2fcc96e 100644
+--- a/packages/ui/src/lib/i18n/messages/es.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/es.settings.ts
+@@ -2431,6 +2431,12 @@ export const settingsDict = {
+   "settings.openchamber.visual.field.expandReasoningWhileStreamingInfo": "Muestra el razonamiento del modelo y el resumen de la compactación a medida que llegan. Si está desactivado, los bloques quedan plegados y se abren con un clic.",
+   "settings.openchamber.visual.field.collapsibleUserMessagesAria": "Contraer mensajes largos del usuario",
+   "settings.openchamber.visual.field.collapsibleUserMessages": "Contraer mensajes largos del usuario",
++  "settings.openchamber.visual.field.autoExpandAnsweredQuestionsAria": "Abrir automáticamente las preguntas respondidas",
++  "settings.openchamber.visual.field.autoExpandAnsweredQuestions": "Abrir automáticamente las preguntas respondidas",
++  "settings.openchamber.visual.field.autoExpandAnsweredQuestionsInfo": "Las preguntas respondidas en el historial se abren con todas las opciones y tu respuesta. Una pregunta contraída permanece contraída.",
++  "settings.openchamber.visual.field.questionsInPromptSelectorAria": "Listar preguntas en el selector de prompts",
++  "settings.openchamber.visual.field.questionsInPromptSelector": "Listar preguntas en el selector de prompts",
++  "settings.openchamber.visual.field.questionsInPromptSelectorInfo": "Muestra cada pregunta respondida bajo su prompt en el selector de la esquina superior derecha.",
+   "settings.openchamber.visual.field.stickyUserHeaderAria": "Encabezado del usuario fijo",
+   "settings.openchamber.visual.field.stickyUserHeader": "Encabezado de usuario fijo",
+   "settings.openchamber.visual.field.promptNavigatorEnabledAria": "Navegador de prompts",
 diff --git a/packages/ui/src/lib/i18n/messages/es.ts b/packages/ui/src/lib/i18n/messages/es.ts
-index 7ac0659b9..e8767233d 100644
+index 7ac0659b9..a19f8071c 100644
 --- a/packages/ui/src/lib/i18n/messages/es.ts
 +++ b/packages/ui/src/lib/i18n/messages/es.ts
-@@ -2750,6 +2750,11 @@ export const dict: Record<I18nKey, string> = {
+@@ -2750,6 +2750,7 @@ export const dict: Record<I18nKey, string> = {
    "chat.toolPart.awaitingResponse": "Esperando respuesta...",
    "chat.toolPart.noOutputProduced": "No se produjo ninguna salida",
    "chat.toolPart.questionsAsked": 'Preguntas realizadas: {count}',
-+  "chat.toolPart.question.collapse": "Contraer",
 +  "chat.toolPart.question.noAnswer": "Sin respuesta",
-+  "chat.toolPart.question.selectOne": "Elegir una",
-+  "chat.toolPart.question.showMore": "Mostrar más",
-+  "chat.toolPart.question.showLess": "Mostrar menos",
    "chat.toolPart.filesCount": 'Archivos: {count}',
    "chat.toolPart.moreToolCalls": '+{count} más',
    "chat.toolPart.scriptCalls": 'Llamadas a herramientas',
+diff --git a/packages/ui/src/lib/i18n/messages/fr.settings.ts b/packages/ui/src/lib/i18n/messages/fr.settings.ts
+index eaf8e4027..efaa5a9ca 100644
+--- a/packages/ui/src/lib/i18n/messages/fr.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/fr.settings.ts
+@@ -2320,6 +2320,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'Affiche le raisonnement du modèle et le résumé de compaction au fil de l\'eau. Désactivé, ces blocs restent repliés et s\'ouvrent d\'un clic.',
+   'settings.openchamber.visual.field.collapsibleUserMessagesAria': 'Réduire les longs messages utilisateur',
+   'settings.openchamber.visual.field.collapsibleUserMessages': 'Réduire les longs messages utilisateur',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsAria': 'Ouvrir automatiquement les questions répondues',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestions': 'Ouvrir automatiquement les questions répondues',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsInfo': 'Les questions répondues dans le fil s’ouvrent avec toutes les options et votre réponse. Une question réduite reste réduite.',
++  'settings.openchamber.visual.field.questionsInPromptSelectorAria': 'Lister les questions dans le sélecteur de prompts',
++  'settings.openchamber.visual.field.questionsInPromptSelector': 'Lister les questions dans le sélecteur de prompts',
++  'settings.openchamber.visual.field.questionsInPromptSelectorInfo': 'Affiche chaque question répondue sous son prompt dans le sélecteur en haut à droite.',
+   'settings.openchamber.visual.field.stickyUserHeaderAria': 'En-tête utilisateur collant',
+   'settings.openchamber.visual.field.stickyUserHeader': 'En-tête utilisateur collant',
+   'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'Navigateur de prompts',
 diff --git a/packages/ui/src/lib/i18n/messages/fr.ts b/packages/ui/src/lib/i18n/messages/fr.ts
-index 5366d75c3..fbc92045f 100644
+index 5366d75c3..055a2cfe9 100644
 --- a/packages/ui/src/lib/i18n/messages/fr.ts
 +++ b/packages/ui/src/lib/i18n/messages/fr.ts
-@@ -2490,6 +2490,11 @@ export const dict = {
+@@ -2490,6 +2490,7 @@ export const dict = {
    'chat.toolPart.awaitingResponse': 'En attente de réponse...',
    'chat.toolPart.noOutputProduced': 'Aucune sortie produite',
    'chat.toolPart.questionsAsked': 'Questions posées : {count}',
-+  'chat.toolPart.question.collapse': 'Réduire',
 +  'chat.toolPart.question.noAnswer': 'Pas de réponse',
-+  'chat.toolPart.question.selectOne': 'Choisir une',
-+  'chat.toolPart.question.showMore': 'Afficher plus',
-+  'chat.toolPart.question.showLess': 'Afficher moins',
    'chat.toolPart.filesCount': 'Fichiers : {count}',
    'chat.toolPart.moreToolCalls': '+{count} de plus',
    'chat.toolPart.scriptCalls': 'Appels d’outils',
+diff --git a/packages/ui/src/lib/i18n/messages/he.settings.ts b/packages/ui/src/lib/i18n/messages/he.settings.ts
+index 4dfe1ee24..55c5984f9 100644
+--- a/packages/ui/src/lib/i18n/messages/he.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/he.settings.ts
+@@ -2452,6 +2452,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'מציג את החשיבה של המודל ואת סיכום הדחיסה בזמן שהם מגיעים. כשהאפשרות כבויה, הם נשארים מקופלים ונפתחים בלחיצה.',
+   'settings.openchamber.visual.field.collapsibleUserMessagesAria': 'קיפול הודעות משתמש ארוכות',
+   'settings.openchamber.visual.field.collapsibleUserMessages': 'קיפול הודעות משתמש ארוכות',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsAria': 'פתיחת שאלות שנענו אוטומטית',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestions': 'פתיחת שאלות שנענו אוטומטית',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsInfo': 'שאלות שנענו בתמלול נפתחות עם כל האפשרויות והתשובה שלך. שאלה מכווצת נשארת מכווצת.',
++  'settings.openchamber.visual.field.questionsInPromptSelectorAria': 'הצגת שאלות בבורר ההנחיות',
++  'settings.openchamber.visual.field.questionsInPromptSelector': 'הצגת שאלות בבורר ההנחיות',
++  'settings.openchamber.visual.field.questionsInPromptSelectorInfo': 'מציג כל שאלה שנענתה תחת ההנחיה שלה בבורר בפינה הימנית העליונה.',
+   'settings.openchamber.visual.field.stickyUserHeaderAria': 'כותרת משתמש נצמדת',
+   'settings.openchamber.visual.field.stickyUserHeader': 'כותרת משתמש נצמדת',
+   'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'ניווט בין הנחיות',
 diff --git a/packages/ui/src/lib/i18n/messages/he.ts b/packages/ui/src/lib/i18n/messages/he.ts
-index a016a2a4e..1eece1de8 100644
+index 600b69677..33fd8e609 100644
 --- a/packages/ui/src/lib/i18n/messages/he.ts
 +++ b/packages/ui/src/lib/i18n/messages/he.ts
-@@ -2706,6 +2706,11 @@ export const dict = {
+@@ -2706,6 +2706,7 @@ export const dict = {
    'chat.toolPart.awaitingResponse': 'ממתין לתגובה…',
    'chat.toolPart.noOutputProduced': 'לא נוצר פלט',
    'chat.toolPart.questionsAsked': 'שאלות שנשאלו: {count}',
-+  'chat.toolPart.question.collapse': 'כיווץ',
 +  'chat.toolPart.question.noAnswer': 'אין תשובה',
-+  'chat.toolPart.question.selectOne': 'בחירה אחת',
-+  'chat.toolPart.question.showMore': 'הצג עוד',
-+  'chat.toolPart.question.showLess': 'הצג פחות',
    'chat.toolPart.filesCount': 'קבצים: {count}',
    'chat.toolPart.moreToolCalls': '+{count} נוספות',
    'chat.toolPart.scriptCalls': 'קריאות לכלים',
+diff --git a/packages/ui/src/lib/i18n/messages/ja.settings.ts b/packages/ui/src/lib/i18n/messages/ja.settings.ts
+index 6b128bc6c..5ba3e165b 100644
+--- a/packages/ui/src/lib/i18n/messages/ja.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/ja.settings.ts
+@@ -2464,6 +2464,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'モデルの思考と会話圧縮の要約を届いたそばから表示します。オフのときはブロックが折りたたまれ、クリックで開けます。',
+   'settings.openchamber.visual.field.collapsibleUserMessagesAria': '長いユーザーメッセージを折りたたむ',
+   'settings.openchamber.visual.field.collapsibleUserMessages': '長いユーザーメッセージを折りたたむ',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsAria': '回答済みの質問を自動で開く',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestions': '回答済みの質問を自動で開く',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsInfo': 'トランスクリプト内の回答済みの質問は、すべての選択肢とあなたの回答を表示して開きます。折りたたんだ質問は折りたたまれたままになります。',
++  'settings.openchamber.visual.field.questionsInPromptSelectorAria': 'プロンプトセレクターに質問を表示',
++  'settings.openchamber.visual.field.questionsInPromptSelector': 'プロンプトセレクターに質問を表示',
++  'settings.openchamber.visual.field.questionsInPromptSelectorInfo': '右上のセレクターで、各回答済みの質問を対応するプロンプトの下に表示します。',
+   'settings.openchamber.visual.field.stickyUserHeaderAria': 'ユーザーヘッダー固定',
+   'settings.openchamber.visual.field.stickyUserHeader': 'ユーザーヘッダー固定',
+   'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'プロンプトナビゲーター',
 diff --git a/packages/ui/src/lib/i18n/messages/ja.ts b/packages/ui/src/lib/i18n/messages/ja.ts
-index ec63c69b9..9ac610574 100644
+index ec63c69b9..2921a6195 100644
 --- a/packages/ui/src/lib/i18n/messages/ja.ts
 +++ b/packages/ui/src/lib/i18n/messages/ja.ts
-@@ -2792,6 +2792,11 @@ export const dict: Record<I18nKey, string> = {
+@@ -2792,6 +2792,7 @@ export const dict: Record<I18nKey, string> = {
    'chat.toolPart.awaitingResponse': '応答を待機中...',
    'chat.toolPart.noOutputProduced': '出力は生成されませんでした',
    'chat.toolPart.questionsAsked': '質問数: {count}',
-+  'chat.toolPart.question.collapse': '折りたたむ',
 +  'chat.toolPart.question.noAnswer': '回答なし',
-+  'chat.toolPart.question.selectOne': '1つ選択',
-+  'chat.toolPart.question.showMore': 'さらに表示',
-+  'chat.toolPart.question.showLess': '表示を減らす',
    'chat.toolPart.filesCount': 'ファイル数: {count}',
    'chat.toolPart.moreToolCalls': '他 +{count} 件',
    'chat.toolPart.scriptCalls': 'ツール呼び出し',
+diff --git a/packages/ui/src/lib/i18n/messages/ko.settings.ts b/packages/ui/src/lib/i18n/messages/ko.settings.ts
+index ba09ab563..95737e7b3 100644
+--- a/packages/ui/src/lib/i18n/messages/ko.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/ko.settings.ts
+@@ -2431,6 +2431,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': '모델의 생각과 대화 압축 요약을 도착하는 대로 보여줍니다. 끄면 블록이 접힌 채로 있고 클릭하면 열립니다.',
+   'settings.openchamber.visual.field.collapsibleUserMessagesAria': '긴 사용자 메시지 접기',
+   'settings.openchamber.visual.field.collapsibleUserMessages': '긴 사용자 메시지 접기',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsAria': '답변한 질문 자동 펼치기',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestions': '답변한 질문 자동 펼치기',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsInfo': '대화 기록의 답변한 질문은 모든 선택지와 답변을 함께 펼쳐 표시합니다. 접은 질문은 접힌 상태로 유지됩니다.',
++  'settings.openchamber.visual.field.questionsInPromptSelectorAria': '프롬프트 선택기에 질문 표시',
++  'settings.openchamber.visual.field.questionsInPromptSelector': '프롬프트 선택기에 질문 표시',
++  'settings.openchamber.visual.field.questionsInPromptSelectorInfo': '오른쪽 위 선택기에서 각 답변한 질문을 해당 프롬프트 아래에 표시합니다.',
+   'settings.openchamber.visual.field.stickyUserHeaderAria': '고정 사용자 헤더',
+   'settings.openchamber.visual.field.stickyUserHeader': '고정 사용자 헤더',
+   'settings.openchamber.visual.field.promptNavigatorEnabledAria': '프롬프트 탐색기',
 diff --git a/packages/ui/src/lib/i18n/messages/ko.ts b/packages/ui/src/lib/i18n/messages/ko.ts
-index d45d38772..af9c456e3 100644
+index d45d38772..3664e0d72 100644
 --- a/packages/ui/src/lib/i18n/messages/ko.ts
 +++ b/packages/ui/src/lib/i18n/messages/ko.ts
-@@ -2793,6 +2793,11 @@ export const dict: Record<I18nKey, string> = {
+@@ -2793,6 +2793,7 @@ export const dict: Record<I18nKey, string> = {
    'chat.toolPart.awaitingResponse': '응답 대기 중…',
    'chat.toolPart.noOutputProduced': '출력 없음',
    'chat.toolPart.questionsAsked': '질문 수: {count}',
-+  'chat.toolPart.question.collapse': '접기',
 +  'chat.toolPart.question.noAnswer': '답변 없음',
-+  'chat.toolPart.question.selectOne': '하나 선택',
-+  'chat.toolPart.question.showMore': '더 보기',
-+  'chat.toolPart.question.showLess': '간단히 보기',
    'chat.toolPart.filesCount': '파일 수: {count}',
    'chat.toolPart.moreToolCalls': '+{count}개 더',
    'chat.toolPart.scriptCalls': '도구 호출',
+diff --git a/packages/ui/src/lib/i18n/messages/nl.settings.ts b/packages/ui/src/lib/i18n/messages/nl.settings.ts
+index 746770c97..0398a4301 100644
+--- a/packages/ui/src/lib/i18n/messages/nl.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/nl.settings.ts
+@@ -2454,6 +2454,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'Toont de redenering van het model en de samenvatting bij het inkorten terwijl die binnenkomen. Uit: de blokken blijven ingeklapt en openen met een klik.',
+   'settings.openchamber.visual.field.collapsibleUserMessagesAria': 'Vouw lange gebruikersberichten samen',
+   'settings.openchamber.visual.field.collapsibleUserMessages': 'Lange gebruikersberichten samenvouwen',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsAria': 'Beantwoorde vragen automatisch openen',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestions': 'Beantwoorde vragen automatisch openen',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsInfo': 'Beantwoorde vragen in het transcript openen met alle opties en je antwoord. Een samengevouwen vraag blijft samengevouwen.',
++  'settings.openchamber.visual.field.questionsInPromptSelectorAria': 'Vragen tonen in de promptkiezer',
++  'settings.openchamber.visual.field.questionsInPromptSelector': 'Vragen tonen in de promptkiezer',
++  'settings.openchamber.visual.field.questionsInPromptSelectorInfo': 'Toont elke beantwoorde vraag onder de bijbehorende prompt in de kiezer rechtsboven.',
+   'settings.openchamber.visual.field.stickyUserHeaderAria': 'Vaste gebruikerskop',
+   'settings.openchamber.visual.field.stickyUserHeader': 'Vaste gebruikerskop',
+   'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'Promptnavigator',
 diff --git a/packages/ui/src/lib/i18n/messages/nl.ts b/packages/ui/src/lib/i18n/messages/nl.ts
-index 1a8b42943..07c7e75e2 100644
+index 1a8b42943..893f12081 100644
 --- a/packages/ui/src/lib/i18n/messages/nl.ts
 +++ b/packages/ui/src/lib/i18n/messages/nl.ts
-@@ -2793,6 +2793,11 @@ export const dict = {
+@@ -2793,6 +2793,7 @@ export const dict = {
    'chat.toolPart.awaitingResponse': 'Wachten op antwoord...',
    'chat.toolPart.noOutputProduced': 'Geen uitvoer',
    'chat.toolPart.questionsAsked': 'Gestelde vragen: {count}',
-+  'chat.toolPart.question.collapse': 'Samenvouwen',
 +  'chat.toolPart.question.noAnswer': 'Geen antwoord',
-+  'chat.toolPart.question.selectOne': 'Eén kiezen',
-+  'chat.toolPart.question.showMore': 'Meer tonen',
-+  'chat.toolPart.question.showLess': 'Minder tonen',
    'chat.toolPart.filesCount': 'Bestanden: {count}',
    'chat.toolPart.moreToolCalls': '+{count} meer',
    'chat.toolPart.scriptCalls': 'Toolaanroepen',
+diff --git a/packages/ui/src/lib/i18n/messages/pl.settings.ts b/packages/ui/src/lib/i18n/messages/pl.settings.ts
+index f88366b63..7ca0f16f1 100644
+--- a/packages/ui/src/lib/i18n/messages/pl.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/pl.settings.ts
+@@ -1372,6 +1372,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'Pokazuje rozumowanie modelu i podsumowanie kompaktowania na bieżąco. Gdy wyłączone, bloki są zwinięte i otwierają się kliknięciem.',
+   'settings.openchamber.visual.field.collapsibleThinkingBlocksAria': 'Włącz zwijalne bloki rozumowania',
+   'settings.openchamber.visual.field.collapsibleUserMessages': 'Zwijaj długie wiadomości użytkownika',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsAria': 'Automatycznie otwieraj odpowiedzi na pytania',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestions': 'Automatycznie otwieraj odpowiedzi na pytania',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsInfo': 'Odpowiedzi na pytania w transkrypcie otwierają się z wszystkimi opcjami i Twoją odpowiedzią. Zwinięte pytanie pozostaje zwinięte.',
++  'settings.openchamber.visual.field.questionsInPromptSelectorAria': 'Wyświetlaj pytania w selektorze promptów',
++  'settings.openchamber.visual.field.questionsInPromptSelector': 'Wyświetlaj pytania w selektorze promptów',
++  'settings.openchamber.visual.field.questionsInPromptSelectorInfo': 'Pokazuje każde pytanie z odpowiedzią pod jego promptem w selektorze w prawym górnym rogu.',
+   'settings.openchamber.visual.field.collapsibleUserMessagesAria': 'Zwijaj długie wiadomości użytkownika',
+   'settings.openchamber.visual.field.showSplitAssistantMessageActions': 'Akcje asystenta w treści',
+   'settings.openchamber.visual.field.showSplitAssistantMessageActionsAria': 'Akcje asystenta w treści',
 diff --git a/packages/ui/src/lib/i18n/messages/pl.ts b/packages/ui/src/lib/i18n/messages/pl.ts
-index 7fd0de2d8..8e60db4b0 100644
+index 7fd0de2d8..1e357fc86 100644
 --- a/packages/ui/src/lib/i18n/messages/pl.ts
 +++ b/packages/ui/src/lib/i18n/messages/pl.ts
-@@ -1689,6 +1689,11 @@ export const dict: Record<I18nKey, string> = {
+@@ -1689,6 +1689,7 @@ export const dict: Record<I18nKey, string> = {
    'chat.toolPart.moreRows': '+{count} kolejnych wierszy',
    'chat.toolPart.noOutputProduced': 'Brak wygenerowanego wyniku',
    'chat.toolPart.questionsAsked': 'Zadane pytania: {count}',
-+  'chat.toolPart.question.collapse': 'Zwiń',
 +  'chat.toolPart.question.noAnswer': 'Brak odpowiedzi',
-+  'chat.toolPart.question.selectOne': 'Wybierz jedną',
-+  'chat.toolPart.question.showMore': 'Pokaż więcej',
-+  'chat.toolPart.question.showLess': 'Pokaż mniej',
    'chat.toolPart.filesCount': 'Pliki: {count}',
    'chat.toolPart.moreToolCalls': '+{count} więcej',
    'chat.toolPart.scriptCalls': 'Wywołania narzędzi',
+diff --git a/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts b/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
+index 22d069ec4..5159c9878 100644
+--- a/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
+@@ -2431,6 +2431,12 @@ export const settingsDict = {
+   "settings.openchamber.visual.field.expandReasoningWhileStreamingInfo": "Mostra o raciocínio do modelo e o resumo da compactação enquanto chegam. Desativado, os blocos ficam recolhidos e abrem com um clique.",
+   "settings.openchamber.visual.field.collapsibleUserMessagesAria": "Recolher mensagens longas do usuário",
+   "settings.openchamber.visual.field.collapsibleUserMessages": "Recolher mensagens longas do usuário",
++  "settings.openchamber.visual.field.autoExpandAnsweredQuestionsAria": "Abrir automaticamente perguntas respondidas",
++  "settings.openchamber.visual.field.autoExpandAnsweredQuestions": "Abrir automaticamente perguntas respondidas",
++  "settings.openchamber.visual.field.autoExpandAnsweredQuestionsInfo": "As perguntas respondidas no histórico abrem com todas as opções e a sua resposta. Uma pergunta recolhida permanece recolhida.",
++  "settings.openchamber.visual.field.questionsInPromptSelectorAria": "Listar perguntas no seletor de prompts",
++  "settings.openchamber.visual.field.questionsInPromptSelector": "Listar perguntas no seletor de prompts",
++  "settings.openchamber.visual.field.questionsInPromptSelectorInfo": "Mostra cada pergunta respondida sob o seu prompt no seletor no canto superior direito.",
+   "settings.openchamber.visual.field.stickyUserHeaderAria": "Cabeçalho do usuário fixo",
+   "settings.openchamber.visual.field.stickyUserHeader": "Cabeçalho do usuário fixo",
+   "settings.openchamber.visual.field.promptNavigatorEnabledAria": "Navegador de prompts",
 diff --git a/packages/ui/src/lib/i18n/messages/pt-BR.ts b/packages/ui/src/lib/i18n/messages/pt-BR.ts
-index 68a8e1624..450cfe4fa 100644
+index 68a8e1624..6b3351b15 100644
 --- a/packages/ui/src/lib/i18n/messages/pt-BR.ts
 +++ b/packages/ui/src/lib/i18n/messages/pt-BR.ts
-@@ -2750,6 +2750,11 @@ export const dict: Record<I18nKey, string> = {
+@@ -2750,6 +2750,7 @@ export const dict: Record<I18nKey, string> = {
    "chat.toolPart.awaitingResponse": "Aguardando resposta...",
    "chat.toolPart.noOutputProduced": "Nenhuma saída produzida",
    "chat.toolPart.questionsAsked": 'Perguntas feitas: {count}',
-+  "chat.toolPart.question.collapse": "Recolher",
 +  "chat.toolPart.question.noAnswer": "Sem resposta",
-+  "chat.toolPart.question.selectOne": "Escolher uma",
-+  "chat.toolPart.question.showMore": "Mostrar mais",
-+  "chat.toolPart.question.showLess": "Mostrar menos",
    "chat.toolPart.filesCount": 'Arquivos: {count}',
    "chat.toolPart.moreToolCalls": '+{count} mais',
    "chat.toolPart.scriptCalls": 'Chamadas de ferramentas',
@@ -2367,72 +3197,124 @@ index 693cdc81f..10125a3e4 100644
      'settings.layout.chat.section.reading': 'קריאה',
      'settings.layout.chat.section.formatting': 'עיצוב',
      'settings.layout.chat.section.sending': 'שליחה',
+diff --git a/packages/ui/src/lib/i18n/messages/tr.settings.ts b/packages/ui/src/lib/i18n/messages/tr.settings.ts
+index 138ae6a27..fedd99f62 100644
+--- a/packages/ui/src/lib/i18n/messages/tr.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/tr.settings.ts
+@@ -2321,6 +2321,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'Modelin düşüncelerini ve sıkıştırma özetini geldikçe gösterir. Kapalıyken bloklar daraltılmış kalır ve tıklayınca açılır.',
+   'settings.openchamber.visual.field.collapsibleUserMessagesAria': 'Uzun kullanıcı mesajlarını daralt',
+   'settings.openchamber.visual.field.collapsibleUserMessages': 'Uzun Kullanıcı Mesajlarını Daralt',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsAria': 'Yanıtlanan soruları otomatik aç',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestions': 'Yanıtlanan soruları otomatik aç',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsInfo': 'Transkriptteki yanıtlanan sorular tüm seçenekler ve yanıtınızla açılır. Daraltılan bir soru daraltılmış kalır.',
++  'settings.openchamber.visual.field.questionsInPromptSelectorAria': 'Soruları istem seçicide listele',
++  'settings.openchamber.visual.field.questionsInPromptSelector': 'Soruları istem seçicide listele',
++  'settings.openchamber.visual.field.questionsInPromptSelectorInfo': 'Her yanıtlanan soruyu sağ üstteki seçicide isteminin altında gösterir.',
+   'settings.openchamber.visual.field.stickyUserHeaderAria': 'Yapışkan kullanıcı üstbilgisi',
+   'settings.openchamber.visual.field.stickyUserHeader': 'Yapışkan Kullanıcı Üstbilgisi',
+   'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'Prompt gezgini',
 diff --git a/packages/ui/src/lib/i18n/messages/tr.ts b/packages/ui/src/lib/i18n/messages/tr.ts
-index 31676c83c..782ab5a12 100644
+index 31676c83c..7a923893d 100644
 --- a/packages/ui/src/lib/i18n/messages/tr.ts
 +++ b/packages/ui/src/lib/i18n/messages/tr.ts
-@@ -2623,6 +2623,11 @@ export const dict = {
+@@ -2623,6 +2623,7 @@ export const dict = {
    'chat.toolPart.awaitingResponse': 'Yanıt bekleniyor...',
    'chat.toolPart.noOutputProduced': 'Çıktı üretilmedi',
    'chat.toolPart.questionsAsked': 'Sorulan sorular: {count}',
-+  'chat.toolPart.question.collapse': 'Daralt',
 +  'chat.toolPart.question.noAnswer': 'Yanıt yok',
-+  'chat.toolPart.question.selectOne': 'Birini seç',
-+  'chat.toolPart.question.showMore': 'Daha fazla göster',
-+  'chat.toolPart.question.showLess': 'Daha az göster',
    'chat.toolPart.filesCount': 'Dosyalar: {count}',
    'chat.toolPart.moreToolCalls': '+{count} daha',
    'chat.toolPart.scriptCalls': 'Araç çağrıları',
+diff --git a/packages/ui/src/lib/i18n/messages/uk.settings.ts b/packages/ui/src/lib/i18n/messages/uk.settings.ts
+index fc80e4c55..3aad734a5 100644
+--- a/packages/ui/src/lib/i18n/messages/uk.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/uk.settings.ts
+@@ -2431,6 +2431,12 @@ export const settingsDict = {
+   "settings.openchamber.visual.field.expandReasoningWhileStreamingInfo": "Показує міркування моделі та підсумок стиснення розмови, поки вони надходять. Коли вимкнено, блоки згорнуті й відкриваються кліком.",
+   "settings.openchamber.visual.field.collapsibleUserMessagesAria": "Згортати довгі повідомлення користувача",
+   "settings.openchamber.visual.field.collapsibleUserMessages": "Згортати довгі повідомлення користувача",
++  "settings.openchamber.visual.field.autoExpandAnsweredQuestionsAria": "Автоматично відкривати відповіді на запитання",
++  "settings.openchamber.visual.field.autoExpandAnsweredQuestions": "Автоматично відкривати відповіді на запитання",
++  "settings.openchamber.visual.field.autoExpandAnsweredQuestionsInfo": "Відповіді на запитання в історії відкриваються з усіма варіантами та вашою відповіддю. Згорнуте запитання лишається згорнутим.",
++  "settings.openchamber.visual.field.questionsInPromptSelectorAria": "Показувати запитання у виборі запитів",
++  "settings.openchamber.visual.field.questionsInPromptSelector": "Показувати запитання у виборі запитів",
++  "settings.openchamber.visual.field.questionsInPromptSelectorInfo": "Показує кожну відповідь на запитання під її запитом у виборі в правому верхньому куті.",
+   "settings.openchamber.visual.field.stickyUserHeaderAria": "Закріплений заголовок користувача",
+   "settings.openchamber.visual.field.stickyUserHeader": "Закріплений заголовок користувача",
+   "settings.openchamber.visual.field.promptNavigatorEnabledAria": "Навігатор промптів",
 diff --git a/packages/ui/src/lib/i18n/messages/uk.ts b/packages/ui/src/lib/i18n/messages/uk.ts
-index ca6da0ba1..876ad0d22 100644
+index ca6da0ba1..e6c5c21b2 100644
 --- a/packages/ui/src/lib/i18n/messages/uk.ts
 +++ b/packages/ui/src/lib/i18n/messages/uk.ts
-@@ -2750,6 +2750,11 @@ export const dict: Record<I18nKey, string> = {
+@@ -2750,6 +2750,7 @@ export const dict: Record<I18nKey, string> = {
    "chat.toolPart.awaitingResponse": "Очікування відповіді...",
    "chat.toolPart.noOutputProduced": "Вивід відсутній",
    "chat.toolPart.questionsAsked": 'Поставлено запитань: {count}',
-+  "chat.toolPart.question.collapse": "Згорнути",
 +  "chat.toolPart.question.noAnswer": "Немає відповіді",
-+  "chat.toolPart.question.selectOne": "Вибрати один",
-+  "chat.toolPart.question.showMore": "Показати більше",
-+  "chat.toolPart.question.showLess": "Показати менше",
    "chat.toolPart.filesCount": 'Файлів: {count}',
    "chat.toolPart.moreToolCalls": 'ще +{count}',
    "chat.toolPart.scriptCalls": 'Виклики інструментів',
+diff --git a/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts b/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
+index 37fea4139..a1d5700a5 100644
+--- a/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
+@@ -2431,6 +2431,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': '在内容到达时实时显示模型的推理和对话压缩摘要。关闭后这些块保持折叠，点击即可展开。',
+   'settings.openchamber.visual.field.collapsibleUserMessagesAria': '折叠较长的用户消息',
+   'settings.openchamber.visual.field.collapsibleUserMessages': '折叠较长的用户消息',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsAria': '自动展开已回答的问题',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestions': '自动展开已回答的问题',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsInfo': '聊天记录中已回答的问题会展开显示所有选项和你的回答。折叠后的问题会保持折叠。',
++  'settings.openchamber.visual.field.questionsInPromptSelectorAria': '在选择器中列出问题',
++  'settings.openchamber.visual.field.questionsInPromptSelector': '在选择器中列出问题',
++  'settings.openchamber.visual.field.questionsInPromptSelectorInfo': '在右上角选择器中于对应提示下显示每个已回答的问题。',
+   'settings.openchamber.visual.field.stickyUserHeaderAria': '固定用户消息头',
+   'settings.openchamber.visual.field.stickyUserHeader': '固定用户消息头',
+   'settings.openchamber.visual.field.promptNavigatorEnabledAria': '提示词导航',
 diff --git a/packages/ui/src/lib/i18n/messages/zh-CN.ts b/packages/ui/src/lib/i18n/messages/zh-CN.ts
-index 12f8057fe..04aa892c6 100644
+index 12f8057fe..d9ed29c67 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-CN.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-CN.ts
-@@ -2759,6 +2759,11 @@ export const dict: Record<I18nKey, string> = {
+@@ -2759,6 +2759,7 @@ export const dict: Record<I18nKey, string> = {
    'chat.toolPart.awaitingResponse': '等待响应...',
    'chat.toolPart.noOutputProduced': '未产生输出',
    'chat.toolPart.questionsAsked': '已提问：{count}',
-+  'chat.toolPart.question.collapse': '折叠',
 +  'chat.toolPart.question.noAnswer': '无回答',
-+  'chat.toolPart.question.selectOne': '选择一项',
-+  'chat.toolPart.question.showMore': '显示更多',
-+  'chat.toolPart.question.showLess': '收起',
    'chat.toolPart.filesCount': '文件数：{count}',
    'chat.toolPart.moreToolCalls': '还有 +{count} 个',
    'chat.toolPart.scriptCalls': '工具调用',
+diff --git a/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts b/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
+index ad130eeef..245c38af4 100644
+--- a/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
+@@ -2309,6 +2309,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': '在內容到達時即時顯示模型的推理和對話壓縮摘要。關閉後這些區塊保持摺疊，點擊即可展開。',
+   'settings.openchamber.visual.field.collapsibleUserMessagesAria': '收合較長的使用者訊息',
+   'settings.openchamber.visual.field.collapsibleUserMessages': '收合較長的使用者訊息',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsAria': '自動展開已回答的問題',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestions': '自動展開已回答的問題',
++  'settings.openchamber.visual.field.autoExpandAnsweredQuestionsInfo': '聊天記錄中已回答的問題會展開顯示所有選項和你的回答。收合後的問題會保持收合。',
++  'settings.openchamber.visual.field.questionsInPromptSelectorAria': '在選擇器中列出問題',
++  'settings.openchamber.visual.field.questionsInPromptSelector': '在選擇器中列出問題',
++  'settings.openchamber.visual.field.questionsInPromptSelectorInfo': '在右上角選擇器中於對應提示下顯示每個已回答的問題。',
+   'settings.openchamber.visual.field.stickyUserHeaderAria': '固定使用者訊息標頭',
+   'settings.openchamber.visual.field.stickyUserHeader': '固定使用者訊息標頭',
+   'settings.openchamber.visual.field.promptNavigatorEnabledAria': '提示詞導覽',
 diff --git a/packages/ui/src/lib/i18n/messages/zh-TW.ts b/packages/ui/src/lib/i18n/messages/zh-TW.ts
-index 053b99d65..1bd8f05f5 100644
+index 053b99d65..dee9a424f 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-TW.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-TW.ts
-@@ -2770,6 +2770,11 @@ export const dict: Record<I18nKey, string> = {
+@@ -2770,6 +2770,7 @@ export const dict: Record<I18nKey, string> = {
    'chat.toolPart.awaitingResponse': '等待回應...',
    'chat.toolPart.noOutputProduced': '未產生輸出',
    'chat.toolPart.questionsAsked': '已提問：{count}',
-+  'chat.toolPart.question.collapse': '收合',
 +  'chat.toolPart.question.noAnswer': '無回答',
-+  'chat.toolPart.question.selectOne': '選擇一項',
-+  'chat.toolPart.question.showMore': '顯示更多',
-+  'chat.toolPart.question.showLess': '收合',
    'chat.toolPart.filesCount': '檔案數：{count}',
    'chat.toolPart.moreToolCalls': '還有 +{count} 個',
    'chat.toolPart.scriptCalls': '工具呼叫',
 diff --git a/packages/ui/src/lib/opencode/client.test.ts b/packages/ui/src/lib/opencode/client.test.ts
-index b1e6d69bd..6cfee4c0f 100644
+index b1e6d69bd..2c6c57701 100644
 --- a/packages/ui/src/lib/opencode/client.test.ts
 +++ b/packages/ui/src/lib/opencode/client.test.ts
 @@ -4,6 +4,7 @@ import { isAmbiguousSendFailure } from '@/sync/send-failure-classification'
@@ -2448,7 +3330,7 @@ index b1e6d69bd..6cfee4c0f 100644
      await opencodeClient.getSessionMessages("ses_1", { limit: 20, partShells: true })
      await opencodeClient.getSessionMessages("ses_1", { limit: 20, partShells: true })
 -    expect(pageRequests().map((request) => request.headers.get("x-openchamber-part-shells"))).toEqual(["v1", null, null])
-+    expect(pageRequests().map((request) => request.headers.get("x-openchamber-part-shells"))).toEqual([PART_SHELLS_VERSION, null, null])
++    expect(pageRequests().map((request) => request.headers.get("x-openchamber-part-shells"))).toEqual(["v1,question", null, null])
    })
  
    test("a page lost to a relay tunnel drop keeps asking for shelled pages", async () => {
@@ -2462,10 +3344,18 @@ index b1e6d69bd..6cfee4c0f 100644
        deactivateRelayTunnel()
      }
 diff --git a/packages/ui/src/lib/opencode/toolContentShells.ts b/packages/ui/src/lib/opencode/toolContentShells.ts
-index 37ccc5e80..012a42524 100644
+index 37ccc5e80..2681d5a53 100644
 --- a/packages/ui/src/lib/opencode/toolContentShells.ts
 +++ b/packages/ui/src/lib/opencode/toolContentShells.ts
-@@ -19,9 +19,11 @@ export const PART_SHELLS_HEADER = "x-openchamber-part-shells"
+@@ -12,16 +12,18 @@
+ import { z } from "zod"
+ 
+ import { compact, type Part, type ToolPart } from "./model"
+-import { isNavigationTool } from "./tools"
++import { isNavigationTool, OPENCODE_TOOLS } from "./tools"
+ 
+ /** Request header asking for shelled pages. */
+ export const PART_SHELLS_HEADER = "x-openchamber-part-shells"
  
  /**
   * The header value. The server also accepts tools to keep whole after the
@@ -2474,16 +3364,16 @@ index 37ccc5e80..012a42524 100644
 + * which the collapsed and expanded rows show without a per-row fetch.
   */
 -export const PART_SHELLS_VERSION = "v1"
-+const PART_SHELLS_KEEP_WHOLE_TOOLS = ["question"] as const
++const PART_SHELLS_KEEP_WHOLE_TOOLS = [OPENCODE_TOOLS.question] as const
 +export const PART_SHELLS_VERSION = ["v1", ...PART_SHELLS_KEEP_WHOLE_TOOLS].join(",")
  
  const CONTENT_SHELL_METADATA_KEY = "openchamberContentShell"
  
 diff --git a/packages/ui/src/lib/settings/registry.ts b/packages/ui/src/lib/settings/registry.ts
-index 904dda0b4..af5660263 100644
+index eb1fe89aa..0e680d5cf 100644
 --- a/packages/ui/src/lib/settings/registry.ts
 +++ b/packages/ui/src/lib/settings/registry.ts
-@@ -486,6 +486,8 @@ export const SETTINGS_REGISTRY = {
+@@ -506,6 +506,8 @@ export const SETTINGS_REGISTRY = {
    stickyUserHeader: field({ scope: 'profile', perSurface: true, parse: parseBoolean, ui: uiStore('stickyUserHeader', (v) => useUIStore.getState().setStickyUserHeader(v)) }),
    promptNavigatorEnabled: field({ scope: 'profile', perSurface: true, parse: parseBoolean, ui: uiStore('promptNavigatorEnabled', (v) => useUIStore.getState().setPromptNavigatorEnabled(v)) }),
    chatWidth: field({ scope: 'profile', perSurface: true, parse: parseChatWidth, ui: uiStore('chatWidth', (v) => useUIStore.getState().setChatWidth(v)) }),
@@ -2493,7 +3383,7 @@ index 904dda0b4..af5660263 100644
    showToolFileIcons: field({ scope: 'profile', parse: parseBoolean, ui: uiStore('showToolFileIcons', (v) => useUIStore.getState().setShowToolFileIcons(v)) }),
    codeBlockLineWrap: field({ scope: 'profile', parse: parseBoolean, ui: uiStore('codeBlockLineWrap', (v) => useUIStore.getState().setCodeBlockLineWrap(v)) }),
 diff --git a/packages/ui/src/lib/settings/search.ts b/packages/ui/src/lib/settings/search.ts
-index 2122115bf..b7e0518e8 100644
+index 8b965401f..e738ec736 100644
 --- a/packages/ui/src/lib/settings/search.ts
 +++ b/packages/ui/src/lib/settings/search.ts
 @@ -399,6 +399,20 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
@@ -2518,7 +3408,7 @@ index 2122115bf..b7e0518e8 100644
      id: 'chat.collapsible-user-messages',
      page: 'chat',
 diff --git a/packages/ui/src/stores/useUIStore.ts b/packages/ui/src/stores/useUIStore.ts
-index 1c32c1409..92b80094d 100644
+index baefb05d6..3282bffce 100644
 --- a/packages/ui/src/stores/useUIStore.ts
 +++ b/packages/ui/src/stores/useUIStore.ts
 @@ -1226,6 +1226,8 @@ interface UIStore {
@@ -2543,12 +3433,12 @@ index 1c32c1409..92b80094d 100644
          collapsibleUserMessages: true,
          stickyUserHeader: false,
          promptNavigatorEnabled: true,
-+        autoExpandAnsweredQuestions: true,
++        autoExpandAnsweredQuestions: false,
 +        listQuestionsInPromptSelector: true,
          showSplitAssistantMessageActions: false,
          allowPromptingSubagentSessions: false,
          savePastedImagesAsFiles: false,
-@@ -3533,6 +3539,12 @@ export const useUIStore = create<UIStore>()(
+@@ -3536,6 +3542,12 @@ export const useUIStore = create<UIStore>()(
          setPromptNavigatorEnabled: (value) => {
            set({ promptNavigatorEnabled: value });
          },
@@ -2561,7 +3451,7 @@ index 1c32c1409..92b80094d 100644
          setShowSplitAssistantMessageActions: (value) => {
            set({ showSplitAssistantMessageActions: value });
          },
-@@ -4053,6 +4065,8 @@ export const useUIStore = create<UIStore>()(
+@@ -4056,6 +4068,8 @@ export const useUIStore = create<UIStore>()(
            collapsibleUserMessages: state.collapsibleUserMessages,
            stickyUserHeader: state.stickyUserHeader,
            promptNavigatorEnabled: state.promptNavigatorEnabled,
@@ -2571,10 +3461,10 @@ index 1c32c1409..92b80094d 100644
            allowPromptingSubagentSessions: state.allowPromptingSubagentSessions,
            savePastedImagesAsFiles: state.savePastedImagesAsFiles,
 diff --git a/packages/vscode/src/settings-registry.json b/packages/vscode/src/settings-registry.json
-index 322b6ec4b..acefc220c 100644
+index 8416587c1..9fac9cbff 100644
 --- a/packages/vscode/src/settings-registry.json
 +++ b/packages/vscode/src/settings-registry.json
-@@ -438,6 +438,12 @@
+@@ -442,6 +442,12 @@
        "scope": "profile",
        "perSurface": true
      },
@@ -2620,10 +3510,10 @@ index 1e413e18a..0d29576ac 100644
      const envelope = (ok) => JSON.stringify({ schemaVersion: 1, ok, action: 'memory.save', data: { memory: { title: 'Uses bun' } } });
      const marker = (name, text) => shellMessagePage(page([tool(name, completed({ content: [{ type: 'text', text }], metadata: {} }))]), new Set())
 diff --git a/packages/web/server/lib/opencode/settings-helpers.js b/packages/web/server/lib/opencode/settings-helpers.js
-index 5cc2d4640..fbe819037 100644
+index 6f2711c3e..d27e3ac50 100644
 --- a/packages/web/server/lib/opencode/settings-helpers.js
 +++ b/packages/web/server/lib/opencode/settings-helpers.js
-@@ -1012,6 +1012,14 @@ export const createSettingsHelpers = (dependencies) => {
+@@ -1020,6 +1020,14 @@ export const createSettingsHelpers = (dependencies) => {
      if (typeof candidate.promptNavigatorEnabled === 'boolean') {
        result.promptNavigatorEnabled = candidate.promptNavigatorEnabled;
      }
@@ -2639,7 +3529,7 @@ index 5cc2d4640..fbe819037 100644
      // saved: `true` reads as `full-width` so the layout does not change, `false`
      // as the compact default. A level in the same document wins over the switch.
 diff --git a/packages/web/server/lib/opencode/settings-helpers.test.js b/packages/web/server/lib/opencode/settings-helpers.test.js
-index d4d00796e..f9476996e 100644
+index 187c57599..34da4cda5 100644
 --- a/packages/web/server/lib/opencode/settings-helpers.test.js
 +++ b/packages/web/server/lib/opencode/settings-helpers.test.js
 @@ -304,6 +304,16 @@ describe('settings helpers', () => {
@@ -2669,10 +3559,10 @@ index d4d00796e..f9476996e 100644
      codeBlockLineWrap: true, tableCellWrap: true, copyMessagesAsPlainText: true, showTurnChangedFiles: true, toolJsonViewMode: 'raw',
      timeFormatPreference: '24h', weekStartPreference: 'monday', messageStreamTransport: 'ws', diffLayoutPreference: 'inline', diffWrapLines: true, diffHideWhitespace: true,
 diff --git a/packages/web/server/lib/opencode/settings-registry.json b/packages/web/server/lib/opencode/settings-registry.json
-index 322b6ec4b..acefc220c 100644
+index 8416587c1..9fac9cbff 100644
 --- a/packages/web/server/lib/opencode/settings-registry.json
 +++ b/packages/web/server/lib/opencode/settings-registry.json
-@@ -438,6 +438,12 @@
+@@ -442,6 +442,12 @@
        "scope": "profile",
        "perSurface": true
      },
