@@ -1,73 +1,54 @@
-diff --git a/packages/electron/electron-host-probe.mjs b/packages/electron/electron-host-probe.mjs
-index c459e4a87..bd33e6e79 100644
---- a/packages/electron/electron-host-probe.mjs
-+++ b/packages/electron/electron-host-probe.mjs
-@@ -106,16 +106,18 @@ export const probeElectronHostWithDeadline = async ({
-           const response = await fetchProbe(healthUrl, { Accept: 'application/json' });
-           // A redirected identity belongs to another candidate, even if its ID matches.
-           if (response.status >= 300 && response.status < 400 || response.redirected) return result('wrong-service');
--          if (response.ok) {
--            const payload = await response.json().catch(() => null);
--            const reported = optionalIdentity.parse(payload?.serverId);
--            if (reported && reported !== expectedIdentity) return result('wrong-service');
--          }
-+          // An address whose identity cannot be read is unverified: do not fall
-+          // through to the bearer-bearing requests. A readable answer that omits
-+          // serverId stays valid for older servers.
-+          if (!response.ok) return result('unreachable');
-+          const payload = await response.json().catch(() => null);
-+          const reported = optionalIdentity.parse(payload?.serverId);
-+          if (reported && reported !== expectedIdentity) return result('wrong-service');
-         } catch (error) {
-           if (controller.signal.aborted) throw error;
-           // Electron 43 net.fetch rejects manual redirects instead of returning a 3xx response.
-           if (error instanceof Error && error.message === 'Redirect was cancelled') return result('wrong-service');
--          // Identity is optional on older servers; the authenticated request remains authoritative.
-+          return result('unreachable');
-         }
-       }
-     }
 diff --git a/packages/electron/electron-host-probe.test.mjs b/packages/electron/electron-host-probe.test.mjs
-index 2d7e7ba08..48e0dca8c 100644
+index 2d7e7ba08..9767a0191 100644
 --- a/packages/electron/electron-host-probe.test.mjs
 +++ b/packages/electron/electron-host-probe.test.mjs
-@@ -146,6 +146,34 @@ test('rejects Electron manual-redirect errors before bearer-bearing requests', a
+@@ -146,6 +146,44 @@ test('rejects Electron manual-redirect errors before bearer-bearing requests', a
    assert.equal(calls, 1);
  });
  
-+test('an unreadable /health is unverified and sends no bearer', async () => {
-+  let calls = 0;
++test('an unreadable /health falls through to the authenticated probe', async () => {
++  const calls = [];
 +  const result = await baseProbe({
 +    expectedServerId: 'server-a',
 +    clientToken: 'secret-token',
-+    chromiumFetch: async () => {
-+      calls += 1;
-+      return response(500, {});
++    chromiumFetch: async (url, options) => {
++      calls.push({ path: new URL(url).pathname, headers: options.headers });
++      if (url.endsWith('/health')) return response(500, {});
++      if (url.endsWith('/api/version')) return response(200, compatibleVersion);
++      return response(200, {});
 +    },
 +  });
-+  assert.equal(result.status, 'unreachable');
-+  assert.equal(calls, 1);
++
++  assert.equal(result.status, 'ok');
++  // Identity is optional on older servers, so an unreadable /health is not a
++  // verdict on reachability; the authenticated requests stay authoritative.
++  assert.deepEqual(calls.map((call) => call.path), ['/health', '/api/version', '/auth/session']);
++  assert.equal(calls[0].headers.Authorization, undefined);
++  assert.equal(calls[1].headers.Authorization, 'Bearer secret-token');
 +});
 +
-+test('a /health transport failure is unverified and sends no bearer', async () => {
-+  let calls = 0;
++test('a /health transport failure falls through to the authenticated probe', async () => {
++  const calls = [];
 +  const result = await baseProbe({
 +    expectedServerId: 'server-a',
 +    clientToken: 'secret-token',
-+    chromiumFetch: async () => {
-+      calls += 1;
-+      throw new Error('connect ECONNREFUSED');
++    chromiumFetch: async (url) => {
++      calls.push(new URL(url).pathname);
++      if (url.endsWith('/health')) throw new Error('connect ECONNREFUSED');
++      if (url.endsWith('/api/version')) return response(200, compatibleVersion);
++      return response(200, {});
 +    },
 +  });
-+  assert.equal(result.status, 'unreachable');
-+  assert.equal(calls, 1);
++
++  assert.equal(result.status, 'ok');
++  assert.deepEqual(calls, ['/health', '/api/version', '/auth/session']);
 +});
 +
  for (const serverId of [undefined, null, 123, true, {}, [], '', '   ', ' server-a ']) {
    test(`preserves optional health identity parsing for ${JSON.stringify(serverId)}`, async () => {
      const result = await baseProbe({
 diff --git a/packages/ui/src/App.tsx b/packages/ui/src/App.tsx
-index 47c67827e..6721caae0 100644
+index d091ac057..e02923911 100644
 --- a/packages/ui/src/App.tsx
 +++ b/packages/ui/src/App.tsx
 @@ -20,6 +20,9 @@ import { useGuestInstallLinks } from '@/hooks/useGuestInstallLinks';
@@ -80,7 +61,7 @@ index 47c67827e..6721caae0 100644
  import { useRouter } from '@/hooks/useRouter';
  import { usePushVisibilityBeacon } from '@/hooks/usePushVisibilityBeacon';
  import { useWebNotificationStream } from '@/hooks/useWebNotificationStream';
-@@ -694,6 +697,11 @@ function App({ apis }: AppProps) {
+@@ -690,6 +693,11 @@ function App({ apis }: AppProps) {
  
    useTraySync();
    useGlobalSessionsPolling(true);
@@ -92,8 +73,34 @@ index 47c67827e..6721caae0 100644
  
    useSessionStatusBootstrap();
  
+diff --git a/packages/ui/src/apps/DOCUMENTATION.md b/packages/ui/src/apps/DOCUMENTATION.md
+index 76d8261df..6078bcbc2 100644
+--- a/packages/ui/src/apps/DOCUMENTATION.md
++++ b/packages/ui/src/apps/DOCUMENTATION.md
+@@ -30,6 +30,21 @@
+ - Notification commands and initial session tabs in VS Code use the shared session opener, so a `/btw` fork opens its parent and expands the panel mounted in the shared composer. Notification commands also reveal the chat view.
+ - Every shell that renders chat columns applies the chat width level with `applyChatWidth` (`lib/chatWidth.ts`). The desktop App, the VS Code webview, the mobile shell and the Electron mini-chat window each write the same root properties, so the tablet shell gets the setting the desktop App already applied.
+ 
++## Mobile instance attention surfaces
++
++### Ownership
++
++`MobileInstanceAttentionBell` owns the phone's header bell and bottom sheet; `MobileInstanceAttentionBadge` owns the per-connection count in Instances. Both read `stores/useInstanceAttentionStore.ts` and open rows through `lib/instanceAttentionJump.ts`. `mobileConnections` owns saved connections and their removal.
++
++### Invariants
++
++- The bell uses the shared `MOBILE_HEADER_BUTTON_CLASS` size; the count sits inside that 40px control instead of widening it and shifting the header.
++- The connected server's waiting sessions are published under the reserved `openchamber:this-instance` id, so its badge reads that entry rather than the saved connection id.
++- A sheet opened for waiting sessions closes itself when the last one clears, instead of staying empty until the next item reopens it uninvited.
++- An unreachable instance is shown as the quiet note even when nothing else waits; a failed poll's last-known rows stay tappable only through a real connection.
++- Removing a saved connection drops its attention rows at once. A row whose connection is gone, or whose last poll failed, does not start a switch.
++- A password prompt or a failed connect keeps the sheet and its rows in place, so the tap is never a silent no-op.
++
+ ## Decisions
+ 
+ ### Why mobile proxy headers bind to an address and not every transport
 diff --git a/packages/ui/src/apps/MobileApp.tsx b/packages/ui/src/apps/MobileApp.tsx
-index 5e68fe568..322f2317a 100644
+index e7c34b8a5..79b499541 100644
 --- a/packages/ui/src/apps/MobileApp.tsx
 +++ b/packages/ui/src/apps/MobileApp.tsx
 @@ -29,6 +29,9 @@ import { MobileToaster } from './MobileToaster';
@@ -106,7 +113,7 @@ index 5e68fe568..322f2317a 100644
  import { useUpdatePolling } from '@/hooks/useUpdatePolling';
  import { useWindowTitle } from '@/hooks/useWindowTitle';
  import { useEnterprisePolicySync } from '@/hooks/useEnterprisePolicySync';
-@@ -1299,6 +1302,12 @@ function MobileAppContent({ apis }: MobileAppProps) {
+@@ -1319,6 +1322,12 @@ function MobileAppContent({ apis }: MobileAppProps) {
    // Same as App.tsx: the session's memory index and the Memory tab both read
    // this snapshot, and without it the phone showed no memory at all.
    useAgentMemorySync(currentDirectory || null);
@@ -120,18 +127,24 @@ index 5e68fe568..322f2317a 100644
    // APNs is the only notification channel on the native app (background-capable,
    // focus-suppressed server-side via the visibility beacon). Local notifications are
 diff --git a/packages/ui/src/apps/MobileConnectionsView.tsx b/packages/ui/src/apps/MobileConnectionsView.tsx
-index 9fe66e480..ae80073be 100644
+index 9fe66e480..c3451e397 100644
 --- a/packages/ui/src/apps/MobileConnectionsView.tsx
 +++ b/packages/ui/src/apps/MobileConnectionsView.tsx
-@@ -11,6 +11,7 @@ import { useI18n } from '@/lib/i18n';
+@@ -7,10 +7,13 @@ import { MobileSheetRow, MobileSheetSection } from '@/components/ui/MobileSheetL
+ import { OpenChamberLogo } from '@/components/ui/OpenChamberLogo';
+ import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
+ import { useWaitingBlink } from '@/hooks/useDurationTicker';
++import { LOCAL_INSTANCE_ATTENTION_HOST_ID } from '@/lib/instanceAttention';
+ import { useI18n } from '@/lib/i18n';
  import { isRelayModeActive } from '@/lib/relay/runtime-tunnel';
  import { cn } from '@/lib/utils';
  
 +
++
  import { MobileConnectionDebugPanel } from './MobileConnectionDebugPanel';
  import { MobileConnectionHeaders } from './MobileConnectionHeaders';
  import { useDebugPanelLongPress } from './mobileConnectionDebug';
-@@ -18,11 +19,13 @@ import { mobileConnectionInputClass, mobileInputKeyboardProps } from './mobileCo
+@@ -18,11 +21,13 @@ import { mobileConnectionInputClass, mobileInputKeyboardProps } from './mobileCo
  import {
    connectionDisplayUrl,
    isActiveRuntimeConnection,
@@ -145,7 +158,7 @@ index 9fe66e480..ae80073be 100644
  import { MobileQrConnectionLoading, MobileQrScannerOverlay } from './MobileQrScannerOverlay';
  import { buildMobileHeaderValues, createMobileHeaderDrafts, type MobileHeaderDraft } from './mobileRequestHeaders';
  
-@@ -39,9 +42,6 @@ type Props =
+@@ -39,9 +44,6 @@ type Props =
  
  type FormTarget = { kind: 'add' } | { kind: 'edit'; id: string };
  
@@ -155,7 +168,7 @@ index 9fe66e480..ae80073be 100644
  const hasAnyHeader = (headers: MobileHeaderDraft[]): boolean =>
    headers.some(({ name, value }) => name.trim() || value.trim());
  
-@@ -60,6 +60,7 @@ export const MobileConnectionsView: React.FC<Props> = (props) => {
+@@ -60,6 +62,7 @@ export const MobileConnectionsView: React.FC<Props> = (props) => {
      connect, submitPassword, cancelPassword, saveConnection, removeConnection, setError,
    } = conn;
  
@@ -163,7 +176,18 @@ index 9fe66e480..ae80073be 100644
    const [formTarget, setFormTarget] = React.useState<FormTarget | null>(null);
    const [url, setUrl] = React.useState('');
    const [label, setLabel] = React.useState('');
-@@ -272,6 +273,8 @@ export const MobileConnectionsView: React.FC<Props> = (props) => {
+@@ -259,6 +262,10 @@ export const MobileConnectionsView: React.FC<Props> = (props) => {
+   // Saved connections are ordered by last use, so the first is the way back.
+   const leadConnection = liveConnection ?? connections[0] ?? null;
+   const otherConnections = connections.filter((connection) => connection !== leadConnection);
++  // The connected server's waiting sessions are published under the reserved
++  // local id, so its badge has to read that entry rather than its saved id.
++  const attentionHostIdOf = (connection: MobileSavedConnection): string =>
++    isActiveRuntimeConnection(connection) ? LOCAL_INSTANCE_ATTENTION_HOST_ID : connection.id;
+   const addressOf = (connection: MobileSavedConnection): string =>
+     isRelayOnly(connection) ? t('mobile.connect.relay.badge') : connectionDisplayUrl(connection);
+   const actionsButton = (connection: MobileSavedConnection, className?: string) => (
+@@ -272,6 +279,8 @@ export const MobileConnectionsView: React.FC<Props> = (props) => {
      </button>
    );
  
@@ -172,26 +196,26 @@ index 9fe66e480..ae80073be 100644
    const noticeBanner = mode === 'welcome' && props.notice ? (
      <div role="status" className="flex items-center gap-2.5 rounded-lg bg-[var(--status-warning-background)] px-3 py-2.5">
        <Icon name={props.notice.kind === 'auth-expired' ? 'lock' : 'cloud-off'} className="size-4 shrink-0 text-[var(--status-warning)]" />
-@@ -346,7 +349,10 @@ export const MobileConnectionsView: React.FC<Props> = (props) => {
+@@ -346,7 +355,10 @@ export const MobileConnectionsView: React.FC<Props> = (props) => {
        {liveConnection ? null : (
          <span className="pb-1 typography-micro text-muted-foreground">{t('mobile.connect.lastConnected')}</span>
        )}
 -      <h2 className="truncate pe-8 typography-ui-header font-semibold text-foreground">{leadConnection.label}</h2>
 +      <div className="flex min-w-0 items-center gap-2 pe-8">
 +        <h2 className="min-w-0 truncate typography-ui-header font-semibold text-foreground">{leadConnection.label}</h2>
-+        <MobileInstanceAttentionBadge hostId={leadConnection.id} label={leadConnection.label} />
++        <MobileInstanceAttentionBadge hostId={attentionHostIdOf(leadConnection)} label={leadConnection.label} />
 +      </div>
        <p className="truncate pe-8 typography-meta text-muted-foreground">{addressOf(leadConnection)}</p>
        <div className="flex h-9 items-center pt-3">
          {/* Live already: what would be the button says so, in the button's place. */}
-@@ -378,7 +384,10 @@ export const MobileConnectionsView: React.FC<Props> = (props) => {
+@@ -378,7 +390,10 @@ export const MobileConnectionsView: React.FC<Props> = (props) => {
              onClick={() => connectTo(connection)}
            >
              <span className="block py-1.5">
 -              <span className="block truncate">{connection.label}</span>
 +              <span className="flex min-w-0 items-center gap-2">
 +                <span className="min-w-0 truncate">{connection.label}</span>
-+                <MobileInstanceAttentionBadge hostId={connection.id} label={connection.label} />
++                <MobileInstanceAttentionBadge hostId={attentionHostIdOf(connection)} label={connection.label} />
 +              </span>
                <span className="block truncate typography-micro font-normal text-muted-foreground">
                  {connecting ? t('mobile.connect.connecting') : addressOf(connection)}
@@ -400,13 +424,14 @@ index 000000000..d2ac48dfa
 +});
 diff --git a/packages/ui/src/apps/MobileInstanceAttentionBadge.tsx b/packages/ui/src/apps/MobileInstanceAttentionBadge.tsx
 new file mode 100644
-index 000000000..baae9bc2b
+index 000000000..c2c05a5fb
 --- /dev/null
 +++ b/packages/ui/src/apps/MobileInstanceAttentionBadge.tsx
-@@ -0,0 +1,30 @@
+@@ -0,0 +1,28 @@
 +import React from 'react';
 +
 +import { Icon } from '@/components/icon/Icon';
++import { countInstanceAttentionItems } from '@/lib/instanceAttention';
 +import { useI18n } from '@/lib/i18n';
 +import { useInstanceAttentionStore } from '@/stores/useInstanceAttentionStore';
 +
@@ -419,10 +444,7 @@ index 000000000..baae9bc2b
 +  label: string;
 +}> = ({ hostId, label }) => {
 +  const { t } = useI18n();
-+  const count = useInstanceAttentionStore((state) => state.items.reduce(
-+    (total, item) => (item.hostId === hostId ? total + 1 : total),
-+    0,
-+  ));
++  const count = useInstanceAttentionStore((state) => countInstanceAttentionItems(state.items, hostId));
 +  if (count === 0) return null;
 +  return (
 +    <span
@@ -436,10 +458,10 @@ index 000000000..baae9bc2b
 +};
 diff --git a/packages/ui/src/apps/MobileInstanceAttentionBell.test.tsx b/packages/ui/src/apps/MobileInstanceAttentionBell.test.tsx
 new file mode 100644
-index 000000000..d6dcd5c28
+index 000000000..e188864e6
 --- /dev/null
 +++ b/packages/ui/src/apps/MobileInstanceAttentionBell.test.tsx
-@@ -0,0 +1,367 @@
+@@ -0,0 +1,379 @@
 +import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 +import React, { act } from 'react';
 +import type { Root } from 'react-dom/client';
@@ -682,6 +704,18 @@ index 000000000..d6dcd5c28
 +  expect(document.querySelectorAll('button')).toHaveLength(0);
 +});
 +
++test('the sheet closes when the last waiting session clears', async () => {
++  seed();
++  await render(true);
++  expect(openChanges).toEqual([]);
++
++  await act(async () => {
++    useInstanceAttentionStore.getState().reset();
++  });
++
++  expect(openChanges).toContain(false);
++});
++
 +test('the bell shows the count and the sheet lists every waiting session', async () => {
 +  seed();
 +  await render(true);
@@ -809,10 +843,10 @@ index 000000000..d6dcd5c28
 +});
 diff --git a/packages/ui/src/apps/MobileInstanceAttentionBell.tsx b/packages/ui/src/apps/MobileInstanceAttentionBell.tsx
 new file mode 100644
-index 000000000..df8cea6e6
+index 000000000..448a1194a
 --- /dev/null
 +++ b/packages/ui/src/apps/MobileInstanceAttentionBell.tsx
-@@ -0,0 +1,221 @@
+@@ -0,0 +1,255 @@
 +import React from 'react';
 +
 +import { Button } from '@/components/ui/button';
@@ -825,7 +859,12 @@ index 000000000..df8cea6e6
 +  type InstanceAttentionListRowProps,
 +} from '@/components/instance-attention/InstanceAttentionList';
 +import { requestInstanceAttentionRefresh } from '@/hooks/useInstanceAttentionPolling';
-+import { isLocalInstanceAttentionHost, type InstanceAttentionItem } from '@/lib/instanceAttention';
++import {
++  collectUnreachableInstanceLabels,
++  countInstanceAttentionItems,
++  isLocalInstanceAttentionHost,
++  type InstanceAttentionItem,
++} from '@/lib/instanceAttention';
 +import {
 +  finishInstanceAttentionJump,
 +  openInstanceAttentionItemWith,
@@ -870,6 +909,15 @@ index 000000000..df8cea6e6
 +  const [password, setPassword] = React.useState('');
 +  const pendingItemRef = React.useRef<InstanceAttentionItem | null>(null);
 +  const tapInFlightRef = React.useRef(false);
++  // A close requested from one path must not be repeated by the empty-list
++  // effect while the parent is still catching up.
++  const closingRef = React.useRef(false);
++
++  const requestClose = React.useCallback(() => {
++    if (closingRef.current) return;
++    closingRef.current = true;
++    onOpenChange(false);
++  }, [onOpenChange]);
 +
 +  // The sheet is opened to act on the waiters, so read them when it opens
 +  // instead of showing whatever the last tick found on the other connections.
@@ -884,8 +932,8 @@ index 000000000..df8cea6e6
 +    pendingItemRef.current = null;
 +    setPassword('');
 +    finishInstanceAttentionJump(item);
-+    onOpenChange(false);
-+  }, [onOpenChange]);
++    requestClose();
++  }, [requestClose]);
 +
 +  const {
 +    connections,
@@ -913,25 +961,31 @@ index 000000000..df8cea6e6
 +    clearPending();
 +  }, [open, clearPending]);
 +
-+  const unreachableLabels = React.useMemo(() => [...new Set(
-+    Object.values(hosts)
-+      .filter((host) => host.status === 'error')
-+      .map((host) => host.label),
-+  )], [hosts]);
++  const unreachableLabels = React.useMemo(
++    () => collectUnreachableInstanceLabels(hosts),
++    [hosts],
++  );
 +
 +  const openItem = React.useCallback((item: InstanceAttentionItem) => {
 +    // This phone's own connection needs no connect: opening the session is the
 +    // whole jump, exactly as it is on the desktop.
 +    if (isLocalInstanceAttentionHost(item.hostId)) {
 +      openLocalInstanceAttentionItem(item);
-+      onOpenChange(false);
++      requestClose();
 +      return;
 +    }
++    // A failed poll keeps the last-known rows; tapping one would connect blind.
++    // Keep the sheet and its note in place instead, as the desktop menu does.
++    if (hosts[item.hostId]?.status === 'error') return;
 +    pendingItemRef.current = item;
 +    tapInFlightRef.current = true;
 +    void openInstanceAttentionItemWith(item, async (hostId) => {
 +      const connection = connections.find((entry) => entry.id === hostId);
-+      if (!connection) throw new Error(`mobile connection ${hostId} is gone`);
++      if (!connection) {
++        // Removed elsewhere: drop the row instead of leaving a dead tap target.
++        useInstanceAttentionStore.getState().dropHost(item.hostId);
++        return false;
++      }
 +      await connect({
 +        id: connection.id,
 +        candidates: connection.candidates,
@@ -946,16 +1000,31 @@ index 000000000..df8cea6e6
 +      if (!opened) return;
 +      pendingItemRef.current = null;
 +      setPassword('');
-+      onOpenChange(false);
++      requestClose();
 +    });
-+  }, [connect, connections, onOpenChange]);
++  }, [connect, connections, hosts, requestClose]);
 +
 +  const close = React.useCallback(() => {
 +    clearPending();
-+    onOpenChange(false);
-+  }, [clearPending, onOpenChange]);
++    requestClose();
++  }, [clearPending, requestClose]);
 +
-+  if (items.length === 0) return null;
++  const attentionCount = countInstanceAttentionItems(items);
++
++  const hasUnreachable = unreachableLabels.length > 0;
++
++  // The sheet is only opened for waiting sessions or an unreachable note; when
++  // both clear, close it instead of leaving an empty panel that the next item
++  // reopens.
++  React.useEffect(() => {
++    if (!open) {
++      closingRef.current = false;
++      return;
++    }
++    if (attentionCount === 0 && !hasUnreachable) requestClose();
++  }, [attentionCount, hasUnreachable, open, requestClose]);
++
++  if (attentionCount === 0 && !hasUnreachable) return null;
 +
 +  const passwordPrompt = pendingConnection ? (
 +    <form
@@ -997,12 +1066,11 @@ index 000000000..df8cea6e6
 +    <>
 +      <button
 +        type="button"
-+        className={cn(MOBILE_HEADER_BUTTON_CLASS, 'text-[var(--status-warning)]')}
-+        aria-label={t(items.length === 1 ? 'instanceAttention.ariaOne' : 'instanceAttention.ariaMany', { count: items.length })}
++        className={cn(MOBILE_HEADER_BUTTON_CLASS, 'gap-0.5 text-[var(--status-warning)]')}
++        aria-label={t(attentionCount === 1 ? 'instanceAttention.ariaOne' : 'instanceAttention.ariaMany', { count: attentionCount })}
 +        aria-haspopup="dialog"
 +        aria-expanded={open}
 +        onClick={() => onOpenChange(true)}
-+        style={{ touchAction: 'manipulation', width: 'auto', paddingInline: 8, gap: 4 }}
 +      >
 +        <Icon name="notification-3" className="size-5" />
 +        <span
@@ -1010,7 +1078,7 @@ index 000000000..df8cea6e6
 +          aria-hidden="true"
 +          className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--status-warning-background)] px-1 typography-micro font-medium tabular-nums text-[var(--status-warning-text)]"
 +        >
-+          {items.length}
++          {attentionCount}
 +        </span>
 +      </button>
 +      <MobileOverlayPanel
@@ -1035,10 +1103,18 @@ index 000000000..df8cea6e6
 +  );
 +};
 diff --git a/packages/ui/src/apps/mobileConnections.ts b/packages/ui/src/apps/mobileConnections.ts
-index 8034c032d..54507412e 100644
+index 8034c032d..a65b288ad 100644
 --- a/packages/ui/src/apps/mobileConnections.ts
 +++ b/packages/ui/src/apps/mobileConnections.ts
-@@ -73,7 +73,7 @@ const mobileDevicePlatform = (): string | undefined => {
+@@ -28,6 +28,7 @@ import { createRelayTunnelClient, isRelayLimitReached } from '@/lib/relay/tunnel
+ import { addRuntimeProxyHeaders, runtimeFetch } from '@/lib/runtime-fetch';
+ import { getRuntimeBearerTokenSync } from '@/lib/runtime-auth';
+ import { getRuntimeApiBaseUrl, getRuntimeKey, switchRuntimeEndpoint } from '@/lib/runtime-switch';
++import { useInstanceAttentionStore } from '@/stores/useInstanceAttentionStore';
+ 
+ import { recordMobileConnectDebug } from './mobileConnectionDebug';
+ import { fetchThroughRelayOnce, fetchThroughRelayWithRetry } from './mobileRelayFetch';
+@@ -73,7 +74,7 @@ const mobileDevicePlatform = (): string | undefined => {
  const MOBILE_CONNECTIONS_LIMIT = 12;
  const MOBILE_CONNECT_TIMEOUT_MS = 8000;
  const MOBILE_NATIVE_HTTP_TIMEOUT_MS = 2500;
@@ -1047,7 +1123,7 @@ index 8034c032d..54507412e 100644
  // Resume re-probe budget: on app wake we only need a quick "is this transport
  // reachable right now?" answer, not the full 8s connect budget. A dead LAN
  // candidate must fail fast so the relay fallback (or the switch back to LAN)
-@@ -229,6 +229,10 @@ const relayCandidateOf = (connection: { candidates: MobileTransportCandidate[] }
+@@ -229,6 +230,10 @@ const relayCandidateOf = (connection: { candidates: MobileTransportCandidate[] }
    return found && found.kind === 'relay' ? found.relay : null;
  };
  
@@ -1058,7 +1134,7 @@ index 8034c032d..54507412e 100644
  // Display URL for a saved connection: the first direct URL, else the relay
  // pseudo-URL. Used only for the connections list UI.
  export const connectionDisplayUrl = (connection: { candidates: MobileTransportCandidate[] }): string => {
-@@ -462,6 +466,45 @@ const readHealthServerId = async (response: MobileFetchResponse): Promise<string
+@@ -462,6 +467,45 @@ const readHealthServerId = async (response: MobileFetchResponse): Promise<string
    return typeof reported === 'string' && reported ? reported : undefined;
  };
  
@@ -1104,7 +1180,7 @@ index 8034c032d..54507412e 100644
  // ---------------------------------------------------------------------------
  // Relay connect helpers
  // ---------------------------------------------------------------------------
-@@ -809,6 +852,17 @@ const readConnectionHeaders = async (connection?: MobileSavedConnection): Promis
+@@ -809,6 +853,17 @@ const readConnectionHeaders = async (connection?: MobileSavedConnection): Promis
  export const loadMobileConnectionHeaders = async (id: string): Promise<MobileRequestHeaders | undefined> =>
    readConnectionHeaders(readConnections().find((connection) => connection.id === id));
  
@@ -1122,7 +1198,7 @@ index 8034c032d..54507412e 100644
  const deleteSecureHeaders = async (prefixedKey: string): Promise<void> => {
    await withTimeout(nativeSecure.internalRemoveItem({ prefixedKey, sync: false }), null);
  };
-@@ -995,13 +1049,11 @@ const probeConnectionCandidates = async (
+@@ -995,13 +1050,11 @@ const probeConnectionCandidates = async (
        // address whose identity has not been checked yet.
        const health = await requestWithTimeout(`${url}/health`, { method: 'GET', headers: mobileHeadersForUrl(url, options?.requestHeaders), redirect }, requestOptions);
        logConnect('probe:direct:health', { url, ok: health?.ok === true, status: health?.status ?? null, source: health?.source ?? null });
@@ -1141,6 +1217,17 @@ index 8034c032d..54507412e 100644
        }
        // With a bearer token, probe EXACTLY the way the runtime authenticates:
        // bearer-only, no cookies. A leftover valid oc_ui_session cookie in the
+@@ -2005,6 +2058,10 @@ export const useMobileConnection = (onConnected: () => void): UseMobileConnectio
+     try {
+       const next = await deleteMobileConnection(id);
+       applyConnections(next);
++      // The saved server is gone; its last-known attention rows must not stay
++      // tappable. The connected server's items live under the reserved local id
++      // and are cleared by the local subscriber instead.
++      useInstanceAttentionStore.getState().dropHost(id);
+       return removed;
+     } catch {
+       setError(t('mobile.connect.headers.error'));
 diff --git a/packages/ui/src/apps/mobileDirectCandidateIdentity.test.ts b/packages/ui/src/apps/mobileDirectCandidateIdentity.test.ts
 new file mode 100644
 index 000000000..9a156e12b
@@ -1826,10 +1913,10 @@ index ded60f501..5ab0e18c9 100644
            </div>
 diff --git a/packages/ui/src/components/desktop/DesktopInstanceMenu.test.tsx b/packages/ui/src/components/desktop/DesktopInstanceMenu.test.tsx
 new file mode 100644
-index 000000000..f93c99abc
+index 000000000..4ce964bec
 --- /dev/null
 +++ b/packages/ui/src/components/desktop/DesktopInstanceMenu.test.tsx
-@@ -0,0 +1,265 @@
+@@ -0,0 +1,294 @@
 +import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 +import React, { act } from 'react';
 +import type { Root } from 'react-dom/client';
@@ -1880,9 +1967,14 @@ index 000000000..f93c99abc
 +  isDesktopShell: () => true,
 +  isDesktopLocalOriginActive: () => true,
 +}));
++let savedHosts = [
++  { id: 'host-b', label: 'bee', url: 'http://bee.test', apiUrl: 'http://bee.test' },
++  { id: 'host-c', label: 'cedar', url: 'http://cedar.test', apiUrl: 'http://cedar.test' },
++];
++
 +mock.module('@/lib/desktopHosts', () => ({
 +  ...actualDesktopHosts,
-+  desktopHostsGet: async () => ({ hosts: [], localOrigin: null }),
++  desktopHostsGet: async () => ({ hosts: savedHosts, localOrigin: null }),
 +  redactSensitiveUrl: (value: string) => value,
 +}));
 +mock.module('@/hooks/useInstanceAttentionPreview', () => ({
@@ -1962,6 +2054,10 @@ index 000000000..f93c99abc
 +    Object.defineProperty(globalThis, name, { configurable: true, writable: true, value });
 +  }
 +  useInstanceAttentionStore.getState().reset();
++  savedHosts = [
++    { id: 'host-b', label: 'bee', url: 'http://bee.test', apiUrl: 'http://bee.test' },
++    { id: 'host-c', label: 'cedar', url: 'http://cedar.test', apiUrl: 'http://cedar.test' },
++  ];
 +  opened.length = 0;
 +  const host = document.createElement('div');
 +  document.body.append(host);
@@ -2011,7 +2107,7 @@ index 000000000..f93c99abc
 +
 +  const buttons = [...document.querySelectorAll('button')];
 +  const trigger = buttons.find((button) => (button.getAttribute('aria-label') || '').includes('waiting on you'));
-+  expect(trigger?.getAttribute('aria-label')).toBe('2 sessions are waiting on you');
++  expect(trigger?.getAttribute('aria-label')).toBe('Open instances with Local, 2 sessions are waiting on you');
 +  // The corner badge is a bare number: the panel's section header carries the
 +  // words, and the button itself only names the instance.
 +  const badge = trigger?.querySelector('[data-instance-attention-badge]');
@@ -2052,7 +2148,7 @@ index 000000000..f93c99abc
 +
 +  const trigger = [...document.querySelectorAll('button')]
 +    .find((button) => (button.getAttribute('aria-label') || '').includes('waiting on you'));
-+  expect(trigger?.getAttribute('aria-label')).toBe('1 session is waiting on you');
++  expect(trigger?.getAttribute('aria-label')).toBe('Open instances with Local, 1 session is waiting on you');
 +});
 +
 +test('the trigger total and the list include this instance beside the polled ones', async () => {
@@ -2066,7 +2162,7 @@ index 000000000..f93c99abc
 +
 +  const trigger = [...document.querySelectorAll('button')]
 +    .find((button) => (button.getAttribute('aria-label') || '').includes('waiting on you'));
-+  expect(trigger?.getAttribute('aria-label')).toBe('3 sessions are waiting on you');
++  expect(trigger?.getAttribute('aria-label')).toBe('Open instances with Local, 3 sessions are waiting on you');
 +  expect(trigger?.querySelector('[data-instance-attention-badge]')?.textContent?.trim()).toBe('3');
 +
 +  const row = [...document.querySelectorAll('button')].find((button) => button.textContent?.includes('Local queue'));
@@ -2095,11 +2191,31 @@ index 000000000..f93c99abc
 +
 +  expect(document.body.textContent).toContain('No answer from halo; showing their last known items.');
 +});
++
++test('an unreachable host is visible even when nothing else waits', async () => {
++  useInstanceAttentionStore.getState().markUnreachable('host-d', 'halo', 200);
++  await render();
++
++  expect(document.body.textContent).toContain('No answer from halo; showing their last known items.');
++});
++
++test('a row for a host that left the saved list is dropped, not switched to', async () => {
++  seed();
++  savedHosts = savedHosts.filter((host) => host.id !== 'host-b');
++  await render();
++
++  const row = [...document.querySelectorAll('button')].find((button) => button.textContent?.includes('Unify sessions'));
++  expect(row).toBeDefined();
++  await act(async () => row?.click());
++
++  expect(opened).toHaveLength(0);
++  expect(useInstanceAttentionStore.getState().hosts['host-b']).toBeUndefined();
++});
 diff --git a/packages/ui/src/components/desktop/DesktopInstanceMenu.tsx b/packages/ui/src/components/desktop/DesktopInstanceMenu.tsx
-index 87f4e1f13..a3fba504d 100644
+index 87f4e1f13..0086ae3b9 100644
 --- a/packages/ui/src/components/desktop/DesktopInstanceMenu.tsx
 +++ b/packages/ui/src/components/desktop/DesktopInstanceMenu.tsx
-@@ -2,16 +2,19 @@ import React from 'react';
+@@ -2,14 +2,23 @@ import React from 'react';
  import {
    DropdownMenu,
    DropdownMenuContent,
@@ -2113,15 +2229,17 @@ index 87f4e1f13..a3fba504d 100644
 +import { isInstanceAttentionPreview } from '@/hooks/useInstanceAttentionPreview';
  import { useKeybinds } from '@/hooks/useKeybind';
  import { isDesktopLocalOriginActive, isDesktopShell, type UpdateInfo } from '@/lib/desktop';
--import { desktopHostsGet, redactSensitiveUrl } from '@/lib/desktopHosts';
--import {
-+import type { InstanceAttentionItem } from '@/lib/instanceAttention';
++import {
++  collectUnreachableInstanceLabels,
++  countInstanceAttentionItems,
++  isLocalInstanceAttentionHost,
++  type InstanceAttentionItem,
++} from '@/lib/instanceAttention';
 +import { openInstanceAttentionItem } from '@/lib/instanceAttentionJump';
-+import { desktopHostsGet, redactSensitiveUrl } from '@/lib/desktopHosts';import {
+ import { desktopHostsGet, redactSensitiveUrl } from '@/lib/desktopHosts';
+ import {
    getLocalDesktopOrigin,
-   LOCAL_HOST_ID,
-   resolveCurrentDesktopHost,
-@@ -21,20 +24,32 @@ import { useI18n } from '@/lib/i18n';
+@@ -21,20 +30,32 @@ import { useI18n } from '@/lib/i18n';
  import { runtimeFetch } from '@/lib/runtime-fetch';
  import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
  import { formatShortcutForDisplay, getEffectiveShortcutCombo } from '@/lib/shortcuts';
@@ -2156,37 +2274,78 @@ index 87f4e1f13..a3fba504d 100644
      return null;
    }
    return <DesktopInstanceMenuContent className={className} />;
-@@ -187,6 +202,23 @@ function DesktopInstanceMenuContent({ className }: Props): React.ReactNode {
+@@ -50,20 +71,24 @@ function DesktopInstanceMenuContent({ className }: Props): React.ReactNode {
+   const [remoteUpdateInfo, setRemoteUpdateInfo] = React.useState<UpdateInfo | null>(null);
+   const [remoteUpdateChecking, setRemoteUpdateChecking] = React.useState(false);
+   const [remoteUpdateError, setRemoteUpdateError] = React.useState<string | null>(null);
++  const [savedHostIds, setSavedHostIds] = React.useState<ReadonlySet<string> | null>(null);
+ 
+   const refreshCurrentInstanceLabel = React.useCallback(async () => {
++    // Same resolution the host switcher's own header uses, so the button and
++    // the panel it opens can never disagree about which instance this is.
++    // Without the saved instances the window's own runtime still names it.
++    const config = await desktopHostsGet().catch(() => null);
++    // A failed read is not "no saved hosts": leave the set unknown so a row is
++    // not dropped just because the IPC call blipped.
++    setSavedHostIds(config ? new Set(withLocalDesktopHost(config.hosts, config.localOrigin).map((host) => host.id)) : null);
++    const hosts = withLocalDesktopHost(config?.hosts ?? [], config?.localOrigin ?? getLocalDesktopOrigin());
++
+     if (isDesktopLocalOriginActive()) {
+       setCurrentInstanceLabel('Local');
+       setCurrentInstanceIsLocal(true);
+       return;
+     }
+ 
+-    // Same resolution the host switcher's own header uses, so the button and
+-    // the panel it opens can never disagree about which instance this is.
+-    // Without the saved instances the window's own runtime still names it.
+-    const hosts = await desktopHostsGet()
+-      .then((cfg) => withLocalDesktopHost(cfg.hosts, cfg.localOrigin))
+-      .catch(() => withLocalDesktopHost([], getLocalDesktopOrigin()));
+     const resolved = resolveCurrentDesktopHost(hosts);
+ 
+     if (resolved.id === LOCAL_HOST_ID) {
+@@ -187,6 +212,30 @@ function DesktopInstanceMenuContent({ className }: Props): React.ReactNode {
    });
  
    const toggleShortcut = formatShortcutForDisplay(getEffectiveShortcutCombo('toggle_services_menu', shortcutOverrides));
 +  const attentionItems = useInstanceAttentionStore((state) => state.items);
 +  const attentionHosts = useInstanceAttentionStore((state) => state.hosts);
-+  const attentionCount = attentionItems.length;
-+  const unreachableLabels = React.useMemo(() => [...new Set(
-+    Object.values(attentionHosts)
-+      .filter((host) => host.status === 'error')
-+      .map((host) => host.label),
-+  )], [attentionHosts]);
++  const attentionCount = countInstanceAttentionItems(attentionItems);
++  const unreachableLabels = React.useMemo(
++    () => collectUnreachableInstanceLabels(attentionHosts),
++    [attentionHosts],
++  );
 +
 +  const openAttentionItem = React.useCallback((item: InstanceAttentionItem) => {
 +    // A failed poll keeps last-known items on screen; the row must stay, but
 +    // tapping it must not switch blind. Keeping the menu open also keeps the
 +    // list's unreachable note in view.
 +    if (attentionHosts[item.hostId]?.status === 'error') return;
++    // The host left the saved list since the last poll: drop its row instead
++    // of closing the menu for a switch that cannot happen.
++    if (!isLocalInstanceAttentionHost(item.hostId)
++      && savedHostIds !== null
++      && !savedHostIds.has(item.hostId)) {
++      useInstanceAttentionStore.getState().dropHost(item.hostId);
++      return;
++    }
 +    setOpen(false);
 +    void openInstanceAttentionItem(item);
-+  }, [attentionHosts]);
++  }, [attentionHosts, savedHostIds]);
  
    return (
      <>
-@@ -196,11 +228,22 @@ function DesktopInstanceMenuContent({ className }: Props): React.ReactNode {
+@@ -196,11 +245,25 @@ function DesktopInstanceMenuContent({ className }: Props): React.ReactNode {
              <DropdownMenuTrigger asChild>
                <button
                  type="button"
 -                aria-label={t('header.services.openWithCurrent', { current: currentInstanceLabel })}
 +                aria-label={attentionCount > 0
-+                  ? t(attentionCount === 1 ? 'instanceAttention.ariaOne' : 'instanceAttention.ariaMany', { count: attentionCount })
++                  ? `${t('header.services.openWithCurrent', { current: currentInstanceLabel })}, ${t(
++                    attentionCount === 1 ? 'instanceAttention.ariaOne' : 'instanceAttention.ariaMany',
++                    { count: attentionCount },
++                  )}`
 +                  : t('header.services.openWithCurrent', { current: currentInstanceLabel })}
                  className={className}
                >
@@ -2204,11 +2363,11 @@ index 87f4e1f13..a3fba504d 100644
                </button>
              </DropdownMenuTrigger>
            </TooltipTrigger>
-@@ -249,6 +292,16 @@ function DesktopInstanceMenuContent({ className }: Props): React.ReactNode {
+@@ -249,6 +312,16 @@ function DesktopInstanceMenuContent({ className }: Props): React.ReactNode {
              onOpenChange={() => {}}
              onHostSwitched={() => setOpen(false)}
            />
-+          {attentionItems.length > 0 ? (
++          {attentionItems.length > 0 || unreachableLabels.length > 0 ? (
 +            <div className="border-t border-[var(--interactive-border)] px-1 py-1">
 +              <InstanceAttentionList
 +                items={attentionItems}
@@ -2223,10 +2382,10 @@ index 87f4e1f13..a3fba504d 100644
        <UpdateDialog
 diff --git a/packages/ui/src/components/instance-attention/InstanceAttentionList.test.tsx b/packages/ui/src/components/instance-attention/InstanceAttentionList.test.tsx
 new file mode 100644
-index 000000000..3c04d2b54
+index 000000000..c90f051dc
 --- /dev/null
 +++ b/packages/ui/src/components/instance-attention/InstanceAttentionList.test.tsx
-@@ -0,0 +1,116 @@
+@@ -0,0 +1,124 @@
 +import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 +import React, { act } from 'react';
 +import type { Root } from 'react-dom/client';
@@ -2337,7 +2496,15 @@ index 000000000..3c04d2b54
 +  expect(document.body.textContent).toContain('No answer from halo; showing their last known items.');
 +});
 +
-+test('nothing renders when no session waits', async () => {
++test('an unreachable host is visible even when nothing else waits', async () => {
++  await render([], ['halo']);
++
++  expect(document.querySelectorAll('button')).toHaveLength(0);
++  expect(document.body.textContent).toContain('No answer from halo; showing their last known items.');
++  expect(document.body.textContent).not.toContain('Waiting on you');
++});
++
++test('nothing renders when no session waits and every host answered', async () => {
 +  await render([]);
 +
 +  expect(document.querySelectorAll('button')).toHaveLength(0);
@@ -2345,7 +2512,7 @@ index 000000000..3c04d2b54
 +});
 diff --git a/packages/ui/src/components/instance-attention/InstanceAttentionList.tsx b/packages/ui/src/components/instance-attention/InstanceAttentionList.tsx
 new file mode 100644
-index 000000000..e4fd5cacd
+index 000000000..b8c5c8085
 --- /dev/null
 +++ b/packages/ui/src/components/instance-attention/InstanceAttentionList.tsx
 @@ -0,0 +1,102 @@
@@ -2418,11 +2585,11 @@ index 000000000..e4fd5cacd
 +  className,
 +}: InstanceAttentionListProps): React.ReactNode {
 +  const { t } = useI18n();
-+  if (items.length === 0) return null;
++  if (items.length === 0 && unreachableLabels.length === 0) return null;
 +
 +  return (
 +    <div className={cn('flex flex-col', className)}>
-+      {showTitle ? (
++      {showTitle && items.length > 0 ? (
 +        <div className="px-2 py-1 typography-ui-label font-medium text-muted-foreground">
 +          {t('instanceAttention.list.title')}
 +        </div>
@@ -2539,29 +2706,30 @@ index bef73d8e9..2891e5488 100644
  });
 \ No newline at end of file
 diff --git a/packages/ui/src/components/layout/TitlebarLeftControls.tsx b/packages/ui/src/components/layout/TitlebarLeftControls.tsx
-index 20816cc39..969814a63 100644
+index 20816cc39..f9c4b3f7d 100644
 --- a/packages/ui/src/components/layout/TitlebarLeftControls.tsx
 +++ b/packages/ui/src/components/layout/TitlebarLeftControls.tsx
-@@ -2,6 +2,7 @@ import React from 'react';
+@@ -2,6 +2,8 @@ import React from 'react';
  import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
  import { Icon } from '@/components/icon/Icon';
  import { cn } from '@/lib/utils';
++import { countInstanceAttentionItems } from '@/lib/instanceAttention';
 +import { useInstanceAttentionStore } from '@/stores/useInstanceAttentionStore';
  import { useUIStore } from '@/stores/useUIStore';
  import { useSessionUIStore } from '@/sync/session-ui-store';
  import { getInlineStartSide, useI18n } from '@/lib/i18n';
-@@ -35,6 +36,10 @@ export const TitlebarLeftControls: React.FC = () => {
+@@ -35,6 +37,10 @@ export const TitlebarLeftControls: React.FC = () => {
    const toggleSidebar = useUIStore((state) => state.toggleSidebar);
    const isSidebarOpen = useUIStore((state) => state.isSidebarOpen);
    const shortcutOverrides = useUIStore((state) => state.shortcutOverrides);
 +  // The same total the instance switcher and the phone bell show. A closed
 +  // sidebar hides the list that carries it, so the toggle carries the count.
-+  const attentionCount = useInstanceAttentionStore((state) => state.items.length);
++  const attentionCount = useInstanceAttentionStore((state) => countInstanceAttentionItems(state.items));
 +  const showAttentionBadge = !isSidebarOpen && attentionCount > 0;
    const clusterRef = React.useRef<HTMLDivElement | null>(null);
  
    const toggleShortcut = formatShortcutForDisplay(getEffectiveShortcutCombo('toggle_sidebar', shortcutOverrides));
-@@ -143,11 +148,32 @@ export const TitlebarLeftControls: React.FC = () => {
+@@ -143,11 +149,32 @@ export const TitlebarLeftControls: React.FC = () => {
                type="button"
                onClick={toggleSidebar}
                data-sidebar-toggle=""
@@ -2597,21 +2765,51 @@ index 20816cc39..969814a63 100644
              </button>
            </TooltipTrigger>
            <TooltipContent>
-diff --git a/packages/ui/src/components/session/sidebar/shell/SidebarFooter.tsx b/packages/ui/src/components/session/sidebar/shell/SidebarFooter.tsx
-index dd9c0aa40..9266264db 100644
---- a/packages/ui/src/components/session/sidebar/shell/SidebarFooter.tsx
-+++ b/packages/ui/src/components/session/sidebar/shell/SidebarFooter.tsx
-@@ -67,7 +67,9 @@ export function SidebarFooter({
-         </Tooltip>
-       ) : null}
-       {showRuntimeButtons ? (
--        <DesktopInstanceMenu className="ms-auto inline-flex h-6 min-w-0 max-w-[12rem] items-center gap-1.5 rounded-md px-2 text-muted-foreground hover:bg-interactive-hover/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
-+        <div className="ms-auto flex min-w-0 items-center gap-1">
-+          <DesktopInstanceMenu className="inline-flex h-6 min-w-0 max-w-[12rem] items-center gap-1.5 rounded-md px-2 text-muted-foreground hover:bg-interactive-hover/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
-+        </div>
-       ) : null}
-     </div>
-   );
+diff --git a/packages/ui/src/components/sections/remote-instances/RemoteInstancesPage.test.tsx b/packages/ui/src/components/sections/remote-instances/RemoteInstancesPage.test.tsx
+index 193a5c771..d16fdfd00 100644
+--- a/packages/ui/src/components/sections/remote-instances/RemoteInstancesPage.test.tsx
++++ b/packages/ui/src/components/sections/remote-instances/RemoteInstancesPage.test.tsx
+@@ -19,7 +19,17 @@ const sshState = {
+   load: async () => {}, loadImports: async () => {}, refreshStatuses: async () => {},
+ };
+ mock.module('@/stores/useDesktopSshStore', () => ({ useDesktopSshStore: (select: (state: unknown) => unknown) => select(sshState) }));
+-mock.module('@/stores/useUIStore', () => ({ useUIStore: (select: (state: unknown) => unknown) => select({ settingsRemoteInstancesSelectedId: null }) }));
++const actualUIStore = await import('@/stores/useUIStore');
++// The component only needs this one selection, but the store module itself is
++// loaded by the attention store this page now imports, so keep `getState` and
++// `subscribe` on the mocked hook.
++const mockUIStore = (select: (state: unknown) => unknown) => select({
++  ...actualUIStore.useUIStore.getState(),
++  settingsRemoteInstancesSelectedId: null,
++});
++mockUIStore.getState = actualUIStore.useUIStore.getState;
++mockUIStore.subscribe = actualUIStore.useUIStore.subscribe;
++mock.module('@/stores/useUIStore', () => ({ ...actualUIStore, useUIStore: mockUIStore }));
+ mock.module('@/hooks/useRuntimeAPIs', () => ({ useRuntimeAPIs: () => ({}) }));
+ mock.module('@/components/ui', () => ({ toast: { error() {} } }));
+ 
+diff --git a/packages/ui/src/components/sections/remote-instances/RemoteInstancesPage.tsx b/packages/ui/src/components/sections/remote-instances/RemoteInstancesPage.tsx
+index 7720e88fb..d8fad9d19 100644
+--- a/packages/ui/src/components/sections/remote-instances/RemoteInstancesPage.tsx
++++ b/packages/ui/src/components/sections/remote-instances/RemoteInstancesPage.tsx
+@@ -32,6 +32,7 @@ import {
+ } from '@/components/sections/shared/SettingsSection';
+ import { SettingsInfoHint } from '@/components/sections/shared/SettingsInfoHint';
+ import { useDesktopSshStore } from '@/stores/useDesktopSshStore';
++import { useInstanceAttentionStore } from '@/stores/useInstanceAttentionStore';
+ import { useUIStore } from '@/stores/useUIStore';
+ import { toast } from '@/components/ui';
+ import { Checkbox } from '@/components/ui/checkbox';
+@@ -786,6 +787,9 @@ export const RemoteInstancesPage: React.FC = () => {
+     const nextHosts = directHosts.filter((host) => host.id !== id);
+     const nextDefault = directDefaultHostId === id ? 'local' : directDefaultHostId;
+     if (!await persistDirectHosts(nextHosts, nextDefault)) return;
++    // The saved server is gone; its last-known attention rows must not stay
++    // tappable until the poller's next retainHosts pass.
++    useInstanceAttentionStore.getState().dropHost(id);
+     if (directEditingId === id) {
+       setDirectEditingId(null);
+     }
 diff --git a/packages/ui/src/hooks/instanceAttentionVisibility.test.ts b/packages/ui/src/hooks/instanceAttentionVisibility.test.ts
 new file mode 100644
 index 000000000..21f00511e
@@ -2699,13 +2897,14 @@ index 000000000..21f00511e
 +});
 diff --git a/packages/ui/src/hooks/useInstanceAttentionPolling.identity.test.ts b/packages/ui/src/hooks/useInstanceAttentionPolling.identity.test.ts
 new file mode 100644
-index 000000000..18d8f706c
+index 000000000..93819bf92
 --- /dev/null
 +++ b/packages/ui/src/hooks/useInstanceAttentionPolling.identity.test.ts
-@@ -0,0 +1,115 @@
+@@ -0,0 +1,136 @@
 +import { beforeEach, describe, expect, mock, test } from 'bun:test';
 +
 +import type { DesktopHost, HostProbeResult } from '@/lib/desktopHosts';
++import type { DesktopHostProbe } from '@/lib/desktopHostStatus';
 +import type { InstanceAttentionPoll } from '@/lib/instanceAttention';
 +
 +const answered: InstanceAttentionPoll = {
@@ -2714,19 +2913,21 @@ index 000000000..18d8f706c
 +  busy: new Set(),
 +};
 +
-+const probes: Array<{ url: string; options: unknown }> = [];
++const probes: Array<{ hostId: string; localClientToken: string; options: unknown }> = [];
 +const directReads: Array<{ url: string; token?: string }> = [];
-+const relayReads: Array<{ relayUrl: string; token?: string }> = [];
-+let probeStatus: HostProbeResult['status'] = 'ok';
++const relayReads: Array<{ relayUrl: string; token?: string; tunnel?: unknown }> = [];
++const closedTunnels: unknown[] = [];
++let probeResult: DesktopHostProbe = { status: 'ok', latencyMs: 1 };
++let probeTunnel: { close: () => void } | undefined;
 +
-+const actualHosts = await import('@/lib/desktopHosts');
++const actualStatus = await import('@/lib/desktopHostStatus');
 +const actualAttention = await import('@/lib/instanceAttention');
 +
-+mock.module('@/lib/desktopHosts', () => ({
-+  ...actualHosts,
-+  desktopHostProbe: mock(async (url: string, options: unknown) => {
-+    probes.push({ url, options });
-+    return { status: probeStatus, latencyMs: 1 };
++mock.module('@/lib/desktopHostStatus', () => ({
++  ...actualStatus,
++  probeHost: mock(async (host: DesktopHost, localClientToken: string, options: unknown) => {
++    probes.push({ hostId: host.id, localClientToken, options });
++    return probeResult;
 +  }),
 +}));
 +
@@ -2736,8 +2937,11 @@ index 000000000..18d8f706c
 +    directReads.push({ url: transport.url, token: transport.token });
 +    return answered;
 +  }),
-+  readRelayInstanceAttention: mock(async (relay: { relayUrl: string }, options?: { token?: string }) => {
-+    relayReads.push({ relayUrl: relay.relayUrl, token: options?.token });
++  readRelayInstanceAttention: mock(async (
++    relay: { relayUrl: string },
++    options?: { token?: string; tunnel?: unknown },
++  ) => {
++    relayReads.push({ relayUrl: relay.relayUrl, token: options?.token, tunnel: options?.tunnel });
 +    return answered;
 +  }),
 +}));
@@ -2758,42 +2962,54 @@ index 000000000..18d8f706c
 +  probes.length = 0;
 +  directReads.length = 0;
 +  relayReads.length = 0;
-+  probeStatus = 'ok';
++  closedTunnels.length = 0;
++  probeResult = { status: 'ok', latencyMs: 1 };
++  probeTunnel = undefined;
 +});
 +
-+describe('desktop attention identity gate', () => {
-+  test('checks the pinned identity unauthenticated before reading the direct address', async () => {
++describe('desktop attention reachability gate', () => {
++  test('asks the shared probe to keep the tunnel before reading', async () => {
 +    const target = instanceAttentionTargets({ hosts: [host()], localOrigin: null }, 'active')[0]!;
 +
 +    await target.read(new AbortController().signal);
 +
-+    expect(probes).toEqual([{ url: 'http://lan.test', options: { expectedServerId: 'server-a' } }]);
-+    expect(probes[0]?.options).not.toHaveProperty('clientToken');
++    expect(probes).toEqual([{ hostId: 'host-b', localClientToken: '', options: { keepTunnel: true } }]);
++  });
++
++  test('a direct answer reads the address the probe verified', async () => {
++    const target = instanceAttentionTargets({ hosts: [host()], localOrigin: null }, 'active')[0]!;
++
++    await target.read(new AbortController().signal);
++
 +    expect(directReads).toEqual([{ url: 'http://lan.test', token: 'secret' }]);
 +    expect(relayReads).toEqual([]);
 +  });
 +
-+  test('an identity mismatch keeps the token off the direct address and uses the relay', async () => {
-+    probeStatus = 'wrong-service';
++  test('a relay answer reads over the tunnel the probe opened and closes it', async () => {
++    probeTunnel = { close: () => { closedTunnels.push(probeTunnel); } };
++    probeResult = { status: 'ok', latencyMs: 1, via: 'relay', tunnel: probeTunnel as never };
 +    const target = instanceAttentionTargets({ hosts: [host()], localOrigin: null }, 'active')[0]!;
 +
 +    await target.read(new AbortController().signal);
 +
 +    expect(directReads).toEqual([]);
-+    expect(relayReads).toEqual([{ relayUrl: 'wss://relay.test', token: 'secret' }]);
++    expect(relayReads).toEqual([{ relayUrl: 'wss://relay.test', token: 'secret', tunnel: probeTunnel }]);
++    expect(closedTunnels).toEqual([probeTunnel]);
 +  });
 +
-+  test('an unreadable probe is unverified, so nothing is sent to the direct address', async () => {
-+    probeStatus = 'unreachable';
-+    const target = instanceAttentionTargets({ hosts: [host()], localOrigin: null }, 'active')[0]!;
++  for (const status of ['unreachable', 'wrong-service', 'incompatible', 'relay-limit'] satisfies HostProbeResult['status'][]) {
++    test(`a blocked probe (${status}) reads nothing`, async () => {
++      probeResult = { status, latencyMs: 1 };
++      const target = instanceAttentionTargets({ hosts: [host()], localOrigin: null }, 'active')[0]!;
 +
-+    await target.read(new AbortController().signal);
++      await target.read(new AbortController().signal);
 +
-+    expect(directReads).toEqual([]);
-+    expect(relayReads).toHaveLength(1);
-+  });
++      expect(directReads).toEqual([]);
++      expect(relayReads).toEqual([]);
++    });
++  }
 +
-+  test('a direct-only host has no pinned identity to verify', async () => {
++  test('a direct-only host reads directly after its probe', async () => {
 +    const target = instanceAttentionTargets({
 +      hosts: [host({ relay: undefined })],
 +      localOrigin: null,
@@ -2801,11 +3017,14 @@ index 000000000..18d8f706c
 +
 +    await target.read(new AbortController().signal);
 +
-+    expect(probes).toEqual([]);
++    expect(probes).toEqual([{ hostId: 'host-b', localClientToken: '', options: { keepTunnel: true } }]);
 +    expect(directReads).toEqual([{ url: 'http://lan.test', token: 'secret' }]);
++    expect(relayReads).toEqual([]);
 +  });
 +
-+  test('a relay-only host never probes an address', async () => {
++  test('a relay-only host reads over its tunnel and closes it', async () => {
++    probeTunnel = { close: () => { closedTunnels.push(probeTunnel); } };
++    probeResult = { status: 'ok', latencyMs: 1, via: 'relay', tunnel: probeTunnel as never };
 +    const target = instanceAttentionTargets({
 +      hosts: [host({ url: 'relay://server-a', apiUrl: undefined })],
 +      localOrigin: null,
@@ -2813,17 +3032,17 @@ index 000000000..18d8f706c
 +
 +    await target.read(new AbortController().signal);
 +
-+    expect(probes).toEqual([]);
 +    expect(directReads).toEqual([]);
-+    expect(relayReads).toEqual([{ relayUrl: 'wss://relay.test', token: 'secret' }]);
++    expect(relayReads).toEqual([{ relayUrl: 'wss://relay.test', token: 'secret', tunnel: probeTunnel }]);
++    expect(closedTunnels).toEqual([probeTunnel]);
 +  });
 +});
 diff --git a/packages/ui/src/hooks/useInstanceAttentionPolling.test.ts b/packages/ui/src/hooks/useInstanceAttentionPolling.test.ts
 new file mode 100644
-index 000000000..c82fec2c5
+index 000000000..f15a3a013
 --- /dev/null
 +++ b/packages/ui/src/hooks/useInstanceAttentionPolling.test.ts
-@@ -0,0 +1,339 @@
+@@ -0,0 +1,425 @@
 +import { beforeEach, describe, expect, test } from 'bun:test';
 +
 +import type { DesktopHost } from '@/lib/desktopHosts';
@@ -2925,10 +3144,11 @@ index 000000000..c82fec2c5
 +    const targets = instanceAttentionTargets(config, 'host-b');
 +
 +    expect(targets.map((entry) => entry.hostId)).toEqual(['host-c', 'host-d']);
-+    // A relay-only host still gets a deadline long enough for its tunnel.
-+    expect(targets.find((entry) => entry.hostId === 'host-d')?.timeoutMs).toBe(10_000);
-+    // A host with both transports covers the direct attempt and the relay.
-+    expect(targets.find((entry) => entry.hostId === 'host-c')?.timeoutMs).toBe(14_000);
++    // Every target covers the probe's direct budget, the relay probe, the
++    // tunnel-backed read and a margin, so a slow-but-healthy host is not cut
++    // off mid-read. 12s + 15s + 8s + 2s.
++    expect(targets.find((entry) => entry.hostId === 'host-d')?.timeoutMs).toBe(37_000);
++    expect(targets.find((entry) => entry.hostId === 'host-c')?.timeoutMs).toBe(37_000);
 +  });
 +});
 +
@@ -2980,7 +3200,8 @@ index 000000000..c82fec2c5
 +
 +    await clock.fire();
 +    expect(reads).toBe(0);
-+    expect(clock.delay()).toBe(INSTANCE_ATTENTION_POLL_INTERVAL_MS);
++    // A hidden window leaves no timer; becoming visible reads at once.
++    expect(clock.pending.size).toBe(0);
 +
 +    visible = true;
 +    becameVisible();
@@ -3113,6 +3334,90 @@ index 000000000..c82fec2c5
 +    dispose();
 +  });
 +
++  test('a host that failed backs off instead of probing again the next cycle', async () => {
++    const clock = timers();
++    let now = 1_000;
++    let reads = 0;
++    const dispose = startInstanceAttentionPolling({
++      readTargets: async () => [target('host-b', async () => {
++        reads += 1;
++        return reads === 1 ? poll(null) : poll([session('ses_a')]);
++      })],
++      isVisible: () => true,
++      onVisible: () => () => undefined,
++      scheduleTimeout: clock.schedule,
++      clearScheduledTimeout: clock.clear,
++      now: () => now,
++    });
++    await flush();
++    expect(reads).toBe(1);
++
++    // One failure means the next cycle skips the host: 45s * 2^1.
++    await clock.fire();
++    expect(reads).toBe(1);
++
++    now = 1_000 + INSTANCE_ATTENTION_POLL_INTERVAL_MS * 2;
++    await clock.fire();
++    expect(reads).toBe(2);
++    dispose();
++  });
++
++  test('offline reads nothing and waits at the retry cap', async () => {
++    const clock = timers();
++    let online = false;
++    let reads = 0;
++    const dispose = startInstanceAttentionPolling({
++      readTargets: async () => [target('host-b', async () => {
++        reads += 1;
++        return poll([session('ses_a')]);
++      })],
++      isVisible: () => true,
++      onVisible: () => () => undefined,
++      scheduleTimeout: clock.schedule,
++      clearScheduledTimeout: clock.clear,
++      now: () => 1_000,
++      isOnline: () => online,
++    });
++    await flush();
++    expect(reads).toBe(0);
++    expect(clock.delay()).toBe(5 * 60_000);
++
++    online = true;
++    await clock.fireDelay(5 * 60_000);
++    expect(reads).toBe(1);
++    dispose();
++  });
++
++  test('going offline keeps the last known items instead of marking hosts unreachable', async () => {
++    const clock = timers();
++    let online = true;
++    let reads = 0;
++    const dispose = startInstanceAttentionPolling({
++      readTargets: async () => [target('host-b', async () => {
++        reads += 1;
++        return poll([session('ses_a')]);
++      })],
++      isVisible: () => true,
++      onVisible: () => () => undefined,
++      scheduleTimeout: clock.schedule,
++      clearScheduledTimeout: clock.clear,
++      now: () => 1_000,
++      isOnline: () => online,
++    });
++    await flush();
++    expect(useInstanceAttentionStore.getState().items.map((item) => item.sessionId)).toEqual(['ses_a']);
++
++    online = false;
++    await clock.fire();
++
++    const state = useInstanceAttentionStore.getState();
++    expect(reads).toBe(1);
++    expect(state.hosts['host-b']?.status).not.toBe('error');
++    expect(state.items.map((item) => item.sessionId)).toEqual(['ses_a']);
++    expect(clock.delay()).toBe(5 * 60_000);
++    dispose();
++  });
++
 +  test('a read that runs out of time marks the host unreachable instead of dropping it', async () => {
 +    const clock = timers();
 +    const dispose = startInstanceAttentionPolling({
@@ -3165,21 +3470,22 @@ index 000000000..c82fec2c5
 +});
 diff --git a/packages/ui/src/hooks/useInstanceAttentionPolling.ts b/packages/ui/src/hooks/useInstanceAttentionPolling.ts
 new file mode 100644
-index 000000000..2312be897
+index 000000000..56bc09c59
 --- /dev/null
 +++ b/packages/ui/src/hooks/useInstanceAttentionPolling.ts
-@@ -0,0 +1,409 @@
+@@ -0,0 +1,450 @@
 +import React from 'react';
 +
 +import {
-+  desktopHostProbe,
 +  desktopHostsGet,
++  desktopLocalClientTokenGet,
 +  getDesktopHostApiUrl,
 +  normalizeHostUrl,
 +  type DesktopHost,
 +  type HostProbeResult,
 +} from '@/lib/desktopHosts';
 +import { resolveCurrentDesktopHost, withLocalDesktopHost } from '@/lib/desktopCurrentHost';
++import { probeHost } from '@/lib/desktopHostStatus';
 +import {
 +  readInstanceAttention,
 +  readInstanceAttentionWithin,
@@ -3195,15 +3501,24 @@ index 000000000..2312be897
 +//
 +// Two global routes per server, no directory: `GET /api/session` and
 +// `GET /api/sessions/status`. Neither starts an OpenCode location, so a poll
-+// never spawns MCP servers on the host. A relay host is read through a
-+// short-lived tunnel (or the live runtime tunnel when it serves the same
-+// server), so a relay-only instance is polled instead of being skipped.
++// never spawns MCP servers on the host. Reachability is the switcher's own
++// answer (`probeHost`): a host the switcher calls unreachable is not read, and
++// a relay answer hands over the tunnel the probe opened, so the read rides it
++// instead of paying a second handshake.
 +
 +export const INSTANCE_ATTENTION_POLL_INTERVAL_MS = 45_000;
-+const INSTANCE_ATTENTION_POLL_TIMEOUT_MS = 12_000;
-+const INSTANCE_ATTENTION_DIRECT_TIMEOUT_MS = 4_000;
-+const INSTANCE_ATTENTION_RELAY_TIMEOUT_MS = 8_000;
++/** A host that did not answer waits longer each time; a dead host is not a 27-second probe every cycle. */
++const INSTANCE_ATTENTION_FAILURE_BACKOFF_MAX_MS = 10 * 60_000;
++/** While the device is offline nothing can answer, so the loop waits at the cap. */
++const INSTANCE_ATTENTION_OFFLINE_RETRY_MS = 5 * 60_000;
++const INSTANCE_ATTENTION_POLL_TIMEOUT_MS = 40_000;
++const INSTANCE_ATTENTION_DIRECT_READ_TIMEOUT_MS = 4_000;
++const INSTANCE_ATTENTION_RELAY_READ_TIMEOUT_MS = 8_000;
 +const INSTANCE_ATTENTION_READ_MARGIN_MS = 2_000;
++// The probe's own budgets, which the target's timeout has to include: the
++// main-process direct probe retries up to 12 s, and a relay probe runs to 15 s.
++const INSTANCE_ATTENTION_PROBE_DIRECT_BUDGET_MS = 12_000;
++const INSTANCE_ATTENTION_PROBE_RELAY_BUDGET_MS = 15_000;
 +
 +type InstanceAttentionRefreshListener = () => Promise<void>;
 +const refreshListeners = new Set<InstanceAttentionRefreshListener>();
@@ -3236,11 +3551,7 @@ index 000000000..2312be897
 +export type InstanceAttentionTarget = {
 +  hostId: string;
 +  label: string;
-+  /**
-+   * How long this target may take. A relay fallback needs the direct attempt
-+   * plus the tunnel, so the shell sizes this instead of losing the relay to the
-+   * generic poll timeout.
-+   */
++  /** How long this target may take, probe included. */
 +  timeoutMs?: number;
 +  read: (signal: AbortSignal) => Promise<InstanceAttentionPoll>;
 +};
@@ -3252,6 +3563,8 @@ index 000000000..2312be897
 +  scheduleTimeout: (callback: () => void, delay: number) => number;
 +  clearScheduledTimeout: (timeoutId: number) => void;
 +  now: () => number;
++  /** A cycle while offline reads nothing: a failure there is not the host's. */
++  isOnline?: () => boolean;
 +};
 +
 +type InstanceAttentionVisibility = {
@@ -3267,85 +3580,71 @@ index 000000000..2312be897
 +  dispose: () => undefined,
 +};
 +
-+/**
-+ * A direct address is only allowed to receive a host's bearer token once its
-+ * UNAUTHENTICATED `/health` has proven it is the instance pinned by the relay
-+ * identity. A DHCP address that now belongs to another machine answers
-+ * `/health` as itself, so the probe refuses before the token is attached — and
-+ * falling through to the relay keeps the host polled. An identity that cannot
-+ * be read is not a match.
-+ */
-+const directAddressOwnsPinnedIdentity = async (
-+  url: string,
-+  expectedServerId: string | null,
-+  signal: AbortSignal,
-+): Promise<boolean> => {
-+  if (!expectedServerId) return true;
-+  // The main-process probe has its own retry budget, longer than the direct
-+  // attempt here. Race it against this attempt's signal so a stale LAN address
-+  // cannot eat the relay's slice; its late answer is discarded.
-+  const aborted = new Promise<HostProbeResult>((resolve) => {
-+    if (signal.aborted) {
-+      resolve({ status: 'unreachable', latencyMs: 0 });
-+      return;
-+    }
-+    signal.addEventListener('abort', () => resolve({ status: 'unreachable', latencyMs: 0 }), { once: true });
-+  });
-+  const probe = await Promise.race([
-+    desktopHostProbe(url, { expectedServerId }).catch((): HostProbeResult => ({ status: 'unreachable', latencyMs: 0 })),
-+    aborted,
-+  ]);
-+  return probe.status !== 'unreachable' && probe.status !== 'wrong-service' && probe.status !== 'relay-limit';
-+};
++const EMPTY_POLL: InstanceAttentionPoll = { sessions: null, pending: null, busy: null };
++
++/** Statuses that mean the host did not answer for the attention routes either. */
++const isBlockedProbeStatus = (status: HostProbeResult['status']): boolean => (
++  status === 'unreachable'
++  || status === 'wrong-service'
++  || status === 'incompatible'
++  || status === 'relay-limit'
++);
 +
 +/**
-+ * A desktop host's two routes. A relay host is tried over its direct address
-+ * briefly first, then over the tunnel; a stale direct address therefore costs
-+ * one short attempt instead of marking the host unreachable.
++ * A desktop host's two routes, after the shared probe has decided how it can be
++ * reached. A relay answer already holds the tunnel, so the read does not open a
++ * second one; a direct answer reads the address the probe just verified.
 + */
 +const readDesktopHostAttention = async (
 +  host: DesktopHost,
-+  directUrl: string | null,
++  localClientToken: string,
 +  signal: AbortSignal,
 +): Promise<InstanceAttentionPoll> => {
-+  const expectedServerId = host.relay?.serverId ?? null;
-+  const deadline = Date.now()
-+    + (directUrl ? INSTANCE_ATTENTION_DIRECT_TIMEOUT_MS : 0)
-+    + (host.relay ? INSTANCE_ATTENTION_RELAY_TIMEOUT_MS : 0);
-+  if (directUrl) {
-+    const remaining = Math.max(0, deadline - Date.now());
-+    const budget = Math.min(INSTANCE_ATTENTION_DIRECT_TIMEOUT_MS, remaining);
-+    const poll = await readInstanceAttentionWithin(
-+      signal,
-+      budget,
-+      async (readSignal) => {
-+        const verified = await directAddressOwnsPinnedIdentity(directUrl, expectedServerId, readSignal);
-+        if (!verified) return { sessions: null, pending: null, busy: null };
-+        return readInstanceAttention({
-+          url: directUrl,
-+          token: host.clientToken,
-+          headers: host.requestHeaders,
-+        }, { signal: readSignal });
-+      },
-+    );
-+    if (poll.sessions !== null || poll.pending !== null) return poll;
-+    if (signal.aborted) return poll;
-+  }
-+  if (host.relay) {
-+    const remaining = Math.max(0, deadline - Date.now());
-+    if (remaining > 0) {
-+      return readInstanceAttentionWithin(
++  const probe = await probeHost(host, localClientToken, { keepTunnel: true });
++  if (isBlockedProbeStatus(probe.status)) return EMPTY_POLL;
++  if (probe.tunnel && host.relay) {
++    try {
++      return await readInstanceAttentionWithin(
 +        signal,
-+        Math.min(INSTANCE_ATTENTION_RELAY_TIMEOUT_MS, remaining),
++        INSTANCE_ATTENTION_RELAY_READ_TIMEOUT_MS,
 +        (readSignal) => readRelayInstanceAttention(host.relay!, {
++          tunnel: probe.tunnel,
 +          token: host.clientToken,
 +          headers: host.requestHeaders,
 +          signal: readSignal,
 +        }),
 +      );
++    } finally {
++      probe.tunnel.close();
 +    }
 +  }
-+  return { sessions: null, pending: null, busy: null };
++  const directUrl = normalizeHostUrl(getDesktopHostApiUrl(host));
++  if (!directUrl) return EMPTY_POLL;
++  const direct = await readInstanceAttentionWithin(
++    signal,
++    INSTANCE_ATTENTION_DIRECT_READ_TIMEOUT_MS,
++    (readSignal) => readInstanceAttention({
++      url: directUrl,
++      token: host.clientToken,
++      headers: host.requestHeaders,
++    }, { signal: readSignal }),
++  );
++  // Both routes answered nothing: the direct path may be reachable for the
++  // probe and still fail for these two, so try the relay before calling the
++  // host unreachable. An idle host answers the session route with an empty
++  // list, so this fallback only runs on a real failure.
++  if (direct.sessions === null && direct.pending === null && host.relay) {
++    return readInstanceAttentionWithin(
++      signal,
++      INSTANCE_ATTENTION_RELAY_READ_TIMEOUT_MS,
++      (readSignal) => readRelayInstanceAttention(host.relay!, {
++        token: host.clientToken,
++        headers: host.requestHeaders,
++        signal: readSignal,
++      }),
++    );
++  }
++  return direct;
 +};
 +
 +/**
@@ -3356,6 +3655,7 @@ index 000000000..2312be897
 +export const instanceAttentionTargets = (
 +  config: InstanceAttentionHosts,
 +  activeHostId: string,
++  localClientToken = '',
 +): InstanceAttentionTarget[] => config.hosts
 +  .filter((host) => host.id !== activeHostId)
 +  .flatMap((host) => {
@@ -3364,10 +3664,13 @@ index 000000000..2312be897
 +    return [{
 +      hostId: host.id,
 +      label: host.label,
-+      timeoutMs: (directUrl ? INSTANCE_ATTENTION_DIRECT_TIMEOUT_MS : 0)
-+        + (host.relay ? INSTANCE_ATTENTION_RELAY_TIMEOUT_MS : 0)
++      // Covers the probe's own budgets, the read and a margin, so a healthy
++      // host that probed slowly is not marked unreachable mid-read.
++      timeoutMs: INSTANCE_ATTENTION_PROBE_DIRECT_BUDGET_MS
++        + (host.relay ? INSTANCE_ATTENTION_PROBE_RELAY_BUDGET_MS : 0)
++        + INSTANCE_ATTENTION_RELAY_READ_TIMEOUT_MS
 +        + INSTANCE_ATTENTION_READ_MARGIN_MS,
-+      read: (signal: AbortSignal) => readDesktopHostAttention(host, directUrl, signal),
++      read: (signal: AbortSignal) => readDesktopHostAttention(host, localClientToken, signal),
 +    }];
 +  });
 +
@@ -3376,6 +3679,11 @@ index 000000000..2312be897
 + * removing or switching one needs no restart. A failed host keeps its last
 + * known items and is marked unreachable; it is not read as empty. A read that
 + * runs out of time is unreachable too, not silently dropped.
++ *
++ * A host that did not answer backs off instead of paying its probe again next
++ * cycle, and a hidden window leaves no timer: becoming visible reads at once.
++ * Offline reads nothing and waits at the cap, so a sleeping phone does not
++ * report every saved server as unreachable.
 + */
 +export const startInstanceAttentionPolling = (
 +  deps: InstanceAttentionPollingDeps,
@@ -3386,18 +3694,28 @@ index 000000000..2312be897
 +  let queuedRefreshResolvers: Array<() => void> = [];
 +  let timeoutId: number | undefined;
 +  const controllers = new Set<AbortController>();
++  const failuresByHostId = new Map<string, { attempts: number; nextAttemptAt: number }>();
++  const isOnline = deps.isOnline ?? (() => true);
 +
-+  const schedule = () => {
++  const schedule = (delay = INSTANCE_ATTENTION_POLL_INTERVAL_MS) => {
 +    if (disposed) return;
 +    timeoutId = deps.scheduleTimeout(() => {
 +      timeoutId = undefined;
 +      if (disposed) return;
-+      if (!deps.isVisible()) {
-+        schedule();
-+        return;
-+      }
++      // Hidden: stop scheduling until `onVisible` wakes the poller.
++      if (!deps.isVisible()) return;
 +      void run();
-+    }, INSTANCE_ATTENTION_POLL_INTERVAL_MS);
++    }, delay);
++  };
++
++  const recordFailure = (hostId: string): void => {
++    const previous = failuresByHostId.get(hostId);
++    const attempts = (previous?.attempts ?? 0) + 1;
++    const delay = Math.min(
++      INSTANCE_ATTENTION_POLL_INTERVAL_MS * 2 ** attempts,
++      INSTANCE_ATTENTION_FAILURE_BACKOFF_MAX_MS,
++    );
++    failuresByHostId.set(hostId, { attempts, nextAttemptAt: deps.now() + delay });
 +  };
 +
 +  const readTarget = async (target: InstanceAttentionTarget): Promise<void> => {
@@ -3414,12 +3732,17 @@ index 000000000..2312be897
 +      // A partial answer still counts: a session list that answered keeps its
 +      // unread turns even when the status route timed out.
 +      if (poll.sessions !== null || poll.pending !== null) {
++        failuresByHostId.delete(target.hostId);
 +        store.applyPoll(target.hostId, target.label, poll, deps.now());
 +      } else {
++        recordFailure(target.hostId);
 +        store.markUnreachable(target.hostId, target.label, deps.now());
 +      }
 +    } catch {
-+      if (!disposed) useInstanceAttentionStore.getState().markUnreachable(target.hostId, target.label, deps.now());
++      if (!disposed) {
++        recordFailure(target.hostId);
++        useInstanceAttentionStore.getState().markUnreachable(target.hostId, target.label, deps.now());
++      }
 +    } finally {
 +      deps.clearScheduledTimeout(timeout);
 +      controllers.delete(controller);
@@ -3434,6 +3757,11 @@ index 000000000..2312be897
 +      deps.clearScheduledTimeout(timeoutId);
 +      timeoutId = undefined;
 +    }
++    if (!isOnline()) {
++      // Keep every host's last known items: offline is not a host failure.
++      schedule(INSTANCE_ATTENTION_OFFLINE_RETRY_MS);
++      return;
++    }
 +    running = true;
 +    try {
 +      const targets = await deps.readTargets().catch(() => null);
@@ -3443,8 +3771,14 @@ index 000000000..2312be897
 +        return;
 +      }
 +      const store = useInstanceAttentionStore.getState();
-+      store.retainHosts(targets.map((target) => target.hostId));
-+      await Promise.allSettled(targets.map(readTarget));
++      const targetIds = new Set(targets.map((target) => target.hostId));
++      store.retainHosts([...targetIds]);
++      for (const hostId of failuresByHostId.keys()) {
++        if (!targetIds.has(hostId)) failuresByHostId.delete(hostId);
++      }
++      const now = deps.now();
++      const due = targets.filter((target) => (failuresByHostId.get(target.hostId)?.nextAttemptAt ?? 0) <= now);
++      await Promise.allSettled(due.map(readTarget));
 +      if (disposed) return;
 +      schedule();
 +    } finally {
@@ -3503,20 +3837,27 @@ index 000000000..2312be897
 + * The document listeners for one poller run. They stay attached until
 + * `dispose`, so a listener added after another was removed still wakes the
 + * poller: a runtime switch starts a fresh instance instead of reusing one whose
-+ * listeners were torn down with its previous listener.
++ * listeners were torn down with its previous listener. Coming back online wakes
++ * it the same way, so a device that regained its network does not wait out the
++ * offline retry.
 + */
 +export const instanceAttentionVisibility = (): InstanceAttentionVisibility => {
 +  const doc = globalThis.document;
 +  if (!doc) return ALWAYS_VISIBLE;
 +  let hidden = doc.visibilityState === 'hidden';
 +  const listeners = new Set<() => void>();
++  const wake = () => {
++    for (const listener of listeners) listener();
++  };
 +  const handle = () => {
 +    const next = doc.visibilityState === 'hidden';
-+    if (hidden && !next) for (const listener of listeners) listener();
++    if (hidden && !next) wake();
 +    hidden = next;
 +  };
++  const handleOnline = () => wake();
 +  doc.addEventListener('visibilitychange', handle);
 +  globalThis.window.addEventListener('focus', handle);
++  globalThis.window.addEventListener('online', handleOnline);
 +  return {
 +    isVisible: () => doc.visibilityState !== 'hidden',
 +    onVisible: (listener) => {
@@ -3527,6 +3868,7 @@ index 000000000..2312be897
 +      listeners.clear();
 +      doc.removeEventListener('visibilitychange', handle);
 +      globalThis.window.removeEventListener('focus', handle);
++      globalThis.window.removeEventListener('online', handleOnline);
 +    },
 +  };
 +};
@@ -3539,8 +3881,11 @@ index 000000000..2312be897
 +const readDesktopTargets = async (): Promise<InstanceAttentionTarget[]> => {
 +  const config = await readDesktopHosts();
 +  const activeHostId = resolveCurrentDesktopHost(withLocalDesktopHost(config.hosts, config.localOrigin)).id;
-+  return instanceAttentionTargets(config, activeHostId);
++  const localClientToken = await desktopLocalClientTokenGet().catch(() => '');
++  return instanceAttentionTargets(config, activeHostId, localClientToken);
 +};
++
++export const isDeviceOnline = (): boolean => globalThis.navigator?.onLine !== false;
 +
 +/**
 + * Runs the cross-instance poller in the desktop shell, restarting it when the
@@ -3559,6 +3904,7 @@ index 000000000..2312be897
 +        scheduleTimeout: window.setTimeout.bind(window),
 +        clearScheduledTimeout: window.clearTimeout.bind(window),
 +        now: Date.now,
++        isOnline: isDeviceOnline,
 +      });
 +      return () => {
 +        stopPolling();
@@ -3580,10 +3926,10 @@ index 000000000..2312be897
 +};
 diff --git a/packages/ui/src/hooks/useInstanceAttentionPreview.ts b/packages/ui/src/hooks/useInstanceAttentionPreview.ts
 new file mode 100644
-index 000000000..59e646cfc
+index 000000000..cd6ee263b
 --- /dev/null
 +++ b/packages/ui/src/hooks/useInstanceAttentionPreview.ts
-@@ -0,0 +1,72 @@
+@@ -0,0 +1,66 @@
 +import React from 'react';
 +
 +import { useInstanceAttentionStore } from '@/stores/useInstanceAttentionStore';
@@ -3595,7 +3941,6 @@ index 000000000..59e646cfc
 +// two fake instances plus one unreachable host.
 +
 +const INSTANCE_ATTENTION_PREVIEW_FLAG = 'instanceAttentionPreview';
-+const PREVIEW_STORAGE_KEY = 'openchamber.instanceAttentionPreview';
 +
 +// Read at module load, before the router replaces the address bar: a first
 +// visit with the query flag keeps the preview on for this page.
@@ -3605,12 +3950,7 @@ index 000000000..59e646cfc
 +
 +export const isInstanceAttentionPreview = (): boolean => {
 +  if (!globalThis.document) return false;
-+  if (previewRequestedByUrl) return true;
-+  try {
-+    return globalThis.localStorage.getItem(PREVIEW_STORAGE_KEY) === '1';
-+  } catch {
-+    return false;
-+  }
++  return previewRequestedByUrl;
 +};
 +
 +export const useInstanceAttentionPreview = (): void => {
@@ -3658,10 +3998,10 @@ index 000000000..59e646cfc
 +};
 diff --git a/packages/ui/src/hooks/useLocalInstanceAttention.test.tsx b/packages/ui/src/hooks/useLocalInstanceAttention.test.tsx
 new file mode 100644
-index 000000000..447a6453c
+index 000000000..860b5f194
 --- /dev/null
 +++ b/packages/ui/src/hooks/useLocalInstanceAttention.test.tsx
-@@ -0,0 +1,141 @@
+@@ -0,0 +1,189 @@
 +import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 +import React, { act } from 'react';
 +import type { Root } from 'react-dom/client';
@@ -3669,7 +4009,9 @@ index 000000000..447a6453c
 +
 +import { LOCAL_INSTANCE_ATTENTION_HOST_ID } from '@/lib/instanceAttention';
 +import type { Session } from '@/lib/opencode/model';
++import { useBackgroundShellsStore } from '@/sync/background-shells';
 +import { useGlobalBlockingRequestsStore } from '@/sync/global-blocking-requests';
++import { setSessionParentResolver, useGlobalSessionStatusStore } from '@/sync/global-session-status';
 +import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 +import { useProjectsStore } from '@/stores/useProjectsStore';
 +import { useInstanceAttentionStore } from '@/stores/useInstanceAttentionStore';
@@ -3716,6 +4058,9 @@ index 000000000..447a6453c
 +  useInstanceAttentionStore.getState().reset();
 +  useGlobalBlockingRequestsStore.setState({ bySession: new Map() });
 +  useGlobalSessionsStore.setState({ entityById: new Map<string, Session>() });
++  useGlobalSessionStatusStore.setState({ activeSessionIds: new Set<string>() });
++  useBackgroundShellsStore.setState({ sessionIds: new Set<string>() });
++  setSessionParentResolver((sessionId) => useGlobalSessionsStore.getState().entityById.get(sessionId)?.parentID);
 +  // The hook only lists sessions the app can open, so the fixture project has
 +  // to be admitted for its sessions to reach the store.
 +  useProjectsStore.setState({ projects: [{ id: 'project', path: '/repo' }], activeProjectId: 'project' });
@@ -3792,6 +4137,49 @@ index 000000000..447a6453c
 +  expect(useInstanceAttentionStore.getState().items).toEqual([]);
 +});
 +
++test('a session waiting on a background shell is not unread', async () => {
++  useGlobalSessionsStore.setState({ entityById: new Map([['ses_shell', session('ses_shell')]]) });
++  useBackgroundShellsStore.setState({ sessionIds: new Set(['ses_shell']) });
++  await mount();
++
++  expect(localItems()).toEqual([]);
++});
++
++test('a parent whose subagent is still running is not unread', async () => {
++  useGlobalSessionsStore.setState({
++    entityById: new Map([
++      ['ses_parent', session('ses_parent')],
++      ['ses_child', session('ses_child', { parentID: 'ses_parent' })],
++    ]),
++  });
++  useGlobalSessionStatusStore.setState({ activeSessionIds: new Set(['ses_child']) });
++  await mount();
++
++  expect(localItems()).toEqual([]);
++});
++
++test('a pending request for a session the app has not admitted is left out', async () => {
++  useGlobalSessionsStore.setState({
++    entityById: new Map([
++      ['ses_known', session('ses_known')],
++      ['ses_elsewhere', session('ses_elsewhere', { directory: '/elsewhere' })],
++    ]),
++  });
++  useGlobalBlockingRequestsStore.setState({
++    bySession: new Map([
++      ['ses_elsewhere', {
++        directory: '/elsewhere',
++        permissions: [],
++        forms: [{ id: 'form_1', sessionID: 'ses_elsewhere', title: 'Pick one' }],
++        pages: [],
++      }],
++    ]),
++  });
++  await mount();
++
++  expect(localItems().map((item) => item.sessionId)).toEqual(['ses_known']);
++});
++
 +test('a session in a folder the app has not admitted is left out', async () => {
 +  useGlobalSessionsStore.setState({
 +    entityById: new Map([
@@ -3805,21 +4193,52 @@ index 000000000..447a6453c
 +});
 diff --git a/packages/ui/src/hooks/useLocalInstanceAttention.ts b/packages/ui/src/hooks/useLocalInstanceAttention.ts
 new file mode 100644
-index 000000000..6527934c4
+index 000000000..913830cef
 --- /dev/null
 +++ b/packages/ui/src/hooks/useLocalInstanceAttention.ts
-@@ -0,0 +1,63 @@
+@@ -0,0 +1,128 @@
 +import React from 'react';
 +
 +import { useI18n } from '@/lib/i18n';
 +import { LOCAL_INSTANCE_ATTENTION_HOST_ID, type InstancePendingCounts } from '@/lib/instanceAttention';
 +import { localInstanceAttentionPoll } from '@/lib/localInstanceAttention';
++import { useBackgroundImagesStore } from '@/sync/background-images';
++import { useBackgroundShellsStore } from '@/sync/background-shells';
 +import { useGlobalBlockingRequestsStore } from '@/sync/global-blocking-requests';
-+import { useGlobalSessionStatusStore } from '@/sync/global-session-status';
++import { collectOpenTurnSessionIds, useGlobalSessionStatusStore } from '@/sync/global-session-status';
++import { usePrWatchStore } from '@/sync/pr-watch';
++import { isSessionAdmitted } from '@/sync/session-admission';
++import { useWorkflowActivityStore } from '@/sync/workflow-activity';
 +import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 +import { useInstanceAttentionStore } from '@/stores/useInstanceAttentionStore';
 +import { useProjectsStore } from '@/stores/useProjectsStore';
-+import { isSessionAdmitted } from '@/sync/session-admission';
++import type { Session } from '@/lib/opencode/model';
++
++// One string per admitted session, carrying every field the attention rule
++// reads. Subscribing to this instead of `entityById` keeps a streamed event on
++// an unrelated or archived session from rebuilding and sorting the whole
++// published list; the effect reads the live map when the signature changes.
++const FIELD_SEPARATOR = '\u0001';
++const SESSION_SEPARATOR = '\u0002';
++
++const admittedSessionSignature = (entityById: ReadonlyMap<string, Session>): string => {
++  const parts: string[] = [];
++  for (const session of entityById.values()) {
++    if (!isSessionAdmitted(session.directory)) continue;
++    parts.push([
++      session.id,
++      session.parentID ?? '',
++      session.directory,
++      session.title,
++      session.time.idle ?? '',
++      session.time.viewed ?? '',
++      session.time.archived ?? '',
++      session.time.updated ?? '',
++      session.outcome ?? '',
++    ].join(FIELD_SEPARATOR));
++  }
++  return parts.join(SESSION_SEPARATOR);
++};
 +
 +/**
 + * Publishes this window's own waiting sessions into the attention store, as
@@ -3834,18 +4253,36 @@ index 000000000..6527934c4
 +export const useLocalInstanceAttention = (enabled: boolean): void => {
 +  const { t } = useI18n();
 +  const hostLabel = t('instanceAttention.localInstance');
-+  const entityById = useGlobalSessionsStore((state) => state.entityById);
 +  const bySession = useGlobalBlockingRequestsStore((state) => state.bySession);
-+  const busy = useGlobalSessionStatusStore((state) => state.activeSessionIds);
 +  // Only sessions the app can open right now: a row in a folder that has not
 +  // been admitted stops at the trust prompt and appears to do nothing. This is
 +  // the same rule the sidebar's links obey, not a heuristic about age.
 +  const projects = useProjectsStore((state) => state.projects);
++  const activeSessionIds = useGlobalSessionStatusStore((state) => state.activeSessionIds);
++  // A session whose turn is still open is not unread: it runs itself, waits on
++  // a workflow, a background command, an image or its pull request, or keeps a
++  // turn open for a running subagent. The sidebar suppresses unread with the
++  // same set, so a row and the badge never disagree.
++  const workflowSessionIds = useWorkflowActivityStore((state) => state.runningSessionIds);
++  const shellSessionIds = useBackgroundShellsStore((state) => state.sessionIds);
++  const imageSessionIds = useBackgroundImagesStore((state) => state.sessionIds);
++  const prWatches = usePrWatchStore((state) => state.bySession);
++  const signature = useGlobalSessionsStore(React.useCallback(
++    (state) => (enabled ? admittedSessionSignature(state.entityById) : ''),
++    [enabled],
++  ));
 +
 +  React.useEffect(() => {
 +    if (!enabled) return;
++    const sessions = [...useGlobalSessionsStore.getState().entityById.values()]
++      .filter((session) => isSessionAdmitted(session.directory));
++    const admittedIds = new Set(sessions.map((session) => session.id));
++    // A pending request only names a session the surfaces can open: the
++    // attention list would otherwise add an untitled row for a session the
++    // admission filter deliberately left out.
 +    const pending = new Map<string, InstancePendingCounts>();
 +    for (const [sessionId, entry] of bySession) {
++      if (!admittedIds.has(sessionId)) continue;
 +      if (entry.permissions.length === 0 && entry.forms.length === 0 && entry.pages.length === 0) continue;
 +      pending.set(sessionId, {
 +        permissions: entry.permissions.length,
@@ -3857,13 +4294,29 @@ index 000000000..6527934c4
 +      LOCAL_INSTANCE_ATTENTION_HOST_ID,
 +      hostLabel,
 +      localInstanceAttentionPoll(
-+        [...entityById.values()].filter((session) => isSessionAdmitted(session.directory)),
++        sessions,
 +        pending,
-+        busy,
++        collectOpenTurnSessionIds(activeSessionIds, [
++          workflowSessionIds,
++          shellSessionIds,
++          imageSessionIds,
++          prWatches.keys(),
++        ]),
 +      ),
 +      Date.now(),
 +    );
-+  }, [busy, bySession, enabled, entityById, hostLabel, projects]);
++  }, [
++    activeSessionIds,
++    bySession,
++    enabled,
++    hostLabel,
++    imageSessionIds,
++    prWatches,
++    projects,
++    shellSessionIds,
++    signature,
++    workflowSessionIds,
++  ]);
 +
 +  React.useEffect(() => {
 +    if (!enabled) return;
@@ -3874,10 +4327,10 @@ index 000000000..6527934c4
 +};
 diff --git a/packages/ui/src/hooks/useMobileInstanceAttentionPolling.ts b/packages/ui/src/hooks/useMobileInstanceAttentionPolling.ts
 new file mode 100644
-index 000000000..dbaac2ad8
+index 000000000..aeae23569
 --- /dev/null
 +++ b/packages/ui/src/hooks/useMobileInstanceAttentionPolling.ts
-@@ -0,0 +1,55 @@
+@@ -0,0 +1,57 @@
 +import React from 'react';
 +
 +import {
@@ -3889,6 +4342,7 @@ index 000000000..dbaac2ad8
 +
 +import {
 +  instanceAttentionVisibility,
++  isDeviceOnline,
 +  startInstanceAttentionPolling,
 +  type InstanceAttentionTarget,
 +} from './useInstanceAttentionPolling';
@@ -3916,6 +4370,7 @@ index 000000000..dbaac2ad8
 +        scheduleTimeout: window.setTimeout.bind(window),
 +        clearScheduledTimeout: window.clearTimeout.bind(window),
 +        now: Date.now,
++        isOnline: isDeviceOnline,
 +      });
 +      return () => {
 +        stopPolling();
@@ -3933,6 +4388,34 @@ index 000000000..dbaac2ad8
 +    };
 +  }, [enabled]);
 +};
+diff --git a/packages/ui/src/lib/DOCUMENTATION.md b/packages/ui/src/lib/DOCUMENTATION.md
+index 6a9147d39..6d86711ce 100644
+--- a/packages/ui/src/lib/DOCUMENTATION.md
++++ b/packages/ui/src/lib/DOCUMENTATION.md
+@@ -43,6 +43,23 @@ A rotated phone's viewport and `screen.width` both report the long side, so a wi
+ 
+ `hover: none` and touch points also match touch laptops driven by a mouse. On those the short side would keep the mobile shell at full width, so they stay on the viewport width rule.
+ 
++## Cross-instance attention
++
++### Ownership
++
++`lib/instanceAttention.ts` owns the two global wire reads (`/api/session`, `/api/sessions/status`), the ordering and subagent attribution, and the relay transport. `hooks/useInstanceAttentionPolling.ts` owns the desktop poller and its reachability decisions; `hooks/useLocalInstanceAttention.ts` publishes this window's own instance from the live stores. `stores/useInstanceAttentionStore.ts` holds the one sorted list every surface reads. `lib/instanceAttentionJump.ts` owns the shared switch-and-open path.
++
++### Invariants
++
++- A poll names no directory, so it never starts an OpenCode location or an MCP server. It uses the saved host's own address, client token and request headers.
++- Reachability is the shared answer (`lib/desktopHostStatus.ts` `probeHost`), not a second probe. A relay answer hands its tunnel to the read, which closes it afterwards; a blocked status (`unreachable`, `wrong-service`, `incompatible`, `relay-limit`) reads nothing.
++- Relay identity comes from `descriptorsEqual` in `lib/relay/runtime-tunnel.ts`, so the switcher's relay and the poller's relay cannot disagree.
++- A `busy`/`retry` entry older than `HOST_STATUS_SEED_MAX_AGE_MS` is not current activity. An open turn suppresses unread for the session and every ancestor, matching the sidebar's `collectOpenTurnSessionIds`.
++- Unread reuses `sync/session-unread.ts`; a child's pending request attributes to its top-level parent, and archived sessions never ask.
++- A failed poll keeps the host's last known items and marks it unreachable; a partial answer keeps the half that answered. Offline reads nothing and waits at the retry cap. A failed host backs off, and a hidden window schedules no further cycle.
++- Removing a saved instance drops its rows; a tap on an unreachable host, or one no longer saved, keeps the surface open instead of switching blind.
++- The runtime gate is deliberate: desktop and mobile run the pollers, while web and VS Code do not show cross-instance attention because neither owns a saved-instance switcher.
++
+ ## Chat width
+ 
+ ### Ownership
 diff --git a/packages/ui/src/lib/desktopHostActions.ts b/packages/ui/src/lib/desktopHostActions.ts
 index 8df361ba0..5b86440a6 100644
 --- a/packages/ui/src/lib/desktopHostActions.ts
@@ -3952,8 +4435,59 @@ index 8df361ba0..5b86440a6 100644
    const host = (await desktopHostsGet()).hosts.find((entry) => entry.id === hostId);
    if (!host) throw new Error('host-not-found');
    if (host.relay) {
+diff --git a/packages/ui/src/lib/desktopHostStatus.ts b/packages/ui/src/lib/desktopHostStatus.ts
+index 7d91dba12..d24c2988d 100644
+--- a/packages/ui/src/lib/desktopHostStatus.ts
++++ b/packages/ui/src/lib/desktopHostStatus.ts
+@@ -10,6 +10,7 @@ import {
+   type HostProbeResult,
+ } from '@/lib/desktopHosts';
+ import { LOCAL_HOST_ID, withLocalDesktopHost } from '@/lib/desktopCurrentHost';
++import type { RelayTunnelClient } from '@/lib/relay/tunnel-client';
+ 
+ export type DesktopHostStatus = {
+   status: HostProbeResult['status'];
+@@ -123,15 +124,33 @@ const getLocalClientToken = async (): Promise<string> => {
+   return desktopLocalClientTokenGet().catch(() => '');
+ };
+ 
+-const probeHost = async (host: DesktopHost, localClientToken: string): Promise<DesktopHostStatus> => {
++/**
++ * One host's reachability: direct first, relay after a blocked direct leg. With
++ * `keepTunnel`, a relay answer returns the tunnel the probe opened so the
++ * caller can read over it instead of paying a second handshake.
++ */
++export type DesktopHostProbe = DesktopHostStatus & { tunnel?: RelayTunnelClient };
++
++export const probeHost = async (
++  host: DesktopHost,
++  localClientToken: string,
++  options: { keepTunnel?: boolean } = {},
++): Promise<DesktopHostProbe> => {
+   const clientToken = host.id === LOCAL_HOST_ID ? localClientToken : (host.clientToken || '');
+-  const probeRelayLeg = async (): Promise<DesktopHostStatus> => {
+-    const res = await probeRelayDesktopHost(host.relay!, { clientToken, requestHeaders: host.requestHeaders || null })
++  const probeRelayLeg = async (): Promise<DesktopHostProbe> => {
++    const res: HostProbeResult & { tunnel?: RelayTunnelClient } = await probeRelayDesktopHost(host.relay!, {
++      keepTunnel: options.keepTunnel === true,
++      clientToken,
++      requestHeaders: host.requestHeaders || null,
++    })
+       .catch((): HostProbeResult => ({ status: 'unreachable', latencyMs: 0 }));
+-    const status: DesktopHostStatus = { status: res.status, latencyMs: res.latencyMs };
++    const status: DesktopHostProbe = { status: res.status, latencyMs: res.latencyMs };
+     // `via` is what renders the "· Relay" suffix, so it marks a reachable host
+     // only — a failed relay leg says nothing about which transport would work.
+-    if (res.status === 'ok') status.via = 'relay';
++    if (res.status === 'ok') {
++      status.via = 'relay';
++      if (res.tunnel) status.tunnel = res.tunnel;
++    }
+     return status;
+   };
+ 
 diff --git a/packages/ui/src/lib/i18n/messages/ar.ts b/packages/ui/src/lib/i18n/messages/ar.ts
-index a267cccaa..eecfecad2 100644
+index b1881258b..6c338734f 100644
 --- a/packages/ui/src/lib/i18n/messages/ar.ts
 +++ b/packages/ui/src/lib/i18n/messages/ar.ts
 @@ -31,6 +31,7 @@ import { agentStatusI18n } from './agent-status.i18n';
@@ -3964,7 +4498,7 @@ index a267cccaa..eecfecad2 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { overviewI18n } from './overview.i18n';
-@@ -3934,6 +3935,7 @@ export const dict = {
+@@ -3937,6 +3938,7 @@ export const dict = {
    ...agentStatusI18n.ar,
    ...snippetsI18n.ar,
    ...sidebarWorkI18n.ar,
@@ -3973,7 +4507,7 @@ index a267cccaa..eecfecad2 100644
    ...worktreeArchiveI18n.ar,
    ...overviewI18n.ar,
 diff --git a/packages/ui/src/lib/i18n/messages/de.ts b/packages/ui/src/lib/i18n/messages/de.ts
-index a13bdf3d4..aae1eab63 100644
+index dc8e028f2..c593102fe 100644
 --- a/packages/ui/src/lib/i18n/messages/de.ts
 +++ b/packages/ui/src/lib/i18n/messages/de.ts
 @@ -31,6 +31,7 @@ import { agentStatusI18n } from './agent-status.i18n';
@@ -3993,7 +4527,7 @@ index a13bdf3d4..aae1eab63 100644
    ...worktreeArchiveI18n.de,
    ...overviewI18n.de,
 diff --git a/packages/ui/src/lib/i18n/messages/en.ts b/packages/ui/src/lib/i18n/messages/en.ts
-index bd80aa836..873c68a46 100644
+index a69e63275..4f892ede2 100644
 --- a/packages/ui/src/lib/i18n/messages/en.ts
 +++ b/packages/ui/src/lib/i18n/messages/en.ts
 @@ -31,6 +31,7 @@ import { agentStatusI18n } from './agent-status.i18n';
@@ -4013,7 +4547,7 @@ index bd80aa836..873c68a46 100644
    ...worktreeArchiveI18n.en,
    ...overviewI18n.en,
 diff --git a/packages/ui/src/lib/i18n/messages/es.ts b/packages/ui/src/lib/i18n/messages/es.ts
-index 572af872b..c08ee4d1f 100644
+index f6e8b3f6a..6733af764 100644
 --- a/packages/ui/src/lib/i18n/messages/es.ts
 +++ b/packages/ui/src/lib/i18n/messages/es.ts
 @@ -32,6 +32,7 @@ import { agentStatusI18n } from './agent-status.i18n';
@@ -4033,7 +4567,7 @@ index 572af872b..c08ee4d1f 100644
    ...worktreeArchiveI18n.es,
    ...overviewI18n.es,
 diff --git a/packages/ui/src/lib/i18n/messages/fr.ts b/packages/ui/src/lib/i18n/messages/fr.ts
-index a8528675d..765cfad2d 100644
+index d693ab541..432d5e3e8 100644
 --- a/packages/ui/src/lib/i18n/messages/fr.ts
 +++ b/packages/ui/src/lib/i18n/messages/fr.ts
 @@ -31,6 +31,7 @@ import { agentStatusI18n } from './agent-status.i18n';
@@ -4053,7 +4587,7 @@ index a8528675d..765cfad2d 100644
    ...worktreeArchiveI18n.fr,
    ...overviewI18n.fr,
 diff --git a/packages/ui/src/lib/i18n/messages/he.ts b/packages/ui/src/lib/i18n/messages/he.ts
-index 6e18140db..dac4faf44 100644
+index ea650beda..9550cd41b 100644
 --- a/packages/ui/src/lib/i18n/messages/he.ts
 +++ b/packages/ui/src/lib/i18n/messages/he.ts
 @@ -31,6 +31,7 @@ import { agentStatusI18n } from './agent-status.i18n';
@@ -4064,7 +4598,7 @@ index 6e18140db..dac4faf44 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { overviewI18n } from './overview.i18n';
-@@ -3934,6 +3935,7 @@ export const dict = {
+@@ -3937,6 +3938,7 @@ export const dict = {
    ...agentStatusI18n.he,
    ...snippetsI18n.he,
    ...sidebarWorkI18n.he,
@@ -4318,7 +4852,7 @@ index 000000000..757697858
 +  },
 +} as const;
 diff --git a/packages/ui/src/lib/i18n/messages/ja.ts b/packages/ui/src/lib/i18n/messages/ja.ts
-index 8f551becd..83477fed9 100644
+index 52a60acf1..8c6575fcc 100644
 --- a/packages/ui/src/lib/i18n/messages/ja.ts
 +++ b/packages/ui/src/lib/i18n/messages/ja.ts
 @@ -32,6 +32,7 @@ import { agentStatusI18n } from './agent-status.i18n';
@@ -4338,7 +4872,7 @@ index 8f551becd..83477fed9 100644
    ...worktreeArchiveI18n.ja,
    ...overviewI18n.ja,
 diff --git a/packages/ui/src/lib/i18n/messages/ko.ts b/packages/ui/src/lib/i18n/messages/ko.ts
-index 74465027a..4d50ab7e4 100644
+index 7f3727ca9..ce9aa614b 100644
 --- a/packages/ui/src/lib/i18n/messages/ko.ts
 +++ b/packages/ui/src/lib/i18n/messages/ko.ts
 @@ -32,6 +32,7 @@ import { agentStatusI18n } from './agent-status.i18n';
@@ -4358,7 +4892,7 @@ index 74465027a..4d50ab7e4 100644
    ...worktreeArchiveI18n.ko,
    ...overviewI18n.ko,
 diff --git a/packages/ui/src/lib/i18n/messages/nl.ts b/packages/ui/src/lib/i18n/messages/nl.ts
-index 1f0d29ed4..a97700540 100644
+index f79a64669..c8fa35826 100644
 --- a/packages/ui/src/lib/i18n/messages/nl.ts
 +++ b/packages/ui/src/lib/i18n/messages/nl.ts
 @@ -31,6 +31,7 @@ import { agentStatusI18n } from './agent-status.i18n';
@@ -4378,7 +4912,7 @@ index 1f0d29ed4..a97700540 100644
    ...worktreeArchiveI18n.nl,
    ...overviewI18n.nl,
 diff --git a/packages/ui/src/lib/i18n/messages/pl.ts b/packages/ui/src/lib/i18n/messages/pl.ts
-index 43795866c..87fe44d7c 100644
+index 516746d8a..a69cf1293 100644
 --- a/packages/ui/src/lib/i18n/messages/pl.ts
 +++ b/packages/ui/src/lib/i18n/messages/pl.ts
 @@ -32,6 +32,7 @@ import { agentStatusI18n } from './agent-status.i18n';
@@ -4398,7 +4932,7 @@ index 43795866c..87fe44d7c 100644
    ...worktreeArchiveI18n.pl,
    ...overviewI18n.pl,
 diff --git a/packages/ui/src/lib/i18n/messages/pt-BR.ts b/packages/ui/src/lib/i18n/messages/pt-BR.ts
-index 8e0829947..1120fdb53 100644
+index 6a5f5d3fc..419c464cd 100644
 --- a/packages/ui/src/lib/i18n/messages/pt-BR.ts
 +++ b/packages/ui/src/lib/i18n/messages/pt-BR.ts
 @@ -32,6 +32,7 @@ import { agentStatusI18n } from './agent-status.i18n';
@@ -4418,7 +4952,7 @@ index 8e0829947..1120fdb53 100644
    ...worktreeArchiveI18n['pt-BR'],
    ...overviewI18n['pt-BR'],
 diff --git a/packages/ui/src/lib/i18n/messages/tr.ts b/packages/ui/src/lib/i18n/messages/tr.ts
-index e6432deee..eb80174f2 100644
+index 2be8b0ccb..f3a6515c7 100644
 --- a/packages/ui/src/lib/i18n/messages/tr.ts
 +++ b/packages/ui/src/lib/i18n/messages/tr.ts
 @@ -31,6 +31,7 @@ import { agentStatusI18n } from './agent-status.i18n';
@@ -4438,7 +4972,7 @@ index e6432deee..eb80174f2 100644
    ...worktreeArchiveI18n.tr,
    ...overviewI18n.tr,
 diff --git a/packages/ui/src/lib/i18n/messages/uk.ts b/packages/ui/src/lib/i18n/messages/uk.ts
-index 8aa448891..fc798c5e1 100644
+index 34c2b7fae..7ae78a6a6 100644
 --- a/packages/ui/src/lib/i18n/messages/uk.ts
 +++ b/packages/ui/src/lib/i18n/messages/uk.ts
 @@ -32,6 +32,7 @@ import { agentStatusI18n } from './agent-status.i18n';
@@ -4458,7 +4992,7 @@ index 8aa448891..fc798c5e1 100644
    ...worktreeArchiveI18n.uk,
    ...overviewI18n.uk,
 diff --git a/packages/ui/src/lib/i18n/messages/zh-CN.ts b/packages/ui/src/lib/i18n/messages/zh-CN.ts
-index aa97512b9..43bd8743a 100644
+index 0ef71d00c..7d8fb0187 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-CN.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-CN.ts
 @@ -32,6 +32,7 @@ import { agentStatusI18n } from './agent-status.i18n';
@@ -4478,7 +5012,7 @@ index aa97512b9..43bd8743a 100644
    ...worktreeArchiveI18n['zh-CN'],
    ...overviewI18n['zh-CN'],
 diff --git a/packages/ui/src/lib/i18n/messages/zh-TW.ts b/packages/ui/src/lib/i18n/messages/zh-TW.ts
-index 1c4ea4802..03f363afc 100644
+index df1e6e897..a822e2677 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-TW.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-TW.ts
 @@ -32,6 +32,7 @@ import { agentStatusI18n } from './agent-status.i18n';
@@ -4499,10 +5033,10 @@ index 1c4ea4802..03f363afc 100644
    ...overviewI18n['zh-TW'],
 diff --git a/packages/ui/src/lib/instanceAttention.test.ts b/packages/ui/src/lib/instanceAttention.test.ts
 new file mode 100644
-index 000000000..e4748ccc0
+index 000000000..c92731593
 --- /dev/null
 +++ b/packages/ui/src/lib/instanceAttention.test.ts
-@@ -0,0 +1,281 @@
+@@ -0,0 +1,321 @@
 +import { describe, expect, test } from 'bun:test';
 +
 +import type { JsonValue } from '@opencode/client';
@@ -4516,6 +5050,7 @@ index 000000000..e4748ccc0
 +  type InstancePendingCounts,
 +  type InstanceSessionSummary,
 +} from './instanceAttention';
++import { HOST_STATUS_SEED_MAX_AGE_MS } from './opencode/session-status';
 +
 +const session = (overrides: Partial<InstanceSessionSummary> = {}): InstanceSessionSummary => ({
 +  id: 'ses_a',
@@ -4618,6 +5153,22 @@ index 000000000..e4748ccc0
 +
 +    expect(unseen.map((item) => item.kind)).toEqual(['failed']);
 +    expect(seen).toEqual([]);
++  });
++
++  test('a parent whose child is still busy is not unread', () => {
++    const withBusyChild = collectInstanceAttention([snapshot('host-b', [
++      session({ id: 'ses_parent', idle: 10 }),
++      session({ id: 'ses_child', parentID: 'ses_parent', idle: 10 }),
++    ], new Map(), new Set(['ses_child']))]);
++    const settled = collectInstanceAttention([snapshot('host-b', [
++      session({ id: 'ses_parent', idle: 10 }),
++      session({ id: 'ses_child', parentID: 'ses_parent', idle: 10 }),
++    ])]);
++
++    // The subagent's turn keeps the parent's turn open, the same rule the
++    // sidebar applies; once the child settles the parent is unread.
++    expect(withBusyChild).toEqual([]);
++    expect(settled.map((item) => [item.sessionId, item.kind])).toEqual([['ses_parent', 'unread']]);
 +  });
 +
 +  test('a pending request for a session outside the list is still an item', () => {
@@ -4742,6 +5293,29 @@ index 000000000..e4748ccc0
 +    expect([...poll.busy ?? []]).toEqual(['ses_busy', 'ses_retry']);
 +  });
 +
++  test('a busy entry older than the shared staleness cap is not current activity', async () => {
++    const cap = HOST_STATUS_SEED_MAX_AGE_MS;
++    const staleBusyStatusPayload: JsonValue = {
++      sessions: {
++        ses_stale: { status: 'busy', lastUpdateAt: 1_000 - cap - 1 },
++        ses_at_cap: { status: 'busy', lastUpdateAt: 1_000 - cap },
++      },
++      pending: {},
++      serverTime: 1_000,
++    };
++    // SAFETY: the stub answers the two GETs the reader makes with JSON
++    // responses; it is cast to the global fetch shape it partially implements.
++    const fetchImpl = (async (input: string | URL | Request) => (
++      String(input).includes('/api/sessions/status') ? response(staleBusyStatusPayload) : response(sessionPayload)
++    )) as typeof fetch;
++
++    const poll = await readInstanceAttention({ ...transport, fetchImpl });
++
++    // The host keeps entries for 24 hours, so a missed idle must not hide an
++    // unread turn forever; at the cap the entry is still trusted.
++    expect([...poll.busy ?? []]).toEqual(['ses_at_cap']);
++  });
++
 +  test('a failed half keeps the other half instead of reading as empty', async () => {
 +    // SAFETY: same stub shape as above; only the status route answers a body
 +    // the schema rejects.
@@ -4786,20 +5360,23 @@ index 000000000..e4748ccc0
 +});
 diff --git a/packages/ui/src/lib/instanceAttention.ts b/packages/ui/src/lib/instanceAttention.ts
 new file mode 100644
-index 000000000..4bbbad80f
+index 000000000..c2a8b6fbb
 --- /dev/null
 +++ b/packages/ui/src/lib/instanceAttention.ts
-@@ -0,0 +1,460 @@
+@@ -0,0 +1,543 @@
 +import type { JsonValue } from '@opencode/client';
 +import { z } from 'zod';
 +
 +import { normalizeHostUrl } from '@/lib/desktopHosts';
 +import {
 +  hostSessionStatusSnapshotSchema,
++  HOST_STATUS_SEED_MAX_AGE_MS,
 +  type HostSessionStatusSnapshot,
 +} from '@/lib/opencode/session-status';
-+import { getActiveRelayDescriptor, getActiveRelayTunnel } from '@/lib/relay/runtime-tunnel';
++import { descriptorsEqual, getActiveRelayDescriptor, getActiveRelayTunnel } from '@/lib/relay/runtime-tunnel';
 +import { createRelayTunnelClient, type RelayTunnelClient } from '@/lib/relay/tunnel-client';
++import { addRuntimeProxyHeaders, fetchBypassingRuntimeBridge, sanitizeHeadersForBrowser } from '@/lib/runtime-fetch';
++import { isUnreadSessionFields } from '@/sync/session-unread';
 +
 +// Cross-instance attention: what a saved desktop instance needs from the user
 +// while this window shows another one. The sidebar already reports the active
@@ -4891,13 +5468,12 @@ index 000000000..4bbbad80f
 +} satisfies Record<InstanceAttentionKind, number>;
 +
 +/**
-+ * A finished turn nobody has seen yet. Same rule as `isSessionUnread` in
-+ * `sync/session-unread.ts`: OpenCode owns `time.idle`/`time.viewed`, and a
-+ * child session reports to its parent instead of to the user.
++ * A finished turn nobody has seen yet. The rule is the sidebar's own
++ * (`isSessionUnread` in `sync/session-unread.ts`), read over the projection:
++ * OpenCode owns `time.idle`/`time.viewed`, and a child session reports to its
++ * parent instead of to the user.
 + */
-+const isFinishedUnseen = (session: InstanceSessionSummary): boolean => (
-+  session.idle !== undefined && (session.viewed === undefined || session.viewed < session.idle)
-+);
++const isFinishedUnseen = (session: InstanceSessionSummary): boolean => isUnreadSessionFields(session);
 +
 +/**
 + * The reason a top-level session asks for the user. Pending requests are read
@@ -4948,6 +5524,30 @@ index 000000000..4bbbad80f
 +};
 +
 +/**
++ * The sessions whose turn is still open on that host: the running ones and the
++ * ancestors they keep open. A parent whose subagent runs is still working, so
++ * it must not read as unread; the same rule the sidebar applies to a local
++ * family. A parent link the page does not hold leaves the child on its own.
++ */
++const busyWithAncestors = (
++  busy: ReadonlySet<string> | undefined,
++  sessionsById: ReadonlyMap<string, InstanceSessionSummary>,
++): ReadonlySet<string> | undefined => {
++  if (!busy || busy.size === 0) return busy;
++  const open = new Set(busy);
++  for (const sessionId of busy) {
++    const visited = new Set<string>();
++    let current = sessionsById.get(sessionId)?.parentID;
++    while (current && !visited.has(current)) {
++      visited.add(current);
++      open.add(current);
++      current = sessionsById.get(current)?.parentID;
++    }
++  }
++  return open;
++};
++
++/**
 + * One item per session that needs the user, strongest reason first. A pending
 + * permission outranks a question, a failed unseen turn and an ordinary unseen
 + * turn. Archived sessions never need the user.
@@ -4991,6 +5591,7 @@ index 000000000..4bbbad80f
 +
 +  for (const snapshot of snapshots) {
 +    const sessionsById = new Map(snapshot.sessions.map((session) => [session.id, session]));
++    const busy = busyWithAncestors(snapshot.busy, sessionsById);
 +    for (const session of snapshot.sessions) {
 +      if (session.archived) continue;
 +      const pendingKind = pendingKindOf(snapshot.pending.get(session.id));
@@ -5001,7 +5602,7 @@ index 000000000..4bbbad80f
 +        addItem(snapshot, owner, pendingKind, Math.max(atOf(owner), atOf(session)));
 +        continue;
 +      }
-+      const kind = pendingKind ?? kindOf(session, snapshot.busy);
++      const kind = pendingKind ?? kindOf(session, busy);
 +      if (!kind) continue;
 +      addItem(snapshot, session, kind, atOf(session));
 +    }
@@ -5081,11 +5682,20 @@ index 000000000..4bbbad80f
 +/**
 + * Sessions the host reports in an open turn. A busy or retrying session is
 + * still working, so its finished-looking record must not read as unread.
++ *
++ * The host keeps a status entry for 24 hours and never reconciles it against
++ * OpenCode after a stream gap, so a missed idle can leave `busy` behind. A
++ * running turn refreshes its entry at every agent-loop step; an entry older
++ * than `HOST_STATUS_SEED_MAX_AGE_MS` is not trusted as current activity, the
++ * same cap the host status seed applies. A genuinely long tool call past that
++ * age simply counts as finished here instead of hiding an unread turn.
 + */
 +const busySessionIds = (snapshot: HostSessionStatusSnapshot): ReadonlySet<string> => {
 +  const busy = new Set<string>();
 +  for (const [sessionId, entry] of Object.entries(snapshot.sessions)) {
-+    if (entry.status === 'busy' || entry.status === 'retry') busy.add(sessionId);
++    if (entry.status !== 'busy' && entry.status !== 'retry') continue;
++    if (snapshot.serverTime - entry.lastUpdateAt > HOST_STATUS_SEED_MAX_AGE_MS) continue;
++    busy.add(sessionId);
 +  }
 +  return busy;
 +};
@@ -5105,10 +5715,10 @@ index 000000000..4bbbad80f
 +};
 +
 +const buildTransportHeaders = (transport: InstanceAttentionTransport): Headers => {
-+  const headers = new Headers({ Accept: 'application/json' });
-+  for (const [name, value] of Object.entries(transport.headers ?? {})) {
-+    headers.set(name, value);
-+  }
++  // A saved header value can carry characters the Headers API refuses; encode
++  // them the way `runtimeFetch` does so a non-Latin-1 value still round-trips.
++  const headers = new Headers(sanitizeHeadersForBrowser(transport.headers) ?? transport.headers);
++  headers.set('Accept', 'application/json');
 +  const token = transport.token?.trim();
 +  if (token) headers.set('Authorization', `Bearer ${token}`);
 +  return headers;
@@ -5121,6 +5731,9 @@ index 000000000..4bbbad80f
 +  signal: AbortSignal | undefined,
 +): Promise<JsonValue | null> => {
 +  try {
++    // Same proxy headers `runtimeFetch` adds, so a host behind ngrok answers a
++    // saved instance the way it answers the active runtime.
++    addRuntimeProxyHeaders(url, headers);
 +    const response = await fetchImpl(url, { method: 'GET', headers, signal });
 +    if (!response.ok) return null;
 +    return await response.json().catch(() => null);
@@ -5144,7 +5757,7 @@ index 000000000..4bbbad80f
 +    : normalizeHostUrl(transport.url)?.replace(/\/+$/, '');
 +  if (!baseUrl) return { sessions: null, pending: null, busy: null };
 +  const headers = buildTransportHeaders(transport);
-+  const fetchImpl = transport.fetchImpl ?? fetch;
++  const fetchImpl = transport.fetchImpl ?? fetchBypassingRuntimeBridge;
 +  const root = baseUrl.replace(/\/+$/, '');
 +
 +  const [sessionsPayload, statusPayload] = await Promise.all([
@@ -5204,26 +5817,30 @@ index 000000000..4bbbad80f
 +  getActiveDescriptor: () => RelayDescriptor | null;
 +};
 +
-+const sameRelay = (left: InstanceAttentionRelay, right: RelayDescriptor): boolean =>
-+  left.relayUrl === right.relayUrl
-+  && left.serverId === right.serverId
-+  && JSON.stringify(left.hostEncPubJwk) === JSON.stringify(right.hostEncPubJwk);
-+
 +const defaultRelayDeps: InstanceAttentionRelayDeps = {
 +  createTunnel: (options) => createRelayTunnelClient(options),
 +  getActiveTunnel: getActiveRelayTunnel,
 +  getActiveDescriptor: getActiveRelayDescriptor,
 +};
 +
++/** The same descriptor comparison the runtime uses to reuse its live tunnel. */
++const sameRelay = (left: InstanceAttentionRelay, right: RelayDescriptor): boolean => descriptorsEqual(left, right);
++
 +/**
 + * Reads one relay-only server through its E2EE tunnel. The live runtime tunnel
 + * is reused when it already serves this server, so a poll never disturbs the
 + * active instance's connection; otherwise a short-lived tunnel is opened and
-+ * closed after the two GETs.
++ * closed after the two GETs. A caller that already holds a tunnel (a probe that
++ * kept one) passes it and keeps ownership of closing it.
 + */
 +export const readRelayInstanceAttention = async (
 +  relay: InstanceAttentionRelay,
-+  options: { token?: string; headers?: Readonly<Record<string, string>>; signal?: AbortSignal } = {},
++  options: {
++    token?: string;
++    headers?: Readonly<Record<string, string>>;
++    signal?: AbortSignal;
++    tunnel?: RelayTunnelClient;
++  } = {},
 +  deps: InstanceAttentionRelayDeps = defaultRelayDeps,
 +): Promise<InstanceAttentionPoll> => {
 +  const activeTunnel = deps.getActiveTunnel();
@@ -5234,7 +5851,8 @@ index 000000000..4bbbad80f
 +    && activeTunnel.getStatus().state === 'connected'
 +    && sameRelay(relay, activeDescriptor),
 +  );
-+  const tunnel = reusable && activeTunnel ? activeTunnel : deps.createTunnel(relay);
++  const tunnel = options.tunnel ?? (reusable && activeTunnel ? activeTunnel : deps.createTunnel(relay));
++  const owned = options.tunnel ? false : !reusable;
 +  try {
 +    return await readInstanceAttention({
 +      // A relay has no network base URL; the fetch adapter takes the paths.
@@ -5247,9 +5865,48 @@ index 000000000..4bbbad80f
 +      },
 +    }, { signal: options.signal });
 +  } finally {
-+    if (!reusable) tunnel.close();
++    if (owned) tunnel.close();
 +  }
 +};
++
++// ---------------------------------------------------------------------------
++// Surface totals
++// ---------------------------------------------------------------------------
++
++/**
++ * How many items a surface shows: every instance's, or one instance's own. The
++ * switcher, the collapsed-sidebar toggle, the phone bell and an instance row
++ * must read one derivation, so none of them can drift from the shared list.
++ */
++export const countInstanceAttentionItems = (
++  items: readonly InstanceAttentionItem[],
++  hostId?: string,
++): number => {
++  if (hostId === undefined) return items.length;
++  let count = 0;
++  for (const item of items) {
++    if (item.hostId === hostId) count += 1;
++  }
++  return count;
++};
++
++/** The host record fields the unreachable note reads. */
++export type InstanceAttentionHostView = {
++  label: string;
++  status: 'ok' | 'error';
++};
++
++/**
++ * The instances a poll could not reach, once each, for the surfaces' quiet
++ * note. Their last known items stay on screen, so the note says why.
++ */
++export const collectUnreachableInstanceLabels = (
++  hosts: Readonly<Record<string, InstanceAttentionHostView>>,
++): string[] => [...new Set(
++  Object.values(hosts)
++    .filter((host) => host.status === 'error')
++    .map((host) => host.label),
++)];
 diff --git a/packages/ui/src/lib/instanceAttentionJump.test.ts b/packages/ui/src/lib/instanceAttentionJump.test.ts
 new file mode 100644
 index 000000000..059a9e509
@@ -5812,8 +6469,38 @@ index 000000000..74eb96007
 +  pending,
 +  busy,
 +});
+diff --git a/packages/ui/src/lib/opencode/session-status.ts b/packages/ui/src/lib/opencode/session-status.ts
+index bf3949051..45a5d03bd 100644
+--- a/packages/ui/src/lib/opencode/session-status.ts
++++ b/packages/ui/src/lib/opencode/session-status.ts
+@@ -1,5 +1,12 @@
+ import { z } from "zod"
+ 
++// The host keeps a status entry for 24 hours and never reconciles it against
++// OpenCode after a stream gap, so a missed idle can leave `busy` behind. A
++// running turn refreshes its entry at every agent-loop step; an entry older
++// than this is not trusted as current activity. Shared by the status seed and
++// the cross-instance attention reader, which both judge the same snapshot.
++export const HOST_STATUS_SEED_MAX_AGE_MS = 30 * 60_000
++
+ // v2 reports active loops globally. A malformed response cannot prove idle.
+ export const activeSessionSnapshotSchema = z.record(z.string().min(1), z.object({ type: z.literal("running") }))
+ 
+diff --git a/packages/ui/src/lib/relay/runtime-tunnel.ts b/packages/ui/src/lib/relay/runtime-tunnel.ts
+index c3f7ea35e..0345657c6 100644
+--- a/packages/ui/src/lib/relay/runtime-tunnel.ts
++++ b/packages/ui/src/lib/relay/runtime-tunnel.ts
+@@ -41,7 +41,7 @@ export const subscribeActiveRelayTunnelStatus = (listener: (status: RelayTunnelS
+   };
+ };
+ 
+-const descriptorsEqual = (a: RelayRuntimeDescriptor, b: RelayRuntimeDescriptor): boolean =>
++export const descriptorsEqual = (a: RelayRuntimeDescriptor, b: RelayRuntimeDescriptor): boolean =>
+   a.relayUrl === b.relayUrl &&
+   a.serverId === b.serverId &&
+   a.grant === b.grant &&
 diff --git a/packages/ui/src/stores/DOCUMENTATION.md b/packages/ui/src/stores/DOCUMENTATION.md
-index a6ffb4c29..c46685e28 100644
+index eacef93f6..f6048a306 100644
 --- a/packages/ui/src/stores/DOCUMENTATION.md
 +++ b/packages/ui/src/stores/DOCUMENTATION.md
 @@ -96,6 +96,29 @@ owner cannot replace the catalog or finish the current owner's loading state.
@@ -6134,3 +6821,83 @@ index 000000000..247603bc2
 +
 +  reset: () => set({ hosts: EMPTY_HOSTS, items: [] }),
 +}));
+diff --git a/packages/ui/src/sync/host-session-status-seed.ts b/packages/ui/src/sync/host-session-status-seed.ts
+index 5f628cb69..1eea423c5 100644
+--- a/packages/ui/src/sync/host-session-status-seed.ts
++++ b/packages/ui/src/sync/host-session-status-seed.ts
+@@ -1,6 +1,8 @@
+ import { hostTurnStart, type SessionTurnStart, type SyncEvent } from '@/lib/opencode/events';
+ import { opencodeClient } from '@/lib/opencode/client';
+-import type { HostSessionStatusSnapshot } from '@/lib/opencode/session-status';
++import { HOST_STATUS_SEED_MAX_AGE_MS, type HostSessionStatusSnapshot } from '@/lib/opencode/session-status';
++
++export { HOST_STATUS_SEED_MAX_AGE_MS } from '@/lib/opencode/session-status';
+ import { getRuntimeKey } from '@/lib/runtime-switch';
+ import { resolveGlobalSessionDirectory, useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
+ import { applyGlobalSessionStatusEvents, hasBackgroundWork, useGlobalSessionStatusStore } from './global-session-status';
+@@ -26,9 +28,9 @@ import { applyHostTurnStarts, needsHostTurnStarts } from './session-activity-tim
+ // Nothing on the host reconciles its map against OpenCode after a stream gap,
+ // so a missed idle can leave `busy` there for the host's 24-hour retention.
+ // A running turn refreshes its entry at every agent-loop step; an entry older
+-// than this is not trusted as current activity. A genuinely long tool call
+-// past this age simply waits for its next event instead of being seeded.
+-export const HOST_STATUS_SEED_MAX_AGE_MS = 30 * 60_000;
++// than `HOST_STATUS_SEED_MAX_AGE_MS` is not trusted as current activity. A
++// genuinely long tool call past this age simply waits for its next event
++// instead of being seeded.
+ 
+ type SeedDependencies = {
+   isKnown: (sessionId: string) => boolean;
+diff --git a/packages/ui/src/sync/session-unread.ts b/packages/ui/src/sync/session-unread.ts
+index 33f61a374..cf0f477ac 100644
+--- a/packages/ui/src/sync/session-unread.ts
++++ b/packages/ui/src/sync/session-unread.ts
+@@ -17,17 +17,45 @@ import { getRuntimeKey } from "@/lib/runtime-switch"
+ import { readGlobalSessionLineage } from "@/stores/sessionLineage"
+ import { useGlobalSessionsStore } from "@/stores/useGlobalSessionsStore"
+ 
++/** The fields the unread rule reads, for records that are not full sessions. */
++export type UnreadSessionFields = {
++  parentID?: string
++  idle?: number
++  viewed?: number
++  archived?: boolean
++}
++
+ /**
+  * Only top-level sessions are announced; a subtask reports to its parent. An
+  * archived session is put away, whichever path archived it, so it is never
+  * unread.
+  */
+-export const isSessionUnread = (session: Session | undefined): boolean => {
+-  if (!session || session.parentID || session.time.archived !== undefined) return false
+-  const { idle, viewed } = session.time
++const isUnread = (
++  parentID: string | undefined,
++  idle: number | undefined,
++  viewed: number | undefined,
++  archived: boolean,
++): boolean => {
++  if (parentID || archived) return false
+   return idle !== undefined && (viewed === undefined || viewed < idle)
+ }
+ 
++export const isSessionUnread = (session: Session | undefined): boolean => (
++  !session
++    ? false
++    : isUnread(session.parentID, session.time.idle, session.time.viewed, session.time.archived !== undefined)
++)
++
++/**
++ * The same rule over a record that only carries the fields it reads, such as a
++ * projection of another instance's session list.
++ */
++export const isUnreadSessionFields = (session: UnreadSessionFields | undefined): boolean => (
++  !session
++    ? false
++    : isUnread(session.parentID, session.idle, session.viewed, session.archived === true)
++)
++
+ /** Unread, and the turn that left it unread failed. */
+ export const isSessionUnreadWithError = (session: Session | undefined): boolean => (
+   isSessionUnread(session) && session?.outcome === "failed"

@@ -2017,11 +2017,11 @@ index 7f21b8569..7d843526d 100644
                  ref={expandedContentRef}
                  aria-hidden={!isExpanded}
 diff --git a/packages/ui/src/components/sections/openchamber/ChatSettings.tsx b/packages/ui/src/components/sections/openchamber/ChatSettings.tsx
-index 62601e3a5..84376d350 100644
+index 6b6d2b1be..43fb87610 100644
 --- a/packages/ui/src/components/sections/openchamber/ChatSettings.tsx
 +++ b/packages/ui/src/components/sections/openchamber/ChatSettings.tsx
-@@ -142,6 +142,10 @@ const MessagesTab: React.FC = () => {
-   const setChatWidth = useUIStore((state) => state.setChatWidth);
+@@ -148,6 +148,10 @@ const MessagesTab: React.FC = () => {
+   const selectedChatWidthLabel = t(CHAT_WIDTH_OPTION_LABEL_KEYS[selectedChatWidth]);
    const promptNavigatorEnabled = useUIStore((state) => state.promptNavigatorEnabled);
    const setPromptNavigatorEnabled = useUIStore((state) => state.setPromptNavigatorEnabled);
 +  const autoExpandAnsweredQuestions = useUIStore((state) => state.autoExpandAnsweredQuestions);
@@ -2031,7 +2031,7 @@ index 62601e3a5..84376d350 100644
    const collapsibleUserMessages = useUIStore((state) => state.collapsibleUserMessages);
    const setCollapsibleUserMessages = useUIStore((state) => state.setCollapsibleUserMessages);
    const stickyUserHeader = useUIStore((state) => state.stickyUserHeader);
-@@ -320,6 +324,35 @@ const MessagesTab: React.FC = () => {
+@@ -331,6 +335,35 @@ const MessagesTab: React.FC = () => {
          <SelectionApprovalField />
        </SettingsSection>
  
@@ -2493,7 +2493,7 @@ index 904dda0b4..af5660263 100644
    showToolFileIcons: field({ scope: 'profile', parse: parseBoolean, ui: uiStore('showToolFileIcons', (v) => useUIStore.getState().setShowToolFileIcons(v)) }),
    codeBlockLineWrap: field({ scope: 'profile', parse: parseBoolean, ui: uiStore('codeBlockLineWrap', (v) => useUIStore.getState().setCodeBlockLineWrap(v)) }),
 diff --git a/packages/ui/src/lib/settings/search.ts b/packages/ui/src/lib/settings/search.ts
-index 8d2d884b4..7035fa02e 100644
+index 2122115bf..b7e0518e8 100644
 --- a/packages/ui/src/lib/settings/search.ts
 +++ b/packages/ui/src/lib/settings/search.ts
 @@ -399,6 +399,20 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
@@ -2518,7 +2518,7 @@ index 8d2d884b4..7035fa02e 100644
      id: 'chat.collapsible-user-messages',
      page: 'chat',
 diff --git a/packages/ui/src/stores/useUIStore.ts b/packages/ui/src/stores/useUIStore.ts
-index bd165c092..a4fc35584 100644
+index 1c32c1409..92b80094d 100644
 --- a/packages/ui/src/stores/useUIStore.ts
 +++ b/packages/ui/src/stores/useUIStore.ts
 @@ -1226,6 +1226,8 @@ interface UIStore {
@@ -2548,7 +2548,7 @@ index bd165c092..a4fc35584 100644
          showSplitAssistantMessageActions: false,
          allowPromptingSubagentSessions: false,
          savePastedImagesAsFiles: false,
-@@ -3532,6 +3538,12 @@ export const useUIStore = create<UIStore>()(
+@@ -3533,6 +3539,12 @@ export const useUIStore = create<UIStore>()(
          setPromptNavigatorEnabled: (value) => {
            set({ promptNavigatorEnabled: value });
          },
@@ -2561,7 +2561,7 @@ index bd165c092..a4fc35584 100644
          setShowSplitAssistantMessageActions: (value) => {
            set({ showSplitAssistantMessageActions: value });
          },
-@@ -4044,6 +4056,8 @@ export const useUIStore = create<UIStore>()(
+@@ -4053,6 +4065,8 @@ export const useUIStore = create<UIStore>()(
            collapsibleUserMessages: state.collapsibleUserMessages,
            stickyUserHeader: state.stickyUserHeader,
            promptNavigatorEnabled: state.promptNavigatorEnabled,
@@ -2639,10 +2639,10 @@ index 5cc2d4640..fbe819037 100644
      // saved: `true` reads as `full-width` so the layout does not change, `false`
      // as the compact default. A level in the same document wins over the switch.
 diff --git a/packages/web/server/lib/opencode/settings-helpers.test.js b/packages/web/server/lib/opencode/settings-helpers.test.js
-index 954bbd2ca..692829cd4 100644
+index d4d00796e..f9476996e 100644
 --- a/packages/web/server/lib/opencode/settings-helpers.test.js
 +++ b/packages/web/server/lib/opencode/settings-helpers.test.js
-@@ -280,6 +280,16 @@ describe('settings helpers', () => {
+@@ -304,6 +304,16 @@ describe('settings helpers', () => {
      expect(helpers.sanitizeSettingsUpdate({ collapsibleUserMessages: 'true' })).toEqual({});
    });
  
@@ -2659,7 +2659,7 @@ index 954bbd2ca..692829cd4 100644
    it('sanitizes and returns the persisted editor font size', () => {
      const helpers = createTestHelpers();
  
-@@ -922,7 +932,7 @@ describe('settings registry gate', () => {
+@@ -946,7 +956,7 @@ describe('settings registry gate', () => {
      workStatusPanelEnabled: true, workStatusHiddenSections: ['mcp'], workStatusHiddenSectionsExplicit: true, workStatusSectionOrder: ['mcp', 'session'], workStatusSectionOrderExplicit: true,
      showReasoningTraces: true, streamingAutoFollowEnabled: true, collapsibleThinkingBlocks: true, expandReasoningWhileStreaming: true, showTextJustificationActivity: true,
      chatRenderMode: 'live', activityRenderMode: 'summary', mermaidRenderingMode: 'svg', userMessageRenderingMode: 'markdown', collapsibleUserMessages: true,
