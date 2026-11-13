@@ -1,0 +1,506 @@
+diff --git a/packages/ui/src/components/chat/message/ToolOutputDialog.tsx b/packages/ui/src/components/chat/message/ToolOutputDialog.tsx
+index 252630e0f..a394f4205 100644
+--- a/packages/ui/src/components/chat/message/ToolOutputDialog.tsx
++++ b/packages/ui/src/components/chat/message/ToolOutputDialog.tsx
+@@ -28,6 +28,8 @@ import { useDefaultDiffViewMode } from './useDefaultDiffViewMode';
+ import { VirtualizedCodeBlock, type CodeLine } from './parts/VirtualizedCodeBlock';
+ import { JsonTreeView } from '@/components/ui/JsonTreeView';
+ import { StatusImage } from '@/components/ui/status-image';
++import { wheelZoomFactor } from '@/components/views/files/previews/imageZoom';
++import { FIT_IMAGE_ZOOM, clampImageZoomOffset, zoomImageAt, type ImageZoom, type ImageZoomPoint } from './imageViewerZoom';
+ import { Icon } from "@/components/icon/Icon";
+ import { getToolIcon } from './parts/toolPresentation';
+ import { useGuestToolPresentation } from '@/lib/guests/tool-presentation';
+@@ -280,6 +282,23 @@ const imageLoader = (image: GalleryItem | undefined): (() => Promise<Blob>) | nu
+ 
+ const EXTENSION_BY_IMAGE_MIME = new Map([['image/png', 'png'], ['image/jpeg', 'jpg'], ['image/gif', 'gif'], ['image/webp', 'webp'], ['image/svg+xml', 'svg']]);
+ 
++const DOUBLE_CLICK_ZOOM_SCALE = 2;
++
++const touchDistance = (a: Touch, b: Touch): number => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
++
++const touchMidpoint = (a: Touch, b: Touch): ImageZoomPoint => ({
++    x: (a.clientX + b.clientX) / 2,
++    y: (a.clientY + b.clientY) / 2,
++});
++
++// A touch that starts on a control keeps it: panning there would cancel the
++// button's click.
++const TOUCH_PAN_IGNORES = 'button, a, [role="button"], [role="link"]';
++
++const startsOnControl = (target: EventTarget | null): boolean => (
++    target instanceof Element && Boolean(target.closest(TOUCH_PAN_IGNORES))
++);
++
+ /** The saved file's name: the image's own, given the extension of its format when it has none. */
+ const savedImageName = (filename: string | undefined, blob: Blob): string => {
+     const name = filename?.split(/[\\/]/).pop()?.trim() || 'image';
+@@ -318,6 +337,14 @@ const ImagePreviewDialog: React.FC<{
+     const { isRendered, isVisible, isTransitioning } = usePreviewOverlayState(popup.open);
+     const viewport = usePreviewViewport(popup.open);
+ 
++    const [zoom, setZoom] = React.useState<ImageZoom>(FIT_IMAGE_ZOOM);
++    const zoomRef = React.useRef(zoom);
++    zoomRef.current = zoom;
++    const overlayRef = React.useRef<HTMLDivElement | null>(null);
++    const frameRef = React.useRef<HTMLDivElement | null>(null);
++    const dragRef = React.useRef<{ pointerId: number; x: number; y: number } | null>(null);
++    const [dragging, setDragging] = React.useState(false);
++
+     React.useEffect(() => {
+         if (!popup.open || gallery.length === 0) {
+             return;
+@@ -421,12 +448,214 @@ const ImagePreviewDialog: React.FC<{
+         };
+     }, [currentNaturalSize, isMobile, viewport.height, viewport.width]);
+ 
++    const applyZoom = React.useCallback((next: ImageZoom) => {
++        const element = frameRef.current;
++        if (!element) return;
++        const rect = element.getBoundingClientRect();
++        const centerOffset = {
++            x: rect.left + rect.width / 2 - viewport.width / 2,
++            y: rect.top + rect.height / 2 - viewport.height / 2,
++        };
++        const clamped = clampImageZoomOffset(next, imageDisplaySize, viewport, centerOffset);
++        zoomRef.current = clamped;
++        setZoom(clamped);
++    }, [imageDisplaySize, viewport]);
++
++    // A new picture starts at fit; a zoom kept from the last one would open it
++    // off centre.
++    React.useEffect(() => {
++        zoomRef.current = FIT_IMAGE_ZOOM;
++        setZoom(FIT_IMAGE_ZOOM);
++    }, [currentImage?.url, popup.open]);
++
++    // A resize or a picture that finishes loading changes the box the zoom is
++    // measured against; keep a stored offset inside the new one.
++    React.useEffect(() => {
++        if (zoomRef.current.scale <= 1) return;
++        applyZoom(zoomRef.current);
++    }, [applyZoom]);
++
++    // Native listeners: React's wheel and touch listeners are passive and could
++    // not stop the page from zooming or scrolling instead of the picture. They
++    // sit on the whole viewer, so a pinch that starts on its margin works.
++    React.useEffect(() => {
++        const overlay = overlayRef.current;
++        const frame = frameRef.current;
++        if (!overlay || !frame || !popup.open || !isRendered) return;
++
++        const imageCenter = (): ImageZoomPoint => {
++            const rect = frame.getBoundingClientRect();
++            return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
++        };
++
++        let touchCount = 0;
++        let pinch: { distance: number; zoom: ImageZoom; point: ImageZoomPoint } | null = null;
++        let touchPan: { x: number; y: number } | null = null;
++        let gestureBase: ImageZoom | null = null;
++
++        const onWheel = (event: WheelEvent) => {
++            if (!event.ctrlKey && !event.metaKey) return;
++            event.preventDefault();
++            const current = zoomRef.current;
++            applyZoom(zoomImageAt(
++                current,
++                current.scale * wheelZoomFactor(event.deltaY, event.deltaMode),
++                { x: event.clientX, y: event.clientY },
++                imageCenter(),
++            ));
++        };
++        const onTouchStart = (event: TouchEvent) => {
++            touchCount = event.touches.length;
++            if (event.touches.length === 2) {
++                const [first, second] = [event.touches[0], event.touches[1]];
++                pinch = {
++                    distance: touchDistance(first, second),
++                    zoom: zoomRef.current,
++                    point: touchMidpoint(first, second),
++                };
++                touchPan = null;
++                return;
++            }
++            pinch = null;
++            touchPan = event.touches.length === 1 && !startsOnControl(event.target)
++                ? { x: event.touches[0].clientX, y: event.touches[0].clientY }
++                : null;
++        };
++        const onTouchMove = (event: TouchEvent) => {
++            // A second finger can land on the margin, whose own touchstart the
++            // picture never saw; the two-finger move still starts the pinch.
++            if (!pinch && event.touches.length === 2) {
++                const [first, second] = [event.touches[0], event.touches[1]];
++                pinch = {
++                    distance: touchDistance(first, second),
++                    zoom: zoomRef.current,
++                    point: touchMidpoint(first, second),
++                };
++            }
++            if (pinch && event.touches.length === 2 && pinch.distance > 0) {
++                event.preventDefault();
++                const [first, second] = [event.touches[0], event.touches[1]];
++                const point = touchMidpoint(first, second);
++                const anchored = zoomImageAt(
++                    pinch.zoom,
++                    pinch.zoom.scale * (touchDistance(first, second) / pinch.distance),
++                    pinch.point,
++                    imageCenter(),
++                );
++                applyZoom({
++                    ...anchored,
++                    x: anchored.x + point.x - pinch.point.x,
++                    y: anchored.y + point.y - pinch.point.y,
++                });
++                return;
++            }
++            if (touchPan && event.touches.length === 1 && zoomRef.current.scale > 1) {
++                event.preventDefault();
++                const touch = event.touches[0];
++                applyZoom({
++                    ...zoomRef.current,
++                    x: zoomRef.current.x + touch.clientX - touchPan.x,
++                    y: zoomRef.current.y + touch.clientY - touchPan.y,
++                });
++                touchPan = { x: touch.clientX, y: touch.clientY };
++            }
++        };
++        const onTouchEnd = (event: TouchEvent) => {
++            touchCount = event.touches.length;
++            if (event.touches.length < 2) pinch = null;
++            touchPan = event.touches.length === 1 && !startsOnControl(event.target)
++                ? { x: event.touches[0].clientX, y: event.touches[0].clientY }
++                : null;
++        };
++        // iOS sends gesture events alongside the touch pinch above; only a
++        // trackpad pinch in Safari, with no finger on the screen, zooms here.
++        const onGestureStart = (event: GestureEvent) => {
++            event.preventDefault();
++            gestureBase = touchCount > 0 ? null : zoomRef.current;
++        };
++        const onGestureChange = (event: GestureEvent) => {
++            event.preventDefault();
++            if (!gestureBase) return;
++            applyZoom(zoomImageAt(
++                gestureBase,
++                gestureBase.scale * event.scale,
++                { x: event.clientX, y: event.clientY },
++                imageCenter(),
++            ));
++        };
++        const onGestureEnd = (event: GestureEvent) => {
++            event.preventDefault();
++            gestureBase = null;
++        };
++        const onDoubleClick = (event: MouseEvent) => {
++            const current = zoomRef.current;
++            if (current.scale > 1) {
++                zoomRef.current = FIT_IMAGE_ZOOM;
++                setZoom(FIT_IMAGE_ZOOM);
++                return;
++            }
++            applyZoom(zoomImageAt(current, DOUBLE_CLICK_ZOOM_SCALE, { x: event.clientX, y: event.clientY }, imageCenter()));
++        };
++
++        overlay.addEventListener('wheel', onWheel, { passive: false });
++        overlay.addEventListener('touchstart', onTouchStart, { passive: true });
++        overlay.addEventListener('touchmove', onTouchMove, { passive: false });
++        overlay.addEventListener('touchend', onTouchEnd, { passive: true });
++        overlay.addEventListener('touchcancel', onTouchEnd, { passive: true });
++        overlay.addEventListener('gesturestart', onGestureStart);
++        overlay.addEventListener('gesturechange', onGestureChange);
++        overlay.addEventListener('gestureend', onGestureEnd);
++        frame.addEventListener('dblclick', onDoubleClick);
++        return () => {
++            overlay.removeEventListener('wheel', onWheel);
++            overlay.removeEventListener('touchstart', onTouchStart);
++            overlay.removeEventListener('touchmove', onTouchMove);
++            overlay.removeEventListener('touchend', onTouchEnd);
++            overlay.removeEventListener('touchcancel', onTouchEnd);
++            overlay.removeEventListener('gesturestart', onGestureStart);
++            overlay.removeEventListener('gesturechange', onGestureChange);
++            overlay.removeEventListener('gestureend', onGestureEnd);
++            frame.removeEventListener('dblclick', onDoubleClick);
++        };
++    }, [applyZoom, currentImage?.url, isRendered, popup.open]);
++
++    const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
++        if (event.pointerType !== 'mouse' || event.button !== 0 || zoomRef.current.scale <= 1) return;
++        event.preventDefault();
++        event.currentTarget.setPointerCapture(event.pointerId);
++        dragRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
++        setDragging(true);
++    };
++
++    const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
++        const drag = dragRef.current;
++        if (!drag || drag.pointerId !== event.pointerId) return;
++        applyZoom({
++            ...zoomRef.current,
++            x: zoomRef.current.x + event.clientX - drag.x,
++            y: zoomRef.current.y + event.clientY - drag.y,
++        });
++        dragRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
++    };
++
++    const handlePointerEnd = (event: React.PointerEvent<HTMLDivElement>) => {
++        if (dragRef.current?.pointerId !== event.pointerId) return;
++        dragRef.current = null;
++        setDragging(false);
++    };
++
+     if (!isRendered || !currentImage || typeof document === 'undefined') {
+         return null;
+     }
+ 
+     const content = (
+-        <div className={cn('fixed inset-0 z-50', popup.open ? 'pointer-events-auto' : 'pointer-events-none')}>
++        <div
++            ref={overlayRef}
++            className={cn('fixed inset-0 z-50', popup.open ? 'pointer-events-auto' : 'pointer-events-none')}
++            style={{ touchAction: 'none' }}
++        >
++            {/* A click, not a press: a pinch that starts on the margin must
++                not close the viewer when its first finger lands there. */}
+             <div
+                 aria-hidden="true"
+                 className={cn(
+@@ -436,7 +665,7 @@ const ImagePreviewDialog: React.FC<{
+                     isTransitioning && 'transition-opacity duration-150 ease-out',
+                     isVisible ? 'opacity-100' : 'opacity-0'
+                 )}
+-                onMouseDown={() => onOpenChange(false)}
++                onClick={() => onOpenChange(false)}
+             />
+ 
+             {hasMultipleImages && (
+@@ -474,7 +703,7 @@ const ImagePreviewDialog: React.FC<{
+ 
+             <div
+                 className={cn(
+-                    'absolute inset-0 flex items-center justify-center pointer-events-none',
++                    'absolute inset-0 flex items-center justify-center pointer-events-none overflow-hidden',
+                     isMobile ? 'p-2.5' : 'p-4'
+                 )}
+             >
+@@ -486,7 +715,7 @@ const ImagePreviewDialog: React.FC<{
+                     )}
+                     style={{ width: `${imageDisplaySize.width}px` }}
+                 >
+-                    <div className="flex items-center justify-between gap-2">
++                    <div className="relative z-10 flex items-center justify-between gap-2">
+                         <div className="min-w-0 flex-1 text-foreground typography-ui-header font-semibold truncate" title={imageTitle}>
+                             {imageTitle}
+                         </div>
+@@ -502,27 +731,46 @@ const ImagePreviewDialog: React.FC<{
+                         </div>
+                     </div>
+ 
+-                    <StatusImage
+-                        src={currentImage.url}
+-                        alt={imageTitle}
+-                        variant="large"
+-                        style={{ width: `${imageDisplaySize.width}px`, height: `${imageDisplaySize.height}px` }}
+-                        imgClassName="block h-full w-full object-contain"
+-                        lazy
+-                        onLoad={(element) => {
+-                            const width = element.naturalWidth;
+-                            const height = element.naturalHeight;
+-                            const url = element.getAttribute('src') ?? '';
+-                            if (width > 0 && height > 0) {
+-                                setImageNaturalSize((previous) => {
+-                                    if (previous && previous.url === url && previous.width === width && previous.height === height) {
+-                                        return previous;
+-                                    }
+-                                    return { url, width, height };
+-                                });
+-                            }
++                    <div
++                        ref={frameRef}
++                        className={cn(
++                            'relative select-none',
++                            zoom.scale > 1 && (dragging ? 'cursor-grabbing' : 'cursor-grab')
++                        )}
++                        style={{
++                            width: `${imageDisplaySize.width}px`,
++                            height: `${imageDisplaySize.height}px`,
+                         }}
+-                    />
++                        onPointerDown={handlePointerDown}
++                        onPointerMove={handlePointerMove}
++                        onPointerUp={handlePointerEnd}
++                        onPointerCancel={handlePointerEnd}
++                    >
++                        <StatusImage
++                            src={currentImage.url}
++                            alt={imageTitle}
++                            variant="large"
++                            style={{ width: `${imageDisplaySize.width}px`, height: `${imageDisplaySize.height}px` }}
++                            imgClassName="block h-full w-full object-contain"
++                            imgStyle={zoom.scale !== 1 || zoom.x !== 0 || zoom.y !== 0
++                                ? { transform: `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.scale})` }
++                                : undefined}
++                            lazy
++                            onLoad={(element) => {
++                                const width = element.naturalWidth;
++                                const height = element.naturalHeight;
++                                const url = element.getAttribute('src') ?? '';
++                                if (width > 0 && height > 0) {
++                                    setImageNaturalSize((previous) => {
++                                        if (previous && previous.url === url && previous.width === width && previous.height === height) {
++                                            return previous;
++                                        }
++                                        return { url, width, height };
++                                    });
++                                }
++                            }}
++                        />
++                    </div>
+                 </div>
+             </div>
+         </div>
+diff --git a/packages/ui/src/components/chat/message/imageViewerZoom.test.ts b/packages/ui/src/components/chat/message/imageViewerZoom.test.ts
+new file mode 100644
+index 000000000..ca69ef341
+--- /dev/null
++++ b/packages/ui/src/components/chat/message/imageViewerZoom.test.ts
+@@ -0,0 +1,59 @@
++import { describe, expect, test } from 'vitest';
++
++import { FIT_IMAGE_ZOOM, clampImageZoomOffset, clampImageZoomScale, zoomImageAt } from './imageViewerZoom';
++
++describe('imageViewerZoom', () => {
++    test('a zoom stays between fit and the largest scale', () => {
++        expect(clampImageZoomScale(0.4)).toBe(1);
++        expect(clampImageZoomScale(3)).toBe(3);
++        expect(clampImageZoomScale(40)).toBe(8);
++    });
++
++    test('zooming keeps the picture point under the pointer', () => {
++        const center = { x: 400, y: 300 };
++        const point = { x: 500, y: 350 };
++        const zoom = zoomImageAt(FIT_IMAGE_ZOOM, 2, point, center);
++
++        expect(zoom).toEqual({ scale: 2, x: -100, y: -50 });
++        // The point moved with the picture: center + 2 * (point - center) + offset.
++        expect(center.x + 2 * (point.x - center.x) + zoom.x).toBe(point.x);
++        expect(center.y + 2 * (point.y - center.y) + zoom.y).toBe(point.y);
++    });
++
++    test('zooming from a panned picture keeps its point under the pointer', () => {
++        const center = { x: 400, y: 300 };
++        const point = { x: 500, y: 350 };
++        const from = { scale: 2, x: -100, y: -50 };
++        const zoom = zoomImageAt(from, 3, point, center);
++
++        expect(center.x + 3 * (point.x - center.x) + zoom.x).toBe(point.x);
++        expect(center.y + 3 * (point.y - center.y) + zoom.y).toBe(point.y);
++    });
++
++    test('fit ignores an offset a pinch left behind', () => {
++        expect(clampImageZoomOffset({ scale: 1, x: 80, y: -40 }, { width: 200, height: 100 }, { width: 800, height: 600 }, { x: 0, y: 40 }))
++            .toEqual(FIT_IMAGE_ZOOM);
++    });
++
++    test('a picture smaller than the viewer stays inside it', () => {
++        const zoom = clampImageZoomOffset(
++            { scale: 2, x: 900, y: -900 },
++            { width: 200, height: 100 },
++            { width: 800, height: 600 },
++            { x: 0, y: 40 },
++        );
++
++        expect(zoom).toEqual({ scale: 2, x: 200, y: -240 });
++    });
++
++    test('a picture larger than the viewer keeps it covered', () => {
++        const zoom = clampImageZoomOffset(
++            { scale: 8, x: 5000, y: -5000 },
++            { width: 200, height: 100 },
++            { width: 800, height: 600 },
++            { x: 0, y: 40 },
++        );
++
++        expect(zoom).toEqual({ scale: 8, x: 400, y: -140 });
++    });
++});
+diff --git a/packages/ui/src/components/chat/message/imageViewerZoom.ts b/packages/ui/src/components/chat/message/imageViewerZoom.ts
+new file mode 100644
+index 000000000..8ede5b181
+--- /dev/null
++++ b/packages/ui/src/components/chat/message/imageViewerZoom.ts
+@@ -0,0 +1,57 @@
++/** A zoom the chat image viewer applies to the picture it shows. */
++export type ImageZoom = { scale: number; x: number; y: number };
++
++type ImageZoomSize = { width: number; height: number };
++export type ImageZoomPoint = { x: number; y: number };
++
++/** Fit is scale 1: the viewer's picture already sits inside the screen. */
++export const FIT_IMAGE_ZOOM: ImageZoom = { scale: 1, x: 0, y: 0 };
++
++const MAX_ZOOM_SCALE = 8;
++
++/** Keeps a pinch or wheel zoom between fit and the largest scale the viewer draws. */
++export const clampImageZoomScale = (scale: number): number => Math.min(MAX_ZOOM_SCALE, Math.max(1, scale));
++
++/**
++ * The zoom after moving from `from` to `nextScale`, with the image point under
++ * `point` staying there. `center` is the middle of the image on screen.
++ */
++export const zoomImageAt = (
++    from: ImageZoom,
++    nextScale: number,
++    point: ImageZoomPoint,
++    center: ImageZoomPoint,
++): ImageZoom => {
++    const scale = clampImageZoomScale(nextScale);
++    const ratio = scale / from.scale;
++    return {
++        scale,
++        x: point.x - center.x - ratio * (point.x - center.x - from.x),
++        y: point.y - center.y - ratio * (point.y - center.y - from.y),
++    };
++};
++
++/**
++ * Keeps a zoomed picture on screen: a picture larger than the viewer covers
++ * it, a smaller one stays inside it. `centerOffset` is the image's middle
++ * measured from the viewer's middle.
++ */
++export const clampImageZoomOffset = (
++    zoom: ImageZoom,
++    image: ImageZoomSize,
++    viewport: ImageZoomSize,
++    centerOffset: ImageZoomPoint,
++): ImageZoom => {
++    if (zoom.scale <= 1) return FIT_IMAGE_ZOOM;
++
++    const clampAxis = (offset: number, scaledLength: number, viewportLength: number, center: number): number => {
++        const limit = Math.abs(scaledLength / 2 - viewportLength / 2);
++        return Math.min(limit - center, Math.max(-limit - center, offset));
++    };
++
++    return {
++        scale: zoom.scale,
++        x: clampAxis(zoom.x, image.width * zoom.scale, viewport.width, centerOffset.x),
++        y: clampAxis(zoom.y, image.height * zoom.scale, viewport.height, centerOffset.y),
++    };
++};
+diff --git a/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md b/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
+index 354d94c9d..62f442e2c 100644
+--- a/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
++++ b/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
+@@ -652,7 +657,10 @@ update, with the `shellID`, when the command starts.
+   fetched page cannot learn when the user read the message. Documents and
+   references retain their explicit inline-image policy. A click on loaded
+   assistant media opens the shared attachment preview overlay
+-  with every drawn image of the message as its gallery. The viewer's download
++  with every drawn image of the message as its gallery. A two-finger pinch,
++  Ctrl/⌘ + wheel, a trackpad pinch in Safari, or a double-click zooms the
++  picture under the pointer, up to 8x; a zoomed picture pans by dragging and
++  stays inside the viewer, and a new picture opens at fit. The viewer's download
+   saves an image's own file: each gallery item may carry `load`, which for a
+   message's local image reads the whole file through its grant with
+   `runtimeFetch` (`loadMessageImageBlob`), never by fetching the asset URL;
