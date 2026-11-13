@@ -1,0 +1,1049 @@
+diff --git a/packages/ui/src/components/chat/MessageList.tsx b/packages/ui/src/components/chat/MessageList.tsx
+index 43284997d..225b7726c 100644
+--- a/packages/ui/src/components/chat/MessageList.tsx
++++ b/packages/ui/src/components/chat/MessageList.tsx
+@@ -9,7 +9,8 @@ import { isSkippedTimelineMessage, isBackgroundReportEntry, isTimelineNoticeRole
+ import { earlierAssistantText } from './lib/turns/earlierAssistantText';
+ import { areOptionalRenderRelevantMessagesEqual, areRelevantTurnGroupingContextsEqual, areRenderRelevantMessagesEqual } from './message/renderCompare';
+ import TurnItem from './components/TurnItem';
+-import { turnHeaderCanStick } from './lib/turns/stickyPrompt';
++import { endsStickySpan, stickyRowIndicesOf } from './lib/turns/stickyPrompt';
++import { QuestionTurnHeader } from './components/QuestionTurnHeader';
+ import { TurnFold, TurnPagesRow } from './components/LiveTurnActivity';
+ import { useTurnFoldContexts } from './components/useTurnFold';
+ import { LiveFinalActivityContext, LiveTurnHoistedPagesContext } from './components/liveActivityContext';
+@@ -440,6 +441,9 @@ type TurnRowProps = Omit<TurnRendererInput, 'turn' | 'isLastTurn' | 'nextEntryFi
+     entry: TurnEntry;
+     turnExpansion: Map<string, boolean>;
+     onToggleTurnActivity: ToggleTurnActivity;
++    /** For an answered question's card row: whether its option list is open. */
++    questionOpen?: boolean;
++    onToggleQuestionCard: (partId: string) => void;
+ };
+ 
+ /** One list row of a turn (see `timelineRows.ts` for how a turn splits into rows). */
+@@ -448,6 +452,8 @@ const TurnRow = React.memo(({
+     entry,
+     turnExpansion,
+     onToggleTurnActivity,
++    questionOpen = false,
++    onToggleQuestionCard,
+     ...rendererInput
+ }: TurnRowProps) => {
+     const { turn } = entry;
+@@ -478,7 +484,13 @@ const TurnRow = React.memo(({
+         content = <TurnPagesRow turn={turn} />;
+     } else {
+         const message = turn.assistantMessages.find((candidate) => candidate.info.id === row.messageId);
+-        if (message) {
++        const questionPart = row.questionPartId ? message?.parts.find((part) => part.id === row.questionPartId) : undefined;
++        if (message && questionPart) {
++            content = (
++                <QuestionTurnHeader part={questionPart} messageId={message.info.id} startsMessage={!row.slice?.from}
++                    open={questionOpen} onToggle={onToggleQuestionCard} />
++            );
++        } else if (message) {
+             content = (
+                 <MessageSliceContext.Provider value={row.slice}>
+                     {row.final ? (
+@@ -622,6 +634,8 @@ type TimelineRowContextValue = {
+     scrollToBottom?: () => void;
+     turnExpansion: Map<string, boolean>;
+     onToggleTurnActivity: ToggleTurnActivity;
++    isQuestionCardOpen: (partId: string) => boolean;
++    onToggleQuestionCard: (partId: string) => void;
+     shouldAnimateUserMessage: (message: ChatMessageEntry) => boolean;
+     onUserAnimationConsumed: (messageId: string) => void;
+     reviewTransferDirection?: ReviewTransferDirection | null;
+@@ -687,6 +701,8 @@ const TimelineRow = React.memo(({ row }: { row: RenderRow }) => {
+             sessionIsWorking={live && context.sessionIsWorking}
+             turnExpansion={context.turnExpansion}
+             onToggleTurnActivity={context.onToggleTurnActivity}
++            questionOpen={row.kind === 'turn-message' && row.questionPartId ? context.isQuestionCardOpen(row.questionPartId) : undefined}
++            onToggleQuestionCard={context.onToggleQuestionCard}
+             shouldAnimateUserMessage={context.shouldAnimateUserMessage}
+             onUserAnimationConsumed={context.onUserAnimationConsumed}
+             activeStreamingMessageId={activeStreamingMessageId}
+@@ -703,7 +719,10 @@ const timelineKeyExtractor = (item: RenderRow): string => item.key;
+ // Row type drives container reuse. Prompts, folds and messages have very
+ // different shapes, so keeping them in separate pools avoids re-measuring a
+ // container every time one replaces the other.
+-const timelineItemType = (item: RenderRow): string => item.kind;
++const timelineItemType = (item: RenderRow): string => {
++    if (item.kind === 'turn-message' && item.questionPartId) return 'turn-question';
++    return item.kind;
++};
+ 
+ const renderTimelineItem = ({ item }: { item: RenderRow }) => <TimelineRow row={item} />;
+ 
+@@ -843,9 +862,10 @@ const TimelineList = React.memo(({
+         if (!element) return;
+         const data = rowsRef.current;
+         let end = active + 1;
+-        while (end < data.length && data[end].kind !== 'turn-head' && data[end].kind !== 'ungrouped') end += 1;
+-        // The turn's end is the top of the row after it; one not mounted is
+-        // far below, and the prompt stays where it sticks.
++        while (end < data.length && !endsStickySpan(data[end])) end += 1;
++        // The header's span ends at the top of the next prompt, answered
++        // question or ungrouped row; one not mounted is far below, and the
++        // header stays where it sticks.
+         const next = end < data.length ? state.elementAtIndex(end) : null;
+         const scroller = listRef.current?.getScrollableNode();
+         if (!next || !scroller) {
+@@ -924,6 +944,9 @@ const TimelineList = React.memo(({
+ TimelineList.displayName = 'TimelineList';
+ 
+ 
++/** The question cards the reader opened (true) or closed (false) by hand. */
++type QuestionCardChoices = ReadonlyMap<string, boolean>;
++
+ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
+     sessionKey,
+     messages,
+@@ -951,6 +974,20 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
+     const collapsibleThinkingBlocks = useUIStore((state) => state.collapsibleThinkingBlocks);
+     const autoExpandAnsweredQuestions = useUIStore((state) => state.autoExpandAnsweredQuestions);
+     const stickyUserHeader = useUIStore((state) => state.stickyUserHeader);
++    // Question cards start open with `autoExpandAnsweredQuestions`; a card the
++    // reader opened or closed stays that way.
++    const [questionCardChoices, setQuestionCardChoices] = React.useState<QuestionCardChoices>(() => new Map());
++    const isQuestionCardOpen = React.useCallback(
++        (partId: string) => questionCardChoices.get(partId) ?? autoExpandAnsweredQuestions,
++        [autoExpandAnsweredQuestions, questionCardChoices],
++    );
++    const toggleQuestionCard = React.useCallback((partId: string) => {
++        setQuestionCardChoices((current) => {
++            const next = new Map(current);
++            next.set(partId, !(current.get(partId) ?? useUIStore.getState().autoExpandAnsweredQuestions));
++            return next;
++        });
++    }, []);
+     const defaultActivityExpanded = activityRenderMode === 'summary';
+     const reviewTransferDirection = useGlobalSessionsStore((state) => {
+         return state.reviewTransferBySessionId.get(sessionKey) ?? null;
+@@ -1142,14 +1179,11 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
+         return next;
+     }), [allEntries, defaultActivityExpanded, showReasoningTraces, turnExpansion]);
+ 
+-    // The prompt rows the list keeps on top while their turn scrolls under them.
++    // The rows the list keeps on top while what follows scrolls under them:
++    // prompts and answered questions' cards (`stickyRowIndicesOf`).
+     const stickyRowIndices = React.useMemo(() => {
+         if (!stickyUserHeader) return undefined;
+-        const indices: number[] = [];
+-        rows.forEach((row, index) => {
+-            if (row.kind === 'turn-head' && turnHeaderCanStick(row.entry.turn.userMessage)) indices.push(index);
+-        });
+-        return indices.length > 0 ? indices : undefined;
++        return stickyRowIndicesOf(rows);
+     }, [rows, stickyUserHeader]);
+ 
+     const [liveTail] = React.useState(createLiveTailStore);
+@@ -1690,6 +1724,8 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
+         scrollToBottom: stableScrollToBottom,
+         turnExpansion,
+         onToggleTurnActivity: toggleTurnActivity,
++        isQuestionCardOpen,
++        onToggleQuestionCard: toggleQuestionCard,
+         shouldAnimateUserMessage,
+         onUserAnimationConsumed,
+         reviewTransferDirection,
+@@ -1702,11 +1738,13 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
+         activeStreamingMessageId,
+         activeStreamingPhase,
+         liveTail,
++        isQuestionCardOpen,
+         onUserAnimationConsumed,
+         reviewTransferDirection,
+         sessionIsWorking,
+         shouldAnimateUserMessage,
+         stableScrollToBottom,
++        toggleQuestionCard,
+         toggleTurnActivity,
+         trailingStreamingEntry?.key,
+         turnExpansion,
+diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
+new file mode 100644
+index 000000000..c8669d83f
+--- /dev/null
++++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
+@@ -0,0 +1,125 @@
++import React from 'react';
++import { expect, test } from 'bun:test';
++import { plugin } from 'bun';
++import { pathToFileURL } from 'node:url';
++import { renderToStaticMarkup } from 'react-dom/server';
++import { Window } from 'happy-dom';
++import { OpenCode } from '@opencode/client';
++import { I18nProvider } from '@/lib/i18n';
++import { RuntimeAPIContext } from '@/contexts/runtimeAPIContext';
++import type { RuntimeAPIs } from '@/lib/api/types';
++import { SyncProvider } from '@/sync/sync-context';
++import type { Part } from '@/lib/opencode/model';
++
++// The question row renders question text through the markdown renderer, which
++// reads browser globals and resolves a Vite-supplied worker URL.
++const browser = new Window({ url: 'http://localhost/' });
++Object.assign(globalThis, {
++    window: browser, document: browser.document, navigator: browser.navigator, localStorage: browser.localStorage,
++    Node: browser.Node, Element: browser.Element, HTMLElement: browser.HTMLElement,
++    customElements: browser.customElements,
++    Event: browser.Event, CustomEvent: browser.CustomEvent,
++    MutationObserver: browser.MutationObserver,
++    getComputedStyle: browser.getComputedStyle.bind(browser),
++    requestAnimationFrame: browser.requestAnimationFrame.bind(browser),
++    cancelAnimationFrame: browser.cancelAnimationFrame.bind(browser), IS_REACT_ACT_ENVIRONMENT: true,
++});
++
++plugin({
++    name: 'question-tool-content-worker-url',
++    setup(build) {
++        build.onLoad({ filter: /markdown-shiki\.worker\.ts\?worker&url$/ }, ({ path }) => ({
++            contents: `export default ${JSON.stringify(pathToFileURL(path.split('?')[0]).href)};`,
++            loader: 'js',
++        }));
++    },
++});
++
++const { QuestionTurnHeader } = await import('./QuestionTurnHeader');
++const { questionSentence } = await import('../lib/questionEntries');
++
++const unavailable = (): never => { throw new Error('Question rendering must not call runtime APIs'); };
++const runtimeApis: RuntimeAPIs = {
++    runtime: { platform: 'web', isDesktop: false, isVSCode: false },
++    get terminal() { return unavailable(); },
++    get git() { return unavailable(); },
++    get files() { return unavailable(); },
++    get settings() { return unavailable(); },
++    get permissions() { return unavailable(); },
++    get notifications() { return unavailable(); },
++    get sourceControl() { return unavailable(); },
++};
++const sdk = OpenCode.make({ baseUrl: 'http://localhost', fetch: async () => Response.json([]) });
++
++const ask = (questions: { question: string; answer: string }[]): Part => ({
++    type: 'tool', tool: 'question', id: 'ask', callID: 'ask', sessionID: 'session', messageID: 'msg_assistant',
++    state: {
++        status: 'completed',
++        input: { questions: questions.map(({ question }, index) => ({ question, header: `H${index}`, options: [{ label: 'Yes' }, { label: 'No' }] })) },
++        output: `User has answered your questions: ${questions.map(({ question, answer }) => `"${question}"="${answer}"`).join(', ')}. You can now continue with the user's answers in mind.`,
++        metadata: {}, time: { start: 1, end: 2 },
++    },
++} as Part);
++
++const render = (node: React.ReactNode) => renderToStaticMarkup(
++    <RuntimeAPIContext.Provider value={runtimeApis}>
++        <SyncProvider sdk={sdk} directory="">
++            <I18nProvider>{node}</I18nProvider>
++        </SyncProvider>
++    </RuntimeAPIContext.Provider>,
++);
++const text = (node: React.ReactNode) => {
++    const container = browser.document.createElement('div');
++    container.innerHTML = render(node);
++    return container.textContent ?? '';
++};
++
++const card = (part: Part, open = false, startsMessage = false) => (
++    <QuestionTurnHeader part={part} messageId="msg_assistant" startsMessage={startsMessage} open={open} onToggle={() => {}} />
++);
++
++test('the card shows the question and only the chosen answer, without the recommendation marker', () => {
++    const content = text(card(ask([{ question: 'Ship it?', answer: 'Yes (Recommended)' }])));
++    expect(content).toContain('Ship it?');
++    expect(content).toContain('Yes');
++    expect(content).not.toContain('(Recommended)');
++    expect(content).not.toContain('No');
++});
++
++test('several questions share one card, each with its answer', () => {
++    const content = text(card(ask([
++        { question: 'Retry on timeout?', answer: 'Yes, retry once' },
++        { question: 'Update the README?', answer: 'No' },
++    ])));
++    expect(content).toContain('Retry on timeout?');
++    expect(content).toContain('Yes, retry once');
++    expect(content).toContain('Update the README?');
++});
++
++test('the card is a toggle that reports whether the options are open', () => {
++    expect(render(card(ask([{ question: 'Ship it?', answer: 'Yes' }])))).toContain('aria-expanded="false"');
++    expect(render(card(ask([{ question: 'Ship it?', answer: 'Yes' }]), true))).toContain('aria-expanded="true"');
++});
++
++test('the question sentence is the last one that asks, after any lead-in', () => {
++    expect(questionSentence('src/fetch.ts sets TIMEOUT_MS = 5000. (Note: the file does not exist yet.) Should I change it, and how?'))
++        .toBe('Should I change it, and how?');
++    expect(questionSentence('Want me to send the reply?')).toBe('Want me to send the reply?');
++    expect(questionSentence('Pick a colour')).toBe('Pick a colour');
++});
++
++test('opened, the card lists every option and marks the chosen one; a typed answer is one more marked row', () => {
++    const chosen = render(card(ask([{ question: 'Ship it?', answer: 'No' }]), true));
++    const chosenText = text(card(ask([{ question: 'Ship it?', answer: 'No' }]), true));
++    expect(chosenText).toContain('Yes');
++    expect(chosenText).toContain('No');
++    expect(chosen.split('size-1.5 rounded-full').length - 1).toBe(1);
++    const typed = text(card(ask([{ question: 'Ship it?', answer: 'Ship it on Friday' }]), true));
++    expect(typed).toContain('Yes');
++    expect(typed).toContain('Ship it on Friday');
++});
++
++test('a card that starts its message carries the message anchor', () => {
++    expect(render(card(ask([{ question: 'Ship it?', answer: 'Yes' }]), false, true))).toContain('data-message-id="msg_assistant"');
++    expect(render(card(ask([{ question: 'Ship it?', answer: 'Yes' }])))).not.toContain('data-message-id=');
++});
+diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
+new file mode 100644
+index 000000000..d3dff542f
+--- /dev/null
++++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
+@@ -0,0 +1,149 @@
++import React from 'react';
++
++import { useDeviceInfo } from '@/lib/device';
++import { useI18n } from '@/lib/i18n';
++import { cn } from '@/lib/utils';
++import type { Part } from '@/lib/opencode/model';
++import { useUIStore } from '@/stores/useUIStore';
++import {
++    questionEntriesForPart,
++    questionSentence,
++    selectedOptionLabels,
++    withoutRecommendation,
++} from '../lib/questionEntries';
++import { stickyHeaderBackground } from './stickyHeaderBackground';
++
++const CARD_STYLE: React.CSSProperties = {
++    backgroundColor: 'var(--status-question-background)',
++    borderColor: 'var(--status-question-border)',
++};
++const RAIL_STYLE: React.CSSProperties = { borderColor: 'var(--status-question)' };
++
++/** A filled mark for the chosen option, an empty ring for the rest. */
++const OptionMark: React.FC<{ chosen: boolean }> = ({ chosen }) => (
++    <span
++        aria-hidden="true"
++        className="mt-[5px] flex size-3.5 flex-shrink-0 items-center justify-center rounded-full border"
++        style={{ borderColor: chosen ? 'var(--status-question)' : 'var(--status-question-border)' }}
++    >
++        {chosen ? <span className="size-1.5 rounded-full" style={{ backgroundColor: 'var(--status-question)' }} /> : null}
++    </span>
++);
++
++/**
++ * An answered question as its own transcript row: a purple card with each
++ * question and the answer it got on a rail. Activating it opens the card in
++ * place to every option offered, the chosen one marked; a typed answer is one
++ * more marked row. With the sticky user header on, the card sticks like a
++ * prompt until the next prompt or answered question pushes it up, and an open
++ * card scrolls inside past 40% of the screen, as a long prompt does there.
++ */
++export const QuestionTurnHeader: React.FC<{
++    part: Part;
++    messageId: string;
++    /** The row starts its message, so it carries the message's anchor. */
++    startsMessage: boolean;
++    open: boolean;
++    onToggle: (partId: string) => void;
++}> = ({ part, messageId, startsMessage, open, onToggle }) => {
++    const { isMobile } = useDeviceInfo();
++    const { t } = useI18n();
++    const sticks = useUIStore((state) => state.stickyUserHeader);
++    const entries = React.useMemo(() => questionEntriesForPart(part, messageId), [part, messageId]);
++    const answered = entries
++        .map((entry) => ({ entry, answer: entry.answer ? withoutRecommendation(entry.answer.trim()) : '' }))
++        .filter(({ answer }) => answer.length > 0);
++    if (answered.length === 0) return null;
++
++    const toggle = () => onToggle(part.id);
++
++    // Laid out like a prompt row (`ChatMessage`): the same column and top
++    // padding, and the reserve under it a prompt's action row takes (44px
++    // desktop, 36px mobile), which the sticky header's fade sits over.
++    const body = (
++        <div
++            className={cn('relative z-10 w-full', isMobile ? 'pt-2' : 'pt-4')}
++            data-question-turn-header=""
++            data-message-id={startsMessage ? messageId : undefined}
++        >
++            <div className="chat-message-column relative">
++                <div
++                    role="button"
++                    tabIndex={0}
++                    aria-expanded={open}
++                    aria-label={t(open ? 'chat.questionCard.hideOptions' : 'chat.questionCard.showOptions')}
++                    className="w-full cursor-pointer rounded-lg border px-4 py-3 transition-[filter] hover:brightness-110 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--status-question)]"
++                    style={CARD_STYLE}
++                    onClick={toggle}
++                    onKeyDown={(event) => {
++                        if (event.key !== 'Enter' && event.key !== ' ') return;
++                        event.preventDefault();
++                        toggle();
++                    }}
++                >
++                    <div className={cn('space-y-3', open && 'max-h-[40dvh] overflow-y-auto overscroll-contain')}>
++                        {answered.map(({ entry, answer }) => {
++                            const picked = selectedOptionLabels(entry.options, entry.answer, entry.multiple);
++                            return (
++                                <div key={entry.partId} className="min-w-0 space-y-1 border-s-2 ps-3" style={RAIL_STYLE}>
++                                    <div
++                                        dir="auto"
++                                        className={cn('text-base leading-snug text-foreground/80', !open && 'line-clamp-2')}
++                                        title={entry.question}
++                                    >
++                                        {questionSentence(entry.question)}
++                                    </div>
++                                    {open ? (
++                                        <div className="space-y-1.5 pt-1">
++                                            {entry.options.map((option) => {
++                                                const chosen = picked.has(option.label);
++                                                return (
++                                                    <div key={option.label} className="flex items-start gap-2.5">
++                                                        <OptionMark chosen={chosen} />
++                                                        <span className="min-w-0">
++                                                            <span
++                                                                dir="auto"
++                                                                className={cn('block break-words text-base leading-snug', chosen ? 'font-semibold text-foreground' : 'text-foreground/60')}
++                                                            >
++                                                                {option.label}
++                                                            </span>
++                                                            {option.description ? (
++                                                                <span dir="auto" className="block break-words text-sm leading-snug text-foreground/50">
++                                                                    {option.description}
++                                                                </span>
++                                                            ) : null}
++                                                        </span>
++                                                    </div>
++                                                );
++                                            })}
++                                            {picked.size === 0 ? (
++                                                <div className="flex items-start gap-2.5">
++                                                    <OptionMark chosen />
++                                                    <span dir="auto" className="min-w-0 whitespace-pre-wrap break-words text-base font-semibold leading-snug text-foreground">
++                                                        {answer}
++                                                    </span>
++                                                </div>
++                                            ) : null}
++                                        </div>
++                                    ) : (
++                                        <div dir="auto" className="whitespace-pre-wrap break-words text-base font-semibold leading-snug text-foreground line-clamp-3">
++                                            {answer}
++                                        </div>
++                                    )}
++                                </div>
++                            );
++                        })}
++                    </div>
++                </div>
++                <div aria-hidden="true" className={isMobile ? 'h-9' : 'h-11'} />
++            </div>
++        </div>
++    );
++
++    if (!sticks) return body;
++    return (
++        <div className="sticky top-0 z-20 [overflow-anchor:none]" data-turn-sticky-header="" style={stickyHeaderBackground(isMobile)}>
++            {body}
++        </div>
++    );
++};
+diff --git a/packages/ui/src/components/chat/components/TurnItem.tsx b/packages/ui/src/components/chat/components/TurnItem.tsx
+index c1d48abcb..d35a23f71 100644
+--- a/packages/ui/src/components/chat/components/TurnItem.tsx
++++ b/packages/ui/src/components/chat/components/TurnItem.tsx
+@@ -4,6 +4,7 @@ import { useDeviceInfo } from '@/lib/device';
+ import { useUIStore } from '@/stores/useUIStore';
+ import { cn } from '@/lib/utils';
+ import { turnHeaderCanStick } from '../lib/turns/stickyPrompt';
++import { stickyHeaderBackground } from './stickyHeaderBackground';
+ import type { ChatMessageEntry, Turn } from '../lib/turns/types';
+ 
+ interface TurnItemProps {
+@@ -13,36 +14,14 @@ interface TurnItemProps {
+     gapBelow?: boolean;
+ }
+ 
+-/**
+- * The sticky user header paints the chat background so assistant content scrolling
+- * underneath disappears behind it. The soft edge lives in the header's own background
+- * instead of an overlay below it: the bottom strip of the header box fades the
+- * background out, and that strip sits over the empty space the user row already
+- * reserves below the bubble. At rest the strip reveals the identical page background
+- * (`--background` is generated from the same `surface.background` token), so it is
+- * invisible and can never wash over the assistant content that follows.
+- *
+- * The strip's height follows the reserve: on desktop the user row keeps a 44px gap
+- * to the reply (the hover action row plus `ChatMessage`'s sticky padding), so the
+- * strip is 2.25rem and the solid background still ends 8px under the bubble; on
+- * mobile the header ends with the always-visible actions row instead, and the
+- * 0.75rem strip stays clear of it.
+- *
+- * The user row restyles itself inside the header through `in-data-[turn-sticky-header]`
+- * variants, so the setting re-renders turns only, never every message row.
+- */
+-const stickyHeaderBackground = (fadeRem: string): React.CSSProperties => ({
+-    backgroundImage:
+-        `linear-gradient(to bottom, var(--surface-background) calc(100% - ${fadeRem}), transparent)`,
+-});
+-const STICKY_HEADER_BACKGROUND_DESKTOP = stickyHeaderBackground('2.25rem');
+-const STICKY_HEADER_BACKGROUND_MOBILE = stickyHeaderBackground('0.75rem');
+-
+ /**
+  * A turn's first list row: its prompt, and the notices that came before its
+  * first step. The turn's work and answer are the rows after it
+  * (`timelineRows.ts`); this row alone names the turn in the DOM, and it is the
+  * one the list keeps on top while the turn scrolls under it.
++ *
++ * The user row restyles itself inside the header through `in-data-[turn-sticky-header]`
++ * variants, so the setting re-renders turns only, never every message row.
+  */
+ const TurnItem: React.FC<TurnItemProps> = ({ turn, renderMessage, gapBelow = false }) => {
+     const { isMobile } = useDeviceInfo();
+@@ -72,7 +51,7 @@ const TurnItem: React.FC<TurnItemProps> = ({ turn, renderMessage, gapBelow = fal
+                 <div
+                     className="sticky top-0 z-20 [overflow-anchor:none]"
+                     data-turn-sticky-header=""
+-                    style={isMobile ? STICKY_HEADER_BACKGROUND_MOBILE : STICKY_HEADER_BACKGROUND_DESKTOP}
++                    style={stickyHeaderBackground(isMobile)}
+                 >
+                     <div className="relative z-10">
+                         {renderMessage(turn.userMessage)}
+diff --git a/packages/ui/src/components/chat/components/stickyHeaderBackground.ts b/packages/ui/src/components/chat/components/stickyHeaderBackground.ts
+new file mode 100644
+index 000000000..c1b3b12e7
+--- /dev/null
++++ b/packages/ui/src/components/chat/components/stickyHeaderBackground.ts
+@@ -0,0 +1,25 @@
++import type React from 'react';
++
++/**
++ * The sticky user header paints the chat background so assistant content scrolling
++ * underneath disappears behind it. The soft edge lives in the header's own background
++ * instead of an overlay below it: the bottom strip of the header box fades the
++ * background out, and that strip sits over the empty space the user row already
++ * reserves below the bubble. At rest the strip reveals the identical page background
++ * (`--background` is generated from the same `surface.background` token), so it is
++ * invisible and can never wash over the assistant content that follows.
++ *
++ * The strip's height follows the reserve: on desktop the user row keeps a 44px gap
++ * to the reply (the hover action row plus `ChatMessage`'s sticky padding), so the
++ * strip is 2.25rem and the solid background still ends 8px under the bubble; on
++ * mobile the header ends with the always-visible actions row instead, and the
++ * 0.75rem strip stays clear of it.
++ */
++const background = (fadeRem: string): React.CSSProperties => ({
++    backgroundImage:
++        `linear-gradient(to bottom, var(--surface-background) calc(100% - ${fadeRem}), transparent)`,
++});
++const DESKTOP = background('2.25rem');
++const MOBILE = background('0.75rem');
++
++export const stickyHeaderBackground = (isMobile: boolean): React.CSSProperties => (isMobile ? MOBILE : DESKTOP);
+diff --git a/packages/ui/src/components/chat/lib/questionEntries.ts b/packages/ui/src/components/chat/lib/questionEntries.ts
+index bc8236ea0..a7c3e5fe2 100644
+--- a/packages/ui/src/components/chat/lib/questionEntries.ts
++++ b/packages/ui/src/components/chat/lib/questionEntries.ts
+@@ -299,3 +299,17 @@ export const buildQuestionEntriesByTurnId = (
+     }
+     return byTurn;
+ };
++
++/**
++ * The sentence that asks: models often lead with background, so the last
++ * sentence ending in "?" is the question; without one, the whole text.
++ */
++export const questionSentence = (question: string): string => {
++    const text = question.replace(/\s+/g, ' ').trim();
++    // A sentence ends at . ? or ! plus any closing bracket or quote.
++    const sentences = text.split(/(?<=[.?!][)\]"'”’]*)\s+/);
++    for (let index = sentences.length - 1; index >= 0; index -= 1) {
++        if (sentences[index].endsWith('?')) return sentences[index];
++    }
++    return text;
++};
+diff --git a/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.test.ts b/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.test.ts
+index 5bbaf8764..f17d6a590 100644
+--- a/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.test.ts
++++ b/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.test.ts
+@@ -93,17 +93,6 @@ test('nothing is estimated before the column has a width', () => {
+     expect(estimateTimelineRowSize(rows[0]!, { ...metrics, columnWidth: 0 })).toBeUndefined();
+ });
+ 
+-test('a question row grows with its questions, options and answer', () => {
+-    const rows = rowsOf([
+-        assistant('question', [questionTool('q')]),
+-        assistant('answer', [text('done', 'Done.')]),
+-    ]);
+-    const collapsed = estimateTimelineRowSize(messageRow(rows, 'question'), metrics)!;
+-    const expanded = estimateTimelineRowSize(messageRow(rows, 'question'), { ...metrics, autoExpandAnsweredQuestions: true })!;
+-    expect(collapsed).toBeGreaterThan(metrics.lineHeight);
+-    expect(expanded).toBeGreaterThan(collapsed + 80);
+-});
+-
+ test('reasoning drawn as text when thinking blocks do not fold', () => {
+     const rows = rowsOf([
+         assistant('step', [reasoning('thought', 'Thinking it through. '.repeat(40)), tool('shell', 'shell')]),
+@@ -114,3 +103,11 @@ test('reasoning drawn as text when thinking blocks do not fold', () => {
+     expect(folded).toBe(72);
+     expect(open).toBeGreaterThan(400);
+ });
++
++test('a question card is sized like a prompt row, and grows with its options when it starts open', () => {
++    const card = (rows: TimelineRow[]) => rows.find((row) => row.kind === 'turn-message' && row.questionPartId === 'q')!;
++    const rows = rowsOf([assistant('question', [questionTool('q')]), assistant('answer', [text('done', 'Done.')])]);
++    const closed = estimateTimelineRowSize(card(rows), metrics)!;
++    expect(closed).toBe(132);
++    expect(estimateTimelineRowSize(card(rows), { ...metrics, autoExpandAnsweredQuestions: true })!).toBeGreaterThan(closed + 50);
++});
+diff --git a/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.ts b/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.ts
+index d5e814000..75c255929 100644
+--- a/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.ts
++++ b/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.ts
+@@ -200,6 +200,36 @@ const promptHeight = (message: ChatMessageEntry, metrics: RowSizeMetrics): numbe
+     return height > 0 ? PROMPT_CHROME_PX + height : EMPTY_PROMPT_PX;
+ };
+ 
++// An answered question's card (`questionPartId`) is laid out like a prompt
++// row: top padding, the card's padding and the reserve under it. Closed, each
++// question draws its question and answer lines; open (it starts open with
++// `autoExpandAnsweredQuestions`), the question and every option with its
++// description.
++const QUESTION_CARD_CHROME_PX = 16 + 24 + 44;
++const QUESTION_CARD_ENTRY_PX = 48;
++const QUESTION_CARD_GAP_PX = 12;
++const QUESTION_CARD_OPTION_PX = 26;
++const QUESTION_CARD_DESCRIPTION_LINE_PX = 18;
++
++const questionCardHeight = (row: TurnRowOf<'turn-message'>, metrics: RowSizeMetrics): number | undefined => {
++    const message = row.entry.turn.assistantMessages.find((candidate) => candidate.info.id === row.messageId);
++    const part = message?.parts.find((candidate) => candidate.id === row.questionPartId);
++    if (part?.type !== 'tool') return undefined;
++    const entries = questionEntriesForPart(part, part.messageID);
++    const count = Math.max(1, entries.length);
++    let height = QUESTION_CARD_CHROME_PX + (count - 1) * QUESTION_CARD_GAP_PX;
++    if (!metrics.autoExpandAnsweredQuestions) return height + count * QUESTION_CARD_ENTRY_PX;
++    const charsPerLine = Math.max(20, Math.floor(metrics.columnWidth / CHAR_WIDTH_PX));
++    for (const entry of entries) {
++        height += metrics.lineHeight;
++        for (const option of entry.options) {
++            height += QUESTION_CARD_OPTION_PX;
++            if (option.description) height += textLines(option.description, charsPerLine) * QUESTION_CARD_DESCRIPTION_LINE_PX;
++        }
++    }
++    return height;
++};
++
+ export const estimateTimelineRowSize = (row: TimelineRow, metrics: RowSizeMetrics): number | undefined => {
+     if (metrics.columnWidth <= 0) return undefined;
+     let height: number;
+@@ -209,6 +239,10 @@ export const estimateTimelineRowSize = (row: TimelineRow, metrics: RowSizeMetric
+         case 'turn-fold': height = FOLD_HEADER_PX; break;
+         case 'turn-pages': height = hoistedHeight(hoistedPages(row), metrics); break;
+         case 'turn-message': {
++            if (row.questionPartId) {
++                const card = questionCardHeight(row, metrics);
++                return card === undefined ? undefined : Math.round(card + (row.gapBelow ? TURN_END_PX : 0));
++            }
+             const message = messageRowHeight(row, metrics);
+             return message === undefined ? undefined : Math.round(message);
+         }
+diff --git a/packages/ui/src/components/chat/lib/turns/stickyPrompt.ts b/packages/ui/src/components/chat/lib/turns/stickyPrompt.ts
+index c3c5ebd29..977df3d0e 100644
+--- a/packages/ui/src/components/chat/lib/turns/stickyPrompt.ts
++++ b/packages/ui/src/components/chat/lib/turns/stickyPrompt.ts
+@@ -1,4 +1,5 @@
+ import { isHiddenUserMessage } from '../../message/hiddenUserMessage';
++import type { TimelineRow } from './timelineRows';
+ import type { ChatMessageEntry } from './types';
+ 
+ /**
+@@ -9,3 +10,21 @@ import type { ChatMessageEntry } from './types';
+ export const turnHeaderCanStick = (userMessage: ChatMessageEntry): boolean => (
+     userMessage.info.role === 'user' && !isHiddenUserMessage(userMessage)
+ );
++
++/**
++ * The rows the list keeps on top while what follows scrolls under them: the
++ * prompts that can stick, and the answered questions' cards.
++ */
++export const stickyRowIndicesOf = (rows: readonly TimelineRow[]): number[] | undefined => {
++    const indices: number[] = [];
++    rows.forEach((row, index) => {
++        if (row.kind === 'turn-head' && turnHeaderCanStick(row.entry.turn.userMessage)) indices.push(index);
++        else if (row.kind === 'turn-message' && row.questionPartId) indices.push(index);
++    });
++    return indices.length > 0 ? indices : undefined;
++};
++
++/** A row that starts a new sticky span and pushes the header above it up: a prompt, an answered question, or an ungrouped row. */
++export const endsStickySpan = (row: TimelineRow): boolean => (
++    row.kind === 'turn-head' || row.kind === 'ungrouped' || (row.kind === 'turn-message' && row.questionPartId !== undefined)
++);
+diff --git a/packages/ui/src/components/chat/lib/turns/timelineRows.test.ts b/packages/ui/src/components/chat/lib/turns/timelineRows.test.ts
+index 067cb790b..3f83a3d8a 100644
+--- a/packages/ui/src/components/chat/lib/turns/timelineRows.test.ts
++++ b/packages/ui/src/components/chat/lib/turns/timelineRows.test.ts
+@@ -122,3 +122,61 @@ describe('buildTimelineRows', () => {
+         expect(opened[0]).toBe(first[0]);
+     });
+ });
++
++describe('answered questions as rows of their own', () => {
++    const question = (id: string, answer: string | null): ToolPart => ({
++        type: 'tool', tool: 'question', id, callID: id, sessionID: 'session', messageID: 'step',
++        state: answer === null
++            ? { status: 'running', input: { questions: [{ question: 'Ship it?', header: 'Ship', options: [{ label: 'Yes' }, { label: 'No' }] }] }, time: { start: 1 } }
++            : {
++                status: 'completed',
++                input: { questions: [{ question: 'Ship it?', header: 'Ship', options: [{ label: 'Yes' }, { label: 'No' }] }] },
++                output: `User has answered your questions: "Ship it?"="${answer}". You can now continue with the user's answers in mind.`,
++                metadata: {}, time: { start: 1, end: 2 },
++            },
++    });
++    const messageRows = (rows: ReturnType<typeof buildTimelineRows>) => rows.filter((row) => row.kind === 'turn-message');
++
++    test('an answered question is cut out between the parts around it', () => {
++        const rows = buildTimelineRows([turnEntry([
++            assistant('step', [textPart('before', 'Looking first.'), question('ask', 'Yes'), readPart], 'stop'),
++        ])], summary, []);
++        const steps = messageRows(rows);
++        expect(steps).toHaveLength(3);
++        expect(steps.map((row) => row.kind === 'turn-message' && row.questionPartId)).toEqual([undefined, 'ask', undefined]);
++    });
++
++    test('a message that is only an answered question is one question row', () => {
++        const rows = buildTimelineRows([turnEntry([assistant('step', [question('ask', 'No')], 'stop')])], summary, []);
++        const steps = messageRows(rows);
++        expect(steps).toHaveLength(1);
++        expect(steps[0]!.kind === 'turn-message' && steps[0]!.questionPartId).toBe('ask');
++    });
++
++    test('a pending question stays in its message', () => {
++        const pending = [textPart('before', 'Looking first.'), question('ask', null)];
++        expect(messageRows(buildTimelineRows([turnEntry([assistant('step', pending)])], summary, []))).toHaveLength(1);
++    });
++});
++
++describe('sticky rows', () => {
++    const answered: ToolPart = {
++        type: 'tool', tool: 'question', id: 'ask', callID: 'ask', sessionID: 'session', messageID: 'step',
++        state: {
++            status: 'completed',
++            input: { questions: [{ question: 'Ship it?', header: 'Ship', options: [{ label: 'Yes' }, { label: 'No' }] }] },
++            output: 'User has answered your questions: "Ship it?"="Yes". You can now continue with the user\'s answers in mind.',
++            metadata: {}, time: { start: 1, end: 2 },
++        },
++    };
++
++    test('the prompt and an answered question stick; the question ends the prompt\'s span', async () => {
++        const { endsStickySpan, stickyRowIndicesOf } = await import('./stickyPrompt');
++        const rows = buildTimelineRows([turnEntry([
++            assistant('step', [textPart('before', 'Looking first.'), answered, readPart], 'stop'),
++        ])], summary, []);
++        const indices = stickyRowIndicesOf(rows)!;
++        expect(indices.map((index) => rows[index]!.kind === 'turn-message' ? 'question' : rows[index]!.kind)).toEqual(['turn-head', 'question']);
++        expect(rows.filter(endsStickySpan)).toHaveLength(2);
++    });
++});
+diff --git a/packages/ui/src/components/chat/lib/turns/timelineRows.ts b/packages/ui/src/components/chat/lib/turns/timelineRows.ts
+index f4ebed69c..b90ffafb8 100644
+--- a/packages/ui/src/components/chat/lib/turns/timelineRows.ts
++++ b/packages/ui/src/components/chat/lib/turns/timelineRows.ts
+@@ -1,5 +1,6 @@
+ import { isHiddenUserMessage } from '../../message/hiddenUserMessage';
+ import { filterVisibleParts, isEmptyTextPart } from '../../message/partUtils';
++import { isAnsweredQuestionPart } from '../questionEntries';
+ import { answerChunkCuts } from './answerChunks';
+ import { getLiveFinalMessage, getShownPages, hasLiveActivity } from './liveActivity';
+ import type { TimelineEntry } from './timelineEntries';
+@@ -45,6 +46,11 @@ export type TimelineRow =
+         slice: MessageSlice | null;
+         /** The turn's final answer under a fold (collapsed activity mode). */
+         final: boolean;
++        /**
++         * Set when the row is nothing but one answered question, cut out of its
++         * message: it draws as a question card, which sticks like a prompt.
++         */
++        questionPartId?: string;
+     } & TurnRowFields);
+ 
+ type TurnRowFields = {
+@@ -75,26 +81,38 @@ const PARTS_PER_ROW = 24;
+ 
+ /**
+  * Where a message is cut into rows, in order: before every PARTS_PER_ROW-th
+- * part it draws, and inside a long text once it is finished. Only parts the
+- * message draws (`MessageBody`'s own filter) are cut at.
++ * part it draws, and inside a long text once it is finished. An answered
++ * question is cut out into a row of its own, its card: before it, and before
++ * the part that follows it. Only parts the message draws (`MessageBody`'s own
++ * filter) are cut at.
+  */
+-const messageCuts = (message: ChatMessageEntry, showReasoningTraces: boolean): TextCut[] => {
++const messageCuts = (
++    message: ChatMessageEntry,
++    showReasoningTraces: boolean,
++): { cuts: TextCut[]; questionParts: string[]; firstPartId: string | undefined } => {
+     const completed = isMessageCompleted(message);
+     const cuts: TextCut[] = [];
++    const questionParts: string[] = [];
++    let firstPartId: string | undefined;
+     let partsInRow = 0;
++    let cutAfterQuestion = false;
+     for (const part of filterVisibleParts(message.parts, { includeReasoning: showReasoningTraces })) {
+         if (isEmptyTextPart(part)) continue;
+-        if (partsInRow === PARTS_PER_ROW) {
++        firstPartId ??= part.id;
++        const question = isAnsweredQuestionPart(part);
++        if (partsInRow === PARTS_PER_ROW || cutAfterQuestion || (question && partsInRow > 0)) {
+             cuts.push({ partId: part.id, offset: 0 });
+             partsInRow = 0;
+         }
++        cutAfterQuestion = question;
++        if (question) questionParts.push(part.id);
+         partsInRow += 1;
+         if (!completed || part.type !== 'text' || part.time?.end === undefined) continue;
+         const textCuts = answerChunkCuts(part.text);
+         for (const offset of textCuts) cuts.push({ partId: part.id, offset });
+         if (textCuts.length > 0) partsInRow = 1;
+     }
+-    return cuts;
++    return { cuts, questionParts, firstPartId };
+ };
+ 
+ const sliceKey = (cut: TextCut) => `${cut.partId}:${cut.offset}`;
+@@ -107,9 +125,13 @@ const turnRows = (entry: TurnEntry, options: TimelineRowsOptions): TimelineRow[]
+     const rows: TimelineRow[] = [{ kind: 'turn-head', key: entry.key, ...fields }];
+     const addMessage = (message: ChatMessageEntry, final = false) => {
+         const messageId = message.info.id;
+-        const cuts = messageCuts(message, options.showReasoningTraces);
++        const { cuts, questionParts, firstPartId } = messageCuts(message, options.showReasoningTraces);
++        // A row that starts at an answered question holds only that question.
++        const question = (startPartId: string | undefined) => (
++            startPartId !== undefined && questionParts.includes(startPartId) ? { questionPartId: startPartId } : {}
++        );
+         if (cuts.length === 0) {
+-            rows.push({ kind: 'turn-message', key: `step:${messageId}`, ...fields, messageId, slice: null, final });
++            rows.push({ kind: 'turn-message', key: `step:${messageId}`, ...fields, messageId, slice: null, final, ...question(firstPartId) });
+             return;
+         }
+         cuts.forEach((cut, index) => {
+@@ -121,10 +143,11 @@ const turnRows = (entry: TurnEntry, options: TimelineRowsOptions): TimelineRow[]
+                 messageId,
+                 slice: from ? { from, to: cut, index, count: cuts.length + 1 } : { to: cut, index, count: cuts.length + 1 },
+                 final,
++                ...question(from ? (from.offset === 0 ? from.partId : undefined) : firstPartId),
+             });
+         });
+         const last = cuts[cuts.length - 1];
+-        rows.push({ kind: 'turn-message', key: `step:${messageId}:${sliceKey(last)}`, ...fields, messageId, slice: { from: last, index: cuts.length, count: cuts.length + 1 }, final });
++        rows.push({ kind: 'turn-message', key: `step:${messageId}:${sliceKey(last)}`, ...fields, messageId, slice: { from: last, index: cuts.length, count: cuts.length + 1 }, final, ...question(last.offset === 0 ? last.partId : undefined) });
+     };
+ 
+     if (underFold) {
+@@ -166,7 +189,8 @@ const isSameRow = (previous: TimelineRow, next: TimelineRow): boolean => {
+     if (previous.kind === 'ungrouped' || next.kind === 'ungrouped') return true;
+     if (previous.gapBelow !== next.gapBelow || previous.underFold !== next.underFold || previous.finalMessageId !== next.finalMessageId) return false;
+     if (previous.kind === 'turn-message' && next.kind === 'turn-message') {
+-        return previous.messageId === next.messageId && previous.final === next.final && isSameSlice(previous.slice, next.slice);
++        return previous.messageId === next.messageId && previous.final === next.final
++            && previous.questionPartId === next.questionPartId && isSameSlice(previous.slice, next.slice);
+     }
+     return true;
+ };
+diff --git a/packages/ui/src/lib/i18n/messages/ar.ts b/packages/ui/src/lib/i18n/messages/ar.ts
+index ccae5ca45..c41a5e18f 100644
+--- a/packages/ui/src/lib/i18n/messages/ar.ts
++++ b/packages/ui/src/lib/i18n/messages/ar.ts
+@@ -2510,6 +2510,8 @@ export const dict = {
+   'chat.questionCard.recommended': 'موصى به',
+   'chat.questionCard.other': 'أخرى…',
+   'chat.questionCard.yourAnswer': 'إجابتك',
++  'chat.questionCard.showOptions': 'إظهار كل الخيارات',
++  'chat.questionCard.hideOptions': 'إخفاء كل الخيارات',
+   'chat.questionCard.submit': 'إرسال',
+   'chat.questionCard.next': 'التالي',
+   'chat.questionCard.dismiss': 'تجاهل',
+diff --git a/packages/ui/src/lib/i18n/messages/de.ts b/packages/ui/src/lib/i18n/messages/de.ts
+index c01c78791..87e2d80a7 100644
+--- a/packages/ui/src/lib/i18n/messages/de.ts
++++ b/packages/ui/src/lib/i18n/messages/de.ts
+@@ -2315,6 +2315,8 @@ export const dict = {
+   'chat.questionCard.recommended': 'empfohlen',
+   'chat.questionCard.other': 'Andere…',
+   'chat.questionCard.yourAnswer': 'Ihre Antwort',
++  'chat.questionCard.showOptions': 'Alle Optionen anzeigen',
++  'chat.questionCard.hideOptions': 'Alle Optionen ausblenden',
+   'chat.questionCard.submit': 'Senden',
+   'chat.questionCard.next': 'Weiter',
+   'chat.questionCard.dismiss': 'Verwerfen',
+diff --git a/packages/ui/src/lib/i18n/messages/en.ts b/packages/ui/src/lib/i18n/messages/en.ts
+index 20b83c221..8b49da955 100644
+--- a/packages/ui/src/lib/i18n/messages/en.ts
++++ b/packages/ui/src/lib/i18n/messages/en.ts
+@@ -2598,6 +2598,8 @@ export const dict = {
+   'chat.questionCard.recommended': 'recommended',
+   'chat.questionCard.other': 'Other…',
+   'chat.questionCard.yourAnswer': 'Your answer',
++  'chat.questionCard.showOptions': 'Show all options',
++  'chat.questionCard.hideOptions': 'Hide all options',
+   'chat.questionCard.submit': 'Submit',
+   'chat.questionCard.next': 'Next',
+   'chat.questionCard.dismiss': 'Dismiss',
+diff --git a/packages/ui/src/lib/i18n/messages/es.ts b/packages/ui/src/lib/i18n/messages/es.ts
+index 74844ae17..282b8b0ab 100644
+--- a/packages/ui/src/lib/i18n/messages/es.ts
++++ b/packages/ui/src/lib/i18n/messages/es.ts
+@@ -2566,6 +2566,8 @@ export const dict: Record<I18nKey, string> = {
+   "chat.questionCard.recommended": "recomendado",
+   "chat.questionCard.other": "Otro…",
+   "chat.questionCard.yourAnswer": "Tu respuesta",
++  "chat.questionCard.showOptions": "Mostrar todas las opciones",
++  "chat.questionCard.hideOptions": "Ocultar todas las opciones",
+   "chat.questionCard.submit": "Enviar",
+   "chat.questionCard.next": "Siguiente",
+   "chat.questionCard.dismiss": "Descartar",
+diff --git a/packages/ui/src/lib/i18n/messages/fr.ts b/packages/ui/src/lib/i18n/messages/fr.ts
+index aff896e29..8c347ff52 100644
+--- a/packages/ui/src/lib/i18n/messages/fr.ts
++++ b/packages/ui/src/lib/i18n/messages/fr.ts
+@@ -2314,6 +2314,8 @@ export const dict = {
+   'chat.questionCard.recommended': 'recommandé',
+   'chat.questionCard.other': 'Autre…',
+   'chat.questionCard.yourAnswer': 'Votre réponse',
++  'chat.questionCard.showOptions': 'Afficher toutes les options',
++  'chat.questionCard.hideOptions': 'Masquer toutes les options',
+   'chat.questionCard.submit': 'Soumettre',
+   'chat.questionCard.next': 'Suivant',
+   'chat.questionCard.dismiss': 'Ignorer',
+diff --git a/packages/ui/src/lib/i18n/messages/he.ts b/packages/ui/src/lib/i18n/messages/he.ts
+index 2141cde65..a583a0556 100644
+--- a/packages/ui/src/lib/i18n/messages/he.ts
++++ b/packages/ui/src/lib/i18n/messages/he.ts
+@@ -2510,6 +2510,8 @@ export const dict = {
+   'chat.questionCard.recommended': 'מומלץ',
+   'chat.questionCard.other': 'אחר…',
+   'chat.questionCard.yourAnswer': 'התשובה שלך',
++  'chat.questionCard.showOptions': 'הצג את כל האפשרויות',
++  'chat.questionCard.hideOptions': 'הסתר את כל האפשרויות',
+   'chat.questionCard.submit': 'שלח',
+   'chat.questionCard.next': 'הבא',
+   'chat.questionCard.dismiss': 'דלג',
+diff --git a/packages/ui/src/lib/i18n/messages/ja.ts b/packages/ui/src/lib/i18n/messages/ja.ts
+index a083df639..9dca89a8c 100644
+--- a/packages/ui/src/lib/i18n/messages/ja.ts
++++ b/packages/ui/src/lib/i18n/messages/ja.ts
+@@ -2594,6 +2594,8 @@ export const dict: Record<I18nKey, string> = {
+   'chat.questionCard.recommended': '推奨',
+   'chat.questionCard.other': 'その他…',
+   'chat.questionCard.yourAnswer': 'あなたの回答',
++  'chat.questionCard.showOptions': 'すべての選択肢を表示',
++  'chat.questionCard.hideOptions': 'すべての選択肢を隠す',
+   'chat.questionCard.submit': '送信',
+   'chat.questionCard.next': '次へ',
+   'chat.questionCard.dismiss': '閉じる',
+diff --git a/packages/ui/src/lib/i18n/messages/ko.ts b/packages/ui/src/lib/i18n/messages/ko.ts
+index 1a2a4438c..92f648e86 100644
+--- a/packages/ui/src/lib/i18n/messages/ko.ts
++++ b/packages/ui/src/lib/i18n/messages/ko.ts
+@@ -2598,6 +2598,8 @@ export const dict: Record<I18nKey, string> = {
+   'chat.questionCard.recommended': '추천',
+   'chat.questionCard.other': '기타…',
+   'chat.questionCard.yourAnswer': '내 답변',
++  'chat.questionCard.showOptions': '모든 옵션 보기',
++  'chat.questionCard.hideOptions': '모든 옵션 숨기기',
+   'chat.questionCard.submit': '제출',
+   'chat.questionCard.next': '다음',
+   'chat.questionCard.dismiss': '닫기',
+diff --git a/packages/ui/src/lib/i18n/messages/nl.ts b/packages/ui/src/lib/i18n/messages/nl.ts
+index d26e9a9ce..75058b7f8 100644
+--- a/packages/ui/src/lib/i18n/messages/nl.ts
++++ b/packages/ui/src/lib/i18n/messages/nl.ts
+@@ -2598,6 +2598,8 @@ export const dict = {
+   'chat.questionCard.recommended': 'aanbevolen',
+   'chat.questionCard.other': 'Anders…',
+   'chat.questionCard.yourAnswer': 'Uw antwoord',
++  'chat.questionCard.showOptions': 'Alle opties tonen',
++  'chat.questionCard.hideOptions': 'Alle opties verbergen',
+   'chat.questionCard.submit': 'Verzenden',
+   'chat.questionCard.next': 'Volgende',
+   'chat.questionCard.dismiss': 'Sluiten',
+diff --git a/packages/ui/src/lib/i18n/messages/pl.ts b/packages/ui/src/lib/i18n/messages/pl.ts
+index fa2a0a921..0f6621050 100644
+--- a/packages/ui/src/lib/i18n/messages/pl.ts
++++ b/packages/ui/src/lib/i18n/messages/pl.ts
+@@ -1161,6 +1161,8 @@ export const dict: Record<I18nKey, string> = {
+   'chat.questionCard.recommended': 'rekomendowane',
+   'chat.questionCard.other': 'Inne...',
+   'chat.questionCard.yourAnswer': 'Twoja odpowiedź',
++  'chat.questionCard.showOptions': 'Pokaż wszystkie opcje',
++  'chat.questionCard.hideOptions': 'Ukryj wszystkie opcje',
+   'chat.questionCard.submit': 'Wyślij',
+   'chat.questionCard.next': 'Następne',
+   'chat.questionCard.dismiss': 'Odrzuć',
+diff --git a/packages/ui/src/lib/i18n/messages/pt-BR.ts b/packages/ui/src/lib/i18n/messages/pt-BR.ts
+index d542efc72..9d36adc88 100644
+--- a/packages/ui/src/lib/i18n/messages/pt-BR.ts
++++ b/packages/ui/src/lib/i18n/messages/pt-BR.ts
+@@ -2568,6 +2568,8 @@ export const dict: Record<I18nKey, string> = {
+   "chat.questionCard.recommended": "recomendado",
+   "chat.questionCard.other": "Outro…",
+   "chat.questionCard.yourAnswer": "Sua resposta",
++  "chat.questionCard.showOptions": "Mostrar todas as opções",
++  "chat.questionCard.hideOptions": "Ocultar todas as opções",
+   "chat.questionCard.submit": "Enviar",
+   "chat.questionCard.next": "Próximo",
+   "chat.questionCard.dismiss": "Descartar",
+diff --git a/packages/ui/src/lib/i18n/messages/tr.ts b/packages/ui/src/lib/i18n/messages/tr.ts
+index 321e6cf80..c3d736570 100644
+--- a/packages/ui/src/lib/i18n/messages/tr.ts
++++ b/packages/ui/src/lib/i18n/messages/tr.ts
+@@ -2440,6 +2440,8 @@ export const dict = {
+   'chat.questionCard.recommended': 'önerilen',
+   'chat.questionCard.other': 'Diğer…',
+   'chat.questionCard.yourAnswer': 'Yanıtın',
++  'chat.questionCard.showOptions': 'Tüm seçenekleri göster',
++  'chat.questionCard.hideOptions': 'Tüm seçenekleri gizle',
+   'chat.questionCard.submit': 'Gönder',
+   'chat.questionCard.next': 'İleri',
+   'chat.questionCard.dismiss': 'Yok say',
+diff --git a/packages/ui/src/lib/i18n/messages/uk.ts b/packages/ui/src/lib/i18n/messages/uk.ts
+index 727fced9e..39ed32de5 100644
+--- a/packages/ui/src/lib/i18n/messages/uk.ts
++++ b/packages/ui/src/lib/i18n/messages/uk.ts
+@@ -2566,6 +2566,8 @@ export const dict: Record<I18nKey, string> = {
+   "chat.questionCard.recommended": "рекомендований",
+   "chat.questionCard.other": "Інше…",
+   "chat.questionCard.yourAnswer": "Ваша відповідь",
++  "chat.questionCard.showOptions": "Показати всі варіанти",
++  "chat.questionCard.hideOptions": "Сховати всі варіанти",
+   "chat.questionCard.submit": "Надіслати",
+   "chat.questionCard.next": "Далі",
+   "chat.questionCard.dismiss": "Відхилити",
+diff --git a/packages/ui/src/lib/i18n/messages/zh-CN.ts b/packages/ui/src/lib/i18n/messages/zh-CN.ts
+index 3b7ab1e2a..e8f0d80d7 100644
+--- a/packages/ui/src/lib/i18n/messages/zh-CN.ts
++++ b/packages/ui/src/lib/i18n/messages/zh-CN.ts
+@@ -2564,6 +2564,8 @@ export const dict: Record<I18nKey, string> = {
+   'chat.questionCard.recommended': '推荐',
+   'chat.questionCard.other': '其他…',
+   'chat.questionCard.yourAnswer': '你的回答',
++  'chat.questionCard.showOptions': '显示所有选项',
++  'chat.questionCard.hideOptions': '隐藏所有选项',
+   'chat.questionCard.submit': '提交',
+   'chat.questionCard.next': '下一个',
+   'chat.questionCard.dismiss': '忽略',
+diff --git a/packages/ui/src/lib/i18n/messages/zh-TW.ts b/packages/ui/src/lib/i18n/messages/zh-TW.ts
+index 048ac233d..d566449dd 100644
+--- a/packages/ui/src/lib/i18n/messages/zh-TW.ts
++++ b/packages/ui/src/lib/i18n/messages/zh-TW.ts
+@@ -2575,6 +2575,8 @@ export const dict: Record<I18nKey, string> = {
+   'chat.questionCard.recommended': '推薦',
+   'chat.questionCard.other': '其他…',
+   'chat.questionCard.yourAnswer': '你的回答',
++  'chat.questionCard.showOptions': '顯示所有選項',
++  'chat.questionCard.hideOptions': '隱藏所有選項',
+   'chat.questionCard.submit': '提交',
+   'chat.questionCard.next': '下一個',
+   'chat.questionCard.dismiss': '忽略',
