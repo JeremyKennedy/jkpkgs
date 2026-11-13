@@ -164,10 +164,10 @@ index 43284997d..225b7726c 100644
          turnExpansion,
 diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
 new file mode 100644
-index 000000000..c8669d83f
+index 000000000..8da6930d8
 --- /dev/null
 +++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
-@@ -0,0 +1,125 @@
+@@ -0,0 +1,135 @@
 +import React from 'react';
 +import { expect, test } from 'bun:test';
 +import { plugin } from 'bun';
@@ -293,12 +293,22 @@ index 000000000..c8669d83f
 +    expect(render(card(ask([{ question: 'Ship it?', answer: 'Yes' }]), false, true))).toContain('data-message-id="msg_assistant"');
 +    expect(render(card(ask([{ question: 'Ship it?', answer: 'Yes' }])))).not.toContain('data-message-id=');
 +});
++
++test('the card fits its content, aligns right and uses transcript typography', () => {
++    const markup = render(card(ask([{ question: 'Ship it?', answer: 'Yes' }])));
++    expect(markup).toContain('flex flex-col items-end');
++    expect(markup).toContain('w-fit max-w-[85%]');
++    expect(markup).toContain('typography-meta');
++    expect(markup).toContain('typography-markdown');
++    expect(markup).not.toContain('text-base');
++    expect(markup).toContain('color-mix(in srgb, var(--status-question-background) 55%, transparent)');
++});
 diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
 new file mode 100644
-index 000000000..d3dff542f
+index 000000000..5c7d55a04
 --- /dev/null
 +++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
-@@ -0,0 +1,149 @@
+@@ -0,0 +1,157 @@
 +import React from 'react';
 +
 +import { useDeviceInfo } from '@/lib/device';
@@ -314,11 +324,15 @@ index 000000000..d3dff542f
 +} from '../lib/questionEntries';
 +import { stickyHeaderBackground } from './stickyHeaderBackground';
 +
-+const CARD_STYLE: React.CSSProperties = {
-+    backgroundColor: 'var(--status-question-background)',
-+    borderColor: 'var(--status-question-border)',
-+};
 +const RAIL_STYLE: React.CSSProperties = { borderColor: 'var(--status-question)' };
++
++// Match the prompt bubble's shape and subtle border without its body-sized
++// text or full-column footprint. The faint purple fill identifies questions.
++const CARD_STYLE: React.CSSProperties = {
++    borderRadius: 'var(--radius-xl)',
++    borderBottomRightRadius: 'var(--radius-sm)',
++    backgroundColor: 'color-mix(in srgb, var(--status-question-background) 55%, transparent)',
++};
 +
 +/** A filled mark for the chosen option, an empty ring for the rest. */
 +const OptionMark: React.FC<{ chosen: boolean }> = ({ chosen }) => (
@@ -367,13 +381,13 @@ index 000000000..d3dff542f
 +            data-question-turn-header=""
 +            data-message-id={startsMessage ? messageId : undefined}
 +        >
-+            <div className="chat-message-column relative">
++            <div className="chat-message-column relative flex flex-col items-end">
 +                <div
 +                    role="button"
 +                    tabIndex={0}
 +                    aria-expanded={open}
 +                    aria-label={t(open ? 'chat.questionCard.hideOptions' : 'chat.questionCard.showOptions')}
-+                    className="w-full cursor-pointer rounded-lg border px-4 py-3 transition-[filter] hover:brightness-110 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--status-question)]"
++                    className="w-fit max-w-[85%] cursor-pointer border border-primary/5 px-5 py-3 transition-[filter] hover:brightness-110 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--status-question)]"
 +                    style={CARD_STYLE}
 +                    onClick={toggle}
 +                    onKeyDown={(event) => {
@@ -382,14 +396,18 @@ index 000000000..d3dff542f
 +                        toggle();
 +                    }}
 +                >
-+                    <div className={cn('space-y-3', open && 'max-h-[40dvh] overflow-y-auto overscroll-contain')}>
++                    <div className={cn('space-y-2.5', open && 'max-h-[40dvh] overflow-y-auto overscroll-contain')}>
 +                        {answered.map(({ entry, answer }) => {
 +                            const picked = selectedOptionLabels(entry.options, entry.answer, entry.multiple);
 +                            return (
-+                                <div key={entry.partId} className="min-w-0 space-y-1 border-s-2 ps-3" style={RAIL_STYLE}>
++                                <div
++                                    key={entry.partId}
++                                    className="min-w-0 space-y-0.5 border-s-2 ps-2.5"
++                                    style={RAIL_STYLE}
++                                >
 +                                    <div
 +                                        dir="auto"
-+                                        className={cn('text-base leading-snug text-foreground/80', !open && 'line-clamp-2')}
++                                        className={cn('typography-meta text-foreground/70', !open && 'line-clamp-2')}
 +                                        title={entry.question}
 +                                    >
 +                                        {questionSentence(entry.question)}
@@ -404,12 +422,12 @@ index 000000000..d3dff542f
 +                                                        <span className="min-w-0">
 +                                                            <span
 +                                                                dir="auto"
-+                                                                className={cn('block break-words text-base leading-snug', chosen ? 'font-semibold text-foreground' : 'text-foreground/60')}
++                                                                className={cn('block break-words typography-markdown leading-snug', chosen ? 'font-medium text-foreground' : 'text-foreground/60')}
 +                                                            >
 +                                                                {option.label}
 +                                                            </span>
 +                                                            {option.description ? (
-+                                                                <span dir="auto" className="block break-words text-sm leading-snug text-foreground/50">
++                                                                <span dir="auto" className="block break-words typography-meta text-foreground/50">
 +                                                                    {option.description}
 +                                                                </span>
 +                                                            ) : null}
@@ -420,14 +438,14 @@ index 000000000..d3dff542f
 +                                            {picked.size === 0 ? (
 +                                                <div className="flex items-start gap-2.5">
 +                                                    <OptionMark chosen />
-+                                                    <span dir="auto" className="min-w-0 whitespace-pre-wrap break-words text-base font-semibold leading-snug text-foreground">
++                                                    <span dir="auto" className="min-w-0 whitespace-pre-wrap break-words typography-markdown font-medium leading-snug text-foreground">
 +                                                        {answer}
 +                                                    </span>
 +                                                </div>
 +                                            ) : null}
 +                                        </div>
 +                                    ) : (
-+                                        <div dir="auto" className="whitespace-pre-wrap break-words text-base font-semibold leading-snug text-foreground line-clamp-3">
++                                        <div dir="auto" className="whitespace-pre-wrap break-words typography-markdown font-medium leading-snug text-foreground line-clamp-3">
 +                                            {answer}
 +                                        </div>
 +                                    )}
