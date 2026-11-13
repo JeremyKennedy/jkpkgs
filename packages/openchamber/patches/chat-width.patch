@@ -155,6 +155,19 @@ index b21755639..0b18115fc 100644
  
    React.useEffect(() => {
      void refreshSourceControlProviders(apis.sourceControl);
+diff --git a/packages/ui/src/components/chat/FormCard.tsx b/packages/ui/src/components/chat/FormCard.tsx
+index 18498be7d..d3accc0f9 100644
+--- a/packages/ui/src/components/chat/FormCard.tsx
++++ b/packages/ui/src/components/chat/FormCard.tsx
+@@ -213,7 +213,7 @@ const GenericFormCard: React.FC<FormCardProps> = ({ form, recovered }) => {
+ 
+     return (
+         <div className="group w-full pt-0 pb-2">
+-            <div className="chat-column">
++            <div className="chat-card-column">
+                 <div className="-mt-1 border border-edge-muted rounded-xl bg-muted/10">
+                     <div className="px-2 py-1.5 border-b border-edge-muted">
+                         <div className="flex items-center gap-2">
 diff --git a/packages/ui/src/components/chat/MessageList.tsx b/packages/ui/src/components/chat/MessageList.tsx
 index 6ca4f5129..f47a3e58b 100644
 --- a/packages/ui/src/components/chat/MessageList.tsx
@@ -212,6 +225,32 @@ index 6ca4f5129..f47a3e58b 100644
      }, [scrollerNode]);
  
      const setListRef = React.useCallback((list: LegendListRef | null) => {
+diff --git a/packages/ui/src/components/chat/PermissionCard.tsx b/packages/ui/src/components/chat/PermissionCard.tsx
+index d0051f1bb..a3f321faf 100644
+--- a/packages/ui/src/components/chat/PermissionCard.tsx
++++ b/packages/ui/src/components/chat/PermissionCard.tsx
+@@ -464,7 +464,7 @@ export const PermissionCard: React.FC<PermissionCardProps> = ({ permission, onRe
+ 
+   return (
+     <div className="group w-full pt-0 pb-2">
+-      <div className="chat-column">
++      <div className="chat-card-column">
+         <div className="-mt-1 border border-edge-muted rounded-xl bg-muted/10">
+           <div className="px-2 py-1.5 border-b border-edge-muted bg-muted/5">
+             <div className="flex items-center justify-between">
+diff --git a/packages/ui/src/components/chat/WebSearchConsent.tsx b/packages/ui/src/components/chat/WebSearchConsent.tsx
+index 54c44480b..c1cd3ba98 100644
+--- a/packages/ui/src/components/chat/WebSearchConsent.tsx
++++ b/packages/ui/src/components/chat/WebSearchConsent.tsx
+@@ -165,7 +165,7 @@ export const WebSearchConsentCard: React.FC<{ form: FormRequest; consent: WebSea
+     const { pending, answer, dismiss } = useConsentReply(form, consent);
+     return (
+         <div className="group w-full pt-0 pb-2">
+-            <div className="chat-column">
++            <div className="chat-card-column">
+                 <div className="-mt-1 rounded-xl border border-edge-muted bg-muted/10">
+                     <div className="flex items-center gap-2 border-b border-edge-muted px-3 py-1.5">
+                         <Icon name="global" className="size-3.5 text-primary" />
 diff --git a/packages/ui/src/components/sections/DOCUMENTATION.md b/packages/ui/src/components/sections/DOCUMENTATION.md
 index c2bdb73e1..91fcba5ea 100644
 --- a/packages/ui/src/components/sections/DOCUMENTATION.md
@@ -234,29 +273,31 @@ index c2bdb73e1..91fcba5ea 100644
 +where chips would put five equal-looking choices in a row the page already
 +fills with checkboxes.
 diff --git a/packages/ui/src/components/sections/openchamber/ChatSettings.tsx b/packages/ui/src/components/sections/openchamber/ChatSettings.tsx
-index 5fc431688..62601e3a5 100644
+index 5fc431688..6b6d2b1be 100644
 --- a/packages/ui/src/components/sections/openchamber/ChatSettings.tsx
 +++ b/packages/ui/src/components/sections/openchamber/ChatSettings.tsx
-@@ -2,6 +2,7 @@ import React from 'react';
+@@ -2,7 +2,9 @@ import React from 'react';
  
  import { Input } from '@/components/ui/input';
  import { NumberInput } from '@/components/ui/number-input';
 +import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
  import { SortableTabsStrip, type SortableTabsStripItem } from '@/components/ui/sortable-tabs-strip';
++import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
  import {
    SettingsSection,
-@@ -16,8 +17,10 @@ import {
+   SettingsFieldRow,
+@@ -16,8 +18,10 @@ import {
    SETTINGS_NUMBER_STEPPER_ROW_CLASS,
    SETTINGS_NUMBER_UNIT_CLASS,
    SETTINGS_OPTION_STACK_CLASS,
-+  SETTINGS_SELECT_ROW_TRIGGER_CLASS,
++  SETTINGS_SELECT_WIDE_ROW_TRIGGER_CLASS,
  } from '@/components/sections/shared/SettingsSection';
  import { JevAccessNote } from '@/components/sections/classification/JevAccessNote';
-+import { CHAT_WIDTH_LEVELS, isChatWidthLevel, type ChatWidthLevel } from '@/lib/chatWidth';
++import { CHAT_WIDTH_LEVELS, DEFAULT_CHAT_WIDTH, isChatWidthLevel, type ChatWidthLevel } from '@/lib/chatWidth';
  import { isVSCodeRuntime } from '@/lib/desktop';
  import { useDeviceInfo } from '@/lib/device';
  import { useI18n, type I18nKey } from '@/lib/i18n';
-@@ -77,6 +80,14 @@ const LARGE_TEXT_PASTE_BEHAVIOR_OPTIONS: ChipOption<LargeTextPasteBehavior>[] =
+@@ -77,6 +81,14 @@ const LARGE_TEXT_PASTE_BEHAVIOR_OPTIONS: ChipOption<LargeTextPasteBehavior>[] =
    { id: 'inline-double-paste', labelKey: 'settings.openchamber.visual.option.largeTextPaste.inlineDoublePaste.label' },
  ];
  
@@ -271,7 +312,7 @@ index 5fc431688..62601e3a5 100644
  /** A sub-option that only matters while the option above it is on. */
  const NESTED_OPTION_CLASS = 'ps-6';
  
-@@ -127,8 +138,8 @@ const MessagesTab: React.FC = () => {
+@@ -127,8 +139,13 @@ const MessagesTab: React.FC = () => {
    const setShowTurnChangedFiles = useUIStore((state) => state.setShowTurnChangedFiles);
    const streamingAutoFollowEnabled = useUIStore((state) => state.streamingAutoFollowEnabled);
    const setStreamingAutoFollowEnabled = useUIStore((state) => state.setStreamingAutoFollowEnabled);
@@ -279,10 +320,15 @@ index 5fc431688..62601e3a5 100644
 -  const setWideChatLayoutEnabled = useUIStore((state) => state.setWideChatLayoutEnabled);
 +  const chatWidth = useUIStore((state) => state.chatWidth);
 +  const setChatWidth = useUIStore((state) => state.setChatWidth);
++  // A store written by a build with more levels can hold one this build does
++  // not name; the transcript already falls back to compact, so the picker must
++  // show the same level instead of a blank value.
++  const selectedChatWidth = isChatWidthLevel(chatWidth) ? chatWidth : DEFAULT_CHAT_WIDTH;
++  const selectedChatWidthLabel = t(CHAT_WIDTH_OPTION_LABEL_KEYS[selectedChatWidth]);
    const promptNavigatorEnabled = useUIStore((state) => state.promptNavigatorEnabled);
    const setPromptNavigatorEnabled = useUIStore((state) => state.setPromptNavigatorEnabled);
    const collapsibleUserMessages = useUIStore((state) => state.collapsibleUserMessages);
-@@ -228,16 +239,35 @@ const MessagesTab: React.FC = () => {
+@@ -228,16 +245,40 @@ const MessagesTab: React.FC = () => {
          settingsItem="chat.message-appearance"
          contentClassName={SETTINGS_OPTION_STACK_CLASS}
        >
@@ -302,20 +348,25 @@ index 5fc431688..62601e3a5 100644
 +          settingsItem="chat.width"
 +        >
 +          <Select<ChatWidthLevel>
-+            value={chatWidth}
++            value={selectedChatWidth}
 +            onValueChange={(value) => {
 +              setChatWidth(value);
 +              void updateDesktopSettings({ chatWidth: value });
 +            }}
 +          >
-+            <SelectTrigger
-+              className={SETTINGS_SELECT_ROW_TRIGGER_CLASS}
-+              aria-label={t('settings.openchamber.visual.field.chatWidthAria')}
-+            >
-+              <SelectValue>
-+                {(value) => (value !== undefined && isChatWidthLevel(value) ? t(CHAT_WIDTH_OPTION_LABEL_KEYS[value]) : null)}
-+              </SelectValue>
-+            </SelectTrigger>
++            <Tooltip>
++              <TooltipTrigger asChild>
++                <SelectTrigger
++                  className={SETTINGS_SELECT_WIDE_ROW_TRIGGER_CLASS}
++                  aria-label={t('settings.openchamber.visual.field.chatWidthAria', { value: selectedChatWidthLabel })}
++                >
++                  <SelectValue>
++                    {(value) => (value !== undefined && isChatWidthLevel(value) ? t(CHAT_WIDTH_OPTION_LABEL_KEYS[value]) : null)}
++                  </SelectValue>
++                </SelectTrigger>
++              </TooltipTrigger>
++              <TooltipContent>{selectedChatWidthLabel}</TooltipContent>
++            </Tooltip>
 +            <SelectContent>
 +              {CHAT_WIDTH_LEVELS.map((level) => (
 +                <SelectItem key={level} value={level}>
@@ -341,11 +392,29 @@ index 09bcd72ac..65b5088b3 100644
    ['chat.prompt-navigator', 'messages'],
    ['chat.collapsible-user-messages', 'messages'],
    ['chat.sticky-user-header', 'messages'],
+diff --git a/packages/ui/src/components/sections/shared/SettingsSection.tsx b/packages/ui/src/components/sections/shared/SettingsSection.tsx
+index 1c4c23736..2726c499c 100644
+--- a/packages/ui/src/components/sections/shared/SettingsSection.tsx
++++ b/packages/ui/src/components/sections/shared/SettingsSection.tsx
+@@ -28,6 +28,13 @@ export const SETTINGS_SELECT_TRIGGER_CLASS = SETTINGS_TRIGGER_WIDTH_CLASS;
+ /** Settings select trigger in SettingsFieldRow control columns. */
+ export const SETTINGS_SELECT_ROW_TRIGGER_CLASS = SETTINGS_TRIGGER_WIDTH_CLASS;
+ 
++/**
++ * Wider cap for a select whose values are descriptive phrases rather than short
++ * names. It still hugs its value and truncates; the extra room only keeps a
++ * translated phrase like "Voll (Nachrichten + Eingabe)" readable at rest.
++ */
++export const SETTINGS_SELECT_WIDE_ROW_TRIGGER_CLASS = 'w-fit max-w-[36ch]';
++
+ /**
+  * Width for every settings NumberInput stepper. Font-relative for the same
+  * reason as the trigger cap above: a rem-fixed `w-16`/`w-20`/`w-24`/`w-32`
 diff --git a/packages/ui/src/lib/DOCUMENTATION.md b/packages/ui/src/lib/DOCUMENTATION.md
-index cd38893de..37ab8ec29 100644
+index cd38893de..574d97ca1 100644
 --- a/packages/ui/src/lib/DOCUMENTATION.md
 +++ b/packages/ui/src/lib/DOCUMENTATION.md
-@@ -1,25 +1,47 @@
+@@ -1,25 +1,52 @@
 -# Hosted surface selection
 +# Library modules
  
@@ -385,30 +454,37 @@ index cd38893de..37ab8ec29 100644
 +
 +### Ownership
 +
-+`chatWidth.ts` owns the five width levels (`compact`, `standard`, `wide`, `full-width`, `full`), their column values, and the document-root application. `App.tsx`, `apps/MobileApp.tsx`, `apps/VSCodeApp.tsx` and `apps/ElectronMiniChatApp.tsx` call `applyChatWidth` for their shell. `styles/typography.css` reads the two root properties it writes for `.chat-column`, `.chat-input-column` and `.chat-message-column`. The settings registry parses the stored level (`lib/settings/registry.ts`) and the server sanitizes it (`packages/web/server/lib/opencode/settings-helpers.js`).
++`chatWidth.ts` owns the five width levels (`compact`, `standard`, `wide`, `full-width`, `full`), their column values, and the document-root application. `App.tsx`, `apps/MobileApp.tsx`, `apps/VSCodeApp.tsx` and `apps/ElectronMiniChatApp.tsx` call `applyChatWidth` for their shell. `styles/typography.css` reads the two root properties it writes for `.chat-column`, `.chat-input-column`, `.chat-message-column` and the narrow-card `.chat-card-column`. The settings registry parses the stored level (`lib/settings/registry.ts`) and the server sanitizes it (`packages/web/server/lib/opencode/settings-helpers.js`).
 +
 +### Invariants
 +
 +- One mechanism carries the width: the root properties `--chat-column-width` and `--chat-message-column-width`. CSS must not restate a level's width in a class rule.
++- `.chat-card-column` keeps the narrow permission, form and consent cards on `min(100%, var(--chat-column-width, 48rem), 64rem)`: never wider than the chosen chat column, never wider than the readable column the old wide layout gave them, and independent of the transcript's own column.
 +- `applyChatWidth` validates the level it is given and falls back to `compact`: a store written by a build with more levels can carry one this build does not define after a downgrade, and hydration skips the migrate hook.
 +- `components/chat/MessageList.tsx` estimates unmeasured rows from `readChatMessageColumnWidthPx`, which resolves `--chat-message-column-width` the same way the stylesheet does (`rem` against the root font size, `100%` as the window width, the compact column when unset or unparseable). Its root observer refreshes the cached estimate when the property changes, because the scroller's own box does not resize with it.
 +- The same estimate subtracts `readChatColumnPaddingPx`, which mirrors the stylesheet's `clamp()` padding rules, the 1024px switch between them, the root font size and `--padding-scale`. A fixed 48/32px subtraction would drift with the interface font size and the padding scale.
-+- A saved `wideChatLayoutEnabled` switch reads as `full-width` and a saved `false` as `compact`, so a settings file from an older build keeps the user's choice. A level saved as `wide` before the level gained a column of its own reads as `full-width` in the store migration.
++- A saved `wideChatLayoutEnabled` switch reads as `full-width` and a saved `false` as `compact`, so a settings file from an older build keeps the user's choice. A `wide` level saved by the earlier revision of this setting reads as `full-width`: the store migration bumps to version 30, and a version-1 `preferences.json` is remapped at its parse boundary. A `wide` chosen after those versions stays the wider column.
 +
 +### Decisions
 +
 +#### Why wide moves both columns and full-width keeps the old switch layout
 +
 +`wide` widens the transcript and the composer together to 80rem, so the composer never sits narrower than the messages. `full-width` is the layout the old wide-layout switch produced: the transcript fills the chat width while the composer and docked rows stay on the chosen column, kept as its own level so nobody's layout changes on upgrade. `full` fills the chat area with both.
++
++#### Why narrow cards keep a fixed readable cap instead of following the column
++
++The permission, form and consent cards hold a few lines of content; at `full` they became a 1116px bar. `.chat-card-column` keeps them at most 64rem, the widest column the old wide layout gave them, and never wider than the chosen chat column. Following the transcript's `100%` at `full` was rejected because the card's own content does not grow with it, and following the composer column alone would still stretch them to 80rem at `wide`.
 diff --git a/packages/ui/src/lib/chatWidth.test.ts b/packages/ui/src/lib/chatWidth.test.ts
 new file mode 100644
-index 000000000..9c81f6465
+index 000000000..847707e04
 --- /dev/null
 +++ b/packages/ui/src/lib/chatWidth.test.ts
-@@ -0,0 +1,133 @@
+@@ -0,0 +1,152 @@
 +import { describe, expect, test } from 'bun:test';
++import { readFileSync } from 'node:fs';
 +
 +import {
++  CHAT_COLUMN_PADDING_RULES,
 +  CHAT_WIDTH_CSS,
 +  DEFAULT_CHAT_WIDTH,
 +  applyChatWidth,
@@ -538,13 +614,30 @@ index 000000000..9c81f6465
 +    expect(chatColumnPaddingPx({ parentWidthPx: 1200, viewportWidthPx: 1600, rootFontSizePx: 16, paddingScale: 2 })).toBe(48);
 +    expect(chatColumnPaddingPx({ parentWidthPx: 800, viewportWidthPx: 800, rootFontSizePx: 16, paddingScale: 2 })).toBe(32);
 +  });
++
++  test('the stylesheet padding rules still match the constants', () => {
++    const css = readFileSync(new URL('../styles/typography.css', import.meta.url), 'utf8');
++    const { narrow, wide, mediaMinPx } = CHAT_COLUMN_PADDING_RULES;
++    const narrowRule = `clamp(${narrow.minRem}rem, ${narrow.preferredVw}vw, ${narrow.maxRem}rem)`;
++    const wideRule = `clamp(${wide.minRem}rem, ${wide.preferredPercent}%, ${wide.maxRem}rem)`;
++    const blocksOf = (selector: string) => (
++      [...css.matchAll(new RegExp(`\\.${selector}\\s*\\{([^}]*)\\}`, 'g'))].map((match) => match[1])
++    );
++
++    for (const selector of ['chat-column', 'chat-input-column', 'chat-message-column', 'chat-card-column']) {
++      const blocks = blocksOf(selector);
++      expect(blocks.some((block) => block.includes(narrowRule))).toBe(true);
++      expect(blocks.some((block) => block.includes(wideRule))).toBe(true);
++    }
++    expect(css).toContain(`@media (min-width: ${mediaMinPx}px)`);
++  });
 +});
 diff --git a/packages/ui/src/lib/chatWidth.ts b/packages/ui/src/lib/chatWidth.ts
 new file mode 100644
-index 000000000..6f5d2f770
+index 000000000..040f3206f
 --- /dev/null
 +++ b/packages/ui/src/lib/chatWidth.ts
-@@ -0,0 +1,143 @@
+@@ -0,0 +1,156 @@
 +import { z } from 'zod';
 +
 +/**
@@ -658,6 +751,18 @@ index 000000000..6f5d2f770
 +  paddingScale: number;
 +};
 +
++/**
++ * The side-padding rules `styles/typography.css` applies to the chat columns.
++ * `chatWidth.test.ts` reads that stylesheet and fails when these drift.
++ */
++export const CHAT_COLUMN_PADDING_RULES = {
++  /** Below the stylesheet's viewport switch: clamp(0.75rem, 2.5vw, 1rem). */
++  narrow: { minRem: 0.75, preferredVw: 2.5, maxRem: 1 },
++  /** At and above the switch: clamp(1rem, 3% of the column, 1.5rem). */
++  wide: { minRem: 1, preferredPercent: 3, maxRem: 1.5 },
++  mediaMinPx: 1024,
++} as const;
++
 +const clamp = (value: number, min: number, max: number): number => Math.min(Math.max(value, min), max);
 +
 +/**
@@ -667,12 +772,13 @@ index 000000000..6f5d2f770
 + */
 +export const chatColumnPaddingPx = (input: ChatColumnPaddingInput): number => {
 +  const paddingScale = Number.isFinite(input.paddingScale) ? input.paddingScale : 1;
-+  if (input.viewportWidthPx >= 1024) {
-+    const preferred = input.parentWidthPx * 0.03;
-+    return clamp(preferred, input.rootFontSizePx, input.rootFontSizePx * 1.5) * paddingScale;
++  const { narrow, wide, mediaMinPx } = CHAT_COLUMN_PADDING_RULES;
++  if (input.viewportWidthPx >= mediaMinPx) {
++    const preferred = input.parentWidthPx * (wide.preferredPercent / 100);
++    return clamp(preferred, input.rootFontSizePx * wide.minRem, input.rootFontSizePx * wide.maxRem) * paddingScale;
 +  }
-+  const preferred = input.viewportWidthPx * 0.025;
-+  return clamp(preferred, input.rootFontSizePx * 0.75, input.rootFontSizePx) * paddingScale;
++  const preferred = input.viewportWidthPx * (narrow.preferredVw / 100);
++  return clamp(preferred, input.rootFontSizePx * narrow.minRem, input.rootFontSizePx * narrow.maxRem) * paddingScale;
 +};
 +
 +/** The resolved side padding the stylesheet gives the chat columns at this width. */
@@ -689,7 +795,7 @@ index 000000000..6f5d2f770
 +  });
 +};
 diff --git a/packages/ui/src/lib/i18n/messages/ar.settings.ts b/packages/ui/src/lib/i18n/messages/ar.settings.ts
-index 658eb5d03..783216af9 100644
+index 658eb5d03..37e303e1e 100644
 --- a/packages/ui/src/lib/i18n/messages/ar.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/ar.settings.ts
 @@ -2455,8 +2455,14 @@ export const settingsDict = {
@@ -698,19 +804,19 @@ index 658eb5d03..783216af9 100644
    'settings.openchamber.visual.field.autoSaveEnabledInfo': 'حفظ تعديلات الملفات تلقائيًا بعد التوقف عن الكتابة. عطّله ليصبح الحفظ يدويًا.',
 -  'settings.openchamber.visual.field.wideChatLayoutAria': 'تخطيط محادثة عريض',
 -  'settings.openchamber.visual.field.wideChatLayout': 'تخطيط محادثة عريض',
-+  'settings.openchamber.visual.field.chatWidthAria': 'عرض المحادثة',
++  'settings.openchamber.visual.field.chatWidthAria': 'عرض المحادثة: {value}',
 +  'settings.openchamber.visual.field.chatWidth': 'عرض المحادثة',
-+  'settings.openchamber.visual.field.chatWidthInfo': 'يضبط عرض الرسائل ومربع الكتابة.',
++  'settings.openchamber.visual.field.chatWidthInfo': 'يضبط مدى اتساع الرسائل ومربع الكتابة. لا يمكن أن يتجاوز العمود عرض النافذة أو اللوحة؛ مستوى «كامل (الرسائل فقط)» يُبقي مربع الكتابة بالعرض القياسي.',
 +  'settings.openchamber.visual.option.chatWidth.compact.label': 'مضغوط',
 +  'settings.openchamber.visual.option.chatWidth.standard.label': 'قياسي',
 +  'settings.openchamber.visual.option.chatWidth.wide.label': 'عريض',
 +  'settings.openchamber.visual.option.chatWidth.fullWidth.label': 'كامل (الرسائل فقط)',
-+  'settings.openchamber.visual.option.chatWidth.full.label': 'كامل (الرسائل ومربع الكتابة)',
++  'settings.openchamber.visual.option.chatWidth.full.label': 'كامل (الرسائل + مربع الكتابة)',
    'settings.openchamber.visual.field.codeBlockLineWrapAria': 'التفاف أسطر كتل الشيفرة',
    'settings.openchamber.visual.field.codeBlockLineWrap': 'التفاف أسطر كتل الشيفرة',
    'settings.openchamber.visual.field.tableCellWrap': 'التفاف خلايا الجداول',
 diff --git a/packages/ui/src/lib/i18n/messages/de.settings.ts b/packages/ui/src/lib/i18n/messages/de.settings.ts
-index ab5d3415d..62cea1534 100644
+index ab5d3415d..3bd69cba7 100644
 --- a/packages/ui/src/lib/i18n/messages/de.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/de.settings.ts
 @@ -2383,8 +2383,14 @@ export const settingsDict = {
@@ -719,19 +825,19 @@ index ab5d3415d..62cea1534 100644
    'settings.openchamber.visual.field.promptNavigatorEnabled': 'Prompt-Navigator',
 -  'settings.openchamber.visual.field.wideChatLayoutAria': 'Breites Chat-Layout',
 -  'settings.openchamber.visual.field.wideChatLayout': 'Breites Chat-Layout',
-+  'settings.openchamber.visual.field.chatWidthAria': 'Chatbreite',
++  'settings.openchamber.visual.field.chatWidthAria': 'Chatbreite: {value}',
 +  'settings.openchamber.visual.field.chatWidth': 'Chatbreite',
-+  'settings.openchamber.visual.field.chatWidthInfo': 'Legt fest, wie breit Nachrichten und Eingabefeld sind.',
++  'settings.openchamber.visual.field.chatWidthInfo': 'Legt fest, wie breit Nachrichten und Eingabefeld wachsen können. Die Spalte kann nicht breiter als Fenster oder Bereich werden; die Stufe „Voll (Nachrichten)“ hält das Eingabefeld auf Standardbreite.',
 +  'settings.openchamber.visual.option.chatWidth.compact.label': 'Kompakt',
 +  'settings.openchamber.visual.option.chatWidth.standard.label': 'Standard',
 +  'settings.openchamber.visual.option.chatWidth.wide.label': 'Breit',
-+  'settings.openchamber.visual.option.chatWidth.fullWidth.label': 'Voll (nur Nachrichten)',
-+  'settings.openchamber.visual.option.chatWidth.full.label': 'Voll (Nachrichten und Eingabefeld)',
++  'settings.openchamber.visual.option.chatWidth.fullWidth.label': 'Voll (Nachrichten)',
++  'settings.openchamber.visual.option.chatWidth.full.label': 'Voll (Nachrichten + Eingabe)',
    'settings.openchamber.visual.field.codeBlockLineWrapAria': 'Codeblock-Zeilen umbrechen',
    'settings.openchamber.visual.field.codeBlockLineWrap': 'Codeblock-Zeilen umbrechen',
    'settings.openchamber.visual.field.tableCellWrap': 'Tabellenzellen umbrechen',
 diff --git a/packages/ui/src/lib/i18n/messages/en.settings.ts b/packages/ui/src/lib/i18n/messages/en.settings.ts
-index a435b4630..cad646f28 100644
+index a435b4630..768c3f98f 100644
 --- a/packages/ui/src/lib/i18n/messages/en.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/en.settings.ts
 @@ -2493,8 +2493,14 @@ export const settingsDict = {
@@ -740,19 +846,19 @@ index a435b4630..cad646f28 100644
    'settings.openchamber.visual.option.fileTreeSide.right': 'Right',
 -  'settings.openchamber.visual.field.wideChatLayoutAria': 'Wide chat layout',
 -  'settings.openchamber.visual.field.wideChatLayout': 'Wide chat layout',
-+  'settings.openchamber.visual.field.chatWidthAria': 'Chat width',
++  'settings.openchamber.visual.field.chatWidthAria': 'Chat width: {value}',
 +  'settings.openchamber.visual.field.chatWidth': 'Chat width',
-+  'settings.openchamber.visual.field.chatWidthInfo': 'Sets how wide messages and the composer are.',
++  'settings.openchamber.visual.field.chatWidthInfo': 'Sets how wide messages and the composer can grow. The column cannot exceed the window or panel; the messages-only full level keeps the composer at the standard width.',
 +  'settings.openchamber.visual.option.chatWidth.compact.label': 'Compact',
 +  'settings.openchamber.visual.option.chatWidth.standard.label': 'Standard',
 +  'settings.openchamber.visual.option.chatWidth.wide.label': 'Wide',
-+  'settings.openchamber.visual.option.chatWidth.fullWidth.label': 'Full (messages only)',
-+  'settings.openchamber.visual.option.chatWidth.full.label': 'Full (messages and composer)',
++  'settings.openchamber.visual.option.chatWidth.fullWidth.label': 'Full (messages)',
++  'settings.openchamber.visual.option.chatWidth.full.label': 'Full (messages + composer)',
    'settings.openchamber.visual.field.codeBlockLineWrapAria': 'Wrap code block lines',
    'settings.openchamber.visual.field.codeBlockLineWrap': 'Wrap code block lines',
    'settings.openchamber.visual.field.tableCellWrap': 'Wrap table cells',
 diff --git a/packages/ui/src/lib/i18n/messages/es.settings.ts b/packages/ui/src/lib/i18n/messages/es.settings.ts
-index 2f8d81cb7..28b0be760 100644
+index 2f8d81cb7..0220eedc1 100644
 --- a/packages/ui/src/lib/i18n/messages/es.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/es.settings.ts
 @@ -2448,8 +2448,14 @@ export const settingsDict = {
@@ -761,19 +867,19 @@ index 2f8d81cb7..28b0be760 100644
    "settings.openchamber.visual.option.fileTreeSide.right": "Derecha",
 -  "settings.openchamber.visual.field.wideChatLayoutAria": "Diseño de chat ancho",
 -  "settings.openchamber.visual.field.wideChatLayout": "Diseño de chat ancho",
-+  "settings.openchamber.visual.field.chatWidthAria": "Ancho del chat",
++  "settings.openchamber.visual.field.chatWidthAria": "Ancho del chat: {value}",
 +  "settings.openchamber.visual.field.chatWidth": "Ancho del chat",
-+  "settings.openchamber.visual.field.chatWidthInfo": "Define el ancho de los mensajes y del campo de mensaje.",
++  "settings.openchamber.visual.field.chatWidthInfo": "Define cuánto pueden crecer los mensajes y el campo de mensaje. La columna no puede superar la ventana o el panel; el nivel «Completo (mensajes)» mantiene el campo de mensaje en el ancho estándar.",
 +  "settings.openchamber.visual.option.chatWidth.compact.label": "Compacto",
 +  "settings.openchamber.visual.option.chatWidth.standard.label": "Estándar",
 +  "settings.openchamber.visual.option.chatWidth.wide.label": "Ancho",
-+  "settings.openchamber.visual.option.chatWidth.fullWidth.label": "Completo (solo mensajes)",
-+  "settings.openchamber.visual.option.chatWidth.full.label": "Completo (mensajes y campo de mensaje)",
++  "settings.openchamber.visual.option.chatWidth.fullWidth.label": "Completo (mensajes)",
++  "settings.openchamber.visual.option.chatWidth.full.label": "Completo (mensajes + entrada)",
    "settings.openchamber.visual.field.showSplitAssistantMessageActionsAria": "Acciones en línea del asistente",
    "settings.openchamber.visual.field.showSplitAssistantMessageActions": "Acciones en línea del asistente",
    "settings.openchamber.visual.field.showSplitAssistantMessageActionsTooltip": "Muestra Copiar respuesta, Guardar como imagen y Leer en voz alta en bloques de texto del asistente que aparecen antes de llamadas a herramientas posteriores dentro de la misma respuesta.",
 diff --git a/packages/ui/src/lib/i18n/messages/fr.settings.ts b/packages/ui/src/lib/i18n/messages/fr.settings.ts
-index 3f239b35d..540cb0d5b 100644
+index 3f239b35d..8aee9b812 100644
 --- a/packages/ui/src/lib/i18n/messages/fr.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/fr.settings.ts
 @@ -2337,8 +2337,14 @@ export const settingsDict = {
@@ -782,19 +888,19 @@ index 3f239b35d..540cb0d5b 100644
    'settings.openchamber.visual.option.fileTreeSide.right': 'Droite',
 -  'settings.openchamber.visual.field.wideChatLayoutAria': 'Large disposition de discussion',
 -  'settings.openchamber.visual.field.wideChatLayout': 'Disposition de discussion large',
-+  'settings.openchamber.visual.field.chatWidthAria': 'Largeur du chat',
++  'settings.openchamber.visual.field.chatWidthAria': 'Largeur du chat : {value}',
 +  'settings.openchamber.visual.field.chatWidth': 'Largeur du chat',
-+  'settings.openchamber.visual.field.chatWidthInfo': 'Définit la largeur des messages et de la zone de saisie.',
++  'settings.openchamber.visual.field.chatWidthInfo': 'Définit la largeur maximale des messages et de la zone de saisie. La colonne ne peut pas dépasser la fenêtre ou le panneau ; le niveau « Complet (messages) » garde la zone de saisie à la largeur standard.',
 +  'settings.openchamber.visual.option.chatWidth.compact.label': 'Compact',
 +  'settings.openchamber.visual.option.chatWidth.standard.label': 'Standard',
 +  'settings.openchamber.visual.option.chatWidth.wide.label': 'Large',
-+  'settings.openchamber.visual.option.chatWidth.fullWidth.label': 'Complet (messages uniquement)',
-+  'settings.openchamber.visual.option.chatWidth.full.label': 'Complet (messages et zone de saisie)',
++  'settings.openchamber.visual.option.chatWidth.fullWidth.label': 'Complet (messages)',
++  'settings.openchamber.visual.option.chatWidth.full.label': 'Complet (messages + saisie)',
    'settings.openchamber.visual.field.showSplitAssistantMessageActionsAria': 'Actions intégrées de l\'assistant',
    'settings.openchamber.visual.field.showSplitAssistantMessageActions': 'Actions intégrées de l\'assistant',
    'settings.openchamber.visual.field.showSplitAssistantMessageActionsTooltip': 'Afficher Copier la réponse, Enregistrer en image et Lire à haute voix sur les blocs de texte de l\'assistant qui apparaissent avant les appels d\'outil suivants dans la même réponse.',
 diff --git a/packages/ui/src/lib/i18n/messages/he.settings.ts b/packages/ui/src/lib/i18n/messages/he.settings.ts
-index 21526a27a..8417732c0 100644
+index 21526a27a..cf2f8355d 100644
 --- a/packages/ui/src/lib/i18n/messages/he.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/he.settings.ts
 @@ -2455,8 +2455,14 @@ export const settingsDict = {
@@ -803,19 +909,19 @@ index 21526a27a..8417732c0 100644
    'settings.openchamber.visual.field.autoSaveEnabledInfo': 'שמירה אוטומטית של עריכות בקבצים אחרי שמפסיקים להקליד. כשהאפשרות כבויה, צריך לשמור ידנית.',
 -  'settings.openchamber.visual.field.wideChatLayoutAria': 'פריסת צ\'אט רחבה',
 -  'settings.openchamber.visual.field.wideChatLayout': 'פריסת צ\'אט רחבה',
-+  'settings.openchamber.visual.field.chatWidthAria': 'רוחב הצ\'אט',
++  'settings.openchamber.visual.field.chatWidthAria': 'רוחב הצ\'אט: {value}',
 +  'settings.openchamber.visual.field.chatWidth': 'רוחב הצ\'אט',
-+  'settings.openchamber.visual.field.chatWidthInfo': 'קובע את רוחב ההודעות ותיבת הכתיבה.',
++  'settings.openchamber.visual.field.chatWidthInfo': 'קובע עד כמה ההודעות ותיבת הכתיבה יכולות להתרחב. העמודה לא תעלה על רוחב החלון או הפאנל; רמת «מלא (הודעות בלבד)» משאירה את תיבת הכתיבה ברוחב הרגיל.',
 +  'settings.openchamber.visual.option.chatWidth.compact.label': 'קומפקטי',
 +  'settings.openchamber.visual.option.chatWidth.standard.label': 'רגיל',
 +  'settings.openchamber.visual.option.chatWidth.wide.label': 'רחב',
 +  'settings.openchamber.visual.option.chatWidth.fullWidth.label': 'מלא (הודעות בלבד)',
-+  'settings.openchamber.visual.option.chatWidth.full.label': 'מלא (הודעות ותיבת כתיבה)',
++  'settings.openchamber.visual.option.chatWidth.full.label': 'מלא (הודעות + תיבת כתיבה)',
    'settings.openchamber.visual.field.codeBlockLineWrapAria': 'גלישת שורות בבלוקי קוד',
    'settings.openchamber.visual.field.codeBlockLineWrap': 'גלישת שורות בבלוקי קוד',
    'settings.openchamber.visual.field.tableCellWrap': 'גלישת טקסט בתאי טבלה',
 diff --git a/packages/ui/src/lib/i18n/messages/ja.settings.ts b/packages/ui/src/lib/i18n/messages/ja.settings.ts
-index c7a5fdc4f..71071698d 100644
+index c7a5fdc4f..9b1135426 100644
 --- a/packages/ui/src/lib/i18n/messages/ja.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/ja.settings.ts
 @@ -2481,8 +2481,14 @@ export const settingsDict = {
@@ -824,19 +930,19 @@ index c7a5fdc4f..71071698d 100644
    'settings.openchamber.visual.option.fileTreeSide.right': '右',
 -  'settings.openchamber.visual.field.wideChatLayoutAria': 'ワイドチャットレイアウト',
 -  'settings.openchamber.visual.field.wideChatLayout': 'ワイドチャットレイアウト',
-+  'settings.openchamber.visual.field.chatWidthAria': 'チャットの幅',
++  'settings.openchamber.visual.field.chatWidthAria': 'チャットの幅: {value}',
 +  'settings.openchamber.visual.field.chatWidth': 'チャットの幅',
-+  'settings.openchamber.visual.field.chatWidthInfo': 'メッセージと入力欄の幅を設定します。',
++  'settings.openchamber.visual.field.chatWidthInfo': 'メッセージと入力欄をどこまで広げられるかを設定します。この列はウィンドウやパネルの幅を超えません。「全体（メッセージのみ）」では入力欄は標準幅のままです。',
 +  'settings.openchamber.visual.option.chatWidth.compact.label': 'コンパクト',
 +  'settings.openchamber.visual.option.chatWidth.standard.label': '標準',
 +  'settings.openchamber.visual.option.chatWidth.wide.label': '広い',
 +  'settings.openchamber.visual.option.chatWidth.fullWidth.label': '全体（メッセージのみ）',
-+  'settings.openchamber.visual.option.chatWidth.full.label': '全体（メッセージと入力欄）',
++  'settings.openchamber.visual.option.chatWidth.full.label': '全体（メッセージ＋入力欄）',
    'settings.openchamber.visual.field.showSplitAssistantMessageActionsAria': 'インラインアシスタントアクション',
    'settings.openchamber.visual.field.showSplitAssistantMessageActions': 'インラインアシスタントアクション',
    'settings.openchamber.visual.field.showSplitAssistantMessageActionsTooltip': '同じ応答内の後のツール呼び出しの前に表示されるアシスタントテキストブロックに、回答コピー、画像保存、読み上げを表示します。',
 diff --git a/packages/ui/src/lib/i18n/messages/ko.settings.ts b/packages/ui/src/lib/i18n/messages/ko.settings.ts
-index 3896d1bed..348e2715d 100644
+index 3896d1bed..080acde41 100644
 --- a/packages/ui/src/lib/i18n/messages/ko.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/ko.settings.ts
 @@ -2448,8 +2448,14 @@ export const settingsDict = {
@@ -845,19 +951,19 @@ index 3896d1bed..348e2715d 100644
    'settings.openchamber.visual.option.fileTreeSide.right': '오른쪽',
 -  'settings.openchamber.visual.field.wideChatLayoutAria': '넓은 채팅 레이아웃',
 -  'settings.openchamber.visual.field.wideChatLayout': '넓은 채팅 레이아웃',
-+  'settings.openchamber.visual.field.chatWidthAria': '채팅 너비',
++  'settings.openchamber.visual.field.chatWidthAria': '채팅 너비: {value}',
 +  'settings.openchamber.visual.field.chatWidth': '채팅 너비',
-+  'settings.openchamber.visual.field.chatWidthInfo': '메시지와 입력창의 너비를 설정합니다.',
++  'settings.openchamber.visual.field.chatWidthInfo': '메시지와 입력창이 커질 수 있는 너비를 설정합니다. 이 열은 창이나 패널보다 넓어질 수 없으며, “전체 (메시지만)” 수준은 입력창을 표준 너비로 유지합니다.',
 +  'settings.openchamber.visual.option.chatWidth.compact.label': '컴팩트',
 +  'settings.openchamber.visual.option.chatWidth.standard.label': '표준',
 +  'settings.openchamber.visual.option.chatWidth.wide.label': '넓게',
 +  'settings.openchamber.visual.option.chatWidth.fullWidth.label': '전체 (메시지만)',
-+  'settings.openchamber.visual.option.chatWidth.full.label': '전체 (메시지와 입력창)',
++  'settings.openchamber.visual.option.chatWidth.full.label': '전체 (메시지＋입력창)',
    'settings.openchamber.visual.field.showSplitAssistantMessageActionsAria': '인라인 어시스턴트 작업',
    'settings.openchamber.visual.field.showSplitAssistantMessageActions': '인라인 어시스턴트 작업',
    'settings.openchamber.visual.field.showSplitAssistantMessageActionsTooltip': '같은 응답에서 이후 도구 호출 앞에 나타나는 어시스턴트 텍스트 블록에 답변 복사, 이미지로 저장, 소리 내어 읽기 작업을 표시합니다.',
 diff --git a/packages/ui/src/lib/i18n/messages/nl.settings.ts b/packages/ui/src/lib/i18n/messages/nl.settings.ts
-index 248abfeb8..9fef3489a 100644
+index 248abfeb8..338c5847f 100644
 --- a/packages/ui/src/lib/i18n/messages/nl.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/nl.settings.ts
 @@ -2471,8 +2471,14 @@ export const settingsDict = {
@@ -866,19 +972,19 @@ index 248abfeb8..9fef3489a 100644
    'settings.openchamber.visual.option.fileTreeSide.right': 'Rechts',
 -  'settings.openchamber.visual.field.wideChatLayoutAria': 'Brede chatindeling',
 -  'settings.openchamber.visual.field.wideChatLayout': 'Brede chatindeling',
-+  'settings.openchamber.visual.field.chatWidthAria': 'Chatbreedte',
++  'settings.openchamber.visual.field.chatWidthAria': 'Chatbreedte: {value}',
 +  'settings.openchamber.visual.field.chatWidth': 'Chatbreedte',
-+  'settings.openchamber.visual.field.chatWidthInfo': 'Bepaalt hoe breed berichten en het invoerveld zijn.',
++  'settings.openchamber.visual.field.chatWidthInfo': 'Bepaalt hoe breed berichten en het invoerveld kunnen worden. De kolom kan niet breder zijn dan het venster of paneel; het niveau „Volledig (berichten)” houdt het invoerveld op de standaardbreedte.',
 +  'settings.openchamber.visual.option.chatWidth.compact.label': 'Compact',
 +  'settings.openchamber.visual.option.chatWidth.standard.label': 'Standaard',
 +  'settings.openchamber.visual.option.chatWidth.wide.label': 'Breed',
-+  'settings.openchamber.visual.option.chatWidth.fullWidth.label': 'Volledig (alleen berichten)',
-+  'settings.openchamber.visual.option.chatWidth.full.label': 'Volledig (berichten en invoerveld)',
++  'settings.openchamber.visual.option.chatWidth.fullWidth.label': 'Volledig (berichten)',
++  'settings.openchamber.visual.option.chatWidth.full.label': 'Volledig (berichten + invoer)',
    'settings.openchamber.visual.field.codeBlockLineWrapAria': 'Regels in codeblokken afbreken',
    'settings.openchamber.visual.field.codeBlockLineWrap': 'Regels in codeblokken afbreken',
    'settings.openchamber.visual.field.tableCellWrap': 'Tekst in tabelcellen afbreken',
 diff --git a/packages/ui/src/lib/i18n/messages/pl.settings.ts b/packages/ui/src/lib/i18n/messages/pl.settings.ts
-index 58b55f2c6..9c5d4b5f2 100644
+index 58b55f2c6..ffbfd052d 100644
 --- a/packages/ui/src/lib/i18n/messages/pl.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/pl.settings.ts
 @@ -1439,8 +1439,14 @@ export const settingsDict = {
@@ -887,19 +993,19 @@ index 58b55f2c6..9c5d4b5f2 100644
    'settings.openchamber.visual.field.weekStartsOn': 'Początek tygodnia',
 -  'settings.openchamber.visual.field.wideChatLayout': 'Szeroki układ czatu',
 -  'settings.openchamber.visual.field.wideChatLayoutAria': 'Szeroki układ czatu',
-+  'settings.openchamber.visual.field.chatWidthAria': 'Szerokość czatu',
++  'settings.openchamber.visual.field.chatWidthAria': 'Szerokość czatu: {value}',
 +  'settings.openchamber.visual.field.chatWidth': 'Szerokość czatu',
-+  'settings.openchamber.visual.field.chatWidthInfo': 'Określa szerokość wiadomości i pola wiadomości.',
++  'settings.openchamber.visual.field.chatWidthInfo': 'Określa, jak szerokie mogą być wiadomości i pole wiadomości. Kolumna nie może przekroczyć okna ani panelu; poziom „Pełny (wiadomości)” pozostawia pole wiadomości w standardowej szerokości.',
 +  'settings.openchamber.visual.option.chatWidth.compact.label': 'Kompakt',
 +  'settings.openchamber.visual.option.chatWidth.standard.label': 'Standardowy',
 +  'settings.openchamber.visual.option.chatWidth.wide.label': 'Szeroki',
-+  'settings.openchamber.visual.option.chatWidth.fullWidth.label': 'Pełny (tylko wiadomości)',
-+  'settings.openchamber.visual.option.chatWidth.full.label': 'Pełny (wiadomości i pole wiadomości)',
++  'settings.openchamber.visual.option.chatWidth.fullWidth.label': 'Pełny (wiadomości)',
++  'settings.openchamber.visual.option.chatWidth.full.label': 'Pełny (wiadomości + pole)',
    'settings.openchamber.visual.option.activityRenderMode.collapsed.description': 'Domyślnie utrzymuj aktywność zwiniętą.',
    'settings.openchamber.visual.option.activityRenderMode.collapsed.label': 'Zwinięta',
    'settings.openchamber.visual.option.activityRenderMode.summary.description': 'Domyślnie rozwijaj aktywność.',
 diff --git a/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts b/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
-index c2b9bdceb..4dcad98a8 100644
+index c2b9bdceb..bae42e909 100644
 --- a/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
 @@ -2448,8 +2448,14 @@ export const settingsDict = {
@@ -908,19 +1014,19 @@ index c2b9bdceb..4dcad98a8 100644
    "settings.openchamber.visual.option.fileTreeSide.right": "Direita",
 -  "settings.openchamber.visual.field.wideChatLayoutAria": "Layout de chat amplo",
 -  "settings.openchamber.visual.field.wideChatLayout": "Layout de chat amplo",
-+  "settings.openchamber.visual.field.chatWidthAria": "Largura do chat",
++  "settings.openchamber.visual.field.chatWidthAria": "Largura do chat: {value}",
 +  "settings.openchamber.visual.field.chatWidth": "Largura do chat",
-+  "settings.openchamber.visual.field.chatWidthInfo": "Define a largura das mensagens e do campo de mensagem.",
++  "settings.openchamber.visual.field.chatWidthInfo": "Define o quanto as mensagens e o campo de mensagem podem crescer. A coluna não pode ultrapassar a janela ou o painel; o nível “Total (mensagens)” mantém o campo de mensagem na largura padrão.",
 +  "settings.openchamber.visual.option.chatWidth.compact.label": "Compacto",
 +  "settings.openchamber.visual.option.chatWidth.standard.label": "Padrão",
 +  "settings.openchamber.visual.option.chatWidth.wide.label": "Largo",
-+  "settings.openchamber.visual.option.chatWidth.fullWidth.label": "Total (somente mensagens)",
-+  "settings.openchamber.visual.option.chatWidth.full.label": "Total (mensagens e campo de mensagem)",
++  "settings.openchamber.visual.option.chatWidth.fullWidth.label": "Total (mensagens)",
++  "settings.openchamber.visual.option.chatWidth.full.label": "Total (mensagens + entrada)",
    "settings.openchamber.visual.field.showSplitAssistantMessageActionsAria": "Ações inline do assistente",
    "settings.openchamber.visual.field.showSplitAssistantMessageActions": "Ações inline do assistente",
    "settings.openchamber.visual.field.showSplitAssistantMessageActionsTooltip": "Mostra Copiar resposta, Salvar como imagem e Ler em voz alta em blocos de texto do assistente que aparecem antes de chamadas de ferramenta posteriores na mesma resposta.",
 diff --git a/packages/ui/src/lib/i18n/messages/tr.settings.ts b/packages/ui/src/lib/i18n/messages/tr.settings.ts
-index 555595dfa..5a4c493c0 100644
+index 555595dfa..2ad66c69a 100644
 --- a/packages/ui/src/lib/i18n/messages/tr.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/tr.settings.ts
 @@ -2338,8 +2338,14 @@ export const settingsDict = {
@@ -929,19 +1035,19 @@ index 555595dfa..5a4c493c0 100644
    'settings.openchamber.visual.option.fileTreeSide.right': 'Sağ',
 -  'settings.openchamber.visual.field.wideChatLayoutAria': 'Geniş sohbet yerleşimi',
 -  'settings.openchamber.visual.field.wideChatLayout': 'Geniş Sohbet Yerleşimi',
-+  'settings.openchamber.visual.field.chatWidthAria': 'Sohbet genişliği',
++  'settings.openchamber.visual.field.chatWidthAria': 'Sohbet genişliği: {value}',
 +  'settings.openchamber.visual.field.chatWidth': 'Sohbet genişliği',
-+  'settings.openchamber.visual.field.chatWidthInfo': 'Mesajların ve mesaj kutusunun genişliğini belirler.',
++  'settings.openchamber.visual.field.chatWidthInfo': 'Mesajların ve mesaj kutusunun ne kadar genişleyebileceğini belirler. Sütun pencere veya panelden daha geniş olamaz; “Tam (mesajlar)” düzeyi mesaj kutusunu standart genişlikte tutar.',
 +  'settings.openchamber.visual.option.chatWidth.compact.label': 'Kompakt',
 +  'settings.openchamber.visual.option.chatWidth.standard.label': 'Standart',
 +  'settings.openchamber.visual.option.chatWidth.wide.label': 'Geniş',
-+  'settings.openchamber.visual.option.chatWidth.fullWidth.label': 'Tam (yalnızca mesajlar)',
-+  'settings.openchamber.visual.option.chatWidth.full.label': 'Tam (mesajlar ve mesaj kutusu)',
++  'settings.openchamber.visual.option.chatWidth.fullWidth.label': 'Tam (mesajlar)',
++  'settings.openchamber.visual.option.chatWidth.full.label': 'Tam (mesajlar + giriş)',
    'settings.openchamber.visual.field.codeBlockLineWrapAria': 'Kod bloğu satırlarını kaydır',
    'settings.openchamber.visual.field.codeBlockLineWrap': 'Kod Bloğu Satırlarını Kaydır',
    'settings.openchamber.visual.field.tableCellWrap': 'Tablo Hücrelerini Kaydır',
 diff --git a/packages/ui/src/lib/i18n/messages/uk.settings.ts b/packages/ui/src/lib/i18n/messages/uk.settings.ts
-index c50433631..48e27107f 100644
+index c50433631..8ebb9b34c 100644
 --- a/packages/ui/src/lib/i18n/messages/uk.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/uk.settings.ts
 @@ -2448,8 +2448,14 @@ export const settingsDict = {
@@ -950,19 +1056,19 @@ index c50433631..48e27107f 100644
    "settings.openchamber.visual.option.fileTreeSide.right": "Праворуч",
 -  "settings.openchamber.visual.field.wideChatLayoutAria": "Широкий макет чату",
 -  "settings.openchamber.visual.field.wideChatLayout": "Широкий макет чату",
-+  "settings.openchamber.visual.field.chatWidthAria": "Ширина чату",
++  "settings.openchamber.visual.field.chatWidthAria": "Ширина чату: {value}",
 +  "settings.openchamber.visual.field.chatWidth": "Ширина чату",
-+  "settings.openchamber.visual.field.chatWidthInfo": "Задає ширину повідомлень і поля вводу.",
++  "settings.openchamber.visual.field.chatWidthInfo": "Задає максимальну ширину повідомлень і поля вводу. Колонка не може бути ширшою за вікно або панель; рівень «Повний (лише повідомлення)» залишає поле вводу стандартної ширини.",
 +  "settings.openchamber.visual.option.chatWidth.compact.label": "Компактний",
 +  "settings.openchamber.visual.option.chatWidth.standard.label": "Стандартний",
 +  "settings.openchamber.visual.option.chatWidth.wide.label": "Широкий",
 +  "settings.openchamber.visual.option.chatWidth.fullWidth.label": "Повний (лише повідомлення)",
-+  "settings.openchamber.visual.option.chatWidth.full.label": "Повний (повідомлення й поле вводу)",
++  "settings.openchamber.visual.option.chatWidth.full.label": "Повний (повідомлення + введення)",
    "settings.openchamber.visual.field.showSplitAssistantMessageActionsAria": "Вбудовані дії асистента",
    "settings.openchamber.visual.field.showSplitAssistantMessageActions": "Вбудовані дії асистента",
    "settings.openchamber.visual.field.showSplitAssistantMessageActionsTooltip": "Показує «Скопіювати відповідь», «Зберегти як зображення» та озвучення для текстових блоків асистента, які з’являються перед пізнішими викликами інструментів у тій самій відповіді.",
 diff --git a/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts b/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
-index ec63c4862..502085b68 100644
+index ec63c4862..025c71499 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
 @@ -2448,8 +2448,14 @@ export const settingsDict = {
@@ -971,19 +1077,19 @@ index ec63c4862..502085b68 100644
    'settings.openchamber.visual.option.fileTreeSide.right': '右侧',
 -  'settings.openchamber.visual.field.wideChatLayoutAria': '宽聊天布局',
 -  'settings.openchamber.visual.field.wideChatLayout': '宽聊天布局',
-+  'settings.openchamber.visual.field.chatWidthAria': '聊天宽度',
++  'settings.openchamber.visual.field.chatWidthAria': '聊天宽度：{value}',
 +  'settings.openchamber.visual.field.chatWidth': '聊天宽度',
-+  'settings.openchamber.visual.field.chatWidthInfo': '设置消息和输入框的宽度。',
++  'settings.openchamber.visual.field.chatWidthInfo': '设置消息和输入框可达到的宽度。该列不会超过窗口或面板；“全部（仅消息）”会让输入框保持标准宽度。',
 +  'settings.openchamber.visual.option.chatWidth.compact.label': '紧凑',
 +  'settings.openchamber.visual.option.chatWidth.standard.label': '标准',
 +  'settings.openchamber.visual.option.chatWidth.wide.label': '宽',
 +  'settings.openchamber.visual.option.chatWidth.fullWidth.label': '全部（仅消息）',
-+  'settings.openchamber.visual.option.chatWidth.full.label': '全部（消息和输入框）',
++  'settings.openchamber.visual.option.chatWidth.full.label': '全部（消息＋输入框）',
    'settings.openchamber.visual.field.showSplitAssistantMessageActionsAria': '内联助手操作',
    'settings.openchamber.visual.field.showSplitAssistantMessageActions': '内联助手操作',
    'settings.openchamber.visual.field.showSplitAssistantMessageActionsTooltip': '在同一条回复中，如果助手文本块后面还有工具调用，则显示“复制回答”“保存为图片”和“朗读”操作。',
 diff --git a/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts b/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
-index bb7b0e125..81fd15410 100644
+index bb7b0e125..0e9eebbef 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
 @@ -2326,8 +2326,14 @@ export const settingsDict = {
@@ -992,21 +1098,30 @@ index bb7b0e125..81fd15410 100644
    'settings.openchamber.visual.option.fileTreeSide.right': '右側',
 -  'settings.openchamber.visual.field.wideChatLayoutAria': '寬聊天佈局',
 -  'settings.openchamber.visual.field.wideChatLayout': '寬聊天佈局',
-+  'settings.openchamber.visual.field.chatWidthAria': '聊天寬度',
++  'settings.openchamber.visual.field.chatWidthAria': '聊天寬度：{value}',
 +  'settings.openchamber.visual.field.chatWidth': '聊天寬度',
-+  'settings.openchamber.visual.field.chatWidthInfo': '設定訊息和輸入框的寬度。',
++  'settings.openchamber.visual.field.chatWidthInfo': '設定訊息和輸入框可達到的寬度。此欄不會超過視窗或面板；「全部（僅訊息）」會讓輸入框保持標準寬度。',
 +  'settings.openchamber.visual.option.chatWidth.compact.label': '緊湊',
 +  'settings.openchamber.visual.option.chatWidth.standard.label': '標準',
 +  'settings.openchamber.visual.option.chatWidth.wide.label': '寬',
 +  'settings.openchamber.visual.option.chatWidth.fullWidth.label': '全部（僅訊息）',
-+  'settings.openchamber.visual.option.chatWidth.full.label': '全部（訊息和輸入框）',
++  'settings.openchamber.visual.option.chatWidth.full.label': '全部（訊息＋輸入框）',
    'settings.openchamber.visual.field.showSplitAssistantMessageActionsAria': '行內助理操作',
    'settings.openchamber.visual.field.showSplitAssistantMessageActions': '行內助理操作',
    'settings.openchamber.visual.field.showSplitAssistantMessageActionsTooltip': '在同一則回覆中，如果助理文字區塊後方還有工具呼叫，則顯示「複製回答」「儲存為圖片」和「朗讀」操作。',
 diff --git a/packages/ui/src/lib/settings/DOCUMENTATION.md b/packages/ui/src/lib/settings/DOCUMENTATION.md
-index 793b93b97..b7982eb9d 100644
+index 793b93b97..1038ac0f5 100644
 --- a/packages/ui/src/lib/settings/DOCUMENTATION.md
 +++ b/packages/ui/src/lib/settings/DOCUMENTATION.md
+@@ -24,7 +24,7 @@
+ - **Writes carry intent.** Fields with `ui.autoSave` are watched by `lib/appearanceAutoSave.ts`; changes made while `isApplyingServerSettings()` is true (a sync copying server values in) are a new baseline, not a write. The model-preference fields are watched by `lib/modelPrefsAutoSave.ts`, which delegates to the shared settings debounce, and are therefore `autoSave: false` here.
+ - **Sibling-dependent applies are explicit.** A `ui.write` receives the parsed snapshot as `SettingsSiblingView`, which names the only siblings a write may consult (`draftStarters*Added`, `workStatusHiddenSectionsExplicit`, `workStatusSectionOrderExplicit`). Extend the view when a new field needs one.
+ - **Device fields never cross the wire.** `updateDesktopSettings` drops `device` keys before the debounce, the server and the VS Code bridge drop them again, and the mirror never held them. Their home is the local store (`useUIStore` persisted slice, `mobileKeyboardMode` browser storage, `desktopSplashColors` in the desktop shell's own store via the window-theme IPC). A server document that still carries device keys from before the split is applied exactly once per runtime as a seed (`openchamber.deviceSeeded.v1:<runtimeKey>` in browser storage) and ignored afterwards.
+-- **Two files on the instance.** `settings.json` keeps instance facts and legacy keys; `preferences.json` beside it holds every `profile` key as `{ value, updatedAt }` (`version: 1`). The server (`packages/web/server/lib/opencode/settings-files.js`) and the VS Code bridge (`packages/vscode/src/settings-files.ts`) seed `preferences.json` once from an existing `settings.json`, keep a copy of the profile's base values in `settings.json` on every write (a build from before the split reads only that file, so a rollback keeps the user's preferences; current builds ignore the copy because `preferences.json` wins), and never touch a `preferences.json` they cannot parse; clients see one merged document and never address the files. Server modules that read a profile key off the disk (small model, session goal/assist, walkthrough) use `readMergedSettingsSync`.
++- **Two files on the instance.** `settings.json` keeps instance facts and legacy keys; `preferences.json` beside it holds every `profile` key as `{ value, updatedAt }` (`version: 2`; a version-1 file is still read, and its `chatWidth: 'wide'` is remapped to `full-width` once at the parse boundary). The server (`packages/web/server/lib/opencode/settings-files.js`) and the VS Code bridge (`packages/vscode/src/settings-files.ts`) seed `preferences.json` once from an existing `settings.json`, keep a copy of the profile's base values in `settings.json` on every write (a build from before the split reads only that file, so a rollback keeps the user's preferences except the chat width level, which a build from before `chatWidth` existed does not read; current builds ignore the copy because `preferences.json` wins), and never touch a `preferences.json` they cannot parse; clients see one merged document and never address the files. Server modules that read a profile key off the disk (small model, session goal/assist, walkthrough) use `readMergedSettingsSync`.
+ - **Markers, not code, carry the special cases.** `adopt: 'bootstrap-only'` (workspace pointers), `derived` (computed by the writer from other fields), `secret` (accepted on write, never returned), `computed` (server-emitted, never persisted), `surfaces` (which surface kinds have the field).
+ 
+ ## Adding a setting
 @@ -43,6 +43,10 @@
  
  ## Decisions
@@ -1165,7 +1280,7 @@ index 278e0c737..6f499854e 100644
    {
      id: 'chat.message-appearance',
 diff --git a/packages/ui/src/stores/DOCUMENTATION.md b/packages/ui/src/stores/DOCUMENTATION.md
-index a6ffb4c29..32d87b53a 100644
+index a6ffb4c29..eacef93f6 100644
 --- a/packages/ui/src/stores/DOCUMENTATION.md
 +++ b/packages/ui/src/stores/DOCUMENTATION.md
 @@ -277,7 +277,7 @@ Examples:
@@ -1173,18 +1288,18 @@ index a6ffb4c29..32d87b53a 100644
  - `useUpdateStore.ts`
  
 -These stores coordinate visible app state, navigation, selected context-panel tabs, dialogs, and lightweight feature flags. Context surfaces open in zones around the chat (`lib/surfaces/DOCUMENTATION.md`, Zones): `contextSurfaceZones` is the per-device placement, and each `contextPanelByDirectory` entry keeps the right zone in its top-level `isOpen`/`expanded`/`activeTabId` and the left and bottom zones in `zones`. Store version 24 added them; older state loads with everything on the right. `useUIStore.activeSurface` selects the primary mobile view and the few desktop views that are promoted out of the context panel. It is not a desktop tab selection. A browser tab opened by an agent (`openAgentBrowserTab`) is created in the calling session's directory and persists that session as `ownerSessionId`; tabs the user opens, and tabs saved before owners existed, have none. Agent browser actions use it to keep sessions out of each other's tabs (`packages/web/server/lib/browser-control/DOCUMENTATION.md`). Opening a new browser tab with an address (`openContextPreview`, `openContextBrowser`, `openAgentBrowserTab`) notes it, keyed by directory and tab id, in the session-only set in `lib/browser/devServerWait.ts`; the tab's first mount reads and forgets it. Only a noted tab waits for its dev server on the first load. A tab restored from saved state, or remounted later, loads once and shows the failure. A waiting tab retries after a pause that grows from 0.5 s to 4 s within its 40 s wait. While it is out of sight (another tab in front, the panel closed, another project on screen, the window hidden) it holds the retry and retries when shown again; a tab the agent opened or has acted on keeps retrying out of sight. When those openers hit a tab that already exists, they send it a session-only load request instead. A mounted tab that shows a failure, or has not shown a page yet, loads the address the way a typed one loads, wait included, so a failure from launch does not stay up once a project action starts the server; a tab showing a working page ignores the request and is only focused, keeping what the person had on it.
-+These stores coordinate visible app state, navigation, selected context-panel tabs, dialogs, and lightweight feature flags. Context surfaces open in zones around the chat (`lib/surfaces/DOCUMENTATION.md`, Zones): `contextSurfaceZones` is the per-device placement, and each `contextPanelByDirectory` entry keeps the right zone in its top-level `isOpen`/`expanded`/`activeTabId` and the left and bottom zones in `zones`. Store version 24 added them; older state loads with everything on the right. Store version 28 replaced the `wideChatLayoutEnabled` switch with the chat width level (`lib/chatWidth.ts`); a stored switch reads as `full-width` or `compact` and is dropped from the persisted shape. Store version 29 gave `wide` a column of its own and moved the old level to `full-width`, so a level saved under the old name keeps its layout. `useUIStore.activeSurface` selects the primary mobile view and the few desktop views that are promoted out of the context panel. It is not a desktop tab selection. A browser tab opened by an agent (`openAgentBrowserTab`) is created in the calling session's directory and persists that session as `ownerSessionId`; tabs the user opens, and tabs saved before owners existed, have none. Agent browser actions use it to keep sessions out of each other's tabs (`packages/web/server/lib/browser-control/DOCUMENTATION.md`). Opening a new browser tab with an address (`openContextPreview`, `openContextBrowser`, `openAgentBrowserTab`) notes it, keyed by directory and tab id, in the session-only set in `lib/browser/devServerWait.ts`; the tab's first mount reads and forgets it. Only a noted tab waits for its dev server on the first load. A tab restored from saved state, or remounted later, loads once and shows the failure. A waiting tab retries after a pause that grows from 0.5 s to 4 s within its 40 s wait. While it is out of sight (another tab in front, the panel closed, another project on screen, the window hidden) it holds the retry and retries when shown again; a tab the agent opened or has acted on keeps retrying out of sight. When those openers hit a tab that already exists, they send it a session-only load request instead. A mounted tab that shows a failure, or has not shown a page yet, loads the address the way a typed one loads, wait included, so a failure from launch does not stay up once a project action starts the server; a tab showing a working page ignores the request and is only focused, keeping what the person had on it.
++These stores coordinate visible app state, navigation, selected context-panel tabs, dialogs, and lightweight feature flags. Context surfaces open in zones around the chat (`lib/surfaces/DOCUMENTATION.md`, Zones): `contextSurfaceZones` is the per-device placement, and each `contextPanelByDirectory` entry keeps the right zone in its top-level `isOpen`/`expanded`/`activeTabId` and the left and bottom zones in `zones`. Store version 24 added them; older state loads with everything on the right. Store version 28 replaced the `wideChatLayoutEnabled` switch with the chat width level (`lib/chatWidth.ts`); a stored switch reads as `full-width` or `compact` and is dropped from the persisted shape. Store version 29 gave `wide` a column of its own; version 30 remapped the `wide` level saved by that earlier revision to `full-width`, while a `wide` chosen since stays the wider column. Hydration also clamps a level this build does not name to `compact`, so the Settings Select never receives an unnamed value. `useUIStore.activeSurface` selects the primary mobile view and the few desktop views that are promoted out of the context panel. It is not a desktop tab selection. A browser tab opened by an agent (`openAgentBrowserTab`) is created in the calling session's directory and persists that session as `ownerSessionId`; tabs the user opens, and tabs saved before owners existed, have none. Agent browser actions use it to keep sessions out of each other's tabs (`packages/web/server/lib/browser-control/DOCUMENTATION.md`). Opening a new browser tab with an address (`openContextPreview`, `openContextBrowser`, `openAgentBrowserTab`) notes it, keyed by directory and tab id, in the session-only set in `lib/browser/devServerWait.ts`; the tab's first mount reads and forgets it. Only a noted tab waits for its dev server on the first load. A tab restored from saved state, or remounted later, loads once and shows the failure. A waiting tab retries after a pause that grows from 0.5 s to 4 s within its 40 s wait. While it is out of sight (another tab in front, the panel closed, another project on screen, the window hidden) it holds the retry and retries when shown again; a tab the agent opened or has acted on keeps retrying out of sight. When those openers hit a tab that already exists, they send it a session-only load request instead. A mounted tab that shows a failure, or has not shown a page yet, loads the address the way a typed one loads, wait included, so a failure from launch does not stay up once a project action starts the server; a tab showing a working page ignores the request and is only focused, keeping what the person had on it.
  
  Context-panel session chats render in this app as a chat column pinned to
  their session (`ChatView` `pinnedSession`, see the sync documentation's
 diff --git a/packages/ui/src/stores/useUIStore.chatWidth.test.ts b/packages/ui/src/stores/useUIStore.chatWidth.test.ts
 new file mode 100644
-index 000000000..875e3e7ff
+index 000000000..0575f9db8
 --- /dev/null
 +++ b/packages/ui/src/stores/useUIStore.chatWidth.test.ts
-@@ -0,0 +1,56 @@
+@@ -0,0 +1,79 @@
 +import { afterEach, describe, expect, test } from 'bun:test';
-+import { DEFAULT_CHAT_WIDTH } from '@/lib/chatWidth';
++import { DEFAULT_CHAT_WIDTH, type ChatWidthLevel } from '@/lib/chatWidth';
 +import { useUIStore } from './useUIStore';
 +
 +const originalOptions = useUIStore.persist.getOptions();
@@ -1234,13 +1349,36 @@ index 000000000..875e3e7ff
 +    expect(useUIStore.getState().chatWidth).toBe('full-width');
 +  });
 +
++  test('a wide level saved at version 29 by the earlier revision becomes full width', async () => {
++    await hydrateFrom(29, { chatWidth: 'wide' });
++    expect(useUIStore.getState().chatWidth).toBe('full-width');
++  });
++
 +  test('keeps a level stored after the migration', async () => {
 +    await hydrateFrom(29, { chatWidth: 'standard' });
 +    expect(useUIStore.getState().chatWidth).toBe('standard');
 +  });
++
++  test('a wide level chosen at the current version stays wide', async () => {
++    await hydrateFrom(30, { chatWidth: 'wide' });
++    expect(useUIStore.getState().chatWidth).toBe('wide');
++  });
++
++  test('a level this build does not know falls back to compact on hydration', async () => {
++    // SAFETY: 'huge' stands for any level a newer build may have written; the
++    // hydration clamp is what this test exercises, not the type.
++    await hydrateFrom(29, { chatWidth: 'huge' as ChatWidthLevel });
++    expect(useUIStore.getState().chatWidth).toBe('compact');
++  });
++
++  test('the setter clamps an unknown level to compact', () => {
++    // SAFETY: same as above, the setter is expected to reject the value.
++    useUIStore.getState().setChatWidth('huge' as ChatWidthLevel);
++    expect(useUIStore.getState().chatWidth).toBe('compact');
++  });
 +});
 diff --git a/packages/ui/src/stores/useUIStore.ts b/packages/ui/src/stores/useUIStore.ts
-index 63fbc1f4b..80054c90c 100644
+index 63fbc1f4b..ed47e1694 100644
 --- a/packages/ui/src/stores/useUIStore.ts
 +++ b/packages/ui/src/stores/useUIStore.ts
 @@ -1,4 +1,5 @@
@@ -1277,27 +1415,28 @@ index 63fbc1f4b..80054c90c 100644
          codeBlockLineWrap: true,
          tableCellWrap: true,
          copyMessagesAsPlainText: true,
-@@ -3472,8 +3474,8 @@ export const useUIStore = create<UIStore>()(
+@@ -3472,8 +3474,9 @@ export const useUIStore = create<UIStore>()(
          setMobileReturnKeySends: (value) => {
            set({ mobileReturnKeySends: value });
          },
 -        setWideChatLayoutEnabled: (value) => {
 -          set({ wideChatLayoutEnabled: value });
 +        setChatWidth: (value) => {
-+          set({ chatWidth: value });
++          const stored = chatWidthLevelSchema.safeParse(value);
++          set({ chatWidth: stored.success ? stored.data : DEFAULT_CHAT_WIDTH });
          },
          setCodeBlockLineWrap: (value) => {
            set({ codeBlockLineWrap: value });
-@@ -3581,7 +3583,7 @@ export const useUIStore = create<UIStore>()(
+@@ -3581,7 +3584,7 @@ export const useUIStore = create<UIStore>()(
        {
          name: 'ui-store',
          storage: createDeferredSafeJSONStorage(),
 -        version: 27,
-+        version: 29,
++        version: 30,
          migrate: (persistedState, version) => {
            if (!persistedState || typeof persistedState !== 'object') {
              return persistedState;
-@@ -3601,6 +3603,27 @@ export const useUIStore = create<UIStore>()(
+@@ -3601,6 +3604,35 @@ export const useUIStore = create<UIStore>()(
              state.workStatusSectionOrder = sanitizeWorkStatusSectionOrder(state.workStatusSectionOrder, false);
            }
  
@@ -1316,16 +1455,24 @@ index 63fbc1f4b..80054c90c 100644
 +            delete state.wideChatLayoutEnabled;
 +          }
 +
-+          // v28 -> v29: "wide" became a wider column of its own, so a level
-+          // saved under the old name reads as full width instead.
-+          if (version < 29 && state.chatWidth === 'wide') {
++          // v29 -> v30: the earlier revision of this level gave "wide" a
++          // wider column, then moved that layout to "full-width" without
++          // bumping the store version, so a store already at 29 kept the old
++          // name. Remap it once; a "wide" chosen after this version stays wide.
++          if (version < 30 && state.chatWidth === 'wide') {
 +            state.chatWidth = 'full-width';
 +          }
++
++          // A level this build does not know (a store from a build with more
++          // levels) falls back to the compact default instead of reaching the
++          // Settings Select as an unnamed value.
++          const storedChatWidth = chatWidthLevelSchema.safeParse(state.chatWidth);
++          state.chatWidth = storedChatWidth.success ? storedChatWidth.data : DEFAULT_CHAT_WIDTH;
 +
            // v20 -> v21: enable telemetry by default; preserve explicit choices.
            if (version < 21 && state.workStatusHiddenSectionsExplicit !== true) {
              state.workStatusHiddenSections = Array.isArray(state.workStatusHiddenSections)
-@@ -3996,7 +4019,7 @@ export const useUIStore = create<UIStore>()(
+@@ -3996,7 +4028,7 @@ export const useUIStore = create<UIStore>()(
            enterToSend: state.enterToSend,
            enterToSendConfigured: state.enterToSendConfigured,
            mobileReturnKeySends: state.mobileReturnKeySends,
@@ -1335,10 +1482,10 @@ index 63fbc1f4b..80054c90c 100644
            tableCellWrap: state.tableCellWrap,
            copyMessagesAsPlainText: state.copyMessagesAsPlainText,
 diff --git a/packages/ui/src/styles/typography.css b/packages/ui/src/styles/typography.css
-index c18f200ea..f59f953a3 100644
+index c18f200ea..9dc80b3fe 100644
 --- a/packages/ui/src/styles/typography.css
 +++ b/packages/ui/src/styles/typography.css
-@@ -85,39 +85,27 @@
+@@ -85,37 +85,35 @@
      text-decoration: underline;
    }
  
@@ -1379,12 +1526,29 @@ index c18f200ea..f59f953a3 100644
 -     readable column. */
 -  .wide-chat-layout .chat-message-column {
 -    width: 100%;
--  }
--
++  /* Narrow-content cards (permission, form, consent) stay on a readable
++     column: never wider than the chosen chat column, and never wider than the
++     64rem the old wide layout gave them. The transcript itself still follows
++     its own column. */
++  .chat-card-column {
++    width: min(100%, var(--chat-column-width, 48rem), 64rem);
++    margin-inline: auto;
++    padding-inline: calc(clamp(0.75rem, 2.5vw, 1rem) * var(--padding-scale, 1));
+   }
+ 
    /* On a wide window the side padding follows the chat's own width (a
-      percentage padding resolves against the parent's width), so a chat
-      squeezed beside an expanded context panel takes 1rem instead of the
-@@ -235,11 +223,7 @@
+@@ -134,6 +132,10 @@
+     .chat-message-column {
+       padding-inline: calc(clamp(1rem, 3%, 1.5rem) * var(--padding-scale, 1));
+     }
++
++    .chat-card-column {
++      padding-inline: calc(clamp(1rem, 3%, 1.5rem) * var(--padding-scale, 1));
++    }
+   }
+ 
+   /* Enhanced focus indicators for small interactive elements */
+@@ -235,11 +237,7 @@
     layer order). That dropped the clamp for a frame and flashed message text to
     full width. An unlayered duplicate of just the width keeps it robust. */
  .chat-message-column {
@@ -1398,14 +1562,19 @@ index c18f200ea..f59f953a3 100644
  
  /* A message reached through a message link shows a selection tint behind its
 diff --git a/packages/vscode/src/DOCUMENTATION.md b/packages/vscode/src/DOCUMENTATION.md
-index 2a43c6d93..f0a4f4c5d 100644
+index 2a43c6d93..960d84d6a 100644
 --- a/packages/vscode/src/DOCUMENTATION.md
 +++ b/packages/vscode/src/DOCUMENTATION.md
-@@ -140,6 +140,7 @@ The webview build emits each worker as one self-contained file. VS Code webviews
+@@ -136,10 +136,11 @@ The webview build emits each worker as one self-contained file. VS Code webviews
+ - `bridge-settings-runtime.ts`
+   - Settings read/write and OpenCode skills discovery via API for bridge consumers.
+   - Writes are gated by the generated registry snapshot (`settings-registry.json`, via `settings-registry-gate.ts`): keys the registry does not list, or marks `computed`, `local`, or `owner: desktop-shell`, never reach the shared settings files. Regenerate the snapshot with `bun run settings-registry:generate` when the UI registry changes.
+-  - Shared settings live in two files under `~/.config/openchamber/`, split by `settings-files.ts` (a pure mirror of the server's `settings-files.js`; both write the same bytes): `settings.json` holds instance facts and legacy keys, `preferences.json` (`{ version: 1, fields: { key: { value, updatedAt } } }`) holds every registry `profile` key. `updatedAt` is stamped by the extension host only when a value actually changes. Reads return the merged view (preferences win). A missing `preferences.json` is seeded once from the profile keys still in `settings.json`; every write keeps a copy of the profile's base values in `settings.json` too, so a build from before the split (which reads only that file) still finds the user's preferences; it is ignored by current builds.
++  - Shared settings live in two files under `~/.config/openchamber/`, split by `settings-files.ts` (a pure mirror of the server's `settings-files.js`; both write the same bytes): `settings.json` holds instance facts and legacy keys, `preferences.json` (`{ version: 2, fields: { key: { value, updatedAt } } }`) holds every registry `profile` key. Version-1 files are still read, and their `chatWidth: 'wide'` is remapped to `full-width` once at the parse boundary. `updatedAt` is stamped by the extension host only when a value actually changes. Reads return the merged view (preferences win). A missing `preferences.json` is seeded once from the profile keys still in `settings.json`; every write keeps a copy of the profile's base values in `settings.json` too, so a build from before the split (which reads only that file) still finds the user's preferences except the chat width level, which a build from before `chatWidth` existed does not read; it is ignored by current builds.
    - An existing but unparseable `preferences.json` is a failure, not an empty profile: it is never seeded over or rewritten, one warning is logged per process, reads return `settings.json` only, and writes drop the profile part until a later read succeeds.
    - Both files are written atomically (tmp file + rename). Write failures throw, so `persistSettings` rejects and the webview sees the save fail instead of a silent success.
    - The extension host is always the `vscode` surface kind: per-surface profile keys it changes land under `surfaces.vscode` in `preferences.json` and reads resolve `vscode` first, base otherwise (mirrors the server's header-driven behaviour).
-+  - Reads migrate a stored `wideChatLayoutEnabled` switch to `chatWidth` (`true` is `full-width`, `false` is `compact`) in both files and drop the switch, matching the server: a level already stored wins, and `settings.json` no longer keeps the switch as an unknown instance key.
++  - Reads migrate a stored `wideChatLayoutEnabled` switch to `chatWidth` (`true` is `full-width`, `false` is `compact`) in both files and drop the switch, matching the server: a level already stored wins, and `settings.json` no longer keeps the switch as an unknown instance key. A version-1 `preferences.json` also has its `chatWidth: 'wide'` remapped to `full-width` once at the parse boundary; a `wide` written at version 2 stays the wider column.
  
  - `bridge-system-runtime.ts`
    - System/editor/provider/quota/notification/update-check message handlers.
@@ -1468,7 +1637,7 @@ index 688316985..a0614acd7 100644
  
  // Everything the webview may see: the persisted document minus the keys the
 diff --git a/packages/vscode/src/settings-files.test.ts b/packages/vscode/src/settings-files.test.ts
-index 1ecb0ea96..00ff3f981 100644
+index 1ecb0ea96..9647c3a32 100644
 --- a/packages/vscode/src/settings-files.test.ts
 +++ b/packages/vscode/src/settings-files.test.ts
 @@ -8,6 +8,9 @@ import {
@@ -1481,7 +1650,54 @@ index 1ecb0ea96..00ff3f981 100644
    parsePreferencesDocument,
    preferencesFilePathFor,
    seedPreferencesFrom,
-@@ -84,6 +87,59 @@ describe('buildPreferencesFields', () => {
+@@ -30,8 +33,8 @@ describe('parsePreferencesDocument', () => {
+   });
+ 
+   test('rejects a wrong version', () => {
+-    const result = parsePreferencesDocument(JSON.stringify({ version: 2, fields: {} }));
+-    assert.deepEqual(result, { ok: false, reason: 'not a version-1 preferences document' });
++    const result = parsePreferencesDocument(JSON.stringify({ version: 3, fields: {} }));
++    assert.deepEqual(result, { ok: false, reason: 'not a version-1 or version-2 preferences document' });
+   });
+ 
+   test('rejects non-object fields', () => {
+@@ -47,9 +50,35 @@ describe('parsePreferencesDocument', () => {
+ 
+   test('accepts an empty document and defaults a missing stamp to 0', () => {
+     assert.deepEqual(parsePreferencesDocument(JSON.stringify({ version: 1, fields: {} })), { ok: true, fields: {} });
++    assert.deepEqual(parsePreferencesDocument(JSON.stringify({ version: 2, fields: {} })), { ok: true, fields: {} });
+     const result = parsePreferencesDocument(JSON.stringify({ version: 1, fields: { themeId: { value: 'nord' } } }));
+     assert.deepEqual(result, { ok: true, fields: { themeId: { value: 'nord', updatedAt: 0 } } });
+   });
++
++  test('reads a version-1 wide level as full-width and keeps a wide level at version 2', () => {
++    const versionOne = parsePreferencesDocument(JSON.stringify({
++      version: 1,
++      fields: {
++        chatWidth: { value: 'wide', updatedAt: 5, surfaces: { desktop: { value: 'wide', updatedAt: 6 } } },
++      },
++    }));
++    assert.deepEqual(versionOne, {
++      ok: true,
++      fields: {
++        chatWidth: {
++          value: 'full-width',
++          updatedAt: 5,
++          surfaces: { desktop: { value: 'full-width', updatedAt: 6 } },
++        },
++      },
++    });
++
++    const versionTwo = parsePreferencesDocument(JSON.stringify({
++      version: 2,
++      fields: { chatWidth: { value: 'wide', updatedAt: 5 } },
++    }));
++    assert.deepEqual(versionTwo, { ok: true, fields: { chatWidth: { value: 'wide', updatedAt: 5 } } });
++  });
+ });
+ 
+ describe('buildPreferencesFields', () => {
+@@ -84,6 +113,85 @@ describe('buildPreferencesFields', () => {
    });
  });
  
@@ -1536,16 +1752,51 @@ index 1ecb0ea96..00ff3f981 100644
 +    const merged = mergePersistedSettings({ wideChatLayoutEnabled: true }, { chatWidth: 'standard' });
 +    assert.deepEqual(merged, { chatWidth: 'standard' });
 +  });
++
++  test('drops a switch that has no usable value without writing an unparseable entry', () => {
++    const fields = migrateWideChatLayoutPreferenceFields({
++      wideChatLayoutEnabled: { value: null, updatedAt: 4 },
++    });
++
++    assert.deepEqual(fields, {});
++    assert.equal(parsePreferencesDocument(serializePreferencesDocument(fields)).ok, true);
++  });
++
++  test('keeps a surfaces-only switch as per-surface chat width levels', () => {
++    const fields = migrateWideChatLayoutPreferenceFields({
++      wideChatLayoutEnabled: {
++        surfaces: { desktop: { value: true, updatedAt: 3 } },
++        updatedAt: 4,
++      },
++    });
++
++    assert.deepEqual(fields, {
++      chatWidth: {
++        surfaces: { desktop: { value: 'full-width', updatedAt: 3 } },
++        updatedAt: 4,
++      },
++    });
++    assert.equal(parsePreferencesDocument(serializePreferencesDocument(fields)).ok, true);
++  });
 +});
 +
  describe('instancePartOf', () => {
    test('excludes profile keys and keeps instance and unknown legacy keys', () => {
      const document = { themeId: 'nord', defaultModel: 'x', opencodeBinary: '/bin/oc', legacyKey: true, dropped: undefined };
+@@ -115,7 +223,7 @@ describe('round trip', () => {
+       defaultModel: { value: 'zen/gpt-5', updatedAt: 42 },
+     });
+     const text = serializePreferencesDocument(fields);
+-    assert.ok(text.startsWith('{\n  "version": 1,\n  "fields": {'));
++    assert.ok(text.startsWith('{\n  "version": 2,\n  "fields": {'));
+     const parsed = parsePreferencesDocument(text);
+     assert.deepEqual(parsed, { ok: true, fields });
+     assert.deepEqual(flattenPreferences(fields), { themeId: 'nord', defaultModel: 'zen/gpt-5' });
 diff --git a/packages/vscode/src/settings-files.ts b/packages/vscode/src/settings-files.ts
-index c8668b44a..9f32ce8fa 100644
+index c8668b44a..b81d0e9bc 100644
 --- a/packages/vscode/src/settings-files.ts
 +++ b/packages/vscode/src/settings-files.ts
-@@ -11,6 +11,7 @@
+@@ -11,10 +11,19 @@
  //
  // Kept free of `vscode` imports so it is unit-tested directly.
  import * as path from 'path';
@@ -1553,7 +1804,75 @@ index c8668b44a..9f32ce8fa 100644
  import { SETTINGS_REGISTRY_FIELDS } from './settings-registry-gate';
  
  const PREFERENCES_FILE_NAME = 'preferences.json';
-@@ -98,6 +99,68 @@ export const parsePreferencesDocument = (raw: string): ParsedPreferencesDocument
+-const PREFERENCES_DOCUMENT_VERSION = 1;
++const PREFERENCES_DOCUMENT_VERSION = 2;
++/**
++ * Version 1 is still read. It stored the old `wide` level, which meant what
++ * `full-width` means now; that name is remapped once on the way in, so a
++ * `wide` chosen after the version bump stays a level of its own.
++ */
++const READABLE_PREFERENCES_DOCUMENT_VERSIONS = new Set([1, 2]);
++/** A document version is a whole number; anything else is a foreign file. */
++const preferencesDocumentVersionSchema = z.number().int();
+ 
+ type SettingsSurface = 'web' | 'desktop' | 'vscode' | 'mobile';
+ const SETTINGS_SURFACES: readonly SettingsSurface[] = ['web', 'desktop', 'vscode', 'mobile'];
+@@ -60,8 +69,8 @@ const sameValue = (left: unknown, right: unknown): boolean => {
+ 
+ /**
+  * Parse the text of a preferences file. A missing file is the caller's case
+- * (ENOENT); anything that is not a version-1 document with a `fields` object
+- * is a failure, never an empty profile.
++ * (ENOENT); anything that is not a version-1 or version-2 document with a
++ * `fields` object is a failure, never an empty profile.
+  */
+ export const parsePreferencesDocument = (raw: string): ParsedPreferencesDocument => {
+   let parsed: unknown;
+@@ -70,8 +79,12 @@ export const parsePreferencesDocument = (raw: string): ParsedPreferencesDocument
+   } catch (error) {
+     return { ok: false, reason: `invalid JSON: ${error instanceof Error ? error.message : String(error)}` };
+   }
+-  if (!isPlainObject(parsed) || parsed.version !== PREFERENCES_DOCUMENT_VERSION || !isPlainObject(parsed.fields)) {
+-    return { ok: false, reason: 'not a version-1 preferences document' };
++  if (!isPlainObject(parsed)) {
++    return { ok: false, reason: 'not a version-1 or version-2 preferences document' };
++  }
++  const version = preferencesDocumentVersionSchema.safeParse(parsed.version);
++  if (!version.success || !READABLE_PREFERENCES_DOCUMENT_VERSIONS.has(version.data) || !isPlainObject(parsed.fields)) {
++    return { ok: false, reason: 'not a version-1 or version-2 preferences document' };
+   }
+   const fields: PreferenceFields = {};
+   for (const [key, entry] of Object.entries(parsed.fields)) {
+@@ -92,12 +105,104 @@ export const parsePreferencesDocument = (raw: string): ParsedPreferencesDocument
+     }
+     fields[key] = next;
+   }
+-  return { ok: true, fields };
++  return { ok: true, fields: parsed.version === 1 ? remapWideChatWidthLevel(fields) : fields };
++};
++
++/**
++ * A version-1 preferences file stored `chatWidth: 'wide'` for the layout that
++ * now has its own `full-width` level. Read that name as `full-width` once, at
++ * the boundary; version 2 files keep `wide` as the wider column it became.
++ */
++const remapWideChatWidthLevel = (fields: PreferenceFields): PreferenceFields => {
++  const entry = fields.chatWidth;
++  if (!entry) return fields;
++  const next: PreferenceField = { ...entry };
++  if (next.value === 'wide') next.value = 'full-width';
++  if (next.surfaces) {
++    const surfaces: Partial<Record<SettingsSurface, SurfaceValue>> = {};
++    for (const [surface, surfaceEntry] of Object.entries(next.surfaces)) {
++      surfaces[surface] = surfaceEntry.value === 'wide'
++        ? { ...surfaceEntry, value: 'full-width' }
++        : surfaceEntry;
++    }
++    next.surfaces = surfaces;
++  }
++  return { ...fields, chatWidth: next };
+ };
+ 
  export const serializePreferencesDocument = (fields: PreferenceFields): string =>
    JSON.stringify({ version: PREFERENCES_DOCUMENT_VERSION, fields }, null, 2);
  
@@ -1591,6 +1910,14 @@ index c8668b44a..9f32ce8fa 100644
 +    if (surfaceSwitch.success) surfaces[surface] = { ...entry, value: chatWidthLevelOfSwitch(surfaceSwitch.data) };
 +  }
 +  if (Object.keys(surfaces).length > 0) chatWidth.surfaces = surfaces;
++  // A switch with no boolean value (and no surfaces) leaves nothing to write.
++  // Dropping the switch without a chatWidth entry keeps the file parseable.
++  const hasBase = 'value' in chatWidth;
++  const hasSurfaces = chatWidth.surfaces && Object.keys(chatWidth.surfaces).length > 0;
++  if (!hasBase && !hasSurfaces) {
++    delete next.chatWidth;
++    return next;
++  }
 +  chatWidth.updatedAt = Math.max(chatWidth.updatedAt, legacy.updatedAt);
 +  next.chatWidth = chatWidth;
 +  return next;
@@ -1636,7 +1963,7 @@ index bd91353d9..53083a65c 100644
        "perSurface": true
      },
 diff --git a/packages/web/server/lib/opencode/DOCUMENTATION.md b/packages/web/server/lib/opencode/DOCUMENTATION.md
-index dc19d604e..230d3c64c 100644
+index dc19d604e..eca15002a 100644
 --- a/packages/web/server/lib/opencode/DOCUMENTATION.md
 +++ b/packages/web/server/lib/opencode/DOCUMENTATION.md
 @@ -83,7 +83,7 @@ in that user's sessions. On the fallback path the same rules are merged into
@@ -1644,15 +1971,94 @@ index dc19d604e..230d3c64c 100644
  - `packages/web/server/lib/opencode/skill-routes.js`: route registration for skill config CRUD, supporting files, and skills catalog scan/install flows.
  - `packages/web/server/lib/opencode/settings-runtime.js`: Settings persistence runtime (disk IO, migrations, normalization, project validation, and persisted update serialization). With no project stored, the legacy migration turns a stored `lastDirectory` into the first project, except a folder inside the chats roots (`chatRoots` dep, compared lexically and by realpath): with no project open the UI's last directory is usually a chat's, and a chat belongs to no project.
 -- `packages/web/server/lib/opencode/settings-helpers.js`: Settings payload sanitization/format helpers runtime for response shaping and persisted merge prep. `lastDirectory: ''` is kept as written: the UI sends it when the last project is removed, and every reader (the warm-up, the legacy last-directory-to-project migration, request directory resolution) treats it as unset.
-+- `packages/web/server/lib/opencode/settings-helpers.js`: Settings payload sanitization/format helpers runtime for response shaping and persisted merge prep. `lastDirectory: ''` is kept as written: the UI sends it when the last project is removed, and every reader (the warm-up, the legacy last-directory-to-project migration, request directory resolution) treats it as unset. A stored `wideChatLayoutEnabled` switch from a build before the chat width level existed is returned as `chatWidth` (`true` is `full-width`, `false` is `compact`) and the switch itself is dropped; a level in the same document wins.
++- `packages/web/server/lib/opencode/settings-helpers.js`: Settings payload sanitization/format helpers runtime for response shaping and persisted merge prep. `lastDirectory: ''` is kept as written: the UI sends it when the last project is removed, and every reader (the warm-up, the legacy last-directory-to-project migration, request directory resolution) treats it as unset. A stored `wideChatLayoutEnabled` switch in a settings payload from a build before the chat width level existed is returned as `chatWidth` (`true` is `full-width`, `false` is `compact`) and the switch itself is dropped; a level in the same document wins. Files already on disk are converted by `migrateWideChatLayoutPreferenceFields` and `migrateWideChatLayoutDocument` in `settings-files.js`.
  - `packages/web/server/lib/opencode/settings-normalization-runtime.js`: path/settings/tunnel normalization and sanitization helpers runtime used by settings/routes/config wiring. Project records keep `labelSource` beside `label` so every client can tell a derived label from one the user typed; an unknown value, or a source without a label, is dropped.
  - `packages/web/server/lib/opencode/theme-runtime.js`: custom theme JSON validation and theme directory loading runtime for settings utility routes. A theme file that stops loading (a half-written save, a typo, an oversized or unreadable file) keeps serving the last version of that file this process loaded, so the theme on screen stays put while it is edited; a file that never loaded is skipped, and a removed file drops its theme at once.
  - `packages/web/server/lib/opencode/theme-watch.js`: watches the custom themes folder and sends `openchamber:themes-changed` on the control stream, with nothing in it, once a `.json` file there was added, removed or rewritten and then held still for one check; every client reads `GET /api/config/themes` again. Imports and deletes through the routes are announced the same way, so other windows follow them. The first look is taken at creation, so a save right after start is announced. The feature routes runtime owns the one watch: registering routes again replaces it, and graceful shutdown stops it.
+@@ -531,10 +531,10 @@ ConPTY or Console Window Host behavior.
+ - Persistent per-session permission modes are stored under `permissionAutoAccept`, and the mode for new sessions under `permissionDefaultMode`; execution ownership lives in `lib/permission-auto-accept/`.
+ - Queued follow-up messages live in `<data-dir>/message-queue.json`, not in settings; execution ownership lives in `lib/message-queue/`.
+ - Shared sidebar preferences are stored as validated top-level fields: `sidebarProjectDisplayMode`, `sidebarSessionGroupingMode`, `sidebarListSessionGrouping`, `sidebarProjectSortOrder`, `sidebarShowChatsSection`, `sidebarShowWorkSection`, `sidebarShowPinnedSection`, `sidebarDetailedZoneRows`, and `sidebarWorktreeNameByBranch`. Device-local picker selection and sticky-header state do not enter either settings file.
+-- Two files (`settings-files.js`): `settings.json` holds instance facts and any legacy or unknown keys; `preferences.json` beside it holds every key the generated registry snapshot (`settings-registry.json`) marks `profile`, as `{ version: 1, fields: { key: { value, updatedAt, surfaces? } } }`. Keys the snapshot marks `perSurface` are stored per surface kind: `GET`/`PUT /api/config/settings` read the client's kind from the `surface` query parameter (`settingsSurfaceOf`; the legacy `x-openchamber-surface` header is still honoured, but a header forces a CORS preflight that cross-origin shells and older instances refuse, so clients must not send one) (`web`, `desktop`, `vscode`, `mobile`; anything else means base), `persistSettings(changes, { surface })` writes a changed per-surface key under `surfaces[surface]` and never touches its base, and `readSettingsFromDisk({ surface })` resolves that kind's value first, the base otherwise. Callers without a surface (migrations, the seed, server-side feature writers) read and write the base. `readSettingsFromDisk()` returns the merged document and seeds `preferences.json` once from an existing `settings.json` (which it leaves intact). An existing `preferences.json` that fails to parse is a failure, not an empty profile: it is never seeded or overwritten, the merged read serves the instance part, and `persistSettings` drops profile keys with a warning until the file is fixed or removed. `writeSettingsToDisk(document)` splits by scope and writes `settings.json` as the instance part plus a copy of the profile's base values (`legacySettingsDocumentOf`): a build from before the split reads only that file, so a rollback keeps the user's preferences, while current builds ignore the copy because `preferences.json` wins in the merge; device keys are dropped from writes. Modules that read one profile key off the disk on a hot path use `readMergedSettingsSync`.
++- Two files (`settings-files.js`): `settings.json` holds instance facts and any legacy or unknown keys; `preferences.json` beside it holds every key the generated registry snapshot (`settings-registry.json`) marks `profile`, as `{ version: 2, fields: { key: { value, updatedAt, surfaces? } } }`. Version-1 documents are still read: their `chatWidth: 'wide'` meant what `full-width` means now and is remapped once at the parse boundary, so a `wide` chosen after the version bump stays the wider column. A `settings.json` copy carries no version marker, so seeding a missing `preferences.json` from one keeps its `chatWidth` as written; only the preferences file can distinguish the two meanings of `wide`. Keys the snapshot marks `perSurface` are stored per surface kind: `GET`/`PUT /api/config/settings` read the client's kind from the `surface` query parameter (`settingsSurfaceOf`; the legacy `x-openchamber-surface` header is still honoured, but a header forces a CORS preflight that cross-origin shells and older instances refuse, so clients must not send one) (`web`, `desktop`, `vscode`, `mobile`; anything else means base), `persistSettings(changes, { surface })` writes a changed per-surface key under `surfaces[surface]` and never touches its base, and `readSettingsFromDisk({ surface })` resolves that kind's value first, the base otherwise. Callers without a surface (migrations, the seed, server-side feature writers) read and write the base. `readSettingsFromDisk()` returns the merged document and seeds `preferences.json` once from an existing `settings.json` (which it leaves intact). An existing `preferences.json` that fails to parse is a failure, not an empty profile: it is never seeded or overwritten, the merged read serves the instance part, and `persistSettings` drops profile keys with a warning until the file is fixed or removed. `writeSettingsToDisk(document)` splits by scope and writes `settings.json` as the instance part plus a copy of the profile's base values (`legacySettingsDocumentOf`): a build from before the split reads only that file, so a rollback keeps the user's preferences except the chat width level, which a build from before `chatWidth` existed does not read; current builds ignore the copy because `preferences.json` wins in the merge; device keys are dropped from writes. Modules that read one profile key off the disk on a hot path use `readMergedSettingsSync`.
+ 
+ ## Public exports (settings-files.js)
+-- `parsePreferencesDocument(raw)`, `serializePreferencesDocument(fields)`, `flattenPreferences(fields)`, `buildPreferencesFields(previousFields, document, now)`, `instancePartOf(document)`, `seedPreferencesFrom(document, now)`, `readMergedSettingsSync({ fs, path, settingsFilePath })`, `getSettingsScope(key)`, `isProfileSettingsKey(key)`, `isDeviceSettingsKey(key)`, `preferencesFilePathFor(settingsFilePath, path)`.
++- `parsePreferencesDocument(raw)`, `serializePreferencesDocument(fields)`, `flattenPreferences(fields)`, `buildPreferencesFields(previousFields, document, now)`, `instancePartOf(document)`, `seedPreferencesFrom(document, now)`, `readMergedSettingsSync({ fs, path, settingsFilePath })`, `migrateWideChatLayoutPreferenceFields(fields)`, `migrateWideChatLayoutDocument(document)`, `getSettingsScope(key)`, `isProfileSettingsKey(key)`, `isDeviceSettingsKey(key)`, `preferencesFilePathFor(settingsFilePath, path)`.
+ - The VS Code extension host writes the same two files with the same shape (`packages/vscode/src/settings-files.ts`); format changes go to both.
+ 
+ ## Public exports (settings-helpers.js)
 diff --git a/packages/web/server/lib/opencode/settings-files.js b/packages/web/server/lib/opencode/settings-files.js
-index 553263e81..f4c6f2506 100644
+index 553263e81..1ba198bf1 100644
 --- a/packages/web/server/lib/opencode/settings-files.js
 +++ b/packages/web/server/lib/opencode/settings-files.js
-@@ -93,6 +93,45 @@ export const parsePreferencesDocument = (raw) => {
+@@ -12,7 +12,13 @@ import { createRequire } from 'node:module';
+ const registry = createRequire(import.meta.url)('./settings-registry.json');
+ 
+ const PREFERENCES_FILE_NAME = 'preferences.json';
+-const PREFERENCES_DOCUMENT_VERSION = 1;
++const PREFERENCES_DOCUMENT_VERSION = 2;
++/**
++ * Version 1 is still read. It stored the old `wide` level, which meant what
++ * `full-width` means now; that name is remapped once on the way in, so a
++ * `wide` chosen after the version bump stays a level of its own.
++ */
++const READABLE_PREFERENCES_DOCUMENT_VERSIONS = new Set([1, 2]);
+ 
+ /** The registry scope for a key, or `null` when the registry does not know it. */
+ const getSettingsScope = (key) => registry.fields[key]?.scope ?? null;
+@@ -51,6 +57,33 @@ const sameValue = (left, right) => {
+ 
+ const parseStamp = (value) => (Number.isFinite(value) ? value : 0);
+ 
++/**
++ * A version-1 preferences file stored `chatWidth: 'wide'` for the layout that
++ * now has its own `full-width` level. Read that name as `full-width` once, at
++ * the boundary; version 2 files keep `wide` as the wider column it became.
++ *
++ * A `settings.json` copy carries no version marker, so seeding a missing
++ * `preferences.json` from one keeps `chatWidth` as written. A copy made by the
++ * revision that wrote `wide` therefore seeds `wide` at the current meaning;
++ * only the preferences file can tell the two apart.
++ */
++const remapWideChatWidthLevel = (fields) => {
++  const entry = fields.chatWidth;
++  if (!entry) return fields;
++  const next = { ...entry };
++  if (next.value === 'wide') next.value = 'full-width';
++  if (next.surfaces) {
++    const surfaces = {};
++    for (const [surface, surfaceEntry] of Object.entries(next.surfaces)) {
++      surfaces[surface] = surfaceEntry.value === 'wide'
++        ? { ...surfaceEntry, value: 'full-width' }
++        : surfaceEntry;
++    }
++    next.surfaces = surfaces;
++  }
++  return { ...fields, chatWidth: next };
++};
++
+ /**
+  * Parse the text of a preferences file. A missing file is the caller's case
+  * (ENOENT); anything that is not a version-1 document with a `fields` object
+@@ -67,8 +100,8 @@ export const parsePreferencesDocument = (raw) => {
+   } catch (error) {
+     return { ok: false, reason: `invalid JSON: ${error instanceof Error ? error.message : String(error)}` };
+   }
+-  if (!isPlainObject(parsed) || parsed.version !== PREFERENCES_DOCUMENT_VERSION || !isPlainObject(parsed.fields)) {
+-    return { ok: false, reason: 'not a version-1 preferences document' };
++  if (!isPlainObject(parsed) || !READABLE_PREFERENCES_DOCUMENT_VERSIONS.has(parsed.version) || !isPlainObject(parsed.fields)) {
++    return { ok: false, reason: 'not a version-1 or version-2 preferences document' };
+   }
+   const fields = {};
+   for (const [key, entry] of Object.entries(parsed.fields)) {
+@@ -88,11 +121,58 @@ export const parsePreferencesDocument = (raw) => {
+     }
+     fields[key] = next;
+   }
+-  return { ok: true, fields };
++  return { ok: true, fields: parsed.version === 1 ? remapWideChatWidthLevel(fields) : fields };
+ };
  
  export const serializePreferencesDocument = (fields) => JSON.stringify({ version: PREFERENCES_DOCUMENT_VERSION, fields }, null, 2);
  
@@ -1680,6 +2086,14 @@ index 553263e81..f4c6f2506 100644
 +      if (level) chatWidth.surfaces[surface] = { ...entry, value: level };
 +    }
 +  }
++  // A switch with no boolean value (and no surfaces) leaves nothing to write.
++  // Dropping the switch without a chatWidth entry keeps the file parseable.
++  const hasBase = 'value' in chatWidth;
++  const hasSurfaces = chatWidth.surfaces && Object.keys(chatWidth.surfaces).length > 0;
++  if (!hasBase && !hasSurfaces) {
++    delete next.chatWidth;
++    return next;
++  }
 +  chatWidth.updatedAt = Math.max(chatWidth.updatedAt ?? 0, legacy.updatedAt ?? 0);
 +  next.chatWidth = chatWidth;
 +  return next;
@@ -1700,16 +2114,18 @@ index 553263e81..f4c6f2506 100644
   * that surface's own value first, the base value otherwise; a key with neither
 diff --git a/packages/web/server/lib/opencode/settings-files.test.js b/packages/web/server/lib/opencode/settings-files.test.js
 new file mode 100644
-index 000000000..983023a26
+index 000000000..9c9438516
 --- /dev/null
 +++ b/packages/web/server/lib/opencode/settings-files.test.js
-@@ -0,0 +1,40 @@
+@@ -0,0 +1,100 @@
 +import { describe, expect, test } from 'bun:test';
 +
 +import {
 +  flattenPreferences,
 +  migrateWideChatLayoutDocument,
 +  migrateWideChatLayoutPreferenceFields,
++  parsePreferencesDocument,
++  serializePreferencesDocument,
 +} from './settings-files.js';
 +
 +describe('wide chat layout migration', () => {
@@ -1742,6 +2158,64 @@ index 000000000..983023a26
 +    expect(migrateWideChatLayoutDocument({ wideChatLayoutEnabled: true })).toEqual({ chatWidth: 'full-width' });
 +    expect(migrateWideChatLayoutDocument({ chatWidth: 'full', wideChatLayoutEnabled: false })).toEqual({ chatWidth: 'full' });
 +    expect(migrateWideChatLayoutDocument({ locale: 'fr' })).toEqual({ locale: 'fr' });
++  });
++
++  test('drops a switch that has no usable value without writing an unparseable entry', () => {
++    const fields = migrateWideChatLayoutPreferenceFields({
++      wideChatLayoutEnabled: { value: null, updatedAt: 4 },
++    });
++
++    expect(fields).toEqual({});
++    expect(parsePreferencesDocument(serializePreferencesDocument(fields)).ok).toBe(true);
++  });
++
++  test('keeps a surfaces-only switch as per-surface chat width levels', () => {
++    const fields = migrateWideChatLayoutPreferenceFields({
++      wideChatLayoutEnabled: {
++        surfaces: { desktop: { value: true, updatedAt: 3 } },
++        updatedAt: 4,
++      },
++    });
++
++    expect(fields).toEqual({
++      chatWidth: {
++        surfaces: { desktop: { value: 'full-width', updatedAt: 3 } },
++        updatedAt: 4,
++      },
++    });
++    expect(parsePreferencesDocument(serializePreferencesDocument(fields)).ok).toBe(true);
++  });
++});
++
++describe('preferences document version', () => {
++  test('reads a version-1 wide level as full-width exactly once', () => {
++    const parsed = parsePreferencesDocument(JSON.stringify({
++      version: 1,
++      fields: {
++        chatWidth: { value: 'wide', updatedAt: 5, surfaces: { desktop: { value: 'wide', updatedAt: 6 } } },
++      },
++    }));
++
++    expect(parsed.ok).toBe(true);
++    if (!parsed.ok) return;
++    expect(flattenPreferences(parsed.fields)).toEqual({ chatWidth: 'full-width' });
++    expect(flattenPreferences(parsed.fields, 'desktop')).toEqual({ chatWidth: 'full-width' });
++  });
++
++  test('keeps a wide level written at the current version', () => {
++    const parsed = parsePreferencesDocument(JSON.stringify({
++      version: 2,
++      fields: { chatWidth: { value: 'wide', updatedAt: 5 } },
++    }));
++
++    expect(parsed.ok).toBe(true);
++    if (!parsed.ok) return;
++    expect(flattenPreferences(parsed.fields)).toEqual({ chatWidth: 'wide' });
++  });
++
++  test('writes the current version', () => {
++    const text = serializePreferencesDocument({});
++    expect(JSON.parse(text).version).toBe(2);
 +  });
 +});
 diff --git a/packages/web/server/lib/opencode/settings-helpers.js b/packages/web/server/lib/opencode/settings-helpers.js
@@ -1776,10 +2250,10 @@ index ad54c7321..4a49cd2a6 100644
      if (typeof candidate.showSplitAssistantMessageActions === 'boolean') {
        result.showSplitAssistantMessageActions = candidate.showSplitAssistantMessageActions;
 diff --git a/packages/web/server/lib/opencode/settings-helpers.test.js b/packages/web/server/lib/opencode/settings-helpers.test.js
-index 7fb6f0bde..a69ec41db 100644
+index 7fb6f0bde..7ff59192f 100644
 --- a/packages/web/server/lib/opencode/settings-helpers.test.js
 +++ b/packages/web/server/lib/opencode/settings-helpers.test.js
-@@ -257,12 +257,19 @@ describe('settings helpers', () => {
+@@ -257,12 +257,43 @@ describe('settings helpers', () => {
      expect(helpers.sanitizeSettingsUpdate({ toolJsonViewMode: 'unknown' })).toEqual({});
    });
  
@@ -1800,10 +2274,34 @@ index 7fb6f0bde..a69ec41db 100644
 +    expect(helpers.sanitizeSettingsUpdate({ wideChatLayoutEnabled: false })).toEqual({ chatWidth: 'compact' });
 +    // A level in the same document wins over the old switch.
 +    expect(helpers.sanitizeSettingsUpdate({ chatWidth: 'standard', wideChatLayoutEnabled: true })).toEqual({ chatWidth: 'standard' });
++  });
++
++  it('keeps the chat width allowlist in step with the UI', () => {
++    const helpers = createTestHelpers();
++    // The server cannot import `packages/ui`, so its hand-copied list is
++    // compared with the interface's own here: a level added there and not on
++    // the server would never be saved, and a level the server keeps after the
++    // UI drops it would be accepted and then reset on the next read.
++    const uiSource = readFileSync(fileURLToPath(new URL('../../../../ui/src/lib/chatWidth.ts', import.meta.url)), 'utf8');
++    const uiMatch = uiSource.match(/export const CHAT_WIDTH_LEVELS = \[([^\]]*)\]/);
++    if (!uiMatch) throw new Error('Could not find CHAT_WIDTH_LEVELS in the UI chat width module');
++    const uiLevels = uiMatch[1].split(',').map((entry) => entry.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
++
++    const serverSource = readFileSync(testFilePath.replace(/\.test\.js$/, '.js'), 'utf8');
++    const serverMatch = serverSource.match(/const CHAT_WIDTH_VALUES = \[([^\]]*)\]/);
++    if (!serverMatch) throw new Error('Could not find CHAT_WIDTH_VALUES in settings-helpers.js');
++    const serverLevels = serverMatch[1].split(',').map((entry) => entry.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
++
++    expect(serverLevels).toEqual(uiLevels);
++    expect(uiLevels.length).toBeGreaterThan(1);
++    for (const level of uiLevels) {
++      expect(helpers.sanitizeSettingsUpdate({ chatWidth: level })).toEqual({ chatWidth: level });
++    }
++    expect(helpers.sanitizeSettingsUpdate({ chatWidth: 'huge' })).toEqual({});
    });
  
    it('accepts only booleans for collapsible user messages', () => {
-@@ -915,7 +922,7 @@ describe('settings registry gate', () => {
+@@ -915,7 +946,7 @@ describe('settings registry gate', () => {
      workStatusPanelEnabled: true, workStatusHiddenSections: ['mcp'], workStatusHiddenSectionsExplicit: true, workStatusSectionOrder: ['mcp', 'session'], workStatusSectionOrderExplicit: true,
      showReasoningTraces: true, streamingAutoFollowEnabled: true, collapsibleThinkingBlocks: true, expandReasoningWhileStreaming: true, showTextJustificationActivity: true,
      chatRenderMode: 'live', activityRenderMode: 'summary', mermaidRenderingMode: 'svg', userMessageRenderingMode: 'markdown', collapsibleUserMessages: true,
