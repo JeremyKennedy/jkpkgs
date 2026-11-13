@@ -164,11 +164,12 @@ index 43284997d..225b7726c 100644
          turnExpansion,
 diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
 new file mode 100644
-index 000000000..724b9fb15
+index 000000000..46be51593
 --- /dev/null
 +++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
-@@ -0,0 +1,147 @@
-+import React from 'react';
+@@ -0,0 +1,193 @@
++import React, { act } from 'react';
++import { createRoot } from 'react-dom/client';
 +import { expect, test } from 'bun:test';
 +import { plugin } from 'bun';
 +import { pathToFileURL } from 'node:url';
@@ -231,13 +232,14 @@ index 000000000..724b9fb15
 +    },
 +} as Part);
 +
-+const render = (node: React.ReactNode) => renderToStaticMarkup(
++const wrap = (node: React.ReactNode) => (
 +    <RuntimeAPIContext.Provider value={runtimeApis}>
 +        <SyncProvider sdk={sdk} directory="">
 +            <I18nProvider>{node}</I18nProvider>
 +        </SyncProvider>
-+    </RuntimeAPIContext.Provider>,
++    </RuntimeAPIContext.Provider>
 +);
++const render = (node: React.ReactNode) => renderToStaticMarkup(wrap(node));
 +const text = (node: React.ReactNode) => {
 +    const container = browser.document.createElement('div');
 +    container.innerHTML = render(node);
@@ -309,23 +311,68 @@ index 000000000..724b9fb15
 +    const markup = render(card(part));
 +    expect(markup).toContain('select-text');
 +    expect(markup).not.toContain('role="button"');
-+    expect(markup).not.toContain('cursor-pointer');
 +    expect(markup).not.toContain('brightness-110');
 +    expect(text(card(part))).toContain('Show more');
 +    expect(text(card(part, true))).toContain('Show less');
 +    expect(markup).toContain('hover:underline');
 +});
++
++test('native click parity: collapsed text opens, selected text does not, open text does not close, links toggle once', async () => {
++    const container = document.createElement('div');
++    document.body.appendChild(container);
++    const root = createRoot(container);
++    const part = ask([{ question: 'Ship it?', answer: 'Yes' }]);
++    let toggles = 0;
++    const draw = async (open: boolean) => {
++        await act(async () => root.render(wrap(
++            <QuestionTurnHeader part={part} messageId="msg_assistant" startsMessage open={open} onToggle={() => { toggles += 1; }} />,
++        )));
++    };
++    const click = async (element: Element) => {
++        await act(async () => element.dispatchEvent(new browser.MouseEvent('click', { bubbles: true }) as unknown as MouseEvent));
++    };
++    try {
++        await draw(false);
++        const question = container.querySelector('[title="Ship it?"]')!;
++        await click(question);
++        expect(toggles).toBe(1);
++
++        const range = document.createRange();
++        range.selectNodeContents(question);
++        window.getSelection()!.removeAllRanges();
++        window.getSelection()!.addRange(range);
++        await click(question);
++        expect(toggles).toBe(1);
++        expect(window.getSelection()!.toString()).toBe('Ship it?');
++        window.getSelection()!.removeAllRanges();
++
++        await draw(true);
++        await click(container.querySelector('[title="Ship it?"]')!);
++        expect(toggles).toBe(1);
++        await click(container.querySelector('button')!);
++        expect(toggles).toBe(2);
++
++        await draw(false);
++        await click(container.querySelector('button')!);
++        expect(toggles).toBe(3);
++    } finally {
++        window.getSelection()!.removeAllRanges();
++        await act(async () => root.unmount());
++        container.remove();
++    }
++});
 diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
 new file mode 100644
-index 000000000..91be24fae
+index 000000000..c2dbb77a4
 --- /dev/null
 +++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
-@@ -0,0 +1,163 @@
+@@ -0,0 +1,172 @@
 +import React from 'react';
 +
 +import { useDeviceInfo } from '@/lib/device';
 +import { useI18n } from '@/lib/i18n';
 +import { cn } from '@/lib/utils';
++import { hasTextSelectionInside } from '@/lib/textSelection';
 +import type { Part } from '@/lib/opencode/model';
 +import { useUIStore } from '@/stores/useUIStore';
 +import {
@@ -401,7 +448,15 @@ index 000000000..91be24fae
 +                            className="select-text border border-primary/5 px-5 py-3 shadow-none"
 +                            style={CARD_STYLE}
 +                        >
-+                            <div className={cn('space-y-2.5', open && 'max-h-[40dvh] overflow-y-auto overscroll-contain')}>
++                            <div
++                                className={cn('space-y-2.5', open ? 'max-h-[40dvh] overflow-y-auto overscroll-contain' : 'cursor-pointer')}
++                                onClick={(event) => {
++                                    // Match UserTextPart: a click opens collapsed content;
++                                    // a drag/double-click selecting text must leave it alone.
++                                    // Open text never collapses on click (Show less does).
++                                    if (!open && !hasTextSelectionInside(event.currentTarget)) toggle();
++                                }}
++                            >
 +                                {answered.map(({ entry, answer }) => {
 +                                    const picked = selectedOptionLabels(entry.options, entry.answer, entry.multiple);
 +                                    return (
