@@ -1,0 +1,703 @@
+diff --git a/packages/ui/src/apps/MobileSessionsSheet.tsx b/packages/ui/src/apps/MobileSessionsSheet.tsx
+index 8e5f38f..9adfa50 100644
+--- a/packages/ui/src/apps/MobileSessionsSheet.tsx
++++ b/packages/ui/src/apps/MobileSessionsSheet.tsx
+@@ -207,6 +207,8 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open,
+   const setDetailedZoneRows = useSessionDisplayStore((state) => state.setDetailedZoneRows);
+   const worktreeNameByBranch = useSessionDisplayStore((state) => state.worktreeNameByBranch);
+   const setWorktreeNameByBranch = useSessionDisplayStore((state) => state.setWorktreeNameByBranch);
++  const hideEmptyWorktrees = useSessionDisplayStore((state) => state.hideEmptyWorktrees);
++  const setHideEmptyWorktrees = useSessionDisplayStore((state) => state.setHideEmptyWorktrees);
+   const sessionWorkEnabled = useUIStore((state) => state.sessionWorkEnabled);
+   const savedSections = useSessionDisplayStore((state) => state.sections);
+   const customSections = React.useMemo(() => savedSections.filter((entry) => entry.kind === 'custom'), [savedSections]);
+@@ -416,6 +418,9 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open,
+         {renderMenuChoice('branch-names', 'sessions.sidebar.header.displayMode.worktreeNameByBranch', worktreeNameByBranch, toggleSetting(worktreeNameByBranch, setWorktreeNameByBranch, (next) => {
+           void updateDesktopSettings({ sidebarWorktreeNameByBranch: next });
+         }))}
++        {renderMenuChoice('hide-empty-worktrees', 'sessions.sidebar.header.displayMode.hideEmptyWorktrees', hideEmptyWorktrees, toggleSetting(hideEmptyWorktrees, setHideEmptyWorktrees, (next) => {
++          void updateDesktopSettings({ sidebarHideEmptyWorktrees: next });
++        }))}
+         <DropdownMenuSeparator />
+         {canEditOrder ? (
+           <DropdownMenuItem onClick={() => setEditingOrder(true)} className={MOBILE_MENU_ITEM_CLASS}>
+diff --git a/packages/ui/src/components/session/SessionSidebar.tsx b/packages/ui/src/components/session/SessionSidebar.tsx
+index 1988c6c..dd6814d 100644
+--- a/packages/ui/src/components/session/SessionSidebar.tsx
++++ b/packages/ui/src/components/session/SessionSidebar.tsx
+@@ -498,6 +498,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
+   }
+ 
+   const showArchivedSessions = useSessionDisplayStore((state) => state.showArchivedSessions);
++  const hideEmptyWorktrees = useSessionDisplayStore((state) => state.hideEmptyWorktrees);
+   const storedProjectSortOrder = useSessionDisplayStore((state) => state.projectSortOrder);
+   const projectSortOrder = storedProjectSortOrder;
+   const manualProjectOrder = useProjectsStore((state) => state.manualProjectOrder);
+@@ -749,6 +750,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
+         mobileVariant,
+         hideDirectoryControls,
+         showOnlyMainWorkspace,
++        hideEmptyWorktrees,
+         isDesktopShellRuntime,
+         projectSortOrder,
+         emptyState,
+diff --git a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
+index ae7fc48..2a2959c 100644
+--- a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
++++ b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
+@@ -563,6 +563,15 @@ may replace that agent-owned seed. A session with explicit `workTitle.by: 'user'
+ keeps user ownership in the worktree. No marker is required to seed the title.
+ A move onto a branch that already exists keeps that branch's name.
+ 
++"Hide worktrees with no sessions" in the display menu
++(`hideEmptyWorktrees`, `sidebarHideEmptyWorktrees`, off by default, one value
++for every surface) leaves out worktree rows that hold nothing: no session, no
++draft (stored or still open in its composer), no pin, no archived session, and
++none being removed. The setting only takes the row away; a search for the
++worktree's name still lists it, and the worktree is still there for a new
++session. Off by default, so a worktree made outside the app stays visible
++until the user asks it away.
++
+ ### Spaces
+ 
+ An isolated space is a work like a worktree (`isGroupWork`, maintainer
+@@ -628,8 +637,8 @@ time, everything else groups by project); the phone follows the same
+ setting, and VS Code always groups by project. The display menu (the header's
+ "…", titled Display mode) opens with Select sessions, then Grouping, then
+ (grouped by project) the project sort and project display, Detailed rows,
+-"Name worktrees by branch", then Collapse all / Expand all, and last Mark all
+-as read, which marks every unread session the
++"Name worktrees by branch", "Hide worktrees with no sessions", then Collapse
++all / Expand all, and last Mark all as read, which marks every unread session the
+ client knows of seen (`markAllSessionsViewed`), hidden sections included, and
+ is disabled while none is unread. Customize sections is its own header button
+ (`list-settings`), shown where the manager is (`showSectionControls`); a click
+diff --git a/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx b/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx
+index 50a5b2b..43517f4 100644
+--- a/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx
++++ b/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx
+@@ -66,7 +66,7 @@ import { useSidebarAttentionFacts, useSidebarLiveFacts, useSidebarPlanSessions,
+ import { useSidebarSectionsUiStore } from '../sections/sectionActions';
+ import { DEFAULT_PIN_LIST, sidebarSectionReadsLiveState, sidebarSectionReadsPlans, type SidebarWorkFacts } from '@/lib/sidebarSections';
+ import { useRemovingWorktreePaths } from '@/lib/worktrees/worktreeRemovalState';
+-import { buildSessionRootIndex, buildSidebarWorkIndex, buildWorktreeArchiveAnchors, isFiledInFolder, isGroupWork, orderInWorkWorks, orderInWorkWorksByAttention, orderSidebarWorks, type SidebarFolderMembership, type SidebarWorkRef } from '../works/sidebarWorks';
++import { buildSessionRootIndex, buildSidebarWorkIndex, buildWorktreeArchiveAnchors, isFiledInFolder, isEmptyWorktreeWork, isGroupWork, orderInWorkWorks, orderInWorkWorksByAttention, orderSidebarWorks, type SidebarFolderMembership, type SidebarWorkRef } from '../works/sidebarWorks';
+ import { getSessionLifecycleOrderValue } from '@/sync/session-ordering';
+ import { useSessionDraftsStore, type SessionDraft } from '@/stores/useSessionDraftsStore';
+ import { useSidebarGroupStatus } from './useSidebarGroupStatus';
+@@ -99,6 +99,7 @@ const EMPTY_IDS: ReadonlySet<string> = new Set();
+ const NO_REVEALED_SECTIONS: ReadonlySet<SearchResultSection> = new Set();
+ const EMPTY_SEARCH_LOCATIONS = new Map<string, SidebarSessionLocation>();
+ const EMPTY_SEARCH_PROJECTS = new Map<string, ConversationResultProject>();
++const EMPTY_GROUP_KEYS: ReadonlySet<string> = new Set();
+ const NO_DRAFTS: readonly SessionDraft[] = [];
+ const NO_SESSIONS: readonly Session[] = [];
+ const NO_PLAN_PROJECTS: readonly { id: string; path: string }[] = [];
+@@ -142,6 +143,8 @@ type SessionProjectCollectionProps = {
+     mobileVariant: boolean;
+     hideDirectoryControls: boolean;
+     showOnlyMainWorkspace: boolean;
++    /** Worktree works with nothing in them stay out of every list. */
++    hideEmptyWorktrees: boolean;
+     isDesktopShellRuntime: boolean;
+     projectSortOrder: import('@/stores/useSessionDisplayStore').ProjectSortOrder;
+     emptyState: React.ReactNode;
+@@ -640,6 +643,27 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+     return sessions.length > 0 ? sessions : NO_SESSIONS;
+   }, [collection.orderedSessions, collection.pinnedSessionIds, isPinnedWork, sessionRootIndex, sessionWorkEnabled, workIndex]);
+   useClosePinnedWork(pinnedSessionsInWork);
++  // Worktree works with nothing in them, by group key, while the display
++  // setting hides them. A draft, a pin, an archived session or a removal in
++  // flight keeps a worktree listed; its folders and its search matches stay
++  // reachable because only the rows leave.
++  const hiddenWorktreeGroupKeys = React.useMemo((): ReadonlySet<string> => {
++    // A search still finds an empty worktree by its name: only ordinary lists
++    // leave it out.
++    if (!view.hideEmptyWorktrees || view.hasSessionSearchQuery) return EMPTY_GROUP_KEYS;
++    const draftGroupKeys = new Set(draftPlacement.byGroupKey.keys());
++    // The app creates a worktree for a task and opens its composer before
++    // anything is typed; that draft is not stored yet, and the worktree it
++    // waits in must stay listed.
++    const hasOpenDraftIn = (directory: string | null): boolean => (
++      Boolean(openDraftDirectory) && isPathWithinProject(openDraftDirectory, normalizePath(directory))
++    );
++    const keys = new Set<string>();
++    for (const ref of workIndex.groupWorks) {
++      if (isEmptyWorktreeWork(ref, { draftGroupKeys, archiveAnchors: worktreeArchiveAnchors, removingDirectories: removingWorktreePaths, hasOpenDraftIn })) keys.add(ref.key);
++    }
++    return keys;
++  }, [draftPlacement, openDraftDirectory, removingWorktreePaths, view.hasSessionSearchQuery, view.hideEmptyWorktrees, workIndex, worktreeArchiveAnchors]);
+   // Which root folder holds each session and worktree: the Folder condition,
+   // the list by time and the work facts read it.
+   const folderByMember = React.useMemo(() => {
+@@ -698,7 +722,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+       ? orderInWorkWorksByAttention(
+         orderInWorkWorks(collection.orderedSessions, workIndex, sessionRootIndex, isChatDirectoryPath),
+         (ref) => buildInWorkAttention(ref, inWorkAttentionContext),
+-      ).filter((ref) => !isPinnedWork(ref))
++      ).filter((ref) => !isPinnedWork(ref) && !hiddenWorktreeGroupKeys.has(ref.key))
+       : [];
+     // A worktree or a space with no session yet is in work while a draft is
+     // begun there: the user just made it for a task. It opens the block, as
+@@ -733,7 +757,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+         !session.time?.archived && !isChatDirectoryPath(session.directory)
+       ), worktreeArchiveAnchors);
+       const seen = new Set(all.map((ref) => ref.key));
+-      const unstarted = workIndex.groupWorks.filter((ref) => !seen.has(ref.key));
++      const unstarted = workIndex.groupWorks.filter((ref) => !seen.has(ref.key) && !hiddenWorktreeGroupKeys.has(ref.key));
+       const leads = (ref: SidebarWorkRef): boolean => ref.kind === 'group' && Boolean(ref.group.space && liveSpaceIds.has(ref.group.space.id));
+       all = [...unstarted.filter(leads), ...all, ...unstarted.filter((ref) => !leads(ref))];
+     }
+@@ -745,7 +769,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+       work: heldWorkOrder ? holdOrder(listed, heldWorkOrder, (ref) => ref.key) : listed,
+       all,
+     };
+-  }, [collection.orderedSessions, getTimeOrderedSessions, collection.pinnedSessionIds, customTimeSections, draftPlacement, heldWorkOrder, inWorkAttentionContext, isPinnedWork, liveSpaceIds, openDraftDirectory, openDraftSpaceId, ownership.bySessionId, removingWorktreePaths, rootSessionIds, sessionRootIndex, showPinned, showWork, workIndex, worktreeArchiveAnchors]);
++  }, [collection.orderedSessions, getTimeOrderedSessions, collection.pinnedSessionIds, customTimeSections, draftPlacement, hiddenWorktreeGroupKeys, heldWorkOrder, inWorkAttentionContext, isPinnedWork, liveSpaceIds, openDraftDirectory, openDraftSpaceId, ownership.bySessionId, removingWorktreePaths, rootSessionIds, sessionRootIndex, showPinned, showWork, workIndex, worktreeArchiveAnchors]);
+   React.useEffect(() => {
+     shownWorkOrderRef.current = sectionCandidates.work.map((ref) => ref.key);
+   }, [sectionCandidates]);
+@@ -872,11 +896,11 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+     const inFolder = (ref: SidebarWorkRef): boolean => isFiledInFolder(ref, folderByMember);
+     const refs = orderSidebarWorks(collection.orderedSessions, workIndex, (session) => (
+       !session.time?.archived && !isChatDirectoryPath(session.directory)
+-    ), worktreeArchiveAnchors).filter((ref) => !listedKeys.has(ref.key) && !inClaimedProject(ref.projectId) && !inFolder(ref));
++    ), worktreeArchiveAnchors).filter((ref) => !listedKeys.has(ref.key) && !inClaimedProject(ref.projectId) && !inFolder(ref) && !hiddenWorktreeGroupKeys.has(ref.key));
+     const seen = new Set(refs.map((ref) => ref.key));
+     // Works nobody has started a session in: worktrees close the list, spaces
+     // lead it, as in a project's list (`mergeWorktreeEntries`).
+-    const unstarted = workIndex.groupWorks.filter((ref) => !seen.has(ref.key) && !listedKeys.has(ref.key) && !inClaimedProject(ref.projectId) && !inFolder(ref));
++    const unstarted = workIndex.groupWorks.filter((ref) => !seen.has(ref.key) && !listedKeys.has(ref.key) && !inClaimedProject(ref.projectId) && !inFolder(ref) && !hiddenWorktreeGroupKeys.has(ref.key));
+     const leads = (ref: SidebarWorkRef): boolean => ref.kind === 'group' && Boolean(ref.group.space && liveSpaceIds.has(ref.group.space.id));
+     refs.unshift(...unstarted.filter(leads));
+     refs.push(...unstarted.filter((ref) => !leads(ref)));
+@@ -890,8 +914,10 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+         .map(({ draft, projectId }): SessionSidebarWorkEntry => ({ kind: 'draft', draft, projectId })),
+       ...toWorkEntries([...refs.filter(isPinnedWorktree), ...refs.filter((ref) => !isPinnedWorktree(ref))]),
+     ];
+-  }, [collection.orderedSessions, draftPlacement, folderByMember, liveSpaceIds, membership.claimedKeys, membership.claimedProjectIds, timeGrouping, toWorkEntries, workIndex, worktreeArchiveAnchors, zoneWorks]);
+-  // What leaves its project for the sections: what a section takes.
++  }, [collection.orderedSessions, draftPlacement, folderByMember, hiddenWorktreeGroupKeys, liveSpaceIds, membership.claimedKeys, membership.claimedProjectIds, timeGrouping, toWorkEntries, view.hasSessionSearchQuery, workIndex, worktreeArchiveAnchors, zoneWorks]);
++  // What leaves its project for the sections: what a section takes, and
++  // during a search also what a section only lists, so a search lists each
++  // match once.
+   const { movedSessionIds, movedGroupKeys } = React.useMemo(() => {
+     const sessionIds: string[] = [];
+     const groupKeys: string[] = [];
+@@ -982,7 +1008,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+       if (!projectView.collapsedActivities.has('timeline')) {
+         timeEntries.forEach(addEntry);
+         // The folders above the list hold the rest.
+-        for (const ref of workIndex.groupWorks) if (isFiledInFolder(ref, folderByMember)) addGroup(ref.group);
++        for (const ref of workIndex.groupWorks) if (isFiledInFolder(ref, folderByMember) && !hiddenWorktreeGroupKeys.has(ref.key)) addGroup(ref.group);
+         for (const section of projectSections) {
+           section.groups.find((group) => group.isMain)?.sessions.filter((node) => folderByMember.get(node.session.id)?.projectId === section.project.id).forEach(addNode);
+         }
+@@ -996,7 +1022,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+       });
+     });
+     return { targets, repositoryRefs: [...repositoryRefs.values()], trackerItems: [...trackerItems.values()] };
+-  }, [customEntries, folderByMember, pinnedItems, pinnedWorktreeEntries, projectSections, projectView.collapsedActivities, projectView.collapsedProjects, timeEntries, topology.gitBranches, topology.isVSCode, urlMatcher, workEntries, workIndex]);
++  }, [customEntries, folderByMember, hiddenWorktreeGroupKeys, pinnedItems, pinnedWorktreeEntries, projectSections, projectView.collapsedActivities, projectView.collapsedProjects, timeEntries, topology.gitBranches, topology.isVSCode, urlMatcher, workEntries, workIndex]);
+   const shownPrTargets = shownPrs.targets;
+   // The discovery effect below subscribes to bindings and reads them; keep its
+   // input stable while the shown branches are the same, so ordinary sidebar
+@@ -1363,6 +1389,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+     pinnedSessionIds: collection.pinnedSessionIds,
+     sessionOrderIndex,
+     worktreeArchiveAnchors,
++    hiddenWorktreeGroupKeys,
+     liveSpaceIds,
+     groupStatusByKey,
+     folderAuthorityByOwner,
+@@ -1377,7 +1404,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+     sessionBatchSize,
+     runIndex,
+     blocks: sidebarBlocks,
+-  }), [blockDrag, sidebarBlocks, runIndex, archivedChatGroup, chatGroup, showChatsSection, rowCollapsedActivities, pinnedItems, pinnedWorktreeEntries, workEntries, timeEntries, draftPlacement, movedSessionIds, movedGroupKeys, detailedZoneRows, collapsedFolderIds, collection.pinnedSessionIds, expandedParents, folderAuthorityByOwner, foldersMap, groupStatusByKey, orderedSectionsForRender, ownership.bySessionId, projectSections, collapsedGroups, rowCollapsedProjects, selectedSingleProjectId, sessionOrderIndex, singleProjectMode, view.activeProjectId, view.hasSessionSearchQuery, view.hideDirectoryControls, view.homeDirectory, view.showOnlyMainWorkspace, sessionBatchSize, visibleCountByContainer, worktreeArchiveAnchors, liveSpaceIds, conversationResults, revealedSearchSections, searchSectionsWithMore, searchIncomplete, searchLocationById, searchProjectById]);
++  }), [blockDrag, sidebarBlocks, runIndex, archivedChatGroup, chatGroup, showChatsSection, rowCollapsedActivities, pinnedItems, pinnedWorktreeEntries, workEntries, timeEntries, draftPlacement, movedSessionIds, movedGroupKeys, detailedZoneRows, collapsedFolderIds, collection.pinnedSessionIds, expandedParents, folderAuthorityByOwner, foldersMap, groupStatusByKey, orderedSectionsForRender, ownership.bySessionId, projectSections, collapsedGroups, rowCollapsedProjects, selectedSingleProjectId, sessionOrderIndex, singleProjectMode, view.activeProjectId, view.hasSessionSearchQuery, view.hideDirectoryControls, view.homeDirectory, view.showOnlyMainWorkspace, sessionBatchSize, visibleCountByContainer, worktreeArchiveAnchors, hiddenWorktreeGroupKeys, liveSpaceIds, conversationResults, revealedSearchSections, searchSectionsWithMore, searchIncomplete, searchLocationById, searchProjectById]);
+   React.useEffect(() => {
+     onSearchMatchCountChange(searchTotalCount);
+   }, [searchTotalCount, onSearchMatchCountChange]);
+diff --git a/packages/ui/src/components/session/sidebar/sessionSidebarRowModel.test.ts b/packages/ui/src/components/session/sidebar/sessionSidebarRowModel.test.ts
+index 4093f25..d7c9062 100644
+--- a/packages/ui/src/components/session/sidebar/sessionSidebarRowModel.test.ts
++++ b/packages/ui/src/components/session/sidebar/sessionSidebarRowModel.test.ts
+@@ -687,6 +687,20 @@ describe('buildSessionSidebarRowModel', () => {
+     expect(rows.at(-1)).toBe(header);
+   });
+ 
++  test('a hidden empty worktree leaves the project list, and a project of only hidden worktrees leaves too', () => {
++    const empty = group([], { id: 'worktree:/empty', label: 'empty', isMain: false, directory: '/empty', folderScopeKey: '/empty' });
++    const input = args([project([group([node('root')]), empty])]);
++    input.hiddenWorktreeGroupKeys = new Set(['project-a:worktree:/empty']);
++    const rows = buildSessionSidebarRowModel(input).rows;
++
++    expect(rows.some((row) => row.kind === 'group-header' && row.group.id === 'worktree:/empty')).toBe(false);
++    expect(rows.some((row) => row.kind === 'session' && row.node.session.id === 'root')).toBe(true);
++
++    const onlyEmpty = args([project([empty])]);
++    onlyEmpty.hiddenWorktreeGroupKeys = new Set(['project-a:worktree:/empty']);
++    expect(buildSessionSidebarRowModel(onlyEmpty).rows.some((row) => row.kind === 'project-header')).toBe(false);
++  });
++
+   test('a worktree group with sessions keeps its saved collapse', () => {
+     const worktree = group([node('wt-session')], { id: 'worktree:/wt', label: 'feature', isMain: false, directory: '/wt', folderScopeKey: '/wt' });
+     const input = args([project([group([]), worktree])]);
+@@ -950,6 +964,18 @@ describe('buildSessionSidebarRowModel', () => {
+         'zone:work', 'work:worktree:/wt@0:mixed', 'project:a1@1', 'project:project-a', 'folder:Releases', 'project:root@0',
+       ]);
+     });
++
++    test('a hidden empty worktree leaves its folder in the list by time too', () => {
++      const empty = worktree([], 'empty');
++      const input = args([project([group([node('root')]), empty])]);
++      input.foldersMap = { '/repo': [{ id: 'f', name: 'Releases', createdAt: 1, sessionIds: ['worktree:/empty'] }] };
++      input.timeEntries = sessionWorks([timelineItem('root')]);
++      input.hiddenWorktreeGroupKeys = new Set(['project-a:worktree:/empty']);
++
++      const rows = listedOf(buildSessionSidebarRowModel(input).rows);
++      expect(rows).toContain('folder:Releases');
++      expect(rows.some((row) => row.startsWith('work:worktree:/empty'))).toBe(false);
++    });
+   });
+ 
+   describe('multi-run rows', () => {
+diff --git a/packages/ui/src/components/session/sidebar/sessionSidebarRowModel.ts b/packages/ui/src/components/session/sidebar/sessionSidebarRowModel.ts
+index 2b10b32..b66e702 100644
+--- a/packages/ui/src/components/session/sidebar/sessionSidebarRowModel.ts
++++ b/packages/ui/src/components/session/sidebar/sessionSidebarRowModel.ts
+@@ -230,6 +230,12 @@ export type SessionSidebarRowModelArgs = {
+    * it at, by group key (`buildWorktreeArchiveAnchors`).
+    */
+   worktreeArchiveAnchors?: ReadonlyMap<string, number>;
++  /**
++   * Worktree works with nothing in them, by group key: the display setting
++   * leaves their rows out of project and timeline lists. A search still finds
++   * them, and the worktree still exists for a new session.
++   */
++  hiddenWorktreeGroupKeys?: ReadonlySet<string>;
+   /**
+    * The spaces being made or running, by id: one of them that nobody has
+    * chatted in yet leads its project's list (`mergeWorktreeEntries`).
+@@ -1306,7 +1312,11 @@ export const buildSessionSidebarRowModel = (args: SessionSidebarRowModelArgs): S
+       return;
+     }
+     for (const section of projectSections) {
+-      const descriptors = buildGroupRenderDescriptors(section, { mainWorkspaceOnly: args.showOnlyMainWorkspace });
++      const sectionDescriptors = buildGroupRenderDescriptors(section, { mainWorkspaceOnly: args.showOnlyMainWorkspace });
++      const descriptors = sectionDescriptors
++        .filter((descriptor) => args.hiddenWorktreeGroupKeys?.has(descriptor.groupKey) !== true);
++      // Every group hidden: the project has no row of its own to show.
++      if (sectionDescriptors.length > 0 && descriptors.length === 0) continue;
+       const projectCollapsed = !args.singleProjectMode && !args.showOnlyMainWorkspace && args.collapsedProjects.has(section.project.id);
+       if (!captioned) {
+         captioned = true;
+@@ -1371,7 +1381,8 @@ export const buildSessionSidebarRowModel = (args: SessionSidebarRowModelArgs): S
+         const collapsed = appendActivityHeader('timeline');
+         if (!collapsed) {
+           for (const { section, rootGroup } of foldered) {
+-            const filedWorktrees = collectFiledWorktrees(buildGroupRenderDescriptors(section, { mainWorkspaceOnly: false }));
++            const filedWorktrees = collectFiledWorktrees(buildGroupRenderDescriptors(section, { mainWorkspaceOnly: false })
++              .filter((descriptor) => args.hiddenWorktreeGroupKeys?.has(descriptor.groupKey) !== true));
+             appendGroup(rootGroup, `${section.project.id}:${rootGroup.id}`, section.project.id, true, undefined, {
+               keyPrefix: 'activity:timeline:', depth: 0, mixed: args.sections.length > 1, foldersOnly: true,
+             }, filedWorktrees);
+diff --git a/packages/ui/src/components/session/sidebar/shell/SidebarHeader.tsx b/packages/ui/src/components/session/sidebar/shell/SidebarHeader.tsx
+index f5a6e6b..7633c7b 100644
+--- a/packages/ui/src/components/session/sidebar/shell/SidebarHeader.tsx
++++ b/packages/ui/src/components/session/sidebar/shell/SidebarHeader.tsx
+@@ -115,6 +115,8 @@ export function SidebarHeader(props: Props): React.ReactNode {
+   const setDetailedZoneRows = useSessionDisplayStore((state) => state.setDetailedZoneRows);
+   const worktreeNameByBranch = useSessionDisplayStore((state) => state.worktreeNameByBranch);
+   const setWorktreeNameByBranch = useSessionDisplayStore((state) => state.setWorktreeNameByBranch);
++  const hideEmptyWorktrees = useSessionDisplayStore((state) => state.hideEmptyWorktrees);
++  const setHideEmptyWorktrees = useSessionDisplayStore((state) => state.setHideEmptyWorktrees);
+   const projectSortOrder = useSessionDisplayStore((state) => state.projectSortOrder);
+   const setProjectSortOrder = useSessionDisplayStore((state) => state.setProjectSortOrder);
+   const sidebarGrouping = useSessionDisplayStore(resolveSidebarGrouping);
+@@ -219,6 +221,10 @@ export function SidebarHeader(props: Props): React.ReactNode {
+         setWorktreeNameByBranch(!worktreeNameByBranch);
+         void updateDesktopSettings({ sidebarWorktreeNameByBranch: !worktreeNameByBranch });
+       })}
++      {toggleItem({ labelKey: 'sessions.sidebar.header.displayMode.hideEmptyWorktrees', icon: 'eye-off' }, hideEmptyWorktrees, () => {
++        setHideEmptyWorktrees(!hideEmptyWorktrees);
++        void updateDesktopSettings({ sidebarHideEmptyWorktrees: !hideEmptyWorktrees });
++      })}
+     </>);
+   }
+   if (!isSingleProjectMode) {
+diff --git a/packages/ui/src/components/session/sidebar/works/sidebarWorks.test.ts b/packages/ui/src/components/session/sidebar/works/sidebarWorks.test.ts
+index 64be5a3..ec33ea7 100644
+--- a/packages/ui/src/components/session/sidebar/works/sidebarWorks.test.ts
++++ b/packages/ui/src/components/session/sidebar/works/sidebarWorks.test.ts
+@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
+ import type { Session } from '@/lib/opencode/model';
+ import type { SessionGroup, SessionNode } from '../types';
+ import type { ProjectSection } from '../projects/sessionProjectRender';
+-import { buildSessionRootIndex, buildSidebarWorkIndex, buildWorktreeArchiveAnchors, isGroupWork, orderInWorkWorks, orderInWorkWorksByAttention, orderSidebarWorks, type InWorkAttention, type SidebarWorkRef } from './sidebarWorks';
++import { buildSessionRootIndex, buildSidebarWorkIndex, buildWorktreeArchiveAnchors, isEmptyWorktreeWork, isGroupWork, orderInWorkWorks, orderInWorkWorksByAttention, orderSidebarWorks, type InWorkAttention, type SidebarWorkRef } from './sidebarWorks';
+ import { pickWorkSessionToOpen } from './workActions';
+ 
+ // SAFETY: works read only ids, forks and metadata.
+@@ -46,6 +46,31 @@ describe('sidebar works', () => {
+     expect(index.groupWorks.map((ref) => ref.key)).toEqual(['p:wt', 'p:empty-wt', 'p:space:abc']);
+   });
+ 
++  test('a worktree is empty only while nothing holds it: a session, a pin, a draft, an archived session or a removal', () => {
++    const index = buildSidebarWorkIndex([section]);
++    const empty = index.groupWorks.find((ref) => ref.key === 'p:empty-wt')!;
++    const used = index.groupWorks.find((ref) => ref.key === 'p:wt')!;
++    const context = { draftGroupKeys: new Set<string>(), archiveAnchors: new Map<string, number>(), removingDirectories: new Set<string>(), hasOpenDraftIn: () => false };
++
++    expect(isEmptyWorktreeWork(empty, context)).toBe(true);
++    expect(isEmptyWorktreeWork(used, context)).toBe(false);
++    expect(isEmptyWorktreeWork(index.bySessionId.get('w1')!, context)).toBe(false);
++    expect(isEmptyWorktreeWork(empty, { ...context, draftGroupKeys: new Set(['p:empty-wt']) })).toBe(false);
++    expect(isEmptyWorktreeWork(empty, { ...context, archiveAnchors: new Map([['p:empty-wt', 3]]) })).toBe(false);
++    expect(isEmptyWorktreeWork(empty, { ...context, removingDirectories: new Set(['/empty-wt']) })).toBe(false);
++    // The app opens a composer in a new worktree before anything is typed.
++    expect(isEmptyWorktreeWork(empty, { ...context, hasOpenDraftIn: (directory) => directory === '/empty-wt' })).toBe(false);
++
++    const pinned: ProjectSection = {
++      ...section,
++      groups: section.groups.map((entry) => (entry.id === 'empty-wt'
++        ? { ...entry, worktree: { ...entry.worktree!, pinnedAt: 1 } }
++        : entry)),
++    };
++    const pinnedIndex = buildSidebarWorkIndex([pinned]);
++    expect(isEmptyWorktreeWork(pinnedIndex.groupWorks.find((ref) => ref.key === 'p:empty-wt')!, context)).toBe(false);
++  });
++
+   test('works come once each, in the order of their first matching session', () => {
+     const index = buildSidebarWorkIndex([section]);
+     const order = ['w2', 'review', 'w1', 'lonely', 'root'].map((id) => session(id));
+diff --git a/packages/ui/src/components/session/sidebar/works/sidebarWorks.ts b/packages/ui/src/components/session/sidebar/works/sidebarWorks.ts
+index a64972b..35d2820 100644
+--- a/packages/ui/src/components/session/sidebar/works/sidebarWorks.ts
++++ b/packages/ui/src/components/session/sidebar/works/sidebarWorks.ts
+@@ -29,6 +29,36 @@ export const isGroupWork = (group: SessionGroup): boolean => (
+   !group.isMain && group.isArchivedBucket !== true && (Boolean(group.space) || group.worktree !== null)
+ );
+ 
++/**
++ * A worktree work with nothing to show: no session in it, none archived
++ * (no archive anchor), no draft waiting there, no pin, and no removal running.
++ * The display setting leaves these rows out of every list; a search for the
++ * worktree's name still finds it, because the worktree still exists.
++ */
++export const isEmptyWorktreeWork = (
++  ref: SidebarWorkRef,
++  context: {
++    /** Work keys a draft waits in (`draftPlacement.byGroupKey`). */
++    draftGroupKeys: ReadonlySet<string>;
++    /** Work keys archived sessions hold a place at (`buildWorktreeArchiveAnchors`). */
++    archiveAnchors: ReadonlyMap<string, number>;
++    /** Normalized paths of the worktrees this client is removing now. */
++    removingDirectories: ReadonlySet<string>;
++    /**
++     * Whether the open, not yet stored new-session draft waits in this
++     * directory: a worktree the app just made for a task is in use.
++     */
++    hasOpenDraftIn: (directory: string | null) => boolean;
++  },
++): boolean => {
++  if (ref.kind !== 'group' || ref.group.worktree === null || ref.group.sessions.length > 0) return false;
++  if (ref.group.worktree.pinnedAt !== undefined) return false;
++  if (context.draftGroupKeys.has(ref.key) || context.archiveAnchors.has(ref.key)) return false;
++  if (context.hasOpenDraftIn(ref.group.directory ?? null)) return false;
++  const directory = normalizePath(ref.group.directory ?? null);
++  return !directory || !context.removingDirectories.has(directory);
++};
++
+ /** The root folder holding a session or a worktree, and the project of that folder. */
+ export type SidebarFolderMembership = { folderId: string; projectId: string };
+ 
+diff --git a/packages/ui/src/lib/i18n/messages/ar.ts b/packages/ui/src/lib/i18n/messages/ar.ts
+index 89cf7cd..7a73a0a 100644
+--- a/packages/ui/src/lib/i18n/messages/ar.ts
++++ b/packages/ui/src/lib/i18n/messages/ar.ts
+@@ -606,6 +606,7 @@ export const dict = {
+   'sessions.sidebar.header.displayMode.showPinned': 'إظهار قسم المثبّتة',
+   'sessions.sidebar.header.displayMode.detailedZoneRows': 'صفوف مفصّلة',
+   'sessions.sidebar.header.displayMode.worktreeNameByBranch': 'تسمية worktree باسم الفرع',
++  'sessions.sidebar.header.displayMode.hideEmptyWorktrees': 'إخفاء worktrees التي لا تحتوي على جلسات',
+   'sessions.sidebar.activity.pinnedTitle': 'المثبّتة',
+   'sessions.sidebar.header.displayMode.showArchived': 'إظهار الجلسات المؤرشفة',
+   'sessions.sidebar.header.displayMode.collapseAll': 'طي الكل',
+diff --git a/packages/ui/src/lib/i18n/messages/de.ts b/packages/ui/src/lib/i18n/messages/de.ts
+index c1cb716..5c68364 100644
+--- a/packages/ui/src/lib/i18n/messages/de.ts
++++ b/packages/ui/src/lib/i18n/messages/de.ts
+@@ -633,6 +633,7 @@ export const dict = {
+   'sessions.sidebar.header.displayMode.showPinned': 'Bereich Angeheftet anzeigen',
+   'sessions.sidebar.header.displayMode.detailedZoneRows': 'Ausführliche Zeilen',
+   'sessions.sidebar.header.displayMode.worktreeNameByBranch': 'Worktrees nach Branch benennen',
++  'sessions.sidebar.header.displayMode.hideEmptyWorktrees': 'Worktrees ohne Sitzungen ausblenden',
+   'sessions.sidebar.activity.pinnedTitle': 'Angeheftet',
+   'sessions.sidebar.header.displayMode.showArchived': 'Archivierte Sitzungen anzeigen',
+   'sessions.sidebar.header.displayMode.collapseAll': 'Alle einklappen',
+diff --git a/packages/ui/src/lib/i18n/messages/en.ts b/packages/ui/src/lib/i18n/messages/en.ts
+index d2767f0..cca3e4f 100644
+--- a/packages/ui/src/lib/i18n/messages/en.ts
++++ b/packages/ui/src/lib/i18n/messages/en.ts
+@@ -685,6 +685,7 @@ export const dict = {
+   'sessions.sidebar.header.displayMode.showPinned': 'Show pinned section',
+   'sessions.sidebar.header.displayMode.detailedZoneRows': 'Detailed rows',
+   'sessions.sidebar.header.displayMode.worktreeNameByBranch': 'Name worktrees by branch',
++  'sessions.sidebar.header.displayMode.hideEmptyWorktrees': 'Hide worktrees with no sessions',
+   'sessions.sidebar.activity.pinnedTitle': 'Pinned',
+   'sessions.sidebar.header.displayMode.showArchived': 'Show archived sessions',
+   'sessions.sidebar.header.displayMode.collapseAll': 'Collapse all',
+diff --git a/packages/ui/src/lib/i18n/messages/es.ts b/packages/ui/src/lib/i18n/messages/es.ts
+index 3859b03..320f717 100644
+--- a/packages/ui/src/lib/i18n/messages/es.ts
++++ b/packages/ui/src/lib/i18n/messages/es.ts
+@@ -695,6 +695,7 @@ export const dict: Record<I18nKey, string> = {
+   "sessions.sidebar.header.displayMode.showPinned": "Mostrar ancladas",
+   "sessions.sidebar.header.displayMode.detailedZoneRows": "Filas detalladas",
+   "sessions.sidebar.header.displayMode.worktreeNameByBranch": "Nombrar los worktrees por su rama",
++  "sessions.sidebar.header.displayMode.hideEmptyWorktrees": "Ocultar los worktrees sin sesiones",
+   "sessions.sidebar.activity.pinnedTitle": "Ancladas",
+   "sessions.sidebar.header.displayMode.showArchived": "Mostrar sesiones archivadas",
+   "sessions.sidebar.header.displayMode.collapseAll": "Colapsar todo",
+diff --git a/packages/ui/src/lib/i18n/messages/fr.ts b/packages/ui/src/lib/i18n/messages/fr.ts
+index 8b1b05f..c29fdb2 100644
+--- a/packages/ui/src/lib/i18n/messages/fr.ts
++++ b/packages/ui/src/lib/i18n/messages/fr.ts
+@@ -519,6 +519,7 @@ export const dict = {
+   'sessions.sidebar.header.displayMode.showPinned': 'Afficher la section épinglées',
+   'sessions.sidebar.header.displayMode.detailedZoneRows': 'Lignes détaillées',
+   'sessions.sidebar.header.displayMode.worktreeNameByBranch': 'Nommer les worktrees d’après leur branche',
++  'sessions.sidebar.header.displayMode.hideEmptyWorktrees': 'Masquer les worktrees sans session',
+   'sessions.sidebar.activity.pinnedTitle': 'Épinglées',
+   'sessions.sidebar.header.displayMode.collapseAll': 'Tout réduire',
+   'sessions.sidebar.header.displayMode.expandAll': 'Tout développer',
+diff --git a/packages/ui/src/lib/i18n/messages/he.ts b/packages/ui/src/lib/i18n/messages/he.ts
+index d464ed5..76c4519 100644
+--- a/packages/ui/src/lib/i18n/messages/he.ts
++++ b/packages/ui/src/lib/i18n/messages/he.ts
+@@ -606,6 +606,7 @@ export const dict = {
+   'sessions.sidebar.header.displayMode.showPinned': 'הצג את קטע המוצמדות',
+   'sessions.sidebar.header.displayMode.detailedZoneRows': 'שורות מפורטות',
+   'sessions.sidebar.header.displayMode.worktreeNameByBranch': 'שם worktree לפי הענף',
++  'sessions.sidebar.header.displayMode.hideEmptyWorktrees': 'הסתר worktrees ללא הפעלות',
+   'sessions.sidebar.activity.pinnedTitle': 'מוצמדות',
+   'sessions.sidebar.header.displayMode.showArchived': 'הצג הפעלות בארכיון',
+   'sessions.sidebar.header.displayMode.collapseAll': 'כווץ הכול',
+diff --git a/packages/ui/src/lib/i18n/messages/ja.ts b/packages/ui/src/lib/i18n/messages/ja.ts
+index e0b3a91..bea6067 100644
+--- a/packages/ui/src/lib/i18n/messages/ja.ts
++++ b/packages/ui/src/lib/i18n/messages/ja.ts
+@@ -686,6 +686,7 @@ export const dict: Record<I18nKey, string> = {
+   'sessions.sidebar.header.displayMode.showPinned': 'ピン留めセクションを表示',
+   'sessions.sidebar.header.displayMode.detailedZoneRows': '詳細な行',
+   'sessions.sidebar.header.displayMode.worktreeNameByBranch': 'worktree をブランチ名で表示',
++  'sessions.sidebar.header.displayMode.hideEmptyWorktrees': 'セッションのない worktree を非表示',
+   'sessions.sidebar.activity.pinnedTitle': 'ピン留め',
+   'sessions.sidebar.header.displayMode.showArchived': 'アーカイブ済みセッションを表示',
+   'sessions.sidebar.header.displayMode.collapseAll': 'すべて折りたたむ',
+diff --git a/packages/ui/src/lib/i18n/messages/ko.ts b/packages/ui/src/lib/i18n/messages/ko.ts
+index 33ddb68..b918eff 100644
+--- a/packages/ui/src/lib/i18n/messages/ko.ts
++++ b/packages/ui/src/lib/i18n/messages/ko.ts
+@@ -686,6 +686,7 @@ export const dict: Record<I18nKey, string> = {
+   'sessions.sidebar.header.displayMode.showPinned': '고정됨 섹션 표시',
+   'sessions.sidebar.header.displayMode.detailedZoneRows': '자세한 행',
+   'sessions.sidebar.header.displayMode.worktreeNameByBranch': 'worktree를 브랜치 이름으로 표시',
++  'sessions.sidebar.header.displayMode.hideEmptyWorktrees': '세션이 없는 worktree 숨기기',
+   'sessions.sidebar.activity.pinnedTitle': '고정됨',
+   'sessions.sidebar.header.displayMode.showArchived': '보관된 세션 표시',
+   'sessions.sidebar.header.displayMode.collapseAll': '모두 접기',
+diff --git a/packages/ui/src/lib/i18n/messages/nl.ts b/packages/ui/src/lib/i18n/messages/nl.ts
+index d0106e3..2e127ec 100644
+--- a/packages/ui/src/lib/i18n/messages/nl.ts
++++ b/packages/ui/src/lib/i18n/messages/nl.ts
+@@ -685,6 +685,7 @@ export const dict = {
+   'sessions.sidebar.header.displayMode.showPinned': 'Sectie Vastgezet tonen',
+   'sessions.sidebar.header.displayMode.detailedZoneRows': 'Gedetailleerde rijen',
+   'sessions.sidebar.header.displayMode.worktreeNameByBranch': 'Worktrees naar branch benoemen',
++  'sessions.sidebar.header.displayMode.hideEmptyWorktrees': 'Worktrees zonder sessies verbergen',
+   'sessions.sidebar.activity.pinnedTitle': 'Vastgezet',
+   'sessions.sidebar.header.displayMode.showArchived': 'Gearchiveerde sessies tonen',
+   'sessions.sidebar.header.displayMode.collapseAll': 'Alles inklappen',
+diff --git a/packages/ui/src/lib/i18n/messages/pl.ts b/packages/ui/src/lib/i18n/messages/pl.ts
+index d49492e..bbf59bd 100644
+--- a/packages/ui/src/lib/i18n/messages/pl.ts
++++ b/packages/ui/src/lib/i18n/messages/pl.ts
+@@ -524,6 +524,7 @@ export const dict: Record<I18nKey, string> = {
+   'sessions.sidebar.header.displayMode.showPinned': 'Pokaż sekcję Przypięte',
+   'sessions.sidebar.header.displayMode.detailedZoneRows': 'Szczegółowe wiersze',
+   'sessions.sidebar.header.displayMode.worktreeNameByBranch': 'Nazywaj worktree według gałęzi',
++  'sessions.sidebar.header.displayMode.hideEmptyWorktrees': 'Ukryj worktree’y bez sesji',
+   'sessions.sidebar.activity.pinnedTitle': 'Przypięte',
+   'sessions.sidebar.header.displayMode.showArchived': 'Pokaż zarchiwizowane sesje',
+   'sessions.sidebar.header.displayMode.collapseAll': 'Zwiń wszystkie',
+diff --git a/packages/ui/src/lib/i18n/messages/pt-BR.ts b/packages/ui/src/lib/i18n/messages/pt-BR.ts
+index 5f7a159..dd5bbf8 100644
+--- a/packages/ui/src/lib/i18n/messages/pt-BR.ts
++++ b/packages/ui/src/lib/i18n/messages/pt-BR.ts
+@@ -695,6 +695,7 @@ export const dict: Record<I18nKey, string> = {
+   "sessions.sidebar.header.displayMode.showPinned": "Mostrar fixadas",
+   "sessions.sidebar.header.displayMode.detailedZoneRows": "Linhas detalhadas",
+   "sessions.sidebar.header.displayMode.worktreeNameByBranch": "Nomear worktrees pelo branch",
++  "sessions.sidebar.header.displayMode.hideEmptyWorktrees": "Ocultar worktrees sem sessões",
+   "sessions.sidebar.activity.pinnedTitle": "Fixadas",
+   "sessions.sidebar.header.displayMode.showArchived": "Mostrar sessões arquivadas",
+   "sessions.sidebar.header.displayMode.collapseAll": "Recolher tudo",
+diff --git a/packages/ui/src/lib/i18n/messages/tr.ts b/packages/ui/src/lib/i18n/messages/tr.ts
+index b263e09..1baf021 100644
+--- a/packages/ui/src/lib/i18n/messages/tr.ts
++++ b/packages/ui/src/lib/i18n/messages/tr.ts
+@@ -607,6 +607,7 @@ export const dict = {
+   'sessions.sidebar.header.displayMode.showPinned': 'Sabitlenenler bölümünü göster',
+   'sessions.sidebar.header.displayMode.detailedZoneRows': 'Ayrıntılı satırlar',
+   'sessions.sidebar.header.displayMode.worktreeNameByBranch': 'Worktree’leri dala göre adlandır',
++  'sessions.sidebar.header.displayMode.hideEmptyWorktrees': 'Oturumu olmayan worktree’leri gizle',
+   'sessions.sidebar.activity.pinnedTitle': 'Sabitlenenler',
+   'sessions.sidebar.header.displayMode.showArchived': 'Arşivlenmiş session\'ları göster',
+   'sessions.sidebar.header.displayMode.collapseAll': 'Tümünü daralt',
+diff --git a/packages/ui/src/lib/i18n/messages/uk.ts b/packages/ui/src/lib/i18n/messages/uk.ts
+index dce6988..70d08df 100644
+--- a/packages/ui/src/lib/i18n/messages/uk.ts
++++ b/packages/ui/src/lib/i18n/messages/uk.ts
+@@ -695,6 +695,7 @@ export const dict: Record<I18nKey, string> = {
+   "sessions.sidebar.header.displayMode.showPinned": "Показувати «Закріплені»",
+   "sessions.sidebar.header.displayMode.detailedZoneRows": "Детальні рядки",
+   "sessions.sidebar.header.displayMode.worktreeNameByBranch": "Називати worktree за гілкою",
++  "sessions.sidebar.header.displayMode.hideEmptyWorktrees": "Приховати worktree без сесій",
+   "sessions.sidebar.activity.pinnedTitle": "Закріплені",
+   "sessions.sidebar.header.displayMode.showArchived": "Показувати архівовані сесії",
+   "sessions.sidebar.header.displayMode.collapseAll": "Згорнути все",
+diff --git a/packages/ui/src/lib/i18n/messages/zh-CN.ts b/packages/ui/src/lib/i18n/messages/zh-CN.ts
+index 4a562fb..172799f 100644
+--- a/packages/ui/src/lib/i18n/messages/zh-CN.ts
++++ b/packages/ui/src/lib/i18n/messages/zh-CN.ts
+@@ -686,6 +686,7 @@ export const dict: Record<I18nKey, string> = {
+   'sessions.sidebar.header.displayMode.showPinned': '显示已置顶部分',
+   'sessions.sidebar.header.displayMode.detailedZoneRows': '详细行',
+   'sessions.sidebar.header.displayMode.worktreeNameByBranch': '按分支命名 worktree',
++  'sessions.sidebar.header.displayMode.hideEmptyWorktrees': '隐藏没有会话的 worktree',
+   'sessions.sidebar.activity.pinnedTitle': '已置顶',
+   'sessions.sidebar.header.displayMode.showArchived': '显示已归档会话',
+   'sessions.sidebar.header.displayMode.collapseAll': '全部折叠',
+diff --git a/packages/ui/src/lib/i18n/messages/zh-TW.ts b/packages/ui/src/lib/i18n/messages/zh-TW.ts
+index 7c88566..604e009 100644
+--- a/packages/ui/src/lib/i18n/messages/zh-TW.ts
++++ b/packages/ui/src/lib/i18n/messages/zh-TW.ts
+@@ -711,6 +711,7 @@ export const dict: Record<I18nKey, string> = {
+   'sessions.sidebar.header.displayMode.showPinned': '顯示已釘選部分',
+   'sessions.sidebar.header.displayMode.detailedZoneRows': '詳細列',
+   'sessions.sidebar.header.displayMode.worktreeNameByBranch': '依分支命名 worktree',
++  'sessions.sidebar.header.displayMode.hideEmptyWorktrees': '隱藏沒有會話的 worktree',
+   'sessions.sidebar.activity.pinnedTitle': '已釘選',
+   'sessions.sidebar.header.displayMode.showArchived': '顯示已封存會話',
+   'sessions.sidebar.header.displayMode.collapseAll': '全部摺疊',
+diff --git a/packages/ui/src/lib/settings/registry.ts b/packages/ui/src/lib/settings/registry.ts
+index 7937823..f75a881 100644
+--- a/packages/ui/src/lib/settings/registry.ts
++++ b/packages/ui/src/lib/settings/registry.ts
+@@ -413,6 +413,7 @@ export const SETTINGS_REGISTRY = {
+   sidebarShowPinnedSection: field({ scope: 'profile', perSurface: true, parse: parseBoolean, ui: sessionDisplayField('showPinnedSection') }),
+   sidebarDetailedZoneRows: field({ scope: 'profile', perSurface: true, parse: parseBoolean, ui: sessionDisplayField('detailedZoneRows') }),
+   sidebarWorktreeNameByBranch: field({ scope: 'profile', parse: parseBoolean, ui: sessionDisplayField('worktreeNameByBranch') }),
++  sidebarHideEmptyWorktrees: field({ scope: 'profile', parse: parseBoolean, ui: sessionDisplayField('hideEmptyWorktrees') }),
+   // The sections and pin lists are one arrangement for every surface; which of
+   // the user's sections a surface shows is its own. They are written through
+   // the store's setters, which record the instance they came from.
+diff --git a/packages/ui/src/stores/useSessionDisplayStore.ts b/packages/ui/src/stores/useSessionDisplayStore.ts
+index 8ba6fec..255624f 100644
+--- a/packages/ui/src/stores/useSessionDisplayStore.ts
++++ b/packages/ui/src/stores/useSessionDisplayStore.ts
+@@ -77,6 +77,12 @@ type SessionDisplayStore = {
+    * their task; the other name goes under it. Off by default.
+    */
+   worktreeNameByBranch: boolean;
++  /**
++   * Worktree works nobody has used yet are left out of the sidebar: no
++   * session, no draft, no pin, no archived session. Off by default, so a
++   * worktree created outside the app stays visible until asked away.
++   */
++  hideEmptyWorktrees: boolean;
+   /**
+    * The sidebar's sections in order, the built-in ones included
+    * (`lib/sidebarSections.ts`). Shared by every surface.
+@@ -105,6 +111,7 @@ type SessionDisplayStore = {
+   setShowPinnedSection: (show: boolean) => void;
+   setDetailedZoneRows: (detailed: boolean) => void;
+   setWorktreeNameByBranch: (byBranch: boolean) => void;
++  setHideEmptyWorktrees: (hide: boolean) => void;
+   setShowArchivedSessions: (show: boolean) => void;
+   toggleArchivedSessions: () => void;
+   setProjectSortOrder: (order: ProjectSortOrder) => void;
+@@ -200,6 +207,7 @@ export const useSessionDisplayStore = create<SessionDisplayStore>()(
+       showPinnedSection: true,
+       detailedZoneRows: getSettingsSurface() === 'mobile',
+       worktreeNameByBranch: false,
++      hideEmptyWorktrees: false,
+       sections: [...DEFAULT_SIDEBAR_SECTIONS],
+       pinLists: [],
+       hiddenSections: [],
+@@ -218,6 +226,7 @@ export const useSessionDisplayStore = create<SessionDisplayStore>()(
+       setShowPinnedSection: (show) => set({ showPinnedSection: show }),
+       setDetailedZoneRows: (detailed) => set({ detailedZoneRows: detailed }),
+       setWorktreeNameByBranch: (byBranch) => set({ worktreeNameByBranch: byBranch }),
++      setHideEmptyWorktrees: (hide) => set({ hideEmptyWorktrees: hide }),
+       setShowArchivedSessions: (show) => set({ showArchivedSessions: show }),
+       toggleArchivedSessions: () => set((state) => ({ showArchivedSessions: !state.showArchivedSessions })),
+       setProjectSortOrder: (order) => set({ projectSortOrder: order }),
+diff --git a/packages/vscode/src/settings-registry.json b/packages/vscode/src/settings-registry.json
+index ae47076..2e08d59 100644
+--- a/packages/vscode/src/settings-registry.json
++++ b/packages/vscode/src/settings-registry.json
+@@ -382,6 +382,9 @@
+     "sidebarWorktreeNameByBranch": {
+       "scope": "profile"
+     },
++    "sidebarHideEmptyWorktrees": {
++      "scope": "profile"
++    },
+     "sidebarSections": {
+       "scope": "profile"
+     },
+diff --git a/packages/web/server/lib/opencode/settings-helpers.js b/packages/web/server/lib/opencode/settings-helpers.js
+index 7084677..255ab59 100644
+--- a/packages/web/server/lib/opencode/settings-helpers.js
++++ b/packages/web/server/lib/opencode/settings-helpers.js
+@@ -543,6 +543,9 @@ export const createSettingsHelpers = (dependencies) => {
+     if (candidate.sidebarWorktreeNameByBranch === true || candidate.sidebarWorktreeNameByBranch === false) {
+       result.sidebarWorktreeNameByBranch = candidate.sidebarWorktreeNameByBranch;
+     }
++    if (candidate.sidebarHideEmptyWorktrees === true || candidate.sidebarHideEmptyWorktrees === false) {
++      result.sidebarHideEmptyWorktrees = candidate.sidebarHideEmptyWorktrees;
++    }
+     if (Array.isArray(candidate.sidebarSections)) {
+       result.sidebarSections = sanitizeSidebarSections(candidate.sidebarSections);
+     }
+diff --git a/packages/web/server/lib/opencode/settings-helpers.test.js b/packages/web/server/lib/opencode/settings-helpers.test.js
+index 3ce523a..07e743f 100644
+--- a/packages/web/server/lib/opencode/settings-helpers.test.js
++++ b/packages/web/server/lib/opencode/settings-helpers.test.js
+@@ -962,7 +962,7 @@ describe('settings registry gate', () => {
+     lastDirectory: '/home/testuser/project', homeDirectory: '/home/testuser', opencodeBinary: '/usr/local/bin/opencode',
+     projects: [{ id: 'p', path: '/home/testuser/project' }], activeProjectId: 'p',
+     securityScopedBookmarks: ['bookmark'], pinnedDirectories: ['/home/testuser/project'],
+-    desktopLanAccessEnabled: true, desktopKeepAwakeEnabled: true, desktopMinimizeToTrayEnabled: true, desktopUpdateChannel: 'canary', serverUpdateChannel: 'canary', desktopMacMenuBarEnabled: true, desktopLinuxNativeFrame: true, sidebarShowChatsSection: false, sidebarShowWorkSection: false, sidebarShowPinnedSection: true, sidebarDetailedZoneRows: true, sidebarWorktreeNameByBranch: true,
++    desktopLanAccessEnabled: true, desktopKeepAwakeEnabled: true, desktopMinimizeToTrayEnabled: true, desktopUpdateChannel: 'canary', serverUpdateChannel: 'canary', desktopMacMenuBarEnabled: true, desktopLinuxNativeFrame: true, sidebarShowChatsSection: false, sidebarShowWorkSection: false, sidebarShowPinnedSection: true, sidebarDetailedZoneRows: true, sidebarWorktreeNameByBranch: true, sidebarHideEmptyWorktrees: true,
+     desktopUiPassword: 'secret', githubClientId: 'client', githubScopes: 'repo', gitlabClientId: 'gitlab-client', skillCatalogs: [{ id: 'c', label: 'C', source: 'https://x' }],
+     defaultGitIdentityId: 'global', permissionAutoAccept: { sessions: { s: true }, revision: 1 }, permissionDefaultMode: 'safety', messageSearchEnabled: true, messageSearchReasoningEnabled: true,
+     agentControlToolEnabled: true, agentScheduleToolEnabled: true, agentWebToolEnabled: true, browserProvider: 'builtin', agentMemoryToolEnabled: true, agentMemoryDreamingEnabled: true, agentMemoryDreamingModel: 'openai/gpt-mini', agentMemoryDreamingVariant: 'low', agentKnowledgeToolEnabled: true, agentNotifyToolEnabled: true, agentRenderToolEnabled: true, agentImageToolEnabled: true, agentSecretToolEnabled: true, agentUsageToolEnabled: true, agentImageModel: 'openrouter/openai/gpt-image-2', agentWorkflowToolEnabled: true, isolatedSpacesEnabled: true, isolatedSpacesIdleStop: { enabled: true, hours: 4 }, isolatedSpacesSshHost: 'me@box.local:2222', openCodeUpdateToastDismissedVersion: '1.0.0',
+diff --git a/packages/web/server/lib/opencode/settings-registry.json b/packages/web/server/lib/opencode/settings-registry.json
+index ae47076..2e08d59 100644
+--- a/packages/web/server/lib/opencode/settings-registry.json
++++ b/packages/web/server/lib/opencode/settings-registry.json
+@@ -382,6 +382,9 @@
+     "sidebarWorktreeNameByBranch": {
+       "scope": "profile"
+     },
++    "sidebarHideEmptyWorktrees": {
++      "scope": "profile"
++    },
+     "sidebarSections": {
+       "scope": "profile"
+     },
