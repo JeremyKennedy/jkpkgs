@@ -1,5 +1,5 @@
 diff --git a/packages/ui/src/components/chat/MessageList.tsx b/packages/ui/src/components/chat/MessageList.tsx
-index 43284997d..89c38b578 100644
+index 43284997d..69063339d 100644
 --- a/packages/ui/src/components/chat/MessageList.tsx
 +++ b/packages/ui/src/components/chat/MessageList.tsx
 @@ -9,7 +9,8 @@ import { isSkippedTimelineMessage, isBackgroundReportEntry, isTimelineNoticeRole
@@ -7,12 +7,28 @@ index 43284997d..89c38b578 100644
  import { areOptionalRenderRelevantMessagesEqual, areRelevantTurnGroupingContextsEqual, areRenderRelevantMessagesEqual } from './message/renderCompare';
  import TurnItem from './components/TurnItem';
 -import { turnHeaderCanStick } from './lib/turns/stickyPrompt';
-+import { endsStickySpan, stickyRowIndicesOf } from './lib/turns/stickyPrompt';
++import { endsStickySpan, STICKY_ROW_OFFSET, STICKY_ROW_OFFSET_EVENT, stickyRowIndicesOf } from './lib/turns/stickyPrompt';
 +import { QuestionTurnHeader } from './components/QuestionTurnHeader';
  import { TurnFold, TurnPagesRow } from './components/LiveTurnActivity';
  import { useTurnFoldContexts } from './components/useTurnFold';
  import { LiveFinalActivityContext, LiveTurnHoistedPagesContext } from './components/liveActivityContext';
-@@ -440,6 +441,9 @@ type TurnRowProps = Omit<TurnRendererInput, 'turn' | 'isLastTurn' | 'nextEntryFi
+@@ -172,6 +173,15 @@ type TurnEntry = Extract<RenderEntry, { kind: 'turn' }>;
+ 
+ type ToggleTurnActivity = (turnId: string) => void;
+ 
++/** Sets (or, with null, clears) a pinned row's offset from its own place, and tells the row. */
++const setStickyRowOffset = (element: HTMLElement, offset: number | null) => {
++    const value = offset === null ? '' : `${offset}px`;
++    if (element.style.getPropertyValue(STICKY_ROW_OFFSET) === value) return;
++    if (offset === null) element.style.removeProperty(STICKY_ROW_OFFSET);
++    else element.style.setProperty(STICKY_ROW_OFFSET, value);
++    element.dispatchEvent(new Event(STICKY_ROW_OFFSET_EVENT, { bubbles: true }));
++};
++
+ // Which settled Activity folds the reader opened. It outlives the list, like
+ // tool expansion in ChatMessage: returning to a session shows its folds as they
+ // were left, which a restored reading position inside an open fold depends on.
+@@ -440,6 +450,9 @@ type TurnRowProps = Omit<TurnRendererInput, 'turn' | 'isLastTurn' | 'nextEntryFi
      entry: TurnEntry;
      turnExpansion: Map<string, boolean>;
      onToggleTurnActivity: ToggleTurnActivity;
@@ -22,7 +38,7 @@ index 43284997d..89c38b578 100644
  };
  
  /** One list row of a turn (see `timelineRows.ts` for how a turn splits into rows). */
-@@ -448,6 +452,8 @@ const TurnRow = React.memo(({
+@@ -448,6 +461,8 @@ const TurnRow = React.memo(({
      entry,
      turnExpansion,
      onToggleTurnActivity,
@@ -31,7 +47,7 @@ index 43284997d..89c38b578 100644
      ...rendererInput
  }: TurnRowProps) => {
      const { turn } = entry;
-@@ -478,7 +484,13 @@ const TurnRow = React.memo(({
+@@ -478,7 +493,13 @@ const TurnRow = React.memo(({
          content = <TurnPagesRow turn={turn} />;
      } else {
          const message = turn.assistantMessages.find((candidate) => candidate.info.id === row.messageId);
@@ -46,7 +62,7 @@ index 43284997d..89c38b578 100644
              content = (
                  <MessageSliceContext.Provider value={row.slice}>
                      {row.final ? (
-@@ -622,6 +634,8 @@ type TimelineRowContextValue = {
+@@ -622,6 +643,8 @@ type TimelineRowContextValue = {
      scrollToBottom?: () => void;
      turnExpansion: Map<string, boolean>;
      onToggleTurnActivity: ToggleTurnActivity;
@@ -55,7 +71,7 @@ index 43284997d..89c38b578 100644
      shouldAnimateUserMessage: (message: ChatMessageEntry) => boolean;
      onUserAnimationConsumed: (messageId: string) => void;
      reviewTransferDirection?: ReviewTransferDirection | null;
-@@ -687,6 +701,8 @@ const TimelineRow = React.memo(({ row }: { row: RenderRow }) => {
+@@ -687,6 +710,8 @@ const TimelineRow = React.memo(({ row }: { row: RenderRow }) => {
              sessionIsWorking={live && context.sessionIsWorking}
              turnExpansion={context.turnExpansion}
              onToggleTurnActivity={context.onToggleTurnActivity}
@@ -64,7 +80,7 @@ index 43284997d..89c38b578 100644
              shouldAnimateUserMessage={context.shouldAnimateUserMessage}
              onUserAnimationConsumed={context.onUserAnimationConsumed}
              activeStreamingMessageId={activeStreamingMessageId}
-@@ -703,7 +719,10 @@ const timelineKeyExtractor = (item: RenderRow): string => item.key;
+@@ -703,7 +728,10 @@ const timelineKeyExtractor = (item: RenderRow): string => item.key;
  // Row type drives container reuse. Prompts, folds and messages have very
  // different shapes, so keeping them in separate pools avoids re-measuring a
  // container every time one replaces the other.
@@ -76,7 +92,17 @@ index 43284997d..89c38b578 100644
  
  const renderTimelineItem = ({ item }: { item: RenderRow }) => <TimelineRow row={item} />;
  
-@@ -843,9 +862,10 @@ const TimelineList = React.memo(({
+@@ -838,23 +866,40 @@ const TimelineList = React.memo(({
+         const active = state.activeStickyIndex;
+         const element = active >= 0 ? state.elementAtIndex(active) ?? null : null;
+         const pushed = pushedHeaderRef.current;
+-        if (pushed && pushed !== element) pushed.style.transform = '';
++        if (pushed && pushed !== element) {
++            pushed.style.transform = '';
++            pushed.style.pointerEvents = '';
++            setStickyRowOffset(pushed, null);
++        }
+         pushedHeaderRef.current = element;
          if (!element) return;
          const data = rowsRef.current;
          let end = active + 1;
@@ -89,8 +115,42 @@ index 43284997d..89c38b578 100644
 +        // header stays where it sticks.
          const next = end < data.length ? state.elementAtIndex(end) : null;
          const scroller = listRef.current?.getScrollableNode();
-         if (!next || !scroller) {
-@@ -924,6 +944,9 @@ const TimelineList = React.memo(({
+-        if (!next || !scroller) {
+-            element.style.transform = '';
+-            return;
+-        }
+-        const push = Math.min(0, next.getBoundingClientRect().top - scroller.getBoundingClientRect().top - element.offsetHeight);
++        const push = next && scroller
++            ? Math.min(0, next.getBoundingClientRect().top - scroller.getBoundingClientRect().top - element.offsetHeight)
++            : 0;
+         element.style.transform = push < 0 ? `translateY(${push}px)` : '';
++        // An answered question's card draws only its own box: where the
++        // pinned row draws nothing, taps reach the transcript under it.
++        element.style.pointerEvents = data[active]?.kind === 'turn-message' ? 'none' : '';
++        // Positions count from the rows' container, below the list's header.
++        const origin = element.parentElement?.getBoundingClientRect().top;
++        const offset = origin === undefined ? 0 : element.getBoundingClientRect().top - origin - state.positionAtIndex(active);
++        setStickyRowOffset(element, Math.max(0, offset));
+     }, []);
++    // The list reports the change before it pins the row; measure once it has.
++    const handleStickyHeaderChange = React.useCallback(() => {
++        requestAnimationFrame(() => {
++            const state = listRef.current?.getState();
++            if (state) pushStickyHeader(state);
++        });
++    }, [pushStickyHeader]);
+ 
+     // The list reports scroll continuously; only end-crossings are interesting,
+     // so the edge is debounced to a state transition here rather than pushing a
+@@ -913,6 +958,7 @@ const TimelineList = React.memo(({
+                 onScroll={handleScroll}
+                 onMetricsChange={onListMetricsChange}
+                 stickyHeaderIndices={stickyRowIndices}
++                onStickyHeaderChange={handleStickyHeaderChange}
+                 ListHeaderComponent={header}
+                 ListFooterComponent={footer}
+                 {...scrollContainerProps}
+@@ -924,6 +970,9 @@ const TimelineList = React.memo(({
  TimelineList.displayName = 'TimelineList';
  
  
@@ -100,7 +160,7 @@ index 43284997d..89c38b578 100644
  const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
      sessionKey,
      messages,
-@@ -951,6 +974,20 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
+@@ -951,6 +1000,20 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
      const collapsibleThinkingBlocks = useUIStore((state) => state.collapsibleThinkingBlocks);
      const autoExpandAnsweredQuestions = useUIStore((state) => state.autoExpandAnsweredQuestions);
      const stickyUserHeader = useUIStore((state) => state.stickyUserHeader);
@@ -121,7 +181,7 @@ index 43284997d..89c38b578 100644
      const defaultActivityExpanded = activityRenderMode === 'summary';
      const reviewTransferDirection = useGlobalSessionsStore((state) => {
          return state.reviewTransferBySessionId.get(sessionKey) ?? null;
-@@ -1142,14 +1179,11 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
+@@ -1142,14 +1205,11 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
          return next;
      }), [allEntries, defaultActivityExpanded, showReasoningTraces, turnExpansion]);
  
@@ -139,7 +199,7 @@ index 43284997d..89c38b578 100644
      }, [rows, stickyUserHeader]);
  
      const [liveTail] = React.useState(createLiveTailStore);
-@@ -1690,6 +1724,8 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
+@@ -1690,6 +1750,8 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
          scrollToBottom: stableScrollToBottom,
          turnExpansion,
          onToggleTurnActivity: toggleTurnActivity,
@@ -148,7 +208,7 @@ index 43284997d..89c38b578 100644
          shouldAnimateUserMessage,
          onUserAnimationConsumed,
          reviewTransferDirection,
-@@ -1702,11 +1738,13 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
+@@ -1702,11 +1764,13 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
          activeStreamingMessageId,
          activeStreamingPhase,
          liveTail,
@@ -236,10 +296,10 @@ index 20f25703e..0145dd831 100644
      );
 diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
 new file mode 100644
-index 000000000..6cb03dfdf
+index 000000000..7971ca80a
 --- /dev/null
 +++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
-@@ -0,0 +1,230 @@
+@@ -0,0 +1,297 @@
 +import React, { act } from 'react';
 +import { createRoot } from 'react-dom/client';
 +import { expect, test } from 'bun:test';
@@ -331,14 +391,81 @@ index 000000000..6cb03dfdf
 +    expect(content).not.toContain('No');
 +});
 +
-+test('several questions share one card, each with its answer', () => {
-+    const content = text(card(ask([
-+        { question: 'Retry on timeout?', answer: 'Yes, retry once' },
-+        { question: 'Update the README?', answer: 'No' },
-+    ])));
-+    expect(content).toContain('Retry on timeout?');
++const batch = () => ask([
++    { question: 'Retry on timeout?', answer: 'Yes, retry once' },
++    { question: 'Update the README?', answer: 'No' },
++]);
++
++test('collapsed, a batch of questions is one line each: its label and its answer', () => {
++    const content = text(card(batch()));
++    expect(content).toContain('H0');
 +    expect(content).toContain('Yes, retry once');
-+    expect(content).toContain('Update the README?');
++    expect(content).toContain('H1');
++    expect(content).not.toContain('Retry on timeout?');
++});
++
++const mounted = async (run: (container: HTMLElement, mount: (node: React.ReactNode) => Promise<void>) => Promise<void>) => {
++    const container = document.createElement('div');
++    document.body.appendChild(container);
++    const root = createRoot(container);
++    try {
++        await run(container, async (node) => { await act(async () => root.render(wrap(node))); });
++    } finally {
++        await act(async () => root.unmount());
++        container.remove();
++    }
++};
++const click = async (element: Element | null | undefined) => {
++    expect(element).toBeTruthy();
++    await act(async () => element!.dispatchEvent(new browser.MouseEvent('click', { bubbles: true }) as unknown as MouseEvent));
++};
++const buttonNamed = (container: HTMLElement, name: string) => [...container.querySelectorAll('button')].find((button) => button.textContent === name);
++const optionMarks = (container: HTMLElement) => container.querySelectorAll('.rounded-full.border').length;
++
++test('opened, a batch lists each question with its answer, and Show options adds every option', async () => {
++    await mounted(async (container, mount) => {
++        await mount(card(batch(), true));
++        expect(container.textContent).toContain('Retry on timeout?');
++        expect(container.textContent).toContain('Yes, retry once');
++        expect(optionMarks(container)).toBe(0);
++        await click(buttonNamed(container, 'Show options'));
++        // Two options each, and the first answer was typed: one more marked row.
++        expect(optionMarks(container)).toBe(5);
++        expect(buttonNamed(container, 'Hide options')?.getAttribute('aria-expanded')).toBe('true');
++    });
++});
++
++test('a pinned batch leaves a one-line bar of its answers once it scrolls away, which opens the card there', async () => {
++    useUIStore.setState({ stickyUserHeader: true });
++    try {
++        await mounted(async (container) => {
++            container.setAttribute('data-scrollbar', 'chat');
++            const row = document.createElement('div');
++            container.appendChild(row);
++            const rowRoot = createRoot(row);
++            await act(async () => rowRoot.render(wrap(card(batch()))));
++            // In place, nothing covers the chat's top.
++            expect(row.querySelector('[data-turn-sticky-header]')).toBeNull();
++            // The list pins the row and reports how far it moved it.
++            row.style.setProperty('--sticky-row-offset', '600px');
++            await act(async () => { row.dispatchEvent(new browser.Event('stickyrowoffset', { bubbles: true }) as unknown as Event); });
++            const bar = row.querySelector('[data-question-bar]');
++            expect(bar?.hasAttribute('data-turn-sticky-header')).toBe(true);
++            expect(bar?.textContent).toContain('2 answers');
++            expect(bar?.textContent).toContain('Yes, retry once, No');
++            await click(bar?.querySelector('button'));
++            expect(bar?.textContent).toContain('Retry on timeout?');
++            await click(buttonNamed(row, 'Show less') ?? [...row.querySelectorAll('[data-question-bar] button')].find((button) => button.textContent === 'Show less'));
++            expect(row.querySelector('[data-question-bar]')?.textContent).toContain('2 answers');
++            // Back at its place, the bar goes.
++            row.style.removeProperty('--sticky-row-offset');
++            await act(async () => { row.dispatchEvent(new browser.Event('stickyrowoffset', { bubbles: true }) as unknown as Event); });
++            expect(row.querySelector('[data-question-bar]')).toBeNull();
++            await act(async () => rowRoot.unmount());
++        });
++    } finally {
++        useUIStore.setState({ stickyUserHeader: false });
++    }
 +});
 +
 +test('the card is a toggle that reports whether the options are open', () => {
@@ -472,10 +599,10 @@ index 000000000..6cb03dfdf
 +});
 diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
 new file mode 100644
-index 000000000..284f4c5ff
+index 000000000..903f7432f
 --- /dev/null
 +++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
-@@ -0,0 +1,191 @@
+@@ -0,0 +1,415 @@
 +import React from 'react';
 +
 +import { useDeviceInfo } from '@/lib/device';
@@ -490,7 +617,10 @@ index 000000000..284f4c5ff
 +    questionSentence,
 +    selectedOptionLabels,
 +    withoutRecommendation,
++    type QuestionAnswerEntry,
++    type QuestionCardState,
 +} from '../lib/questionEntries';
++import { STICKY_ROW_OFFSET, STICKY_ROW_OFFSET_EVENT } from '../lib/turns/stickyPrompt';
 +import { stickyHeaderBackground } from './stickyHeaderBackground';
 +import { USER_BUBBLE_TEXT_LINK_CLASS } from '../message/MessageBody';
 +
@@ -504,6 +634,15 @@ index 000000000..284f4c5ff
 +    backgroundColor: 'color-mix(in srgb, var(--status-question-background) 55%, transparent)',
 +};
 +
++const LINK_STYLE: React.CSSProperties = { minHeight: 0, minWidth: 0 };
++
++/** The share of the screen's height a batch's collapsed list may take. */
++const COLLAPSED_LIST_SHARE = 0.15;
++/** Room for the "+N more" line under a cut list. */
++const MORE_LINE_PX = 24;
++/** The bar takes over once less than this much of a scrolled-away card is in view. */
++const BAR_HANDOVER_PX = 40;
++
 +/** A filled mark for the chosen option, an empty ring for the rest. */
 +const OptionMark: React.FC<{ chosen: boolean }> = ({ chosen }) => (
 +    <span
@@ -515,13 +654,276 @@ index 000000000..284f4c5ff
 +    </span>
 +);
 +
++interface AnsweredEntry {
++    entry: QuestionAnswerEntry;
++    /** The answer as shown, or empty when the question went unanswered. */
++    answer: string;
++}
++
++/**
++ * Hides the rows of a collapsed list that do not fit its share of the screen
++ * and returns how many it hid. Rows stay laid out (hidden, the list clipped
++ * under the last shown one) so the next measure still sees them.
++ */
++const useCollapsedRows = (listRef: React.RefObject<HTMLDivElement | null>, enabled: boolean, rowsKey: unknown): number => {
++    const [hidden, setHidden] = React.useState(0);
++    React.useLayoutEffect(() => {
++        const list = listRef.current;
++        if (!enabled || !list) {
++            setHidden(0);
++            return;
++        }
++        const measure = () => {
++            const rows = [...list.querySelectorAll<HTMLElement>('[data-question-row]')];
++            const fitting = (budget: number) => {
++                let shown = 0;
++                for (const row of rows) {
++                    if (row.offsetTop + row.offsetHeight > budget) break;
++                    shown += 1;
++                }
++                return shown;
++            };
++            const budget = window.innerHeight * COLLAPSED_LIST_SHARE;
++            let shown = fitting(budget);
++            if (shown < rows.length) shown = Math.max(1, fitting(budget - MORE_LINE_PX));
++            rows.forEach((row, index) => { row.style.visibility = index < shown ? '' : 'hidden'; });
++            const last = rows[shown - 1];
++            list.style.height = shown < rows.length && last ? `${last.offsetTop + last.offsetHeight}px` : '';
++            setHidden(rows.length - shown);
++        };
++        measure();
++        // A narrower column wraps more answers; a shorter screen fits fewer rows.
++        let width = list.offsetWidth;
++        const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => {
++            if (list.offsetWidth === width) return;
++            width = list.offsetWidth;
++            measure();
++        });
++        observer?.observe(list);
++        window.addEventListener('resize', measure);
++        return () => {
++            observer?.disconnect();
++            window.removeEventListener('resize', measure);
++            list.style.height = '';
++        };
++    }, [enabled, listRef, rowsKey]);
++    return hidden;
++};
++
++/**
++ * Whether a pinned batch card has scrolled away far enough for its bar. The
++ * list moves the pinned row off its place by `STICKY_ROW_OFFSET`; the card
++ * draws itself back there, so it scrolls away with the transcript.
++ */
++const useBarHandover = (enabled: boolean) => {
++    const flowRef = React.useRef<HTMLDivElement>(null);
++    const [covered, setCovered] = React.useState(false);
++    React.useEffect(() => {
++        const flow = flowRef.current;
++        const chat = flow?.closest<HTMLElement>('[data-scrollbar="chat"]');
++        if (!enabled || !flow || !chat) {
++            setCovered(false);
++            return;
++        }
++        // The row that reports carries the offset; on mount it is inherited.
++        const check = (row?: HTMLElement) => {
++            const value = row ? row.style.getPropertyValue(STICKY_ROW_OFFSET) : getComputedStyle(flow).getPropertyValue(STICKY_ROW_OFFSET);
++            const offset = Number.parseFloat(value) || 0;
++            setCovered(offset > 0 && offset > flow.offsetHeight - BAR_HANDOVER_PX);
++        };
++        const onOffset = (event: Event) => {
++            if (event.target instanceof HTMLElement && event.target.contains(flow)) check(event.target);
++        };
++        check();
++        chat.addEventListener(STICKY_ROW_OFFSET_EVENT, onOffset);
++        return () => chat.removeEventListener(STICKY_ROW_OFFSET_EVENT, onOffset);
++    }, [enabled]);
++    return { flowRef, covered };
++};
++
++interface QuestionCardProps {
++    answered: readonly AnsweredEntry[];
++    cardState: QuestionCardState;
++    statusText: string;
++    open: boolean;
++    onToggle: () => void;
++    nested: boolean;
++    isMobile: boolean;
++    /** The transcript row's attributes; none for the copy opened from the bar. */
++    rowAttributes?: Record<string, string | undefined>;
++}
++
++/**
++ * The purple card. Collapsed, one question shows its sentence and answer and
++ * a batch one line per question (label and answer) as far as fits. Show more
++ * opens one question straight to its options; a batch first lists every
++ * question with its answer, and Show options then opens every option.
++ */
++const QuestionCard: React.FC<QuestionCardProps> = ({
++    answered, cardState, statusText, open, onToggle, nested, isMobile, rowAttributes,
++}) => {
++    const { t } = useI18n();
++    const batch = answered.length > 1;
++    const [optionsShown, setOptionsShown] = React.useState(false);
++    const listRef = React.useRef<HTMLDivElement>(null);
++    const hiddenRows = useCollapsedRows(listRef, batch && !open, answered);
++    const showOptions = open && (!batch || optionsShown);
++    const toggle = () => {
++        setOptionsShown(false);
++        onToggle();
++    };
++
++    const entryBlock = ({ entry, answer }: AnsweredEntry, index: number) => {
++        const picked = selectedOptionLabels(entry.options, entry.answer, entry.multiple);
++        return (
++            <div key={`${entry.partId}:${index}`} className="min-w-0 space-y-0.5 border-s-2 ps-2.5" style={RAIL_STYLE}>
++                <div dir="auto" className={cn('typography-meta text-foreground/70', !open && 'line-clamp-2')} title={entry.question}>
++                    {questionSentence(entry.question)}
++                </div>
++                {showOptions ? (
++                    <div className="space-y-1.5 pt-1">
++                        {entry.options.map((option) => {
++                            const chosen = picked.has(option.label);
++                            return (
++                                <div key={option.label} className="flex items-start gap-2.5">
++                                    <OptionMark chosen={chosen} />
++                                    <span className="min-w-0">
++                                        <span
++                                            dir="auto"
++                                            className={cn('block break-words typography-markdown leading-snug', chosen ? 'font-medium text-foreground' : 'text-foreground/60')}
++                                        >
++                                            {option.label}
++                                        </span>
++                                        {option.description ? (
++                                            <span dir="auto" className="block break-words typography-meta text-foreground/50">
++                                                {option.description}
++                                            </span>
++                                        ) : null}
++                                    </span>
++                                </div>
++                            );
++                        })}
++                        {!answer ? (
++                            <div className="typography-markdown italic leading-snug text-muted-foreground">{statusText}</div>
++                        ) : null}
++                        {picked.size === 0 && answer ? (
++                            <div className="flex items-start gap-2.5">
++                                <OptionMark chosen />
++                                <span dir="auto" className="min-w-0 whitespace-pre-wrap break-words typography-markdown font-medium leading-snug text-foreground">
++                                    {answer}
++                                </span>
++                            </div>
++                        ) : null}
++                    </div>
++                ) : answer ? (
++                    <div dir="auto" className={cn('whitespace-pre-wrap break-words typography-markdown font-medium leading-snug text-foreground', !open && 'line-clamp-3')}>
++                        {answer}
++                    </div>
++                ) : (
++                    <div dir="auto" className="typography-markdown italic leading-snug text-muted-foreground" data-question-card-state={cardState}>
++                        {statusText}
++                    </div>
++                )}
++            </div>
++        );
++    };
++
++    // Laid out like a prompt row (`ChatMessage`): the same column and top
++    // padding, and the reserve under it a prompt's action row takes (44px
++    // desktop, 36px mobile), which the sticky header's fade sits over.
++    return (
++        <div
++            className={cn('relative z-10 w-full', nested ? 'py-1.5' : isMobile ? 'pt-2' : 'pt-4')}
++            {...rowAttributes}
++        >
++            <div className={cn('relative', !nested && 'chat-message-column')}>
++                <div className="relative flex flex-col items-end">
++                    {/* A pinned row passes taps through; the card itself takes them. */}
++                    <div className="pointer-events-auto max-w-[85%]">
++                        <div className="select-text border border-primary/5 px-5 py-3 shadow-none" style={CARD_STYLE}>
++                            <div
++                                className={cn(
++                                    'space-y-2.5',
++                                    open ? cn(isMobile ? 'max-h-[30dvh]' : 'max-h-[40dvh]', 'overflow-y-auto overscroll-contain') : 'cursor-pointer',
++                                )}
++                                onClick={(event) => {
++                                    // Match UserTextPart: a click opens collapsed content;
++                                    // a drag/double-click selecting text must leave it alone.
++                                    // Open text never collapses on click (Show less does).
++                                    if (!open && !hasTextSelectionInside(event.currentTarget)) toggle();
++                                }}
++                            >
++                                {batch && !open ? (
++                                    <div className="min-w-0 border-s-2 ps-2.5" style={RAIL_STYLE}>
++                                        <div ref={listRef} className="relative grid grid-cols-[fit-content(40%)_minmax(0,1fr)] gap-x-2 gap-y-1 overflow-hidden">
++                                            {answered.map(({ entry, answer }, index) => (
++                                                <div
++                                                    key={`${entry.partId}:${index}`}
++                                                    data-question-row=""
++                                                    className="col-span-2 grid min-w-0 grid-cols-subgrid items-baseline"
++                                                >
++                                                    <span dir="auto" className="min-w-0 truncate typography-meta text-foreground/70" title={entry.question}>
++                                                        {entry.header || questionSentence(entry.question)}
++                                                    </span>
++                                                    {answer ? (
++                                                        <span dir="auto" className="min-w-0 line-clamp-2 break-words typography-markdown font-medium leading-snug text-foreground">
++                                                            {answer}
++                                                        </span>
++                                                    ) : (
++                                                        <span className="min-w-0 truncate typography-markdown italic leading-snug text-muted-foreground">{statusText}</span>
++                                                    )}
++                                                </div>
++                                            ))}
++                                        </div>
++                                        {hiddenRows > 0 ? (
++                                            <div className="pt-1 typography-meta text-muted-foreground">
++                                                {t('chat.questionCard.moreQuestions', { count: hiddenRows })}
++                                            </div>
++                                        ) : null}
++                                    </div>
++                                ) : answered.map(entryBlock)}
++                            </div>
++                            <div className="mt-1 flex min-w-0 items-center justify-end gap-1.5 text-sm text-muted-foreground">
++                                {open && batch ? (
++                                    <>
++                                        <button
++                                            type="button"
++                                            onClick={() => setOptionsShown((shown) => !shown)}
++                                            className={cn('shrink-0', USER_BUBBLE_TEXT_LINK_CLASS)}
++                                            style={LINK_STYLE}
++                                            aria-expanded={optionsShown}
++                                        >
++                                            {t(optionsShown ? 'chat.questionCard.hideOptions' : 'chat.questionCard.showOptions')}
++                                        </button>
++                                        <span aria-hidden="true">·</span>
++                                    </>
++                                ) : null}
++                                <button
++                                    type="button"
++                                    onClick={toggle}
++                                    className={cn('shrink-0', USER_BUBBLE_TEXT_LINK_CLASS)}
++                                    style={LINK_STYLE}
++                                    aria-expanded={open}
++                                >
++                                    {t(open ? 'chat.message.userText.showLess' : 'chat.message.userText.showMore')}
++                                </button>
++                            </div>
++                        </div>
++                    </div>
++                    {nested ? null : <div aria-hidden="true" className={isMobile ? 'h-9' : 'h-11'} />}
++                </div>
++            </div>
++        </div>
++    );
++};
++
 +/**
 + * A question call as its own transcript row: a purple card with each question
-+ * and the answer it got on a rail, or a line saying it went unanswered. Show more opens the card in
-+ * place to every option offered, the chosen one marked; a typed answer is one
-+ * more marked row. With the sticky user header on, the card sticks like a
-+ * prompt until the next prompt or answered question pushes it up, and an open
-+ * card scrolls inside past 40% of the screen, as a long prompt does there.
++ * and the answer it got on a rail, or a line saying it went unanswered. Show
++ * more opens the card in place (see `QuestionCard`). With the sticky user
++ * header on, an answered card sticks like a prompt until the next prompt or
++ * answered question pushes it up. A batch of questions scrolls away instead
++ * and leaves a one-line bar of its answers, which opens the card where it is.
 + */
 +export const QuestionTurnHeader: React.FC<{
 +    part: Part;
@@ -530,6 +932,7 @@ index 000000000..284f4c5ff
 +    startsMessage: boolean;
 +    open: boolean;
 +    onToggle: (partId: string) => void;
++    /** Off in a fold's preview, where the card never sticks. */
 +    pinnable?: boolean;
 +    /** Drawn inside a message (a fold's preview), which already sets the column. */
 +    nested?: boolean;
@@ -538,132 +941,80 @@ index 000000000..284f4c5ff
 +    const { t } = useI18n();
 +    const sticks = useUIStore((state) => state.stickyUserHeader);
 +    const entries = React.useMemo(() => questionEntriesForPart(part, messageId), [part, messageId]);
++    const answered = React.useMemo<AnsweredEntry[]>(
++        () => entries.map((entry) => ({ entry, answer: entry.answer ? withoutRecommendation(entry.answer.trim()) : '' })),
++        [entries],
++    );
 +    const cardState = questionCardState(part);
-+    // Every question in the call; one without an answer shows the call's state.
-+    const answered = entries
-+        .map((entry) => ({ entry, answer: entry.answer ? withoutRecommendation(entry.answer.trim()) : '' }));
++    const pinned = pinnable && sticks && cardState === 'answered';
++    const barred = pinned && answered.length > 1;
++    const { flowRef, covered } = useBarHandover(barred);
++    const [barOpen, setBarOpen] = React.useState(false);
++    React.useEffect(() => {
++        if (!covered) setBarOpen(false);
++    }, [covered]);
++
 +    if (answered.length === 0 || cardState === null) return null;
 +    // As the stock question row does, a waiting question shows in the
 +    // transcript while the form at the composer takes the answer.
 +    const statusText = t(cardState === 'waiting' ? 'chat.toolPart.awaitingResponse'
 +        : cardState === 'dismissed' ? 'chat.questionCard.notAnswered'
 +            : 'chat.questionCard.stoppedBeforeAnswer');
++    const card = (
++        <QuestionCard
++            answered={answered} cardState={cardState} statusText={statusText} open={open} onToggle={() => onToggle(part.id)}
++            nested={nested} isMobile={isMobile}
++            rowAttributes={{ 'data-question-turn-header': '', 'data-message-id': startsMessage ? messageId : undefined }}
++        />
++    );
 +
-+    const toggle = () => onToggle(part.id);
++    if (!pinned) return card;
++    if (!barred) {
++        return (
++            <div className="pointer-events-auto sticky top-0 z-20 [overflow-anchor:none]" data-turn-sticky-header="" style={stickyHeaderBackground(isMobile)}>
++                {card}
++            </div>
++        );
++    }
 +
-+    // Laid out like a prompt row (`ChatMessage`): the same column and top
-+    // padding, and the reserve under it a prompt's action row takes (44px
-+    // desktop, 36px mobile), which the sticky header's fade sits over.
-+    const body = (
-+        <div
-+            className={cn('relative z-10 w-full', nested ? 'py-1.5' : isMobile ? 'pt-2' : 'pt-4')}
-+            data-question-turn-header=""
-+            data-message-id={startsMessage ? messageId : undefined}
-+        >
-+            <div className={cn('relative', !nested && 'chat-message-column')}>
-+                <div className="relative flex flex-col items-end">
-+                    <div className="max-w-[85%]">
-+                        <div
-+                            className="select-text border border-primary/5 px-5 py-3 shadow-none"
-+                            style={CARD_STYLE}
-+                        >
-+                            <div
-+                                className={cn('space-y-2.5', open ? 'max-h-[40dvh] overflow-y-auto overscroll-contain' : 'cursor-pointer')}
-+                                onClick={(event) => {
-+                                    // Match UserTextPart: a click opens collapsed content;
-+                                    // a drag/double-click selecting text must leave it alone.
-+                                    // Open text never collapses on click (Show less does).
-+                                    if (!open && !hasTextSelectionInside(event.currentTarget)) toggle();
-+                                }}
-+                            >
-+                                {answered.map(({ entry, answer }) => {
-+                                    const picked = selectedOptionLabels(entry.options, entry.answer, entry.multiple);
-+                                    return (
-+                                        <div
-+                                            key={entry.partId}
-+                                            className="min-w-0 space-y-0.5 border-s-2 ps-2.5"
-+                                            style={RAIL_STYLE}
-+                                        >
-+                                            <div
-+                                                dir="auto"
-+                                                className={cn('typography-meta text-foreground/70', !open && 'line-clamp-2')}
-+                                                title={entry.question}
-+                                            >
-+                                                {questionSentence(entry.question)}
-+                                            </div>
-+                                            {open ? (
-+                                                <div className="space-y-1.5 pt-1">
-+                                                    {entry.options.map((option) => {
-+                                                        const chosen = picked.has(option.label);
-+                                                        return (
-+                                                            <div key={option.label} className="flex items-start gap-2.5">
-+                                                                <OptionMark chosen={chosen} />
-+                                                                <span className="min-w-0">
-+                                                                    <span
-+                                                                        dir="auto"
-+                                                                        className={cn('block break-words typography-markdown leading-snug', chosen ? 'font-medium text-foreground' : 'text-foreground/60')}
-+                                                                    >
-+                                                                        {option.label}
-+                                                                    </span>
-+                                                                    {option.description ? (
-+                                                                        <span dir="auto" className="block break-words typography-meta text-foreground/50">
-+                                                                            {option.description}
-+                                                                        </span>
-+                                                                    ) : null}
-+                                                                </span>
-+                                                            </div>
-+                                                        );
-+                                                    })}
-+                                                    {!answer ? (
-+                                                <div className="typography-markdown italic leading-snug text-muted-foreground">{statusText}</div>
-+                                            ) : null}
-+                                            {picked.size === 0 && answer ? (
-+                                                        <div className="flex items-start gap-2.5">
-+                                                            <OptionMark chosen />
-+                                                            <span dir="auto" className="min-w-0 whitespace-pre-wrap break-words typography-markdown font-medium leading-snug text-foreground">
-+                                                                {answer}
-+                                                            </span>
-+                                                        </div>
-+                                                    ) : null}
-+                                                </div>
-+                                            ) : (
-+                                                answer ? (
-+                                                    <div dir="auto" className="whitespace-pre-wrap break-words typography-markdown font-medium leading-snug text-foreground line-clamp-3">
-+                                                        {answer}
-+                                                    </div>
-+                                                ) : (
-+                                                    <div dir="auto" className="typography-markdown italic leading-snug text-muted-foreground" data-question-card-state={cardState}>
-+                                                    {statusText}
-+                                                </div>
-+                                                )
-+                                            )}
-+                                        </div>
-+                                    );
-+                                })}
-+                            </div>
-+                            <div className="mt-1 flex min-w-0 items-center justify-end gap-1.5 text-sm text-muted-foreground">
++    const background = stickyHeaderBackground(isMobile);
++    return (
++        <div className="relative [overflow-anchor:none]">
++            <div ref={flowRef} style={{ transform: `translateY(calc(-1 * var(${STICKY_ROW_OFFSET}, 0px)))` }}>
++                {card}
++            </div>
++            {covered ? (
++                // What covers the top of the chat, so it is the sticky header
++                // the scroll helpers measure.
++                <div className="pointer-events-auto absolute inset-x-0 top-0 z-10" data-turn-sticky-header="" data-question-bar="" style={background}>
++                    {barOpen ? (
++                        <QuestionCard
++                            answered={answered} cardState={cardState} statusText={statusText} open onToggle={() => setBarOpen(false)}
++                            nested={false} isMobile={isMobile}
++                        />
++                    ) : (
++                        <div className={cn('chat-message-column relative', isMobile ? 'pt-2 pb-4' : 'pt-3 pb-8')}>
++                            <div className="flex justify-end">
 +                                <button
 +                                    type="button"
-+                                    onClick={toggle}
-+                                    className={cn('shrink-0', USER_BUBBLE_TEXT_LINK_CLASS)}
-+                                    style={{ minHeight: 0, minWidth: 0 }}
-+                                    aria-expanded={open}
++                                    onClick={() => setBarOpen(true)}
++                                    aria-expanded={false}
++                                    className="flex min-w-0 max-w-[85%] items-center gap-2 border border-primary/5 px-3 py-1.5 text-start"
++                                    style={CARD_STYLE}
 +                                >
-+                                    {t(open ? 'chat.message.userText.showLess' : 'chat.message.userText.showMore')}
++                                    <span aria-hidden="true" className="h-4 shrink-0 border-s-2" style={RAIL_STYLE} />
++                                    <span className="shrink-0 typography-meta text-foreground/70">
++                                        {t('chat.questionCard.answerCount', { count: answered.length })}
++                                    </span>
++                                    <span dir="auto" className="min-w-0 truncate typography-markdown font-medium leading-snug text-foreground">
++                                        {answered.map(({ answer }) => answer || statusText).join(', ')}
++                                    </span>
 +                                </button>
 +                            </div>
 +                        </div>
++                    )}
 +                </div>
-+                    {nested ? null : <div aria-hidden="true" className={isMobile ? 'h-9' : 'h-11'} />}
-+                </div>
-+            </div>
-+        </div>
-+    );
-+
-+    if (!pinnable || !sticks || cardState !== 'answered') return body;
-+    return (
-+        <div className="sticky top-0 z-20 [overflow-anchor:none]" data-turn-sticky-header="" style={stickyHeaderBackground(isMobile)}>
-+            {body}
++            ) : null}
 +        </div>
 +    );
 +};
@@ -855,20 +1206,25 @@ index 5bbaf8764..f17d6a590 100644
 +    expect(estimateTimelineRowSize(card(rows), { ...metrics, autoExpandAnsweredQuestions: true })!).toBeGreaterThan(closed + 50);
 +});
 diff --git a/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.ts b/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.ts
-index d5e814000..75c255929 100644
+index d5e814000..6be433e29 100644
 --- a/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.ts
 +++ b/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.ts
-@@ -200,6 +200,36 @@ const promptHeight = (message: ChatMessageEntry, metrics: RowSizeMetrics): numbe
+@@ -200,6 +200,45 @@ const promptHeight = (message: ChatMessageEntry, metrics: RowSizeMetrics): numbe
      return height > 0 ? PROMPT_CHROME_PX + height : EMPTY_PROMPT_PX;
  };
  
 +// An answered question's card (`questionPartId`) is laid out like a prompt
-+// row: top padding, the card's padding and the reserve under it. Closed, each
-+// question draws its question and answer lines; open (it starts open with
-+// `autoExpandAnsweredQuestions`), the question and every option with its
-+// description.
++// row: top padding, the card's padding and the reserve under it. Closed, one
++// question draws its question and answer lines, and a batch one line per
++// question as far as its share of the screen goes (about four, then "+N
++// more"). Open (it starts open with `autoExpandAnsweredQuestions`), one
++// question draws every option with its description and a batch each
++// question with its answer.
 +const QUESTION_CARD_CHROME_PX = 16 + 24 + 44;
 +const QUESTION_CARD_ENTRY_PX = 48;
++const QUESTION_CARD_ROW_PX = 26;
++const QUESTION_CARD_ROWS = 4;
++const QUESTION_CARD_MORE_PX = 24;
 +const QUESTION_CARD_GAP_PX = 12;
 +const QUESTION_CARD_OPTION_PX = 26;
 +const QUESTION_CARD_DESCRIPTION_LINE_PX = 18;
@@ -879,8 +1235,12 @@ index d5e814000..75c255929 100644
 +    if (part?.type !== 'tool') return undefined;
 +    const entries = questionEntriesForPart(part, part.messageID);
 +    const count = Math.max(1, entries.length);
++    if (count > 1 && !metrics.autoExpandAnsweredQuestions) {
++        const rows = Math.min(count, QUESTION_CARD_ROWS);
++        return QUESTION_CARD_CHROME_PX + rows * QUESTION_CARD_ROW_PX + (count > rows ? QUESTION_CARD_MORE_PX : 0);
++    }
 +    let height = QUESTION_CARD_CHROME_PX + (count - 1) * QUESTION_CARD_GAP_PX;
-+    if (!metrics.autoExpandAnsweredQuestions) return height + count * QUESTION_CARD_ENTRY_PX;
++    if (!metrics.autoExpandAnsweredQuestions || count > 1) return height + count * QUESTION_CARD_ENTRY_PX;
 +    const charsPerLine = Math.max(20, Math.floor(metrics.columnWidth / CHAR_WIDTH_PX));
 +    for (const entry of entries) {
 +        height += metrics.lineHeight;
@@ -895,7 +1255,7 @@ index d5e814000..75c255929 100644
  export const estimateTimelineRowSize = (row: TimelineRow, metrics: RowSizeMetrics): number | undefined => {
      if (metrics.columnWidth <= 0) return undefined;
      let height: number;
-@@ -209,6 +239,10 @@ export const estimateTimelineRowSize = (row: TimelineRow, metrics: RowSizeMetric
+@@ -209,6 +248,10 @@ export const estimateTimelineRowSize = (row: TimelineRow, metrics: RowSizeMetric
          case 'turn-fold': height = FOLD_HEADER_PX; break;
          case 'turn-pages': height = hoistedHeight(hoistedPages(row), metrics); break;
          case 'turn-message': {
@@ -907,7 +1267,7 @@ index d5e814000..75c255929 100644
              return message === undefined ? undefined : Math.round(message);
          }
 diff --git a/packages/ui/src/components/chat/lib/turns/stickyPrompt.ts b/packages/ui/src/components/chat/lib/turns/stickyPrompt.ts
-index c3c5ebd29..c4729bc33 100644
+index c3c5ebd29..4768a8bcc 100644
 --- a/packages/ui/src/components/chat/lib/turns/stickyPrompt.ts
 +++ b/packages/ui/src/components/chat/lib/turns/stickyPrompt.ts
 @@ -1,4 +1,5 @@
@@ -916,7 +1276,7 @@ index c3c5ebd29..c4729bc33 100644
  import type { ChatMessageEntry } from './types';
  
  /**
-@@ -9,3 +10,21 @@ import type { ChatMessageEntry } from './types';
+@@ -9,3 +10,30 @@ import type { ChatMessageEntry } from './types';
  export const turnHeaderCanStick = (userMessage: ChatMessageEntry): boolean => (
      userMessage.info.role === 'user' && !isHiddenUserMessage(userMessage)
  );
@@ -938,6 +1298,15 @@ index c3c5ebd29..c4729bc33 100644
 +export const endsStickySpan = (row: TimelineRow): boolean => (
 +    row.kind === 'turn-head' || row.kind === 'ungrouped' || (row.kind === 'turn-message' && row.questionSticks === true)
 +);
++
++/**
++ * How far the list has moved a pinned row below its own place, set on the
++ * row's container while it is the pinned one. A row that lets go of the top
++ * edge (a batch of questions) draws itself back at its place with it.
++ */
++export const STICKY_ROW_OFFSET = '--sticky-row-offset';
++/** Dispatched (bubbling) from a row's container when its offset changes. */
++export const STICKY_ROW_OFFSET_EVENT = 'stickyrowoffset';
 diff --git a/packages/ui/src/components/chat/lib/turns/timelineRows.test.ts b/packages/ui/src/components/chat/lib/turns/timelineRows.test.ts
 index 067cb790b..cf125ccf5 100644
 --- a/packages/ui/src/components/chat/lib/turns/timelineRows.test.ts
@@ -1265,196 +1634,256 @@ index a330a3c94..84685becf 100644
          alwaysShowMessageActions,
          hoistedPages,
 diff --git a/packages/ui/src/lib/i18n/messages/ar.ts b/packages/ui/src/lib/i18n/messages/ar.ts
-index ccae5ca45..fab203ed7 100644
+index ccae5ca45..92c92823e 100644
 --- a/packages/ui/src/lib/i18n/messages/ar.ts
 +++ b/packages/ui/src/lib/i18n/messages/ar.ts
-@@ -2510,6 +2510,8 @@ export const dict = {
+@@ -2510,6 +2510,12 @@ export const dict = {
    'chat.questionCard.recommended': 'موصى به',
    'chat.questionCard.other': 'أخرى…',
    'chat.questionCard.yourAnswer': 'إجابتك',
 +  'chat.questionCard.notAnswered': 'لم تتم الإجابة',
++  'chat.questionCard.answerCount': 'الإجابات: {count}',
++  'chat.questionCard.moreQuestions': '+{count} أخرى',
++  'chat.questionCard.showOptions': 'إظهار الخيارات',
++  'chat.questionCard.hideOptions': 'إخفاء الخيارات',
 +  'chat.questionCard.stoppedBeforeAnswer': 'توقف قبل الإجابة',
    'chat.questionCard.submit': 'إرسال',
    'chat.questionCard.next': 'التالي',
    'chat.questionCard.dismiss': 'تجاهل',
 diff --git a/packages/ui/src/lib/i18n/messages/de.ts b/packages/ui/src/lib/i18n/messages/de.ts
-index c01c78791..3f2504a1b 100644
+index c01c78791..33e22c460 100644
 --- a/packages/ui/src/lib/i18n/messages/de.ts
 +++ b/packages/ui/src/lib/i18n/messages/de.ts
-@@ -2315,6 +2315,8 @@ export const dict = {
+@@ -2315,6 +2315,12 @@ export const dict = {
    'chat.questionCard.recommended': 'empfohlen',
    'chat.questionCard.other': 'Andere…',
    'chat.questionCard.yourAnswer': 'Ihre Antwort',
 +  'chat.questionCard.notAnswered': 'Nicht beantwortet',
++  'chat.questionCard.answerCount': '{count} Antworten',
++  'chat.questionCard.moreQuestions': '+{count} weitere',
++  'chat.questionCard.showOptions': 'Optionen anzeigen',
++  'chat.questionCard.hideOptions': 'Optionen ausblenden',
 +  'chat.questionCard.stoppedBeforeAnswer': 'Vor einer Antwort gestoppt',
    'chat.questionCard.submit': 'Senden',
    'chat.questionCard.next': 'Weiter',
    'chat.questionCard.dismiss': 'Verwerfen',
 diff --git a/packages/ui/src/lib/i18n/messages/en.ts b/packages/ui/src/lib/i18n/messages/en.ts
-index 20b83c221..80e33bb0f 100644
+index 20b83c221..6565cc820 100644
 --- a/packages/ui/src/lib/i18n/messages/en.ts
 +++ b/packages/ui/src/lib/i18n/messages/en.ts
-@@ -2598,6 +2598,8 @@ export const dict = {
+@@ -2598,6 +2598,12 @@ export const dict = {
    'chat.questionCard.recommended': 'recommended',
    'chat.questionCard.other': 'Other…',
    'chat.questionCard.yourAnswer': 'Your answer',
 +  'chat.questionCard.notAnswered': 'Not answered',
++  'chat.questionCard.answerCount': '{count} answers',
++  'chat.questionCard.moreQuestions': '+{count} more',
++  'chat.questionCard.showOptions': 'Show options',
++  'chat.questionCard.hideOptions': 'Hide options',
 +  'chat.questionCard.stoppedBeforeAnswer': 'Stopped before an answer',
    'chat.questionCard.submit': 'Submit',
    'chat.questionCard.next': 'Next',
    'chat.questionCard.dismiss': 'Dismiss',
 diff --git a/packages/ui/src/lib/i18n/messages/es.ts b/packages/ui/src/lib/i18n/messages/es.ts
-index 74844ae17..79d72074e 100644
+index 74844ae17..a3071b649 100644
 --- a/packages/ui/src/lib/i18n/messages/es.ts
 +++ b/packages/ui/src/lib/i18n/messages/es.ts
-@@ -2566,6 +2566,8 @@ export const dict: Record<I18nKey, string> = {
+@@ -2566,6 +2566,12 @@ export const dict: Record<I18nKey, string> = {
    "chat.questionCard.recommended": "recomendado",
    "chat.questionCard.other": "Otro…",
    "chat.questionCard.yourAnswer": "Tu respuesta",
 +  "chat.questionCard.notAnswered": "Sin responder",
++  "chat.questionCard.answerCount": "{count} respuestas",
++  "chat.questionCard.moreQuestions": "+{count} más",
++  "chat.questionCard.showOptions": "Mostrar opciones",
++  "chat.questionCard.hideOptions": "Ocultar opciones",
 +  "chat.questionCard.stoppedBeforeAnswer": "Detenido antes de responder",
    "chat.questionCard.submit": "Enviar",
    "chat.questionCard.next": "Siguiente",
    "chat.questionCard.dismiss": "Descartar",
 diff --git a/packages/ui/src/lib/i18n/messages/fr.ts b/packages/ui/src/lib/i18n/messages/fr.ts
-index aff896e29..96c10f812 100644
+index aff896e29..864f415ac 100644
 --- a/packages/ui/src/lib/i18n/messages/fr.ts
 +++ b/packages/ui/src/lib/i18n/messages/fr.ts
-@@ -2314,6 +2314,8 @@ export const dict = {
+@@ -2314,6 +2314,12 @@ export const dict = {
    'chat.questionCard.recommended': 'recommandé',
    'chat.questionCard.other': 'Autre…',
    'chat.questionCard.yourAnswer': 'Votre réponse',
 +  'chat.questionCard.notAnswered': 'Sans réponse',
++  'chat.questionCard.answerCount': '{count} réponses',
++  'chat.questionCard.moreQuestions': '+{count} de plus',
++  'chat.questionCard.showOptions': 'Afficher les options',
++  'chat.questionCard.hideOptions': 'Masquer les options',
 +  'chat.questionCard.stoppedBeforeAnswer': 'Arrêté avant une réponse',
    'chat.questionCard.submit': 'Soumettre',
    'chat.questionCard.next': 'Suivant',
    'chat.questionCard.dismiss': 'Ignorer',
 diff --git a/packages/ui/src/lib/i18n/messages/he.ts b/packages/ui/src/lib/i18n/messages/he.ts
-index 2141cde65..88d150424 100644
+index 2141cde65..420b18b2f 100644
 --- a/packages/ui/src/lib/i18n/messages/he.ts
 +++ b/packages/ui/src/lib/i18n/messages/he.ts
-@@ -2510,6 +2510,8 @@ export const dict = {
+@@ -2510,6 +2510,12 @@ export const dict = {
    'chat.questionCard.recommended': 'מומלץ',
    'chat.questionCard.other': 'אחר…',
    'chat.questionCard.yourAnswer': 'התשובה שלך',
 +  'chat.questionCard.notAnswered': 'לא נענתה',
++  'chat.questionCard.answerCount': '{count} תשובות',
++  'chat.questionCard.moreQuestions': '+{count} נוספות',
++  'chat.questionCard.showOptions': 'הצג אפשרויות',
++  'chat.questionCard.hideOptions': 'הסתר אפשרויות',
 +  'chat.questionCard.stoppedBeforeAnswer': 'נעצר לפני תשובה',
    'chat.questionCard.submit': 'שלח',
    'chat.questionCard.next': 'הבא',
    'chat.questionCard.dismiss': 'דלג',
 diff --git a/packages/ui/src/lib/i18n/messages/ja.ts b/packages/ui/src/lib/i18n/messages/ja.ts
-index a083df639..f33a6f09d 100644
+index a083df639..870d2828a 100644
 --- a/packages/ui/src/lib/i18n/messages/ja.ts
 +++ b/packages/ui/src/lib/i18n/messages/ja.ts
-@@ -2594,6 +2594,8 @@ export const dict: Record<I18nKey, string> = {
+@@ -2594,6 +2594,12 @@ export const dict: Record<I18nKey, string> = {
    'chat.questionCard.recommended': '推奨',
    'chat.questionCard.other': 'その他…',
    'chat.questionCard.yourAnswer': 'あなたの回答',
 +  'chat.questionCard.notAnswered': '未回答',
++  'chat.questionCard.answerCount': '回答 {count} 件',
++  'chat.questionCard.moreQuestions': '他 {count} 件',
++  'chat.questionCard.showOptions': '選択肢を表示',
++  'chat.questionCard.hideOptions': '選択肢を隠す',
 +  'chat.questionCard.stoppedBeforeAnswer': '回答前に停止',
    'chat.questionCard.submit': '送信',
    'chat.questionCard.next': '次へ',
    'chat.questionCard.dismiss': '閉じる',
 diff --git a/packages/ui/src/lib/i18n/messages/ko.ts b/packages/ui/src/lib/i18n/messages/ko.ts
-index 1a2a4438c..e7b41ecf5 100644
+index 1a2a4438c..f63bf0cec 100644
 --- a/packages/ui/src/lib/i18n/messages/ko.ts
 +++ b/packages/ui/src/lib/i18n/messages/ko.ts
-@@ -2598,6 +2598,8 @@ export const dict: Record<I18nKey, string> = {
+@@ -2598,6 +2598,12 @@ export const dict: Record<I18nKey, string> = {
    'chat.questionCard.recommended': '추천',
    'chat.questionCard.other': '기타…',
    'chat.questionCard.yourAnswer': '내 답변',
 +  'chat.questionCard.notAnswered': '답변하지 않음',
++  'chat.questionCard.answerCount': '답변 {count}개',
++  'chat.questionCard.moreQuestions': '+{count}개 더',
++  'chat.questionCard.showOptions': '선택지 보기',
++  'chat.questionCard.hideOptions': '선택지 숨기기',
 +  'chat.questionCard.stoppedBeforeAnswer': '답변 전에 중지됨',
    'chat.questionCard.submit': '제출',
    'chat.questionCard.next': '다음',
    'chat.questionCard.dismiss': '닫기',
 diff --git a/packages/ui/src/lib/i18n/messages/nl.ts b/packages/ui/src/lib/i18n/messages/nl.ts
-index d26e9a9ce..03f485a77 100644
+index d26e9a9ce..74b7c5df6 100644
 --- a/packages/ui/src/lib/i18n/messages/nl.ts
 +++ b/packages/ui/src/lib/i18n/messages/nl.ts
-@@ -2598,6 +2598,8 @@ export const dict = {
+@@ -2598,6 +2598,12 @@ export const dict = {
    'chat.questionCard.recommended': 'aanbevolen',
    'chat.questionCard.other': 'Anders…',
    'chat.questionCard.yourAnswer': 'Uw antwoord',
 +  'chat.questionCard.notAnswered': 'Niet beantwoord',
++  'chat.questionCard.answerCount': '{count} antwoorden',
++  'chat.questionCard.moreQuestions': '+{count} meer',
++  'chat.questionCard.showOptions': 'Opties tonen',
++  'chat.questionCard.hideOptions': 'Opties verbergen',
 +  'chat.questionCard.stoppedBeforeAnswer': 'Gestopt vóór een antwoord',
    'chat.questionCard.submit': 'Verzenden',
    'chat.questionCard.next': 'Volgende',
    'chat.questionCard.dismiss': 'Sluiten',
 diff --git a/packages/ui/src/lib/i18n/messages/pl.ts b/packages/ui/src/lib/i18n/messages/pl.ts
-index fa2a0a921..acbf39a8a 100644
+index fa2a0a921..25e86bc12 100644
 --- a/packages/ui/src/lib/i18n/messages/pl.ts
 +++ b/packages/ui/src/lib/i18n/messages/pl.ts
-@@ -1161,6 +1161,8 @@ export const dict: Record<I18nKey, string> = {
+@@ -1161,6 +1161,12 @@ export const dict: Record<I18nKey, string> = {
    'chat.questionCard.recommended': 'rekomendowane',
    'chat.questionCard.other': 'Inne...',
    'chat.questionCard.yourAnswer': 'Twoja odpowiedź',
 +  'chat.questionCard.notAnswered': 'Bez odpowiedzi',
++  'chat.questionCard.answerCount': '{count} odpowiedzi',
++  'chat.questionCard.moreQuestions': '+{count} więcej',
++  'chat.questionCard.showOptions': 'Pokaż opcje',
++  'chat.questionCard.hideOptions': 'Ukryj opcje',
 +  'chat.questionCard.stoppedBeforeAnswer': 'Zatrzymano przed odpowiedzią',
    'chat.questionCard.submit': 'Wyślij',
    'chat.questionCard.next': 'Następne',
    'chat.questionCard.dismiss': 'Odrzuć',
 diff --git a/packages/ui/src/lib/i18n/messages/pt-BR.ts b/packages/ui/src/lib/i18n/messages/pt-BR.ts
-index d542efc72..fe98db9f5 100644
+index d542efc72..fe92e15dd 100644
 --- a/packages/ui/src/lib/i18n/messages/pt-BR.ts
 +++ b/packages/ui/src/lib/i18n/messages/pt-BR.ts
-@@ -2568,6 +2568,8 @@ export const dict: Record<I18nKey, string> = {
+@@ -2568,6 +2568,12 @@ export const dict: Record<I18nKey, string> = {
    "chat.questionCard.recommended": "recomendado",
    "chat.questionCard.other": "Outro…",
    "chat.questionCard.yourAnswer": "Sua resposta",
 +  "chat.questionCard.notAnswered": "Não respondida",
++  "chat.questionCard.answerCount": "{count} respostas",
++  "chat.questionCard.moreQuestions": "+{count} mais",
++  "chat.questionCard.showOptions": "Mostrar opções",
++  "chat.questionCard.hideOptions": "Ocultar opções",
 +  "chat.questionCard.stoppedBeforeAnswer": "Interrompida antes de uma resposta",
    "chat.questionCard.submit": "Enviar",
    "chat.questionCard.next": "Próximo",
    "chat.questionCard.dismiss": "Descartar",
 diff --git a/packages/ui/src/lib/i18n/messages/tr.ts b/packages/ui/src/lib/i18n/messages/tr.ts
-index 321e6cf80..e4b464fee 100644
+index 321e6cf80..d9fa38b05 100644
 --- a/packages/ui/src/lib/i18n/messages/tr.ts
 +++ b/packages/ui/src/lib/i18n/messages/tr.ts
-@@ -2440,6 +2440,8 @@ export const dict = {
+@@ -2440,6 +2440,12 @@ export const dict = {
    'chat.questionCard.recommended': 'önerilen',
    'chat.questionCard.other': 'Diğer…',
    'chat.questionCard.yourAnswer': 'Yanıtın',
 +  'chat.questionCard.notAnswered': 'Yanıtlanmadı',
++  'chat.questionCard.answerCount': '{count} yanıt',
++  'chat.questionCard.moreQuestions': '+{count} daha',
++  'chat.questionCard.showOptions': 'Seçenekleri göster',
++  'chat.questionCard.hideOptions': 'Seçenekleri gizle',
 +  'chat.questionCard.stoppedBeforeAnswer': 'Yanıt verilmeden durduruldu',
    'chat.questionCard.submit': 'Gönder',
    'chat.questionCard.next': 'İleri',
    'chat.questionCard.dismiss': 'Yok say',
 diff --git a/packages/ui/src/lib/i18n/messages/uk.ts b/packages/ui/src/lib/i18n/messages/uk.ts
-index 727fced9e..2188fce38 100644
+index 727fced9e..a68d4ce3e 100644
 --- a/packages/ui/src/lib/i18n/messages/uk.ts
 +++ b/packages/ui/src/lib/i18n/messages/uk.ts
-@@ -2566,6 +2566,8 @@ export const dict: Record<I18nKey, string> = {
+@@ -2566,6 +2566,12 @@ export const dict: Record<I18nKey, string> = {
    "chat.questionCard.recommended": "рекомендований",
    "chat.questionCard.other": "Інше…",
    "chat.questionCard.yourAnswer": "Ваша відповідь",
 +  "chat.questionCard.notAnswered": "Без відповіді",
++  "chat.questionCard.answerCount": "Відповіді: {count}",
++  "chat.questionCard.moreQuestions": "Ще {count}",
++  "chat.questionCard.showOptions": "Показати варіанти",
++  "chat.questionCard.hideOptions": "Сховати варіанти",
 +  "chat.questionCard.stoppedBeforeAnswer": "Зупинено до відповіді",
    "chat.questionCard.submit": "Надіслати",
    "chat.questionCard.next": "Далі",
    "chat.questionCard.dismiss": "Відхилити",
 diff --git a/packages/ui/src/lib/i18n/messages/zh-CN.ts b/packages/ui/src/lib/i18n/messages/zh-CN.ts
-index 3b7ab1e2a..9765e88a4 100644
+index 3b7ab1e2a..70f2a85de 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-CN.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-CN.ts
-@@ -2564,6 +2564,8 @@ export const dict: Record<I18nKey, string> = {
+@@ -2564,6 +2564,12 @@ export const dict: Record<I18nKey, string> = {
    'chat.questionCard.recommended': '推荐',
    'chat.questionCard.other': '其他…',
    'chat.questionCard.yourAnswer': '你的回答',
 +  'chat.questionCard.notAnswered': '未回答',
++  'chat.questionCard.answerCount': '{count} 个回答',
++  'chat.questionCard.moreQuestions': '还有 {count} 个',
++  'chat.questionCard.showOptions': '显示选项',
++  'chat.questionCard.hideOptions': '隐藏选项',
 +  'chat.questionCard.stoppedBeforeAnswer': '在回答前已停止',
    'chat.questionCard.submit': '提交',
    'chat.questionCard.next': '下一个',
    'chat.questionCard.dismiss': '忽略',
 diff --git a/packages/ui/src/lib/i18n/messages/zh-TW.ts b/packages/ui/src/lib/i18n/messages/zh-TW.ts
-index 048ac233d..166dce2ab 100644
+index 048ac233d..953689c9d 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-TW.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-TW.ts
-@@ -2575,6 +2575,8 @@ export const dict: Record<I18nKey, string> = {
+@@ -2575,6 +2575,12 @@ export const dict: Record<I18nKey, string> = {
    'chat.questionCard.recommended': '推薦',
    'chat.questionCard.other': '其他…',
    'chat.questionCard.yourAnswer': '你的回答',
 +  'chat.questionCard.notAnswered': '未回答',
++  'chat.questionCard.answerCount': '{count} 個回答',
++  'chat.questionCard.moreQuestions': '還有 {count} 個',
++  'chat.questionCard.showOptions': '顯示選項',
++  'chat.questionCard.hideOptions': '隱藏選項',
 +  'chat.questionCard.stoppedBeforeAnswer': '在回答前已停止',
    'chat.questionCard.submit': '提交',
    'chat.questionCard.next': '下一個',
