@@ -11,7 +11,7 @@
     flake = false;
   };
   inputs.openchamber = {
-    url = "github:openchamber/openchamber/v2.7.0";
+    url = "github:openchamber/openchamber/v2.7.2";
     flake = false;
   };
   inputs.rust-overlay = {
@@ -105,8 +105,10 @@
             };
           };
           androidSdk = androidPkgs.androidenv.composeAndroidPackages {
-            platformVersions = [ "35" ];
-            buildToolsVersions = [ "35.0.0" ];
+            # v2.7.1 raises compileSdkVersion to 37 and its Gradle plugins need
+            # build-tools 36, while minSdk stays 24 and targetSdk stays 35.
+            platformVersions = [ "35" "37" ];
+            buildToolsVersions = [ "35.0.0" "36.0.0" ];
             includeEmulator = false;
             includeSystemImages = false;
             includeNDK = false;
