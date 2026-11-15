@@ -53,25 +53,20 @@ let
     name = "openchamber-${version}-source";
     src = openchamberSource;
     patches = [
-      # Batch 1: ports untouched by the base bump (they apply clean onto 2.7.1).
       ./patches/commandcode-quota.patch
       ./patches/codex-credits-balance.patch
-      # Batch 2: the badge work. They share both session switchers, so they are
+      # The badge work: both patches share the session switchers, so they are
       # ported together; upstream had already changed the unread condition and
       # the pending-request lookup these build on.
       ./patches/question-indicator.patch
       ./patches/stale-pending-badge.patch
-      # Batch 3: the five-level chat width. The base bump moved the store
-      # version from 27 to 29 under our own 28/29 migrations, so the port moves
-      # them to 30/31 and reads the wide-layout switch when a store has no level.
-      ./patches/chat-width.patch
-      # Batch 4: the reply-start arrow. Upstream had moved the scroll
-      # primitives under it, so the port keeps its own imports and doc section
-      # beside the newer follow-glide notes.
       ./patches/reply-start-scroll.patch
       ./patches/mobile-boot-overlay.patch
       ./patches/dictation-thread-count.patch
       ./patches/dictation-sherpa-platform.patch
+      # Gitea/Forgejo across-repository listing; upstream still gates
+      # `referencesAcross` off for Gitea (#6345 is closed).
+      ./patches/gitea-references-across.patch
     ];
   };
 in

@@ -1,5 +1,5 @@
 diff --git a/packages/vscode/src/quotaProviders.test.ts b/packages/vscode/src/quotaProviders.test.ts
-index 82941cfc5..5650b382e 100644
+index 82941cf..5650b38 100644
 --- a/packages/vscode/src/quotaProviders.test.ts
 +++ b/packages/vscode/src/quotaProviders.test.ts
 @@ -1149,10 +1149,11 @@ describe('Codex quota provider (VS Code parity)', () => {
@@ -19,7 +19,7 @@ index 82941cfc5..5650b382e 100644
      { balance: null, unlimited: true, expected: 'Unlimited' },
      { balance: 62500, unlimited: true, expected: 'Unlimited' },
 diff --git a/packages/vscode/src/quotaProviders.ts b/packages/vscode/src/quotaProviders.ts
-index 5ed117dc7..313cd8ddf 100644
+index 5ed117d..313cd8d 100644
 --- a/packages/vscode/src/quotaProviders.ts
 +++ b/packages/vscode/src/quotaProviders.ts
 @@ -15,6 +15,7 @@ import { readConsoleBudgets, withConsoleBudgets, type ConsoleBudgets } from '../
@@ -40,10 +40,10 @@ index 5ed117dc7..313cd8ddf 100644
      windows.credits_balance = toUsageWindow({
        usedPercent: null,
 diff --git a/packages/web/server/lib/quota/DOCUMENTATION.md b/packages/web/server/lib/quota/DOCUMENTATION.md
-index dbc95b62a..6290518c7 100644
+index 9cdab15..b4f0a78 100644
 --- a/packages/web/server/lib/quota/DOCUMENTATION.md
 +++ b/packages/web/server/lib/quota/DOCUMENTATION.md
-@@ -165,7 +165,7 @@ Both runtimes read the same Console contract. Sharing the reader keeps provider
+@@ -168,7 +168,7 @@ Both runtimes read the same Console contract. Sharing the reader keeps provider
  
  ## Codex credit balance semantics
  
@@ -53,7 +53,7 @@ index dbc95b62a..6290518c7 100644
  A Codex usage 401 whose body has `error.type: "rejected_by_access_enforcement"` is OpenCode's `chatgpt-token-sharing` sign-in ("Sign in with ChatGPT"). Its token is minted for `https://api.openai.com/v1` with the `chatgpt.tokens.use.direct` scope, which OpenAI admits only on the Responses route, and OpenAI publishes no usage endpoint for that sign-in. The numbers then come from the Codex CLI's own sign-in on the same machine (`providers/codex-cli.js`): `$CODEX_HOME/auth.json` (`~/.codex` by default), `tokens.access_token` and `tokens.account_id`, which the usage endpoint accepts because the CLI signs in with OpenAI's app client. Without that file, with an API-key CLI sign-in, or when the endpoint refuses the CLI token as well, both runtimes say that OpenAI shows usage for this sign-in only at `chatgpt.com/settings/usage` and name the legacy Codex sign-ins as the ones that show it in the app. Any other 401 reads as an expired session. The CLI read is tried only after that exact refusal: a legacy sign-in never consults the CLI, and `isConfigured` still answers from OpenCode alone. Web and VS Code keep this branch identical.
  
 diff --git a/packages/web/server/lib/quota/providers/codex.js b/packages/web/server/lib/quota/providers/codex.js
-index 0c6b0be02..af443f055 100644
+index 0c6b0be..af443f0 100644
 --- a/packages/web/server/lib/quota/providers/codex.js
 +++ b/packages/web/server/lib/quota/providers/codex.js
 @@ -7,7 +7,8 @@ import {
@@ -82,7 +82,7 @@ index 0c6b0be02..af443f055 100644
      windows.credits_balance = toUsageWindow({
        usedPercent: null,
 diff --git a/packages/web/server/lib/quota/providers/codex.test.js b/packages/web/server/lib/quota/providers/codex.test.js
-index ef3ee8349..372b1c50f 100644
+index ef3ee83..372b1c5 100644
 --- a/packages/web/server/lib/quota/providers/codex.test.js
 +++ b/packages/web/server/lib/quota/providers/codex.test.js
 @@ -32,10 +32,11 @@ const mockUsage = (rateLimit) => {
@@ -103,7 +103,7 @@ index ef3ee8349..372b1c50f 100644
      { balance: 62500, unlimited: true, expected: 'Unlimited' },
 diff --git a/packages/web/server/lib/quota/utils/formatters.d.ts b/packages/web/server/lib/quota/utils/formatters.d.ts
 new file mode 100644
-index 000000000..f9a0cec48
+index 0000000..f9a0cec
 --- /dev/null
 +++ b/packages/web/server/lib/quota/utils/formatters.d.ts
 @@ -0,0 +1,2 @@
