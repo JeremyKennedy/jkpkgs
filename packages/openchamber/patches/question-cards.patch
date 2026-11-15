@@ -1,5 +1,34 @@
+diff --git a/packages/ui/src/components/chat/ChatContainer.tsx b/packages/ui/src/components/chat/ChatContainer.tsx
+index 27a61b711..5dfc7b72d 100644
+--- a/packages/ui/src/components/chat/ChatContainer.tsx
++++ b/packages/ui/src/components/chat/ChatContainer.tsx
+@@ -127,7 +127,7 @@ import { resolveChatPromptReadOnly } from './chatPromptReadOnly';
+ import { PermissionDock } from './PermissionDock';
+ import { FormDock } from './FormDock';
+ import { TranscriptForms } from './TranscriptForms';
+-import { resolveFormsInChat } from './formsInChat';
++import { FormsInChatContext, resolveFormsInChat } from './formsInChat';
+ import { ensureSpaceArchives, useSpaceArchiveOf } from '@/lib/spaces/space-archives';
+ import { useSpaceDirectoryStopped } from '@/lib/spaces/spaces-store';
+ import { SpaceChatPlaceholder } from '@/components/session/spaces/SpaceChatPlaceholder';
+@@ -599,6 +599,7 @@ const ChatViewport = React.memo(({
+                         capacity={retainedTimelines()}
+                         onBeforeHide={captureOutgoingPosition}
+                     >
++                        <FormsInChatContext.Provider value={formsInChat}>
+                         <ChatColumnSessionContext.Provider value={session}>
+                             <MessageList
+                                 key={currentSessionKey}
+@@ -624,6 +625,7 @@ const ChatViewport = React.memo(({
+                                 scrollContainerProps={scrollContainerProps}
+                             />
+                         </ChatColumnSessionContext.Provider>
++                        </FormsInChatContext.Provider>
+                     </KeepAlive>
+                     {/* The transcript's edge fades must follow the scroller. */}
+                     <div aria-hidden="true" className="chat-scroll-fade chat-scroll-fade--top" />
 diff --git a/packages/ui/src/components/chat/MessageList.tsx b/packages/ui/src/components/chat/MessageList.tsx
-index fd1936a..277332d 100644
+index fd1936aa4..277332da9 100644
 --- a/packages/ui/src/components/chat/MessageList.tsx
 +++ b/packages/ui/src/components/chat/MessageList.tsx
 @@ -9,7 +9,8 @@ import { isSkippedTimelineMessage, isBackgroundReportEntry, isTimelineNoticeRole
@@ -223,7 +252,7 @@ index fd1936a..277332d 100644
          trailingStreamingEntry?.key,
          turnExpansion,
 diff --git a/packages/ui/src/components/chat/components/LiveTurnActivity.test.tsx b/packages/ui/src/components/chat/components/LiveTurnActivity.test.tsx
-index ce8aa24..653ae08 100644
+index ce8aa24f8..653ae0882 100644
 --- a/packages/ui/src/components/chat/components/LiveTurnActivity.test.tsx
 +++ b/packages/ui/src/components/chat/components/LiveTurnActivity.test.tsx
 @@ -441,6 +441,39 @@ describe('live Activity with the real message body', () => {
@@ -267,7 +296,7 @@ index ce8aa24..653ae08 100644
          const page: Part = {
              type: 'tool', tool: 'openchamber_render', id: 'page', callID: 'page', sessionID: 'session', messageID: 'progress',
 diff --git a/packages/ui/src/components/chat/components/LiveTurnActivity.tsx b/packages/ui/src/components/chat/components/LiveTurnActivity.tsx
-index 56f7cea..d3f4ce8 100644
+index 56f7cea2a..d3f4ce82d 100644
 --- a/packages/ui/src/components/chat/components/LiveTurnActivity.tsx
 +++ b/packages/ui/src/components/chat/components/LiveTurnActivity.tsx
 @@ -5,6 +5,7 @@ import { useI18n } from '@/lib/i18n';
@@ -296,10 +325,10 @@ index 56f7cea..d3f4ce8 100644
      );
 diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
 new file mode 100644
-index 0000000..682961f
+index 000000000..c2a8adc18
 --- /dev/null
 +++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
-@@ -0,0 +1,297 @@
+@@ -0,0 +1,306 @@
 +import React, { act } from 'react';
 +import { createRoot } from 'react-dom/client';
 +import { expect, test } from 'bun:test';
@@ -597,12 +626,21 @@ index 0000000..682961f
 +        container.remove();
 +    }
 +});
++
++test('with questions in the chat, a waiting question draws no card at its call; answered ones still do', async () => {
++    const { FormsInChatContext } = await import('../formsInChat');
++    const inChat = (node: React.ReactNode) => <FormsInChatContext.Provider value>{node}</FormsInChatContext.Provider>;
++    const waiting = callIn({ status: 'running', time: { start: 1 } });
++    expect(text(inChat(card(waiting)))).toBe('');
++    expect(text(card(waiting))).toContain('Awaiting response');
++    expect(text(inChat(card(ask([{ question: 'Ship it?', answer: 'Yes' }]))))).toContain('Yes');
++});
 diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
 new file mode 100644
-index 0000000..903f743
+index 000000000..b52526131
 --- /dev/null
 +++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
-@@ -0,0 +1,415 @@
+@@ -0,0 +1,420 @@
 +import React from 'react';
 +
 +import { useDeviceInfo } from '@/lib/device';
@@ -621,6 +659,7 @@ index 0000000..903f743
 +    type QuestionCardState,
 +} from '../lib/questionEntries';
 +import { STICKY_ROW_OFFSET, STICKY_ROW_OFFSET_EVENT } from '../lib/turns/stickyPrompt';
++import { FormsInChatContext } from '../formsInChat';
 +import { stickyHeaderBackground } from './stickyHeaderBackground';
 +import { USER_BUBBLE_TEXT_LINK_CLASS } from '../message/MessageBody';
 +
@@ -940,6 +979,7 @@ index 0000000..903f743
 +    const { isMobile } = useDeviceInfo();
 +    const { t } = useI18n();
 +    const sticks = useUIStore((state) => state.stickyUserHeader);
++    const formsInChat = React.useContext(FormsInChatContext);
 +    const entries = React.useMemo(() => questionEntriesForPart(part, messageId), [part, messageId]);
 +    const answered = React.useMemo<AnsweredEntry[]>(
 +        () => entries.map((entry) => ({ entry, answer: entry.answer ? withoutRecommendation(entry.answer.trim()) : '' })),
@@ -955,6 +995,9 @@ index 0000000..903f743
 +    }, [covered]);
 +
 +    if (answered.length === 0 || cardState === null) return null;
++    // With questions in the chat, the waiting question is answered from its
++    // card at the transcript's end; this one appears once it is answered.
++    if (cardState === 'waiting' && formsInChat) return null;
 +    // As the stock question row does, a waiting question shows in the
 +    // transcript while the form at the composer takes the answer.
 +    const statusText = t(cardState === 'waiting' ? 'chat.toolPart.awaitingResponse'
@@ -1019,7 +1062,7 @@ index 0000000..903f743
 +    );
 +};
 diff --git a/packages/ui/src/components/chat/components/TurnItem.tsx b/packages/ui/src/components/chat/components/TurnItem.tsx
-index c1d48ab..d35a23f 100644
+index c1d48abcb..d35a23f71 100644
 --- a/packages/ui/src/components/chat/components/TurnItem.tsx
 +++ b/packages/ui/src/components/chat/components/TurnItem.tsx
 @@ -4,6 +4,7 @@ import { useDeviceInfo } from '@/lib/device';
@@ -1081,7 +1124,7 @@ index c1d48ab..d35a23f 100644
                          {renderMessage(turn.userMessage)}
 diff --git a/packages/ui/src/components/chat/components/stickyHeaderBackground.ts b/packages/ui/src/components/chat/components/stickyHeaderBackground.ts
 new file mode 100644
-index 0000000..c1b3b12
+index 000000000..c1b3b12e7
 --- /dev/null
 +++ b/packages/ui/src/components/chat/components/stickyHeaderBackground.ts
 @@ -0,0 +1,25 @@
@@ -1110,8 +1153,29 @@ index 0000000..c1b3b12
 +const MOBILE = background('0.75rem');
 +
 +export const stickyHeaderBackground = (isMobile: boolean): React.CSSProperties => (isMobile ? MOBILE : DESKTOP);
+diff --git a/packages/ui/src/components/chat/formsInChat.ts b/packages/ui/src/components/chat/formsInChat.ts
+index 46d2cedba..08cf7f43f 100644
+--- a/packages/ui/src/components/chat/formsInChat.ts
++++ b/packages/ui/src/components/chat/formsInChat.ts
+@@ -1,3 +1,5 @@
++import { createContext } from 'react';
++
+ /**
+  * Whether a chat column draws waiting questions as cards at the end of its
+  * transcript ("Questions: in the chat") instead of the composer's dock.
+@@ -13,3 +15,10 @@ export const resolveFormsInChat = ({ questionsInChat, pinned, transcriptShown }:
+     pinned: boolean;
+     transcriptShown: boolean;
+ }): boolean => questionsInChat && !pinned && transcriptShown;
++
++/**
++ * Whether this chat column's transcript ends with its waiting questions'
++ * cards (`resolveFormsInChat`). The question's own card at its tool call then
++ * draws nothing until it is answered, so a waiting question shows once.
++ */
++export const FormsInChatContext = createContext(false);
 diff --git a/packages/ui/src/components/chat/lib/questionEntries.ts b/packages/ui/src/components/chat/lib/questionEntries.ts
-index bc8236e..02b37cd 100644
+index bc8236ea0..02b37cd9c 100644
 --- a/packages/ui/src/components/chat/lib/questionEntries.ts
 +++ b/packages/ui/src/components/chat/lib/questionEntries.ts
 @@ -159,6 +159,23 @@ export const questionEntriesForPart = (part: Part, messageId: string): QuestionA
@@ -1157,7 +1221,7 @@ index bc8236e..02b37cd 100644
 +    return text;
 +};
 diff --git a/packages/ui/src/components/chat/lib/turns/activityRows.ts b/packages/ui/src/components/chat/lib/turns/activityRows.ts
-index b48add5..61d3e07 100644
+index b48add59d..61d3e0741 100644
 --- a/packages/ui/src/components/chat/lib/turns/activityRows.ts
 +++ b/packages/ui/src/components/chat/lib/turns/activityRows.ts
 @@ -63,4 +63,10 @@ export const planActivityTrim = (rowsPerMessage: readonly number[], visibleRows:
@@ -1172,7 +1236,7 @@ index b48add5..61d3e07 100644
 +
  export const ActivityRowSkipContext = createContext<{ messageId: string; rows: number } | null>(null);
 diff --git a/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.test.ts b/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.test.ts
-index 5bbaf87..f17d6a5 100644
+index 5bbaf8764..f17d6a590 100644
 --- a/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.test.ts
 +++ b/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.test.ts
 @@ -93,17 +93,6 @@ test('nothing is estimated before the column has a width', () => {
@@ -1206,7 +1270,7 @@ index 5bbaf87..f17d6a5 100644
 +    expect(estimateTimelineRowSize(card(rows), { ...metrics, autoExpandAnsweredQuestions: true })!).toBeGreaterThan(closed + 50);
 +});
 diff --git a/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.ts b/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.ts
-index d5e8140..6be433e 100644
+index d5e814000..6be433e29 100644
 --- a/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.ts
 +++ b/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.ts
 @@ -200,6 +200,45 @@ const promptHeight = (message: ChatMessageEntry, metrics: RowSizeMetrics): numbe
@@ -1267,7 +1331,7 @@ index d5e8140..6be433e 100644
              return message === undefined ? undefined : Math.round(message);
          }
 diff --git a/packages/ui/src/components/chat/lib/turns/stickyPrompt.ts b/packages/ui/src/components/chat/lib/turns/stickyPrompt.ts
-index c3c5ebd..4768a8b 100644
+index c3c5ebd29..4768a8bcc 100644
 --- a/packages/ui/src/components/chat/lib/turns/stickyPrompt.ts
 +++ b/packages/ui/src/components/chat/lib/turns/stickyPrompt.ts
 @@ -1,4 +1,5 @@
@@ -1308,7 +1372,7 @@ index c3c5ebd..4768a8b 100644
 +/** Dispatched (bubbling) from a row's container when its offset changes. */
 +export const STICKY_ROW_OFFSET_EVENT = 'stickyrowoffset';
 diff --git a/packages/ui/src/components/chat/lib/turns/timelineRows.test.ts b/packages/ui/src/components/chat/lib/turns/timelineRows.test.ts
-index 067cb79..cf125cc 100644
+index 067cb790b..cf125ccf5 100644
 --- a/packages/ui/src/components/chat/lib/turns/timelineRows.test.ts
 +++ b/packages/ui/src/components/chat/lib/turns/timelineRows.test.ts
 @@ -122,3 +122,122 @@ describe('buildTimelineRows', () => {
@@ -1435,7 +1499,7 @@ index 067cb79..cf125cc 100644
 +    });
 +});
 diff --git a/packages/ui/src/components/chat/lib/turns/timelineRows.ts b/packages/ui/src/components/chat/lib/turns/timelineRows.ts
-index f4ebed6..2e06c51 100644
+index f4ebed69c..2e06c5117 100644
 --- a/packages/ui/src/components/chat/lib/turns/timelineRows.ts
 +++ b/packages/ui/src/components/chat/lib/turns/timelineRows.ts
 @@ -1,5 +1,6 @@
@@ -1576,7 +1640,7 @@ index f4ebed6..2e06c51 100644
      return true;
  };
 diff --git a/packages/ui/src/components/chat/message/MessageBody.tsx b/packages/ui/src/components/chat/message/MessageBody.tsx
-index 1c1af17..d92eb4e 100644
+index 1c1af17ec..d92eb4ea0 100644
 --- a/packages/ui/src/components/chat/message/MessageBody.tsx
 +++ b/packages/ui/src/components/chat/message/MessageBody.tsx
 @@ -61,7 +61,7 @@ import { formatTimestampForDisplay } from './timeFormat';
@@ -1629,15 +1693,29 @@ index 1c1af17..d92eb4e 100644
          }
          return answerRendered;
 -    }, [
-+    }, [inFoldPreview, 
++    }, [inFoldPreview,
          activityRowSkip,
          alwaysShowMessageActions,
          hoistedPages,
 diff --git a/packages/ui/src/lib/i18n/messages/ar.ts b/packages/ui/src/lib/i18n/messages/ar.ts
-index a0fbc76..89cf7cd 100644
+index a0fbc76b5..3240fdf36 100644
 --- a/packages/ui/src/lib/i18n/messages/ar.ts
 +++ b/packages/ui/src/lib/i18n/messages/ar.ts
-@@ -2538,6 +2538,12 @@ export const dict = {
+@@ -73,8 +73,12 @@ import { tooltipsTerminalBrowserI18n } from './tooltips-terminal-browser.i18n';
+ import { tooltipsWorkspaceI18n } from './tooltips-workspace.i18n';
+ import { tooltipsPanelI18n } from './tooltips-panel.i18n';
+ import { tooltipsChatI18n } from './tooltips-chat.i18n';
++import type { I18nKey } from './en';
+ 
+-export const dict = {
++// Annotated: inferred with `as const`, this dictionary's type grew past what
++// the compiler will serialize (TS7056). The annotation also holds it to
++// English's keys, as the store's cast does for the other locales.
++export const dict: Record<I18nKey, string> = {
+   'quota.family.zen': 'نماذج Zen',
+   'quota.value.requests': 'الطلبات: {count}',
+   'quota.value.spent': 'تم إنفاق {spent}',
+@@ -2538,6 +2542,12 @@ export const dict = {
    'chat.questionCard.recommended': 'موصى به',
    'chat.questionCard.other': 'أخرى…',
    'chat.questionCard.yourAnswer': 'إجابتك',
@@ -1651,7 +1729,7 @@ index a0fbc76..89cf7cd 100644
    'chat.questionCard.next': 'التالي',
    'chat.questionCard.dismiss': 'تجاهل',
 diff --git a/packages/ui/src/lib/i18n/messages/de.ts b/packages/ui/src/lib/i18n/messages/de.ts
-index 5a2ec50..c1cb716 100644
+index 5a2ec5019..c1cb71632 100644
 --- a/packages/ui/src/lib/i18n/messages/de.ts
 +++ b/packages/ui/src/lib/i18n/messages/de.ts
 @@ -2356,6 +2356,12 @@ export const dict = {
@@ -1668,7 +1746,7 @@ index 5a2ec50..c1cb716 100644
    'chat.questionCard.next': 'Weiter',
    'chat.questionCard.dismiss': 'Verwerfen',
 diff --git a/packages/ui/src/lib/i18n/messages/en.ts b/packages/ui/src/lib/i18n/messages/en.ts
-index f2190af..d2767f0 100644
+index f2190afd8..d2767f02a 100644
 --- a/packages/ui/src/lib/i18n/messages/en.ts
 +++ b/packages/ui/src/lib/i18n/messages/en.ts
 @@ -2636,6 +2636,12 @@ export const dict = {
@@ -1685,7 +1763,7 @@ index f2190af..d2767f0 100644
    'chat.questionCard.next': 'Next',
    'chat.questionCard.dismiss': 'Dismiss',
 diff --git a/packages/ui/src/lib/i18n/messages/es.ts b/packages/ui/src/lib/i18n/messages/es.ts
-index e85a3f9..3859b03 100644
+index e85a3f9e4..3859b03ff 100644
 --- a/packages/ui/src/lib/i18n/messages/es.ts
 +++ b/packages/ui/src/lib/i18n/messages/es.ts
 @@ -2604,6 +2604,12 @@ export const dict: Record<I18nKey, string> = {
@@ -1702,7 +1780,7 @@ index e85a3f9..3859b03 100644
    "chat.questionCard.next": "Siguiente",
    "chat.questionCard.dismiss": "Descartar",
 diff --git a/packages/ui/src/lib/i18n/messages/fr.ts b/packages/ui/src/lib/i18n/messages/fr.ts
-index a6b78f2..8b1b05f 100644
+index a6b78f2a1..8b1b05f98 100644
 --- a/packages/ui/src/lib/i18n/messages/fr.ts
 +++ b/packages/ui/src/lib/i18n/messages/fr.ts
 @@ -2349,6 +2349,12 @@ export const dict = {
@@ -1719,7 +1797,7 @@ index a6b78f2..8b1b05f 100644
    'chat.questionCard.next': 'Suivant',
    'chat.questionCard.dismiss': 'Ignorer',
 diff --git a/packages/ui/src/lib/i18n/messages/he.ts b/packages/ui/src/lib/i18n/messages/he.ts
-index 881d79d..d464ed5 100644
+index 881d79d06..d464ed5ec 100644
 --- a/packages/ui/src/lib/i18n/messages/he.ts
 +++ b/packages/ui/src/lib/i18n/messages/he.ts
 @@ -2538,6 +2538,12 @@ export const dict = {
@@ -1736,7 +1814,7 @@ index 881d79d..d464ed5 100644
    'chat.questionCard.next': 'הבא',
    'chat.questionCard.dismiss': 'דלג',
 diff --git a/packages/ui/src/lib/i18n/messages/ja.ts b/packages/ui/src/lib/i18n/messages/ja.ts
-index 0d39fe9..e0b3a91 100644
+index 0d39fe9c3..e0b3a91dc 100644
 --- a/packages/ui/src/lib/i18n/messages/ja.ts
 +++ b/packages/ui/src/lib/i18n/messages/ja.ts
 @@ -2632,6 +2632,12 @@ export const dict: Record<I18nKey, string> = {
@@ -1753,7 +1831,7 @@ index 0d39fe9..e0b3a91 100644
    'chat.questionCard.next': '次へ',
    'chat.questionCard.dismiss': '閉じる',
 diff --git a/packages/ui/src/lib/i18n/messages/ko.ts b/packages/ui/src/lib/i18n/messages/ko.ts
-index 6e5d406..33ddb68 100644
+index 6e5d406fc..33ddb688b 100644
 --- a/packages/ui/src/lib/i18n/messages/ko.ts
 +++ b/packages/ui/src/lib/i18n/messages/ko.ts
 @@ -2636,6 +2636,12 @@ export const dict: Record<I18nKey, string> = {
@@ -1770,7 +1848,7 @@ index 6e5d406..33ddb68 100644
    'chat.questionCard.next': '다음',
    'chat.questionCard.dismiss': '닫기',
 diff --git a/packages/ui/src/lib/i18n/messages/nl.ts b/packages/ui/src/lib/i18n/messages/nl.ts
-index eb14213..d0106e3 100644
+index eb142138d..d0106e352 100644
 --- a/packages/ui/src/lib/i18n/messages/nl.ts
 +++ b/packages/ui/src/lib/i18n/messages/nl.ts
 @@ -2636,6 +2636,12 @@ export const dict = {
@@ -1787,7 +1865,7 @@ index eb14213..d0106e3 100644
    'chat.questionCard.next': 'Volgende',
    'chat.questionCard.dismiss': 'Sluiten',
 diff --git a/packages/ui/src/lib/i18n/messages/pl.ts b/packages/ui/src/lib/i18n/messages/pl.ts
-index 89c4168..d49492e 100644
+index 89c4168b6..d49492edf 100644
 --- a/packages/ui/src/lib/i18n/messages/pl.ts
 +++ b/packages/ui/src/lib/i18n/messages/pl.ts
 @@ -1188,6 +1188,12 @@ export const dict: Record<I18nKey, string> = {
@@ -1804,7 +1882,7 @@ index 89c4168..d49492e 100644
    'chat.questionCard.next': 'Następne',
    'chat.questionCard.dismiss': 'Odrzuć',
 diff --git a/packages/ui/src/lib/i18n/messages/pt-BR.ts b/packages/ui/src/lib/i18n/messages/pt-BR.ts
-index f17e8df..5f7a159 100644
+index f17e8dffc..5f7a159bc 100644
 --- a/packages/ui/src/lib/i18n/messages/pt-BR.ts
 +++ b/packages/ui/src/lib/i18n/messages/pt-BR.ts
 @@ -2606,6 +2606,12 @@ export const dict: Record<I18nKey, string> = {
@@ -1821,7 +1899,7 @@ index f17e8df..5f7a159 100644
    "chat.questionCard.next": "Próximo",
    "chat.questionCard.dismiss": "Descartar",
 diff --git a/packages/ui/src/lib/i18n/messages/tr.ts b/packages/ui/src/lib/i18n/messages/tr.ts
-index 1872421..b263e09 100644
+index 18724214e..b263e09f8 100644
 --- a/packages/ui/src/lib/i18n/messages/tr.ts
 +++ b/packages/ui/src/lib/i18n/messages/tr.ts
 @@ -2477,6 +2477,12 @@ export const dict = {
@@ -1838,7 +1916,7 @@ index 1872421..b263e09 100644
    'chat.questionCard.next': 'İleri',
    'chat.questionCard.dismiss': 'Yok say',
 diff --git a/packages/ui/src/lib/i18n/messages/uk.ts b/packages/ui/src/lib/i18n/messages/uk.ts
-index b2b1d32..dce6988 100644
+index b2b1d3256..dce69883d 100644
 --- a/packages/ui/src/lib/i18n/messages/uk.ts
 +++ b/packages/ui/src/lib/i18n/messages/uk.ts
 @@ -2604,6 +2604,12 @@ export const dict: Record<I18nKey, string> = {
@@ -1855,7 +1933,7 @@ index b2b1d32..dce6988 100644
    "chat.questionCard.next": "Далі",
    "chat.questionCard.dismiss": "Відхилити",
 diff --git a/packages/ui/src/lib/i18n/messages/zh-CN.ts b/packages/ui/src/lib/i18n/messages/zh-CN.ts
-index 1a8d6f1..4a562fb 100644
+index 1a8d6f108..4a562fb00 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-CN.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-CN.ts
 @@ -2602,6 +2602,12 @@ export const dict: Record<I18nKey, string> = {
@@ -1872,7 +1950,7 @@ index 1a8d6f1..4a562fb 100644
    'chat.questionCard.next': '下一个',
    'chat.questionCard.dismiss': '忽略',
 diff --git a/packages/ui/src/lib/i18n/messages/zh-TW.ts b/packages/ui/src/lib/i18n/messages/zh-TW.ts
-index 9816dfe..7c88566 100644
+index 9816dfe11..7c8856611 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-TW.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-TW.ts
 @@ -2613,6 +2613,12 @@ export const dict: Record<I18nKey, string> = {
