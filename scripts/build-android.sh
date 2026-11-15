@@ -71,7 +71,11 @@ bash "$script_dir/assert-patch-markers.sh" packages/mobile/dist
 # runner container does not, so the daemon dies with "Daemon startup failed".
 # Use the SDK's aapt2 (autoPatchelf'd against the Nix store) instead. It is
 # passed as a project property so the patched upstream tree stays unmodified.
-aapt2="$ANDROID_HOME/build-tools/35.0.0/aapt2"
+# v2.7.1 compiles against SDK 37, which build-tools 35 cannot process: its
+# aapt2 silently emits an APK with no AndroidManifest.xml. Use the newest
+# build-tools the SDK composition provides.
+build_tools_version=$(ls -1 "$ANDROID_HOME/build-tools" | sort -V | tail -1)
+aapt2="$ANDROID_HOME/build-tools/$build_tools_version/aapt2"
 if [[ ! -x "$aapt2" ]]; then
   echo "error: no aapt2 at $aapt2" >&2
   exit 1
@@ -89,7 +93,7 @@ if [[ ! -f "$apk" ]]; then
   exit 1
 fi
 
-build_tools="$ANDROID_HOME/build-tools/35.0.0"
+build_tools="$ANDROID_HOME/build-tools/$build_tools_version"
 cert_output=$("$build_tools/apksigner" verify --print-certs "$apk")
 printf '%s\n' "$cert_output"
 if [[ "$mode" == "release" ]]; then
