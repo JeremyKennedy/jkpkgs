@@ -1,0 +1,265 @@
+diff --git a/packages/mobile/android/app/src/main/AndroidManifest.xml b/packages/mobile/android/app/src/main/AndroidManifest.xml
+index 645d829..2d15d9b 100644
+--- a/packages/mobile/android/app/src/main/AndroidManifest.xml
++++ b/packages/mobile/android/app/src/main/AndroidManifest.xml
+@@ -28,6 +28,15 @@
+                 <action android:name="android.intent.action.ASSIST" />
+                 <category android:name="android.intent.category.DEFAULT" />
+             </intent-filter>
++            <!-- openchamber:// links from other apps (widgets, shortcuts, automation
++                 apps such as Key Mapper). The App plugin's appUrlOpen listener
++                 receives them through onNewIntent, including a cold launch. -->
++            <intent-filter>
++                <action android:name="android.intent.action.VIEW" />
++                <category android:name="android.intent.category.DEFAULT" />
++                <category android:name="android.intent.category.BROWSABLE" />
++                <data android:scheme="openchamber" />
++            </intent-filter>
+         </activity>
+ 
+         <provider
+diff --git a/packages/ui/src/apps/deepLinkNavigation.ts b/packages/ui/src/apps/deepLinkNavigation.ts
+index f0a36e2..6009e1f 100644
+--- a/packages/ui/src/apps/deepLinkNavigation.ts
++++ b/packages/ui/src/apps/deepLinkNavigation.ts
+@@ -7,7 +7,7 @@ import { useProjectsStore } from '@/stores/useProjectsStore';
+ import { useQuotaStore } from '@/stores/useQuotaStore';
+ import type { QuotaProviderId } from '@/types';
+ import { useInputStore } from '@/sync/input-store';
+-import { useSessionUIStore } from '@/sync/session-ui-store';
++import { useSessionUIStore, type NewSessionDraftState } from '@/sync/session-ui-store';
+ import { openSession } from '@/lib/router/openSessionFromRoute';
+ 
+ import { parseDeepLink, type DeepLinkIntent, type SessionsFilter, type ViewTarget } from './deepLinks';
+@@ -85,13 +85,21 @@ const execute = (intent: NavigationIntent): boolean => {
+ 
+     case 'new-session': {
+       const store = useSessionUIStore.getState();
+-      store.openNewSessionDraft();
+-      if (intent.directory || intent.projectId) {
+-        store.setNewSessionDraftTarget({
+-          directoryOverride: intent.directory ?? null,
+-          projectId: intent.projectId ?? null,
+-          selectedProjectId: intent.projectId ?? null,
+-        });
++      const draftOptions: Partial<NewSessionDraftState> = {};
++      if (intent.target) {
++        draftOptions.target = intent.target;
++      }
++      if (intent.target !== 'chat' && intent.directory) {
++        draftOptions.directoryOverride = intent.directory;
++      }
++      if (intent.target !== 'chat' && intent.projectId) {
++        draftOptions.selectedProjectId = intent.projectId;
++      }
++      store.openNewSessionDraft(draftOptions);
++      if (intent.dictate) {
++        // The request belongs to this draft's id; the composer starts recording
++        // once it mounts, and drops a request meant for another draft.
++        useInputStore.getState().requestDraftDictation(useSessionUIStore.getState().newSessionDraft.draftId);
+       }
+       return true;
+     }
+diff --git a/packages/ui/src/apps/deepLinks.test.ts b/packages/ui/src/apps/deepLinks.test.ts
+index ce46d14..cd263ca 100644
+--- a/packages/ui/src/apps/deepLinks.test.ts
++++ b/packages/ui/src/apps/deepLinks.test.ts
+@@ -29,3 +29,34 @@ describe('Usage provider deep-links for Android home widgets', () => {
+     });
+   });
+ });
++
++describe('parseDeepLink new session', () => {
++  test('keeps the directory and project parameters', () => {
++    expect(parseDeepLink('openchamber://new-session?dir=%2Fwork%2Fapp&project=p1')).toEqual({
++      type: 'new-session',
++      directory: '/work/app',
++      projectId: 'p1',
++      agent: undefined,
++      model: undefined,
++    });
++  });
++
++  test('asks for the managed Chats folder and dictation', () => {
++    expect(parseDeepLink('openchamber://new-session?target=chat&dictate=1')).toEqual({
++      type: 'new-session',
++      directory: undefined,
++      projectId: undefined,
++      target: 'chat',
++      agent: undefined,
++      model: undefined,
++      dictate: true,
++    });
++  });
++
++  test('ignores an unknown target and a false dictate flag', () => {
++    const intent = parseDeepLink('openchamber://new-session?target=space&dictate=0');
++    expect(intent).not.toBeNull();
++    expect(intent).not.toHaveProperty('target');
++    expect(intent).not.toHaveProperty('dictate');
++  });
++});
+diff --git a/packages/ui/src/apps/deepLinks.ts b/packages/ui/src/apps/deepLinks.ts
+index a86c2ae..d1e3739 100644
+--- a/packages/ui/src/apps/deepLinks.ts
++++ b/packages/ui/src/apps/deepLinks.ts
+@@ -24,7 +24,17 @@ export type ViewTarget = 'files' | 'mcp' | 'instances' | 'update';
+  */
+ export type DeepLinkIntent =
+   | { type: 'session'; sessionId: string; directory?: string; messageId?: string }
+-  | { type: 'new-session'; directory?: string; projectId?: string; agent?: string; model?: string }
++  | {
++      type: 'new-session';
++      directory?: string;
++      projectId?: string;
++      /** `chat` opens a draft in the managed Chats folder instead of the last target. */
++      target?: 'chat' | 'project';
++      agent?: string;
++      model?: string;
++      /** Start voice dictation once the draft's composer is mounted. */
++      dictate?: boolean;
++    }
+   | { type: 'sessions'; filter?: SessionsFilter }
+   | { type: 'status' }
+   | { type: 'settings'; section?: string; providerId?: string }
+@@ -87,14 +97,24 @@ export function parseDeepLink(raw: string | null | undefined): DeepLinkIntent |
+     }
+ 
+     case 'new':
+-    case 'new-session':
+-      return {
++    case 'new-session': {
++      const target = query.get('target');
++      const dictate = query.get('dictate');
++      const intent: DeepLinkIntent = {
+         type: 'new-session',
+         directory: query.get('dir') ?? undefined,
+         projectId: query.get('project') ?? undefined,
+         agent: query.get('agent') ?? undefined,
+         model: query.get('model') ?? undefined,
+       };
++      if (target === 'chat' || target === 'project') {
++        intent.target = target;
++      }
++      if (dictate === '1' || dictate === 'true') {
++        intent.dictate = true;
++      }
++      return intent;
++    }
+ 
+     case 'sessions': {
+       const filter = query.get('filter');
+diff --git a/packages/ui/src/components/chat/ChatInput.tsx b/packages/ui/src/components/chat/ChatInput.tsx
+index efca17d..c959b6a 100644
+--- a/packages/ui/src/components/chat/ChatInput.tsx
++++ b/packages/ui/src/components/chat/ChatInput.tsx
+@@ -726,6 +726,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+     const pendingBtwComposerRequest = useInputStore((s) => s.pendingBtwComposerRequest);
+     const pendingPresetSubmit = useInputStore((s) => s.pendingPresetSubmit);
+     const pendingDraftSubmit = useInputStore((s) => s.pendingDraftSubmit);
++    const pendingDraftDictation = useInputStore((s) => s.pendingDraftDictation);
+     const setPendingInputText = useInputStore((s) => s.setPendingInputText);
+     const pendingGuestIssue = useInputStore((s) => s.pendingGuestIssue);
+     const consumePendingGuestIssue = useInputStore((s) => s.consumePendingGuestIssue);
+@@ -5069,6 +5070,19 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+         }));
+     }, []);
+ 
++    // A deep link (openchamber://new-session?dictate=1) starts dictation once
++    // this draft's composer is mounted. The request is bound to the draft id,
++    // so a composer showing another draft drops it instead of recording there.
++    React.useEffect(() => {
++        if (pendingDraftDictation == null || columnPinned) return;
++        // The request is set in the same turn the draft opens, so this
++        // composer can still be showing the previous draft (or none). Wait
++        // for the draft id to match instead of dropping the request.
++        if (draftSubmitDraftId !== pendingDraftDictation.draftId) return;
++        if (!useInputStore.getState().consumePendingDraftDictation(draftSubmitDraftId)) return;
++        toggleDictation();
++    }, [columnPinned, draftSubmitDraftId, pendingDraftDictation, toggleDictation]);
++
+     const openMobileAttachSheet = React.useCallback(() => {
+         // Same order as handleOpenMobilePanel: mark the sheet open BEFORE the
+         // blur so the collapse watcher sees an overlay when the keyboard-close
+diff --git a/packages/ui/src/sync/input-store.test.ts b/packages/ui/src/sync/input-store.test.ts
+index 869e16e..518a452 100644
+--- a/packages/ui/src/sync/input-store.test.ts
++++ b/packages/ui/src/sync/input-store.test.ts
+@@ -742,3 +742,26 @@ describe("input-store draft submit", () => {
+     expect(useInputStore.getState().pendingDraftSubmit).toBeNull()
+   })
+ })
++
++describe("input-store draft dictation", () => {
++  beforeEach(() => {
++    useInputStore.setState({ pendingDraftDictation: null })
++  })
++
++  test("the requested draft starts recording once", () => {
++    useInputStore.getState().requestDraftDictation(7)
++
++    expect(useInputStore.getState().consumePendingDraftDictation(7)).toBe(true)
++    expect(useInputStore.getState().consumePendingDraftDictation(7)).toBe(false)
++  })
++
++  test("another draft or a session drops the request instead of recording there", () => {
++    useInputStore.getState().requestDraftDictation(7)
++    expect(useInputStore.getState().consumePendingDraftDictation(8)).toBe(false)
++    expect(useInputStore.getState().pendingDraftDictation).toBeNull()
++
++    useInputStore.getState().requestDraftDictation(7)
++    expect(useInputStore.getState().consumePendingDraftDictation(null)).toBe(false)
++    expect(useInputStore.getState().pendingDraftDictation).toBeNull()
++  })
++})
+diff --git a/packages/ui/src/sync/input-store.ts b/packages/ui/src/sync/input-store.ts
+index d91f37f..58587df 100644
+--- a/packages/ui/src/sync/input-store.ts
++++ b/packages/ui/src/sync/input-store.ts
+@@ -269,6 +269,12 @@ export type InputState = {
+    * finds a different draft open drops it.
+    */
+   pendingDraftSubmit: { draftId: number; text: string } | null
++  /**
++   * A dictation a deep link asked for on a new-session draft. Bound to the
++   * draft's id, so it never starts recording in another draft or session; a
++   * composer that finds a different draft open drops it.
++   */
++  pendingDraftDictation: { draftId: number } | null
+   /** Guest rail/dialog attach. ChatInput consumes this into the composer chip. */
+   pendingGuestIssue: AttachIssueRequest | null
+   pendingBtwComposerRequest: PendingBtwComposerRequest | null
+@@ -297,6 +303,9 @@ export type InputState = {
+   requestDraftSubmit: (draftId: number, text: string) => void
+   /** Takes the pending text when it belongs to this draft; any other pending request is dropped. */
+   consumePendingDraftSubmit: (draftId: number | null) => string | null
++  requestDraftDictation: (draftId: number) => void
++  /** True when the request belonged to this draft; any other pending request is dropped. */
++  consumePendingDraftDictation: (draftId: number | null) => boolean
+   setPendingGuestIssue: (issue: AttachIssueRequest | null) => void
+   consumePendingGuestIssue: () => AttachIssueRequest | null
+   requestBtwComposer: (request: PendingBtwComposerRequest) => void
+@@ -344,6 +353,7 @@ export const useInputStore = create<InputState>()((set, get) => ({
+   pinnedSyntheticParts: new Map(),
+   pendingPresetSubmit: null,
+   pendingDraftSubmit: null,
++  pendingDraftDictation: null,
+   pendingGuestIssue: null,
+   pendingBtwComposerRequest: null,
+   attachedFiles: [],
+@@ -419,6 +429,15 @@ export const useInputStore = create<InputState>()((set, get) => ({
+     return pendingDraftSubmit.draftId === draftId ? pendingDraftSubmit.text : null
+   },
+ 
++  requestDraftDictation: (draftId) => set({ pendingDraftDictation: { draftId } }),
++
++  consumePendingDraftDictation: (draftId) => {
++    const { pendingDraftDictation } = get()
++    if (pendingDraftDictation === null) return false
++    set({ pendingDraftDictation: null })
++    return pendingDraftDictation.draftId === draftId
++  },
++
+   setPendingGuestIssue: (issue) => set({ pendingGuestIssue: issue }),
+ 
+   consumePendingGuestIssue: () => {

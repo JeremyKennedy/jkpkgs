@@ -1278,7 +1278,7 @@ index cfaba71..9393e7e 100644
    beforeEach(() => {
      replyCalls.length = 0
 diff --git a/packages/ui/src/sync/session-actions.ts b/packages/ui/src/sync/session-actions.ts
-index d49256c..b92de5a 100644
+index d49256c..c53c330 100644
 --- a/packages/ui/src/sync/session-actions.ts
 +++ b/packages/ui/src/sync/session-actions.ts
 @@ -12,6 +12,7 @@ import { dropSessionCaches } from "./session-cache"
@@ -1383,11 +1383,10 @@ index d49256c..b92de5a 100644
  
    // Optimistically clear the forms from the local store so the prompt
 -  // disappears immediately, before the cancel round-trip.
--  for (const [{ sessionId: scopedSessionId, form }] of toDismiss) {
--    removeFormRequestFromChildStores(scopedSessionId, form.id)
 +  // disappears immediately, before the cancel round-trip. The index keeps the
 +  // form until the server answers, so a failed cancel restores it everywhere.
-+  for (const { sessionId: scopedSessionId, form } of toDismiss) {
+   for (const [{ sessionId: scopedSessionId, form }] of toDismiss) {
+-    removeFormRequestFromChildStores(scopedSessionId, form.id)
 +    removeFormRequestFromChildStores(scopedSessionId, form.id, false)
    }
  

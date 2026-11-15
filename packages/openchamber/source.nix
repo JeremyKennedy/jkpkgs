@@ -64,6 +64,24 @@ let
       ./patches/mobile-boot-overlay.patch
       ./patches/dictation-thread-count.patch
       ./patches/dictation-sherpa-platform.patch
+      # The rest of the local queue, rebased onto v2.7.2. Upstream absorbed
+      # the chat width, notification-dismiss, guest-extension and
+      # send-past-open-question patches (maintainer and contributor work, not
+      # these PRs), so those are gone; what remains changes behaviour upstream
+      # does not have yet.
+      ./patches/draft-heading-project-picker.patch
+      ./patches/recap-full-note.patch
+      ./patches/image-viewer-zoom.patch
+      ./patches/mobile-assist-trigger.patch
+      ./patches/mobile-voice-launch.patch
+      ./patches/dictation-recovery.patch
+      ./patches/instance-attention.patch
+      ./patches/question-rows.patch
+      ./patches/question-cards.patch
+      # Only the attention ranking of In work: v2.7.2's
+      # `sidebarSessionBatchSize` already pages the block.
+      ./patches/in-work-paging.patch
+      ./patches/hide-empty-worktrees.patch
       # Gitea/Forgejo across-repository listing; upstream still gates
       # `referencesAcross` off for Gitea (#6345 is closed).
       ./patches/gitea-references-across.patch
