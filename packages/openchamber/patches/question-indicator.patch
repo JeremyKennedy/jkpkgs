@@ -1,5 +1,5 @@
 diff --git a/packages/ui/src/apps/MobileSessionStateBadges.tsx b/packages/ui/src/apps/MobileSessionStateBadges.tsx
-index 4a97ebd4a..d877e4c03 100644
+index 4a97ebd..d877e4c 100644
 --- a/packages/ui/src/apps/MobileSessionStateBadges.tsx
 +++ b/packages/ui/src/apps/MobileSessionStateBadges.tsx
 @@ -39,10 +39,10 @@ export const MobileSessionPendingBadges: React.FC<PendingRequests> = ({ hasPermi
@@ -16,7 +16,7 @@ index 4a97ebd4a..d877e4c03 100644
        ) : null}
      </>
 diff --git a/packages/ui/src/apps/MobileSessionSwitcher.tsx b/packages/ui/src/apps/MobileSessionSwitcher.tsx
-index 225659546..489607758 100644
+index 39c3b74..ede4218 100644
 --- a/packages/ui/src/apps/MobileSessionSwitcher.tsx
 +++ b/packages/ui/src/apps/MobileSessionSwitcher.tsx
 @@ -1,12 +1,15 @@
@@ -35,7 +35,7 @@ index 225659546..489607758 100644
  import { useTabletLayout } from '@/lib/device';
  import { useI18n } from '@/lib/i18n';
  import { cn } from '@/lib/utils';
-@@ -20,6 +23,8 @@ const RECENT_SESSIONS_LIMIT = 10;
+@@ -21,6 +24,8 @@ const RECENT_SESSIONS_LIMIT = 10;
  /** Matches the metadata popover's width so both header dropdowns read as a pair. */
  const TABLET_POPOVER_WIDTH = 380;
  
@@ -44,7 +44,7 @@ index 225659546..489607758 100644
  const getSessionTitle = (session: Session, fallback: string): string =>
    session.title?.trim() || fallback;
  
-@@ -27,18 +32,27 @@ const getSessionTitle = (session: Session, fallback: string): string =>
+@@ -28,19 +33,28 @@ const getSessionTitle = (session: Session, fallback: string): string =>
      "project · branch", compact time. Mirrors the desktop SessionSwitcherDropdown
      indicator conventions; no subsession chevrons on mobile by design. */
  const SwitcherRow: React.FC<{
@@ -58,9 +58,10 @@ index 225659546..489607758 100644
    const { t } = useI18n();
 +  const session = node.session;
    const isUnread = useSessionUnread(session.id);
+   const markedUnread = useSessionMarkedUnread(session.id);
    const turnActivity = useSessionTurnActivity(session.id);
    const isStreaming = turnActivity !== null;
-   const showUnreadDot = !isStreaming && isUnread && !active;
+   const showUnreadDot = !isStreaming && isUnread && (!active || markedUnread);
 +  // The recent list shows parents only: a row stands for its subsessions too,
 +  // so their waiting requests count here.
 +  const familyIds = React.useMemo(() => [session.id, ...collectDescendantIds(node)], [node, session.id]);
@@ -75,7 +76,7 @@ index 225659546..489607758 100644
    const timeLabel = formatSessionCompactDateLabel(getSessionActivityTime(session));
  
    return (
-@@ -60,7 +74,28 @@ const SwitcherRow: React.FC<{
+@@ -62,7 +76,28 @@ const SwitcherRow: React.FC<{
          ) : null}
        </span>
        {/* Activity sits on the right, before the time — no reserved left gutter. */}
@@ -105,7 +106,7 @@ index 225659546..489607758 100644
          <SessionActivityIndicator
            state={turnActivity ?? 'unread'}
          />
-@@ -219,7 +254,7 @@ export const MobileSessionSwitcher: React.FC<{
+@@ -222,7 +257,7 @@ export const MobileSessionSwitcher: React.FC<{
                return (
                  <SwitcherRow
                    key={session.id}
@@ -115,7 +116,7 @@ index 225659546..489607758 100644
                    active={session.id === currentSessionId}
                    onSelect={() => {
 diff --git a/packages/ui/src/components/multirun/LaneStatusIcon.tsx b/packages/ui/src/components/multirun/LaneStatusIcon.tsx
-index 9cd1322b1..d10c782e6 100644
+index 9cd1322..d10c782 100644
 --- a/packages/ui/src/components/multirun/LaneStatusIcon.tsx
 +++ b/packages/ui/src/components/multirun/LaneStatusIcon.tsx
 @@ -11,7 +11,7 @@ import { cn } from '@/lib/utils';
@@ -128,7 +129,7 @@ index 9cd1322b1..d10c782e6 100644
    failed: { name: 'error-warning', className: 'text-[var(--status-error)]' },
    stopped: { name: 'stop', className: 'text-muted-foreground' },
 diff --git a/packages/ui/src/components/overview/OverviewView.tsx b/packages/ui/src/components/overview/OverviewView.tsx
-index c3327c968..ab25eabb4 100644
+index 87c727b..57ff3b2 100644
 --- a/packages/ui/src/components/overview/OverviewView.tsx
 +++ b/packages/ui/src/components/overview/OverviewView.tsx
 @@ -49,7 +49,7 @@ type Mark = { icon: IconName; color: string; tint?: boolean };
@@ -141,13 +142,13 @@ index c3327c968..ab25eabb4 100644
    conflict: { icon: 'git-pull-request', color: 'var(--pr-blocked)' },
    checks: { icon: 'git-pull-request', color: 'var(--pr-blocked)' },
 diff --git a/packages/ui/src/components/session/SessionSwitcherDropdown.tsx b/packages/ui/src/components/session/SessionSwitcherDropdown.tsx
-index 63cfefde6..09bbea98e 100644
+index 906667d..48eab03 100644
 --- a/packages/ui/src/components/session/SessionSwitcherDropdown.tsx
 +++ b/packages/ui/src/components/session/SessionSwitcherDropdown.tsx
 @@ -14,11 +14,13 @@ import { SessionActivityIndicator } from '@/components/session/SessionActivityIn
  import { useWaitingBlink } from '@/hooks/useDurationTicker';
  import { useSessionUIStore } from '@/sync/session-ui-store';
- import { useSessionUnread } from '@/sync/session-unread';
+ import { useSessionMarkedUnread, useSessionUnread } from '@/sync/session-unread';
 +import { useSessionBlockingRequests } from '@/sync/sync-context';
  import {
    findSwitcherItemAncestorIds,
@@ -156,9 +157,9 @@ index 63cfefde6..09bbea98e 100644
  } from '@/components/session/sidebar/shell/useSwitcherItems';
 +import { selectBlockingBadgeSessionScopes } from '@/components/session/sidebar/sessions/sessionNodeItemUtils';
  import { useUIStore } from '@/stores/useUIStore';
- import { resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
+ import { refreshGlobalSessions, refreshRecentGlobalSessions, resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
  import { formatSessionCompactDateLabel } from './sidebar/utils';
-@@ -186,6 +188,13 @@ function SwitcherNode({ item, depth, variant, expandedParents, toggleParent, clo
+@@ -204,6 +206,13 @@ function SwitcherNode({ item, depth, variant, expandedParents, toggleParent, clo
    const session = node.session;
    const hasChildren = node.children.length > 0;
    const isExpanded = expandedParents.has(session.id);
@@ -172,7 +173,7 @@ index 63cfefde6..09bbea98e 100644
  
    return (
      <>
-@@ -196,6 +205,7 @@ function SwitcherNode({ item, depth, variant, expandedParents, toggleParent, clo
+@@ -214,6 +223,7 @@ function SwitcherNode({ item, depth, variant, expandedParents, toggleParent, clo
          secondaryMeta={secondaryMeta}
          hasChildren={hasChildren}
          isExpanded={isExpanded}
@@ -180,7 +181,7 @@ index 63cfefde6..09bbea98e 100644
          onToggleExpand={hasChildren ? () => toggleParent(session.id) : undefined}
          closeDropdown={closeDropdown}
        />
-@@ -223,11 +233,12 @@ type SwitcherRowProps = {
+@@ -241,11 +251,12 @@ type SwitcherRowProps = {
    secondaryMeta: SecondaryMeta;
    hasChildren: boolean;
    isExpanded: boolean;
@@ -194,10 +195,10 @@ index 63cfefde6..09bbea98e 100644
    const { t } = useI18n();
    const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
    const setCurrentSession = useSessionUIStore((state) => state.setCurrentSession);
-@@ -240,6 +251,12 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
+@@ -259,6 +270,12 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
    const isStreaming = turnActivity !== null;
    const runningBlink = useWaitingBlink(isStreaming);
-   const showUnreadDot = !isStreaming && isUnread && !isActive;
+   const showUnreadDot = !isStreaming && isUnread && (!isActive || markedUnread);
 +  const { hasPermission: hasPendingPermission, hasForm: hasPendingForm } = pendingRequests;
 +  // A request waiting on the user stands for the turn: the running mark steps
 +  // aside for the request badge, as it does on the sidebar and mobile rows.
@@ -207,7 +208,7 @@ index 63cfefde6..09bbea98e 100644
  
    const timestamp = getSessionActivityTime(session) || Date.now();
    const timeLabel = formatSessionCompactDateLabel(timestamp);
-@@ -331,7 +348,28 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
+@@ -350,7 +367,28 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
          ) : null}
        </div>
  
@@ -238,10 +239,10 @@ index 63cfefde6..09bbea98e 100644
            <SessionActivityIndicator
              state={turnActivity ?? 'unread'}
 diff --git a/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.tsx b/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.tsx
-index 1eed3eeb4..6d8a29344 100644
+index 24ab984..cecc3c8 100644
 --- a/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.tsx
 +++ b/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.tsx
-@@ -1608,8 +1608,8 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode
+@@ -1090,8 +1090,8 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode
        ) : null}
        {hasPendingForm ? (
          <RowMarkTooltip label={pendingFormLabel}>
@@ -253,7 +254,7 @@ index 1eed3eeb4..6d8a29344 100644
          </RowMarkTooltip>
        ) : null}
 diff --git a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.tsx b/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.tsx
-index 83752e671..06803e8db 100644
+index 83752e6..06803e8 100644
 --- a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.tsx
 +++ b/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.tsx
 @@ -20,17 +20,25 @@ export function CollapsedActivityIndicator({
@@ -289,7 +290,7 @@ index 83752e671..06803e8db 100644
        </RowMarkTooltip>
      );
 diff --git a/packages/ui/src/lib/theme/cssGenerator.ts b/packages/ui/src/lib/theme/cssGenerator.ts
-index a9f6361c0..c816e3ed5 100644
+index a9f6361..c816e3e 100644
 --- a/packages/ui/src/lib/theme/cssGenerator.ts
 +++ b/packages/ui/src/lib/theme/cssGenerator.ts
 @@ -2,7 +2,7 @@ import type { Theme } from '@/types/theme';
@@ -334,7 +335,7 @@ index a9f6361c0..c816e3ed5 100644
      const vars: string[] = [];
      const pr = theme.colors.pr;
 diff --git a/packages/ui/src/lib/theme/definition.test.ts b/packages/ui/src/lib/theme/definition.test.ts
-index 8d7797ec3..63e838eaf 100644
+index 8d7797e..63e838e 100644
 --- a/packages/ui/src/lib/theme/definition.test.ts
 +++ b/packages/ui/src/lib/theme/definition.test.ts
 @@ -263,6 +263,19 @@ describe('rendered theme color pairs', () => {
@@ -358,10 +359,10 @@ index 8d7797ec3..63e838eaf 100644
      for (const theme of themes) {
        const css = new CSSVariableGenerator().generate(theme);
 diff --git a/packages/ui/src/styles/design-system.css b/packages/ui/src/styles/design-system.css
-index 85f73335b..4caa6d173 100644
+index b0b9899..68424db 100644
 --- a/packages/ui/src/styles/design-system.css
 +++ b/packages/ui/src/styles/design-system.css
-@@ -985,6 +985,10 @@ html[data-glass-redraw-guard] body::before {
+@@ -1060,6 +1060,10 @@ html[data-glass-redraw-guard] body::before {
    --color-status-warning: var(--status-warning);
    --color-status-error: var(--status-error);
    --color-status-info: var(--status-info);
