@@ -61,6 +61,10 @@ let
       # the pending-request lookup these build on.
       ./patches/question-indicator.patch
       ./patches/stale-pending-badge.patch
+      # Batch 3: the five-level chat width. The base bump moved the store
+      # version from 27 to 29 under our own 28/29 migrations, so the port moves
+      # them to 30/31 and reads the wide-layout switch when a store has no level.
+      ./patches/chat-width.patch
       ./patches/mobile-boot-overlay.patch
       ./patches/dictation-thread-count.patch
       ./patches/dictation-sherpa-platform.patch
