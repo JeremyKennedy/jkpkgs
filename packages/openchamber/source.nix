@@ -65,6 +65,10 @@ let
       # version from 27 to 29 under our own 28/29 migrations, so the port moves
       # them to 30/31 and reads the wide-layout switch when a store has no level.
       ./patches/chat-width.patch
+      # Batch 4: the reply-start arrow. Upstream had moved the scroll
+      # primitives under it, so the port keeps its own imports and doc section
+      # beside the newer follow-glide notes.
+      ./patches/reply-start-scroll.patch
       ./patches/mobile-boot-overlay.patch
       ./patches/dictation-thread-count.patch
       ./patches/dictation-sherpa-platform.patch
