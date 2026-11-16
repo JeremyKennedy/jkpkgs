@@ -245,7 +245,7 @@ index 176b1d5a4..98775b7be 100644
      const hasEverStreamedRef = React.useRef(false);
  
 diff --git a/packages/ui/src/components/chat/MessageList.tsx b/packages/ui/src/components/chat/MessageList.tsx
-index e92ab3bf6..b3de58ae8 100644
+index e92ab3bf6..641b49b18 100644
 --- a/packages/ui/src/components/chat/MessageList.tsx
 +++ b/packages/ui/src/components/chat/MessageList.tsx
 @@ -9,7 +9,8 @@ import { isSkippedTimelineMessage, isBackgroundReportEntry, isTimelineNoticeRole
@@ -492,14 +492,14 @@ index 99a354f16..e185d329b 100644
      const page = spyOn(opencodeClient, 'getSessionMessages').mockResolvedValue({
        items: Array.from({ length: 25 }, (_, index) => ({
 diff --git a/packages/ui/src/components/chat/TimelineDialog.tsx b/packages/ui/src/components/chat/TimelineDialog.tsx
-index 7e68f1c78..4568cf6b2 100644
+index 7e68f1c78..2315b4c2c 100644
 --- a/packages/ui/src/components/chat/TimelineDialog.tsx
 +++ b/packages/ui/src/components/chat/TimelineDialog.tsx
 @@ -17,6 +17,9 @@ import { getCurrentIntlLocale, useI18n } from '@/lib/i18n';
  import { getFullText, getMessagePreview } from './lib/messagePreview';
  import { useSourceControlDescriptorOf } from '@/lib/source-control/providers/registry';
  import { foldPromptEntries } from './lib/promptPreviews';
-+import { buildQuestionEntriesByTurnId, withoutRecommendation, type QuestionAnswerEntry } from './lib/questionEntries';
++import { buildQuestionEntriesByTurnId, withoutRecommendationPicks, type QuestionAnswerEntry } from './lib/questionEntries';
 +import { buildTurnWindowModel } from './lib/turns/windowTurns';
 +import type { ChatMessageEntry } from './lib/turns/types';
  import { useDeviceInfo } from '@/lib/device';
@@ -586,7 +586,7 @@ index 7e68f1c78..4568cf6b2 100644
 -            return fullText.includes(query);
 +            if (fullText.includes(query)) return true;
 +            return questions.some((question) => (
-+                `${question.question} ${question.answer ? withoutRecommendation(question.answer) : ''}`.toLowerCase().includes(query)
++                `${question.question} ${question.answer ? withoutRecommendationPicks(question.answer) : ''}`.toLowerCase().includes(query)
 +            ));
          });
 -    }, [userMessages, searchQuery]);
@@ -691,7 +691,7 @@ index 7e68f1c78..4568cf6b2 100644
 +                                // The tool marks its recommended option in the
 +                                // reply; the transcript drops that mark, and so
 +                                // does this row.
-+                                const answer = question.answer ? withoutRecommendation(question.answer.trim()) : noAnswerLabel;
++                                const answer = question.answer ? withoutRecommendationPicks(question.answer.trim()) : noAnswerLabel;
 +                                const questionText = `${question.question} ${question.answer ? answer : ''}`;
 +                                const questionSnippet = searchQuery.trim()
 +                                    ? getSearchSnippet(questionText, searchQuery)
@@ -1096,14 +1096,14 @@ index 000000000..fe3a69280
 +    }
 +});
 diff --git a/packages/ui/src/components/chat/components/PromptNavigatorRail.tsx b/packages/ui/src/components/chat/components/PromptNavigatorRail.tsx
-index eb6fca02f..8628624d3 100644
+index eb6fca02f..707a69de9 100644
 --- a/packages/ui/src/components/chat/components/PromptNavigatorRail.tsx
 +++ b/packages/ui/src/components/chat/components/PromptNavigatorRail.tsx
 @@ -11,10 +11,12 @@ import { cn } from '@/lib/utils';
  import { getMessagePreview } from '../lib/messagePreview';
  import { useChatColumnActions } from '../chatColumnSession';
  import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
-+import { withoutRecommendation, type QuestionAnswerEntry } from '../lib/questionEntries';
++import { withoutRecommendationPicks, type QuestionAnswerEntry } from '../lib/questionEntries';
  
  type PromptEntry = {
      turnId: string;
@@ -1455,7 +1455,7 @@ index eb6fca02f..8628624d3 100644
 +                                        const isQuestionHighlighted = highlightedRowId === questionId;
 +                                        // The tool marks its recommended option in the
 +                                        // reply; the transcript already drops that mark.
-+                                        const answer = question.answer ? withoutRecommendation(question.answer.trim()) : noAnswerLabel;
++                                        const answer = question.answer ? withoutRecommendationPicks(question.answer.trim()) : noAnswerLabel;
 +                                        return (
 +                                            <div
 +                                                key={question.partId}
