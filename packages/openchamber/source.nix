@@ -61,7 +61,6 @@ let
       ./patches/question-indicator.patch
       ./patches/stale-pending-badge.patch
       ./patches/reply-start-scroll.patch
-      ./patches/mobile-boot-overlay.patch
       ./patches/dictation-thread-count.patch
       ./patches/dictation-sherpa-platform.patch
       # The rest of the local queue, rebased onto v2.7.2. Upstream absorbed
