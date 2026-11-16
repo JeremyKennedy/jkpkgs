@@ -79,6 +79,9 @@ let
       ./patches/instance-attention.patch
       ./patches/question-rows.patch
       ./patches/question-cards.patch
+      # The app's own interrupt stores an "unknown" error type, which the
+      # question classifier read as a dismissal rather than turn death.
+      ./patches/question-interrupt-state.patch
       # Only the attention ranking of In work: v2.7.2's
       # `sidebarSessionBatchSize` already pages the block.
       ./patches/in-work-paging.patch
