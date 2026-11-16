@@ -461,7 +461,7 @@ new file mode 100644
 index 0000000..e188864
 --- /dev/null
 +++ b/packages/ui/src/apps/MobileInstanceAttentionBell.test.tsx
-@@ -0,0 +1,379 @@
+@@ -0,0 +1,391 @@
 +import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 +import React, { act } from 'react';
 +import type { Root } from 'react-dom/client';
@@ -841,12 +841,25 @@ index 0000000..e188864
 +
 +  expect(document.body.textContent).toContain('No answer from halo; showing their last known items.');
 +});
++
++test('an unreachable server alone leaves the bell neutral and unnumbered', async () => {
++  useInstanceAttentionStore.getState().markUnreachable('host-d', 'halo', 200);
++  await render(false);
++
++  const bell = [...document.querySelectorAll('button')]
++    .find((button) => button.getAttribute('aria-label') === 'Waiting on you');
++  expect(bell).toBeDefined();
++  expect(bell?.querySelector('[data-instance-attention-badge]')).toBeNull();
++  expect(bell?.textContent?.trim()).toBe('');
++  expect(bell?.className).not.toContain('status-warning');
++});
+
 diff --git a/packages/ui/src/apps/MobileInstanceAttentionBell.tsx b/packages/ui/src/apps/MobileInstanceAttentionBell.tsx
 new file mode 100644
 index 0000000..448a119
 --- /dev/null
 +++ b/packages/ui/src/apps/MobileInstanceAttentionBell.tsx
-@@ -0,0 +1,255 @@
+@@ -0,0 +1,262 @@
 +import React from 'react';
 +
 +import { Button } from '@/components/ui/button';
@@ -1010,6 +1023,9 @@ index 0000000..448a119
 +  }, [clearPending, requestClose]);
 +
 +  const attentionCount = countInstanceAttentionItems(items);
++  // The bell stays neutral and unnumbered while nothing waits; an unreachable
++  // server alone still opens the sheet that carries its note.
++  const hasAttention = attentionCount > 0;
 +
 +  const hasUnreachable = unreachableLabels.length > 0;
 +
@@ -1066,20 +1082,24 @@ index 0000000..448a119
 +    <>
 +      <button
 +        type="button"
-+        className={cn(MOBILE_HEADER_BUTTON_CLASS, 'gap-0.5 text-[var(--status-warning)]')}
-+        aria-label={t(attentionCount === 1 ? 'instanceAttention.ariaOne' : 'instanceAttention.ariaMany', { count: attentionCount })}
++        className={cn(MOBILE_HEADER_BUTTON_CLASS, hasAttention && 'gap-0.5 text-[var(--status-warning)]')}
++        aria-label={hasAttention
++          ? t(attentionCount === 1 ? 'instanceAttention.ariaOne' : 'instanceAttention.ariaMany', { count: attentionCount })
++          : t('instanceAttention.list.title')}
 +        aria-haspopup="dialog"
 +        aria-expanded={open}
 +        onClick={() => onOpenChange(true)}
 +      >
 +        <Icon name="notification-3" className="size-5" />
-+        <span
-+          data-instance-attention-badge
-+          aria-hidden="true"
-+          className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--status-warning-background)] px-1 typography-micro font-medium tabular-nums text-[var(--status-warning-text)]"
-+        >
-+          {attentionCount}
-+        </span>
++        {hasAttention ? (
++          <span
++            data-instance-attention-badge
++            aria-hidden="true"
++            className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--status-warning-background)] px-1 typography-micro font-medium tabular-nums text-[var(--status-warning-text)]"
++          >
++            {attentionCount}
++          </span>
++        ) : null}
 +      </button>
 +      <MobileOverlayPanel
 +        open={open}
@@ -1102,6 +1122,7 @@ index 0000000..448a119
 +    </>
 +  );
 +};
+
 diff --git a/packages/ui/src/apps/mobileConnections.ts b/packages/ui/src/apps/mobileConnections.ts
 index 9561782..c40ee1b 100644
 --- a/packages/ui/src/apps/mobileConnections.ts
