@@ -55,11 +55,13 @@ let
     patches = [
       ./patches/commandcode-quota.patch
       ./patches/codex-credits-balance.patch
-      # The badge work: both patches share the session switchers, so they are
-      # ported together; upstream had already changed the unread condition and
-      # the pending-request lookup these build on.
-      ./patches/question-indicator.patch
+      # Behaviour first: the node-based request resolver and the readiness
+      # gate. It renders with upstream's own marks, so the bug fix is
+      # reviewable without the feature it shares files with.
       ./patches/stale-pending-badge.patch
+      # Then the visuals: the question-chip tokens and the switcher marks.
+      # It builds only on top of the resolver above.
+      ./patches/question-indicator.patch
       ./patches/reply-start-scroll.patch
       ./patches/dictation-thread-count.patch
       ./patches/dictation-sherpa-platform.patch
