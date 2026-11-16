@@ -105,6 +105,7 @@ let
       ./patches/chat-width-80.patch
       # In work paging and its page-size setting; v2.7.2 lists every work.
       ./patches/in-work-paging-show-more.patch
+      ./patches/mobile-guest-catalog-failure.patch
     ];
   };
 in
