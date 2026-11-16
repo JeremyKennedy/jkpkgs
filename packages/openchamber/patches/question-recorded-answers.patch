@@ -1,0 +1,385 @@
+diff --git a/packages/ui/src/components/chat/lib/questionEntries.test.ts b/packages/ui/src/components/chat/lib/questionEntries.test.ts
+index ded741e31..bca1157c4 100644
+--- a/packages/ui/src/components/chat/lib/questionEntries.test.ts
++++ b/packages/ui/src/components/chat/lib/questionEntries.test.ts
+@@ -1,7 +1,7 @@
+ import { describe, expect, test } from 'bun:test';
+ 
+ import type { ChatMessageEntry } from './turns/types';
+-import type { Part, ToolInput, ToolPart } from '@/lib/opencode/model';
++import type { Metadata, Part, ToolInput, ToolPart } from '@/lib/opencode/model';
+ import {
+     buildQuestionEntriesByTurnId,
+     isAnsweredQuestionPart,
+@@ -13,7 +13,7 @@ import {
+     selectedOptionLabels,
+ } from './questionEntries';
+ 
+-const questionPart = (input: ToolInput, output?: string, id = 'call_1'): ToolPart => ({
++const questionPart = (input: ToolInput, output?: string, id = 'call_1', metadata: Metadata = {}): ToolPart => ({
+     id,
+     sessionID: 'ses_1',
+     messageID: 'msg_assistant',
+@@ -22,7 +22,7 @@ const questionPart = (input: ToolInput, output?: string, id = 'call_1'): ToolPar
+     tool: 'question',
+     state: output === undefined
+         ? { status: 'running', input, time: { start: 1 } }
+-        : { status: 'completed', input, output, metadata: {}, time: { start: 1, end: 2 } },
++        : { status: 'completed', input, output, metadata, time: { start: 1, end: 2 } },
+ });
+ 
+ const userMessage = (id: string, text: string): ChatMessageEntry => ({
+@@ -99,6 +99,18 @@ describe('parseQuestionAnswers', () => {
+         ]);
+     });
+ 
++    test('keeps a quote the tool wrote without escaping it', () => {
++        // The tool interpolates the answer between quotes without escaping
++        // it, so the pair ends at the next pair, not at the first inner quote.
++        expect(parseQuestionAnswers(answered([
++            ['Who is it for?', 'its "for" me, not sharing it'],
++            ['What data?', 'Real teas, static data'],
++        ]))).toEqual([
++            { question: 'Who is it for?', answer: 'its "for" me, not sharing it' },
++            { question: 'What data?', answer: 'Real teas, static data' },
++        ]);
++    });
++
+     test('returns null when the reply is not an answer', () => {
+         expect(parseQuestionAnswers('User dismissed your questions.')).toBeNull();
+         expect(parseQuestionAnswers('')).toBeNull();
+@@ -151,6 +163,80 @@ describe('questionEntriesForPart', () => {
+         expect(entry).toMatchObject({ question: 'Ship it?', answer: 'Yes', options: [] });
+     });
+ 
++    test('reads the answers the call recorded, quotes and blanks included', () => {
++        const input = {
++            questions: [
++                { header: 'Site purpose', question: 'What should the site actually do?' },
++                { header: 'Audience', question: 'Who is it for?' },
++                { header: 'Playfulness', question: 'How playful should they be?' },
++            ],
++        };
++        const entries = questionEntriesForPart(
++            questionPart(input, answered([
++                ['What should the site actually do?', "im NOT doing any 'personal tasting'"],
++                ['Who is it for?', 'its "for" me, not sharing it'],
++                ['How playful should they be?', 'Unanswered'],
++            ]), 'call_1', {
++                answers: [
++                    ["im NOT doing any 'personal tasting'"],
++                    ['its "for" me, not sharing it'],
++                    [],
++                ],
++            }),
++            'msg_assistant',
++        );
++        expect(entries.map((entry) => entry.answer)).toEqual([
++            "im NOT doing any 'personal tasting'",
++            'its "for" me, not sharing it',
++            null,
++        ]);
++    });
++
++    test('joins a recorded multi-select answer the way the tool does', () => {
++        const input = { questions: [{ question: 'Which ones?', multiple: true, options: [{ label: 'Yes' }, { label: 'Later' }] }] };
++        const [entry] = questionEntriesForPart(
++            questionPart(input, answered([['Which ones?', 'Yes, Later']]), 'call_1', { answers: [['Yes', 'Later']] }),
++            'msg_assistant',
++        );
++        expect(entry.answer).toBe('Yes, Later');
++    });
++
++    test('a blank the tool filled with its sentinel is not an answer', () => {
++        const input = { questions: [{ question: 'Ship it?' }, { question: 'Tag it?' }] };
++        const entries = questionEntriesForPart(
++            questionPart(input, answered([['Ship it?', 'Yes'], ['Tag it?', 'Unanswered']])),
++            'msg_assistant',
++        );
++        expect(entries.map((entry) => entry.answer)).toEqual(['Yes', null]);
++    });
++
++    test('keeps answers aligned when the input holds a question this reader rejects', () => {
++        const input = {
++            questions: [
++                { question: 'Ship it?', options: [{ label: 'Yes' }] },
++                { question: '   ' },
++                { question: 'Tag it?', options: [{ label: 'No' }] },
++            ],
++        };
++        const entries = questionEntriesForPart(
++            questionPart(input, answered([['Ship it?', 'Yes'], ['', 'Unanswered'], ['Tag it?', 'No']]), 'call_1', {
++                answers: [['Yes'], [], ['No']],
++            }),
++            'msg_assistant',
++        );
++        expect(entries.map((entry) => [entry.question, entry.answer])).toEqual([
++            ['Ship it?', 'Yes'],
++            ['Tag it?', 'No'],
++        ]);
++    });
++
++    test('an empty recorded string is not an answer', () => {
++        const input = { questions: [{ question: 'Ship it?' }] };
++        const part = questionPart(input, answered([['Ship it?', 'Unanswered']]), 'call_1', { answers: [['']] });
++        expect(questionEntriesForPart(part, 'msg_assistant')[0].answer).toBeNull();
++        expect(questionCardState(part)).toBe('dismissed');
++    });
++
+     test('ignores other tools and unfinished calls', () => {
+         const shellPart: Part = { ...questionPart({}), tool: 'shell' };
+         expect(questionEntriesForPart(shellPart, 'msg_assistant')).toEqual([]);
+@@ -172,6 +258,17 @@ describe('questionCardState', () => {
+         expect(questionCardState(questionPart(input, 'User dismissed your questions.'))).toBe('dismissed');
+     });
+ 
++    test('reads the recorded answers, so a blank reply is a dismissal, not an answer', () => {
++        expect(questionCardState(questionPart(input, 'User dismissed your questions.', 'call_1', { answers: [[]] }))).toBe('dismissed');
++        expect(questionCardState(questionPart(input, answered([['Ship it?', 'Yes']]), 'call_1', { answers: [['Yes']] }))).toBe('answered');
++        expect(isAnsweredQuestionPart(questionPart(input, answered([['Ship it?', 'Yes']]), 'call_1', { answers: [[]] }))).toBe(false);
++    });
++
++    test('a reply text carrying only the tool\'s blank sentinel is a dismissal', () => {
++        expect(questionCardState(questionPart(input, answered([['Ship it?', 'Unanswered']])))).toBe('dismissed');
++        expect(isAnsweredQuestionPart(questionPart(input, answered([['Ship it?', 'Unanswered']])))).toBe(false);
++    });
++
+     test('a failed call is a dismissal only when the classifier says so, not by its words', () => {
+         // OpenCode reports a cancellation as an error type, whatever its text:
+         // the reply can still name a dismissal while the reader aborted.
+diff --git a/packages/ui/src/components/chat/lib/questionEntries.ts b/packages/ui/src/components/chat/lib/questionEntries.ts
+index 840728005..0b733a932 100644
+--- a/packages/ui/src/components/chat/lib/questionEntries.ts
++++ b/packages/ui/src/components/chat/lib/questionEntries.ts
+@@ -12,7 +12,7 @@ import { classifyQuestionToolError } from '@/sync/recoverable-questions';
+ import type { ChatMessageEntry } from './turns/types';
+ import { buildTurnWindowModel, type TurnWindowModel } from './turns/windowTurns';
+ import { isQuestionTool } from '@/lib/opencode/tools';
+-import type { Part, ToolInput } from '@/lib/opencode/model';
++import type { Metadata, Part, ToolInput } from '@/lib/opencode/model';
+ 
+ export interface QuestionOption {
+     label: string;
+@@ -56,22 +56,44 @@ const questionAskedSchema = z.object({
+     multiple: z.boolean().optional(),
+ });
+ 
+-const questionInputSchema = z.object({
+-    questions: z.array(questionAskedSchema),
+-});
++interface AskedQuestion {
++    /** The question's position in the call's input, kept so a rejected question
++     * does not shift the answers that follow it. */
++    index: number;
++    question: QuestionAsked;
++}
++
++const readAskedQuestions = (input: ToolInput | undefined): AskedQuestion[] => {
++    const raw = input?.questions;
++    if (!Array.isArray(raw)) return [];
++    const asked: AskedQuestion[] = [];
++    raw.forEach((value, index) => {
++        const parsed = questionAskedSchema.safeParse(value);
++        if (!parsed.success) return;
++        asked.push({
++            index,
++            question: {
++                header: parsed.data.header || undefined,
++                question: parsed.data.question,
++                options: (parsed.data.options ?? []).map((option) => (
++                    option.description ? { label: option.label, description: option.description } : { label: option.label }
++                )),
++                multiple: parsed.data.multiple === true,
++            },
++        });
++    });
++    return asked;
++};
+ 
+ /** The questions a question call asked, in the order the call stored them. */
+-export const readQuestionInput = (input: ToolInput | undefined): QuestionAsked[] => {
+-    const parsed = questionInputSchema.safeParse(input);
+-    if (!parsed.success) return [];
+-    return parsed.data.questions.map((question) => ({
+-        header: question.header || undefined,
+-        question: question.question,
+-        options: (question.options ?? []).map((option) => (
+-            option.description ? { label: option.label, description: option.description } : { label: option.label }
+-        )),
+-        multiple: question.multiple === true,
+-    }));
++export const readQuestionInput = (input: ToolInput | undefined): QuestionAsked[] => (
++    readAskedQuestions(input).map(({ question }) => question)
++);
++
++/** How many questions the call's input holds, including ones this reader rejects. */
++const readQuestionCount = (input: ToolInput | undefined): number => {
++    const raw = input?.questions;
++    return Array.isArray(raw) ? raw.length : 0;
+ };
+ 
+ const unescapeQuoted = (value: string): string => value.replace(/\\(["\\])/g, '$1');
+@@ -101,15 +123,23 @@ export const withoutRecommendationPicks = (value: string): string => (
+ /**
+  * Parses the question tool's reply:
+  * `User has answered your questions: "Q1"="A1", "Q2"="A2". You can now…`
++ *
++ * The tool writes an answer between quotes without escaping any quote the
++ * user typed, so a pair ends at the quote before the next pair or the
++ * sentence's end rather than at the first quote inside the answer. That is the
++ * best a reply with no metadata allows: a quote inside an answer that is
++ * itself followed by `, "` still ends the pair early. The authoritative record
++ * is the result's `metadata.answers`; this parser is the fallback for a call
++ * that carries none.
+  */
+ export const parseQuestionAnswers = (output: string): QuestionAnswerPair[] | null => {
+     const match = output.match(/^User has answered your questions:\s*(.+?)\.\s*You can now/s);
+     if (!match) return null;
+ 
+     const pairs: QuestionAnswerPair[] = [];
+-    // A quoted string with backslash escapes on both sides; an answer may carry
+-    // a quote the user typed.
+-    const pairRegex = /"((?:[^"\\]|\\.)*)"="((?:[^"\\]|\\.)*)"/g;
++    // A quoted string may hold a quote the user typed, so it runs to the quote
++    // before the next pair, not to the first quote inside it.
++    const pairRegex = /"((?:[^\\]|\\.)*?)"="((?:[^\\]|\\.)*?)"(?=\s*(?:,\s*"|\.\s*You can now|$))/g;
+     let pairMatch: RegExpExecArray | null;
+     while ((pairMatch = pairRegex.exec(match[1])) !== null) {
+         pairs.push({
+@@ -120,6 +150,41 @@ export const parseQuestionAnswers = (output: string): QuestionAnswerPair[] | nul
+     return pairs.length > 0 ? pairs : null;
+ };
+ 
++/** The word the tool writes for a question the reader left blank. */
++const UNANSWERED_SENTINEL = 'Unanswered';
++
++/** Whether an answer is a reply, not a blank the tool filled in. */
++const isAnsweredText = (answer: string | null | undefined): answer is string => (
++    typeof answer === 'string' && answer.length > 0 && answer !== UNANSWERED_SENTINEL
++);
++
++/**
++ * The answers the question tool recorded in its result metadata: one entry per
++ * question, in asked order, each the values the reader picked or typed. This is
++ * what the tool itself reports, so it is read before the reply text.
++ */
++const readRecordedAnswers = (metadata: Metadata | undefined, count: number): string[] | null => {
++    const recorded = metadata?.answers;
++    if (!Array.isArray(recorded) || recorded.length !== count) return null;
++    return recorded.map((answer) => {
++        if (Array.isArray(answer)) {
++            return answer.filter((value): value is string => typeof value === 'string' && value.length > 0).join(', ');
++        }
++        return typeof answer === 'string' ? answer : '';
++    });
++};
++
++/** How many questions the metadata records an answer for, or null without it. */
++const recordedAnswerCount = (metadata: Metadata | undefined): number | null => {
++    const recorded = metadata?.answers;
++    if (!Array.isArray(recorded)) return null;
++    return recorded.filter((answer) => (
++        Array.isArray(answer)
++            ? answer.some((value) => typeof value === 'string' && value.length > 0)
++            : typeof answer === 'string' && answer.length > 0
++    )).length;
++};
++
+ const answerForQuestion = (
+     question: string,
+     index: number,
+@@ -130,10 +195,10 @@ const answerForQuestion = (
+     // would hand the first answer to every entry when a call asks the same
+     // question text twice.
+     const indexed = answers[index];
+-    if (indexed && indexed.question === question) return indexed.answer;
+-    const exact = answers.find((pair) => pair.question === question);
+-    if (exact) return exact.answer;
+-    return indexed?.answer ?? null;
++    const answer = indexed && indexed.question === question
++        ? indexed.answer
++        : answers.find((pair) => pair.question === question)?.answer ?? indexed?.answer;
++    return isAnsweredText(answer) ? answer : null;
+ };
+ 
+ /** One question call's entries, with its answers matched back to its questions. */
+@@ -141,10 +206,29 @@ export const questionEntriesForPart = (part: Part, messageId: string): QuestionA
+     if (part.type !== 'tool' || !isQuestionTool(part.tool)) return [];
+ 
+     const state = part.state;
+-    const asked = readQuestionInput(state.input);
++    const asked = readAskedQuestions(state.input);
++    const pending = state.status === 'pending' || state.status === 'running';
++    // The recorded answers line up with every question in the input, including
++    // one this reader rejects, so the count comes from the input itself.
++    const recorded = state.status === 'completed'
++        ? readRecordedAnswers(state.metadata, readQuestionCount(state.input))
++        : null;
++
++    if (asked.length > 0 && recorded) {
++        return asked.map(({ index, question }) => ({
++            partId: `${part.id}:${index}`,
++            messageId,
++            header: question.header,
++            question: question.question,
++            options: question.options,
++            multiple: question.multiple,
++            answer: isAnsweredText(recorded[index]) ? recorded[index] : null,
++            pending: false,
++        }));
++    }
++
+     const output = state.status === 'completed' ? state.output : '';
+     const answers = output ? parseQuestionAnswers(output) ?? [] : [];
+-    const pending = state.status === 'pending' || state.status === 'running';
+ 
+     if (asked.length === 0) {
+         return answers.map((pair, index) => ({
+@@ -153,12 +237,12 @@ export const questionEntriesForPart = (part: Part, messageId: string): QuestionA
+             question: pair.question,
+             options: [],
+             multiple: false,
+-            answer: pair.answer,
++            answer: isAnsweredText(pair.answer) ? pair.answer : null,
+             pending: false,
+         }));
+     }
+ 
+-    return asked.map((question, index) => ({
++    return asked.map(({ index, question }) => ({
+         partId: `${part.id}:${index}`,
+         messageId,
+         header: question.header,
+@@ -177,11 +261,20 @@ export const questionEntriesForPart = (part: Part, messageId: string): QuestionA
+  */
+ export type QuestionCardState = 'answered' | 'waiting' | 'dismissed' | 'stopped';
+ 
++/** How many answered pairs a reply text carries, which ignores the blank sentinel. */
++const parsedAnswerCount = (output: string): number => (
++    parseQuestionAnswers(output)?.filter((pair) => isAnsweredText(pair.answer)).length ?? 0
++);
++
+ export const questionCardState = (part: Part): QuestionCardState | null => {
+     if (part.type !== 'tool' || !isQuestionTool(part.tool)) return null;
+     const state = part.state;
+     if (state.status === 'pending' || state.status === 'running') return 'waiting';
+-    if (state.status === 'completed') return (parseQuestionAnswers(state.output)?.length ?? 0) > 0 ? 'answered' : 'dismissed';
++    if (state.status === 'completed') {
++        const recorded = recordedAnswerCount(state.metadata);
++        if (recorded !== null) return recorded > 0 ? 'answered' : 'dismissed';
++        return parsedAnswerCount(state.output) > 0 ? 'answered' : 'dismissed';
++    }
+     const error = 'error' in state ? state.error : undefined;
+     const message = typeof error === 'string' ? error : (error as { message?: string } | undefined)?.message ?? '';
+     // The app's own classifier: a call OpenCode aborted, or one that died with
+@@ -194,7 +287,9 @@ export const questionCardState = (part: Part): QuestionCardState | null => {
+ export const isAnsweredQuestionPart = (part: Part): boolean => {
+     if (part.type !== 'tool' || !isQuestionTool(part.tool)) return false;
+     if (part.state.status !== 'completed') return false;
+-    return (parseQuestionAnswers(part.state.output)?.length ?? 0) > 0;
++    const recorded = recordedAnswerCount(part.state.metadata);
++    if (recorded !== null) return recorded > 0;
++    return parsedAnswerCount(part.state.output) > 0;
+ };
+ 
+ /**
