@@ -1,6 +1,10 @@
 dev:
     @echo "jkpkgs is a package-only repo. Use 'just check' or 'just build'."
 
+# Classify every OpenChamber patch against an upstream tag (run before a base bump)
+upstream tag="":
+    bash scripts/openchamber-upstream.sh --upstream "${OPENCHAMBER_UPSTREAM:-$HOME/dev/openchamber}" {{ if tag != "" { "--tag " + tag } else { "" } }}
+
 check:
     node packages/pi/patch-context-files.test.mjs
     nix flake check --all-systems --no-build
