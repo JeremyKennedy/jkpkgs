@@ -1,0 +1,85 @@
+diff --git a/packages/ui/src/apps/MobileStatusPane.tsx b/packages/ui/src/apps/MobileStatusPane.tsx
+index 53194d076..087c68aa5 100644
+--- a/packages/ui/src/apps/MobileStatusPane.tsx
++++ b/packages/ui/src/apps/MobileStatusPane.tsx
+@@ -11,6 +11,7 @@ import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
+ import { isChatDirectoryPath } from '@/lib/chatDirectories';
+ import { useI18n } from '@/lib/i18n';
+ import { useSessionUIStore } from '@/sync/session-ui-store';
++import { useGuestCatalogFailed } from '@/lib/guests/store';
+ import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
+ 
+ /**
+@@ -39,6 +40,7 @@ export const MobileStatusPane: React.FC<{
+     if (visible) setRenderedSections((count) => Math.max(count, 1));
+   }, [visible]);
+   const showNothing = !layout.allSectionsHidden && renderedSections === 0;
++  const catalogFailed = useGuestCatalogFailed();
+ 
+   return (
+     <div className="relative flex h-full min-h-0 flex-col">
+@@ -68,7 +70,11 @@ export const MobileStatusPane: React.FC<{
+       {layout.allSectionsHidden || showNothing ? (
+         <div className="absolute inset-x-0 top-16 flex flex-col items-center px-6 text-center">
+           <span className="typography-ui-label text-muted-foreground">
+-            {layout.allSectionsHidden ? t('chat.workStatus.sections.allHidden') : t('chat.workStatus.mobileEmpty')}
++            {layout.allSectionsHidden
++              ? t('chat.workStatus.sections.allHidden')
++              : catalogFailed
++                ? t('settings.extensions.toast.loadFailed')
++                : t('chat.workStatus.mobileEmpty')}
+           </span>
+           {layout.allSectionsHidden ? (
+             <Button variant="link" size="sm" onClick={() => onSectionsDialogOpenChange(true)} className="mt-2 normal-case text-muted-foreground hover:text-foreground">
+diff --git a/packages/ui/src/apps/MobileWorkspaceDrawer.tsx b/packages/ui/src/apps/MobileWorkspaceDrawer.tsx
+index 503d43158..6b6f7ba3f 100644
+--- a/packages/ui/src/apps/MobileWorkspaceDrawer.tsx
++++ b/packages/ui/src/apps/MobileWorkspaceDrawer.tsx
+@@ -16,7 +16,7 @@ import { GuestIcon } from '@/components/layout/GuestRailIcon';
+ import { usePhoneGuestPanelModes } from '@/hooks/useGuestSurfaces';
+ import { useGuestBadgeStore } from '@/lib/guests/badge-store';
+ import { guestPackageIconSrc, resolveGuestIconName } from '@/lib/guests/icon';
+-import { useGuestsStore } from '@/lib/guests/store';
++import { useGuestCatalogFailed, useGuestsStore } from '@/lib/guests/store';
+ import { guestHasSharedSurface, guestSurfaceDocking } from '@/lib/guests/surfaces';
+ import { getRuntimeUrlResolver } from '@/lib/runtime-url';
+ import { isPluginContextPanelMode, pluginIdFromMode, type PluginContextPanelMode } from '@/lib/surfaces/modes';
+@@ -227,6 +227,7 @@ export const MobileWorkspaceDrawer: React.FC<{
+   const stripTabs = receivedPagesShown || tab === 'pages' ? withReceivedPagesTab(orderedTabs) : orderedTabs;
+   const tabItems = stripTabs.map((id) => (isPluginContextPanelMode(id) ? extensionTabItem(id) : tabDefinitions[id]));
+   const soleTab = tabItems.length === 1 ? tabItems[0] : null;
++  const catalogFailed = useGuestCatalogFailed();
+   // A long press on a tab drags it; the new order covers hidden tabs too.
+   const reorderTabs = (activeId: string, overId: string) => {
+     const all = orderMobileWorkspaceTabs(tabOrder, extensionTabs);
+@@ -291,6 +292,13 @@ export const MobileWorkspaceDrawer: React.FC<{
+           <Icon name="close" className="size-5" />
+         </button>
+       </div>
++      {catalogFailed ? (
++        // A failed catalog read is not "no extensions": say so where the tabs
++        // and the Status pane would otherwise look empty.
++        <p role="status" className="px-3 pb-1 typography-meta text-destructive">
++          {t('settings.extensions.toast.loadFailed')}
++        </p>
++      ) : null}
+       <div className="min-h-0 flex-1 overflow-hidden">
+         {/* Panes stay MOUNTED once visited (hidden when inactive/closed), so
+             reopening the drawer lands exactly where the user left off — an
+diff --git a/packages/ui/src/lib/guests/store.ts b/packages/ui/src/lib/guests/store.ts
+index e10e39764..9a6178292 100644
+--- a/packages/ui/src/lib/guests/store.ts
++++ b/packages/ui/src/lib/guests/store.ts
+@@ -85,3 +85,12 @@ export const useGuestsStore = create<GuestsState>((set, get) => ({
+     set({ status: 'idle', guests: [], unreadable: [], opencodePlugins: null, runtimeKey, failure: null });
+   },
+ }));
++
++/**
++ * The catalog could not be read and nothing is loaded. Distinct from an empty
++ * ready list: the phone must say the read failed instead of "no extensions",
++ * or a server without `GET /api/guests` looks like a clean install. A failed
++ * refresh of a catalog already loaded keeps `status: 'ready'` and its guests,
++ * so it does not raise this.
++ */
++export const useGuestCatalogFailed = (): boolean => useGuestsStore((state) => state.status === 'error');

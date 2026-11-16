@@ -2753,6 +2753,19 @@ index 6d3e4367f..dafc202c6 100644
        <SettingsSection title={t('settings.layout.chat.section.formatting')} contentClassName="space-y-3">
          <div>
            <SettingsFieldRow label={t('settings.openchamber.visual.section.userMessageRendering')} settingsItem="chat.user-message-rendering">
+diff --git a/packages/ui/src/components/sections/openchamber/chatSettingsTabs.ts b/packages/ui/src/components/sections/openchamber/chatSettingsTabs.ts
+index 7edfb823a..640a5e60d 100644
+--- a/packages/ui/src/components/sections/openchamber/chatSettingsTabs.ts
++++ b/packages/ui/src/components/sections/openchamber/chatSettingsTabs.ts
+@@ -25,6 +25,8 @@ const SEARCH_TARGET_TABS = new Map<string, ChatSettingsTab>([
+   ['chat.message-appearance', 'messages'],
+   ['chat.width', 'messages'],
+   ['chat.prompt-navigator', 'messages'],
++  ['chat.auto-expand-questions', 'messages'],
++  ['chat.questions-in-prompt-selector', 'messages'],
+   ['chat.collapsible-user-messages', 'messages'],
+   ['chat.sticky-user-header', 'messages'],
+   ['chat.inline-assistant-actions', 'messages'],
 diff --git a/packages/ui/src/lib/i18n/messages/ar.settings.ts b/packages/ui/src/lib/i18n/messages/ar.settings.ts
 index 23fc5ef0d..fe07eb0b5 100644
 --- a/packages/ui/src/lib/i18n/messages/ar.settings.ts
@@ -3313,7 +3326,7 @@ index 0783c7845..9816dfe11 100644
    'chat.toolPart.moreToolCalls': '還有 +{count} 個',
    'chat.toolPart.scriptCalls': '工具呼叫',
 diff --git a/packages/ui/src/lib/opencode/client.test.ts b/packages/ui/src/lib/opencode/client.test.ts
-index 0d1766dcc..7af0f3eb3 100644
+index 0d1766dcc..cfaa73395 100644
 --- a/packages/ui/src/lib/opencode/client.test.ts
 +++ b/packages/ui/src/lib/opencode/client.test.ts
 @@ -4,6 +4,7 @@ import { isAmbiguousSendFailure } from '@/sync/send-failure-classification'
@@ -3333,6 +3346,24 @@ index 0d1766dcc..7af0f3eb3 100644
    })
  
    describe("a page asked before the capability is known", () => {
+@@ -869,7 +870,7 @@ describe("messages and config", () => {
+       runtimeKey = "shells-first-page"
+       responses.push(capable(), emptyPage())
+       await opencodeClient.getSessionMessages("ses_1", { limit: 20, partShells: true })
+-      expect(shellsHeaders()).toEqual(["v1"])
++      expect(shellsHeaders()).toEqual([PART_SHELLS_VERSION])
+     })
+ 
+     test("waits once per check for a check that does not answer", async () => {
+@@ -892,7 +893,7 @@ describe("messages and config", () => {
+         answer(capable())
+         await settle()
+         await opencodeClient.getSessionMessages("ses_1", { limit: 20, partShells: true })
+-        expect(shellsHeaders()).toEqual([null, null, "v1"])
++        expect(shellsHeaders()).toEqual([null, null, PART_SHELLS_VERSION])
+       } finally {
+         jest.useRealTimers()
+       }
 @@ -929,7 +930,7 @@ describe("messages and config", () => {
        responses.push(new Error("relay tunnel reset: relay keepalive timeout"), json({ data: [], cursor: {} }))
        await expect(opencodeClient.getSessionMessages("ses_1", { limit: 20, partShells: true })).rejects.toThrow("transport failure")
