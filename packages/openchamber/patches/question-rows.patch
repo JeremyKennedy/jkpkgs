@@ -442,10 +442,10 @@ index e92ab3bf6..641b49b18 100644
          </FadeInDisabledProvider>
      );
 diff --git a/packages/ui/src/components/chat/TimelineDialog.test.tsx b/packages/ui/src/components/chat/TimelineDialog.test.tsx
-index 99a354f16..e185d329b 100644
+index 99a354f16..1a8c81db3 100644
 --- a/packages/ui/src/components/chat/TimelineDialog.test.tsx
 +++ b/packages/ui/src/components/chat/TimelineDialog.test.tsx
-@@ -129,6 +129,45 @@ describe('TimelineDialog', () => {
+@@ -129,6 +129,48 @@ describe('TimelineDialog', () => {
      expect(document.body.textContent).toContain('Second prompt');
    });
  
@@ -481,7 +481,10 @@ index 99a354f16..e185d329b 100644
 +    });
 +    await render(true);
 +
-+    const row = document.querySelector<HTMLElement>('[data-timeline-message-id="a0"].ps-6');
++    // The message row shares the anchor; the question row is the one that
++    // starts with the question glyph.
++    const row = Array.from(document.querySelectorAll<HTMLElement>('[data-timeline-message-id="a0"]'))
++        .find((candidate) => candidate.querySelector('span')?.textContent === '?');
 +    if (!row) throw new Error('Expected the question row');
 +    expect(row.textContent).toContain('Yes');
 +    expect(row.textContent).not.toContain('(Recommended)');
@@ -492,7 +495,7 @@ index 99a354f16..e185d329b 100644
      const page = spyOn(opencodeClient, 'getSessionMessages').mockResolvedValue({
        items: Array.from({ length: 25 }, (_, index) => ({
 diff --git a/packages/ui/src/components/chat/TimelineDialog.tsx b/packages/ui/src/components/chat/TimelineDialog.tsx
-index 7e68f1c78..2315b4c2c 100644
+index 7e68f1c78..d6c5391d6 100644
 --- a/packages/ui/src/components/chat/TimelineDialog.tsx
 +++ b/packages/ui/src/components/chat/TimelineDialog.tsx
 @@ -17,6 +17,9 @@ import { getCurrentIntlLocale, useI18n } from '@/lib/i18n';
@@ -707,7 +710,7 @@ index 7e68f1c78..2315b4c2c 100644
 +                                        // anchors on it like a prompt row.
 +                                        data-timeline-message-id={question.messageId}
 +                                        className={cn(
-+                                            'group flex items-start gap-3 rounded py-1 ps-6 transition-colors cursor-pointer',
++                                            'group flex items-start gap-3 rounded py-1 transition-colors cursor-pointer',
 +                                            isSelected
 +                                                ? 'bg-interactive-selection text-interactive-selection-foreground'
 +                                                : 'hover:bg-interactive-hover/30',
