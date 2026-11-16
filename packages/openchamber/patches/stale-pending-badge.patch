@@ -1,61 +1,60 @@
-diff --git a/packages/ui/src/apps/MobileSessionStateBadges.tsx b/packages/ui/src/apps/MobileSessionStateBadges.tsx
-index d877e4c..87714e4 100644
---- a/packages/ui/src/apps/MobileSessionStateBadges.tsx
-+++ b/packages/ui/src/apps/MobileSessionStateBadges.tsx
-@@ -39,10 +39,10 @@ export const MobileSessionPendingBadges: React.FC<PendingRequests> = ({ hasPermi
-       ) : null}
-       {hasForm ? (
-         <span
--          className="inline-flex shrink-0 items-center rounded border border-status-question-border bg-status-question px-1.5 text-status-question-foreground"
-+          className="inline-flex shrink-0 items-center rounded border border-status-question-border bg-status-question-background px-1 text-status-question"
-           aria-label={t('sessions.sidebar.session.status.questionPending')}
-         >
--          <Icon name="question" className="size-3.5" />
-+          <Icon name="question" className="size-3" />
-         </span>
-       ) : null}
-     </>
 diff --git a/packages/ui/src/apps/MobileSessionSwitcher.tsx b/packages/ui/src/apps/MobileSessionSwitcher.tsx
-index ede4218..c9e15b1 100644
+index 39c3b7466..e02706384 100644
 --- a/packages/ui/src/apps/MobileSessionSwitcher.tsx
 +++ b/packages/ui/src/apps/MobileSessionSwitcher.tsx
-@@ -24,8 +24,6 @@ const RECENT_SESSIONS_LIMIT = 10;
- /** Matches the metadata popover's width so both header dropdowns read as a pair. */
- const TABLET_POPOVER_WIDTH = 380;
+@@ -3,10 +3,12 @@ import { useSessionTurnActivity } from '@/sync/global-session-status';
+ import { getSessionActivityTime } from '@/sync/session-ordering';
+ import { SessionActivityIndicator } from '@/components/session/SessionActivityIndicator';
+ import type { Session } from '@/lib/opencode/model';
++import type { SessionNode } from '@/components/session/sidebar/types';
  
--const collectDescendantIds = (node: SessionNode): string[] => node.children.flatMap((child) => [child.session.id, ...collectDescendantIds(child)]);
--
- const getSessionTitle = (session: Session, fallback: string): string =>
-   session.title?.trim() || fallback;
- 
-@@ -46,9 +44,8 @@ const SwitcherRow: React.FC<{
+ import { SessionActivityDuration } from '@/components/session/SessionActivityDuration';
+ import { formatSessionCompactDateLabel } from '@/components/session/sidebar/utils';
+ import { useSwitcherItems } from '@/components/session/sidebar/shell/useSwitcherItems';
++import { usePendingRequests } from './usePendingRequests';
+ import { useTabletLayout } from '@/lib/device';
+ import { useI18n } from '@/lib/i18n';
+ import { cn } from '@/lib/utils';
+@@ -28,19 +30,25 @@ const getSessionTitle = (session: Session, fallback: string): string =>
+     "project · branch", compact time. Mirrors the desktop SessionSwitcherDropdown
+     indicator conventions; no subsession chevrons on mobile by design. */
+ const SwitcherRow: React.FC<{
+-  session: Session;
++  node: SessionNode;
+   meta: string;
+   active: boolean;
+   onSelect: () => void;
+-}> = ({ session, meta, active, onSelect }) => {
++}> = ({ node, meta, active, onSelect }) => {
+   const { t } = useI18n();
++  const session = node.session;
+   const isUnread = useSessionUnread(session.id);
+   const markedUnread = useSessionMarkedUnread(session.id);
+   const turnActivity = useSessionTurnActivity(session.id);
    const isStreaming = turnActivity !== null;
    const showUnreadDot = !isStreaming && isUnread && (!active || markedUnread);
-   // The recent list shows parents only: a row stands for its subsessions too,
--  // so their waiting requests count here.
--  const familyIds = React.useMemo(() => [session.id, ...collectDescendantIds(node)], [node, session.id]);
--  const pendingRequests = usePendingRequests(familyIds);
++  // The recent list shows parents only: a row stands for its subsessions too,
 +  // so their waiting requests count here, resolved as the desktop row does.
 +  const pendingRequests = usePendingRequests(node, false, resolveGlobalSessionDirectory(session));
-   const { hasPermission: hasPendingPermission, hasForm: hasPendingForm } = pendingRequests;
-   const waitingOnUser = hasPendingPermission || hasPendingForm;
-   const permissionLabel = t('sessions.sidebar.session.status.permissionRequired');
-@@ -89,11 +86,11 @@ const SwitcherRow: React.FC<{
-           ) : null}
-           {hasPendingForm ? (
-             <span
--              className="inline-flex shrink-0 items-center rounded border border-status-question-border bg-status-question px-1.5 text-status-question-foreground"
-+              className="inline-flex shrink-0 items-center rounded border border-status-question-border bg-status-question-background px-1 text-status-question"
-               aria-label={questionLabel}
-               title={questionLabel}
-             >
--              <Icon name="question" className="size-3.5" />
-+              <Icon name="question" className="size-3" />
-             </span>
-           ) : null}
-         </span>
++  const { hasPermission: hasPendingPermission, hasForm: hasPendingForm } = pendingRequests;
++  const waitingOnUser = hasPendingPermission || hasPendingForm;
+   const hasActivityDuration = useHasSessionTurnDuration(session.id, isStreaming);
+-  const showActivityDuration = (isStreaming || showUnreadDot) && hasActivityDuration;
++  const showActivityDuration = (isStreaming || showUnreadDot) && !waitingOnUser && hasActivityDuration;
+   const timeLabel = formatSessionCompactDateLabel(getSessionActivityTime(session));
+ 
+   return (
+@@ -222,7 +230,7 @@ export const MobileSessionSwitcher: React.FC<{
+               return (
+                 <SwitcherRow
+                   key={session.id}
+-                  session={session}
++                  node={item.node}
+                   meta={meta}
+                   active={session.id === currentSessionId}
+                   onSelect={() => {
 diff --git a/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx b/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx
-index 54e0ebf..bf7e177 100644
+index 54e0ebf3b..bf7e177a9 100644
 --- a/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx
 +++ b/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx
 @@ -20,7 +20,6 @@ import { normalizePath } from '@/lib/pathNormalization';
@@ -94,7 +93,7 @@ index 54e0ebf..bf7e177 100644
    const sessionWorkEnabled = useUIStore((state) => state.sessionWorkEnabled);
    // Only a work's own row tracks it, for every session of it: what nests in
 diff --git a/packages/ui/src/apps/usePendingRequests.test.tsx b/packages/ui/src/apps/usePendingRequests.test.tsx
-index 4337ea3..fa8dd9f 100644
+index 4337ea33a..fa8dd9fc6 100644
 --- a/packages/ui/src/apps/usePendingRequests.test.tsx
 +++ b/packages/ui/src/apps/usePendingRequests.test.tsx
 @@ -1,36 +1,113 @@
@@ -296,7 +295,7 @@ index 4337ea3..fa8dd9f 100644
    });
  });
 diff --git a/packages/ui/src/apps/usePendingRequests.ts b/packages/ui/src/apps/usePendingRequests.ts
-index 16593da..2990711 100644
+index 16593da3b..29907111d 100644
 --- a/packages/ui/src/apps/usePendingRequests.ts
 +++ b/packages/ui/src/apps/usePendingRequests.ts
 @@ -1,27 +1,27 @@
@@ -348,25 +347,72 @@ index 16593da..2990711 100644
 +  return useSessionBlockingRequests(scopes);
  };
 diff --git a/packages/ui/src/components/session/SessionSwitcherDropdown.tsx b/packages/ui/src/components/session/SessionSwitcherDropdown.tsx
-index 48eab03..1537136 100644
+index 906667d66..b3f7b11b2 100644
 --- a/packages/ui/src/components/session/SessionSwitcherDropdown.tsx
 +++ b/packages/ui/src/components/session/SessionSwitcherDropdown.tsx
-@@ -380,11 +380,11 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
-           ) : null}
-           {hasPendingForm ? (
-             <span
--              className="inline-flex shrink-0 items-center rounded border border-status-question-border bg-status-question px-1.5 text-status-question-foreground"
-+              className="inline-flex shrink-0 items-center rounded border border-status-question-border bg-status-question-background px-1 text-status-question"
-               aria-label={questionLabel}
-               title={questionLabel}
-             >
--              <Icon name="question" className="h-3.5 w-3.5" />
-+              <Icon name="question" className="h-3 w-3" />
-             </span>
-           ) : null}
-         </span>
+@@ -14,11 +14,13 @@ import { SessionActivityIndicator } from '@/components/session/SessionActivityIn
+ import { useWaitingBlink } from '@/hooks/useDurationTicker';
+ import { useSessionUIStore } from '@/sync/session-ui-store';
+ import { useSessionMarkedUnread, useSessionUnread } from '@/sync/session-unread';
++import { useSessionBlockingRequests } from '@/sync/sync-context';
+ import {
+   findSwitcherItemAncestorIds,
+   useSwitcherItems,
+   type SwitcherItem,
+ } from '@/components/session/sidebar/shell/useSwitcherItems';
++import { selectBlockingBadgeSessionScopes } from '@/components/session/sidebar/sessions/sessionNodeItemUtils';
+ import { useUIStore } from '@/stores/useUIStore';
+ import { refreshGlobalSessions, refreshRecentGlobalSessions, resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
+ import { formatSessionCompactDateLabel } from './sidebar/utils';
+@@ -204,6 +206,13 @@ function SwitcherNode({ item, depth, variant, expandedParents, toggleParent, clo
+   const session = node.session;
+   const hasChildren = node.children.length > 0;
+   const isExpanded = expandedParents.has(session.id);
++  // A folded row stands for its subsessions too: their waiting requests count
++  // here, exactly as the sidebar's collapsed rows count them.
++  const blockingScopes = React.useMemo(
++    () => selectBlockingBadgeSessionScopes(node, isExpanded, resolveGlobalSessionDirectory(session)),
++    [isExpanded, node, session],
++  );
++  const pendingRequests = useSessionBlockingRequests(blockingScopes);
+ 
+   return (
+     <>
+@@ -214,6 +223,7 @@ function SwitcherNode({ item, depth, variant, expandedParents, toggleParent, clo
+         secondaryMeta={secondaryMeta}
+         hasChildren={hasChildren}
+         isExpanded={isExpanded}
++        pendingRequests={pendingRequests}
+         onToggleExpand={hasChildren ? () => toggleParent(session.id) : undefined}
+         closeDropdown={closeDropdown}
+       />
+@@ -241,11 +251,12 @@ type SwitcherRowProps = {
+   secondaryMeta: SecondaryMeta;
+   hasChildren: boolean;
+   isExpanded: boolean;
++  pendingRequests: { hasPermission: boolean; hasForm: boolean };
+   onToggleExpand?: () => void;
+   closeDropdown: () => void;
+ };
+ 
+-function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isExpanded, onToggleExpand, closeDropdown }: SwitcherRowProps): React.ReactElement {
++function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isExpanded, pendingRequests, onToggleExpand, closeDropdown }: SwitcherRowProps): React.ReactElement {
+   const { t } = useI18n();
+   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
+   const setCurrentSession = useSessionUIStore((state) => state.setCurrentSession);
+@@ -259,6 +270,10 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
+   const isStreaming = turnActivity !== null;
+   const runningBlink = useWaitingBlink(isStreaming);
+   const showUnreadDot = !isStreaming && isUnread && (!isActive || markedUnread);
++  const { hasPermission: hasPendingPermission, hasForm: hasPendingForm } = pendingRequests;
++  // A request waiting on the user stands for the turn: the running mark steps
++  // aside for the request badge, as it does on the sidebar and mobile rows.
++  const waitingOnUser = hasPendingPermission || hasPendingForm;
+ 
+   const timestamp = getSessionActivityTime(session) || Date.now();
+   const timeLabel = formatSessionCompactDateLabel(timestamp);
 diff --git a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-index 25101df..5759771 100644
+index 25101df11..575977103 100644
 --- a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
 +++ b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
 @@ -376,7 +376,7 @@ bootstrap work. Selection and activity subscriptions stay session-scoped so a
@@ -394,7 +440,7 @@ index 25101df..5759771 100644
  
  The per-directory status cache (`getSessionLiveActivity`) answers "unknown" for a directory whose child store was evicted, which happens after 20 minutes nobody looks at it. A worktree waiting for its PR to merge is exactly that directory, so a cleanup gated on "confirmed idle" from the cache waited forever. `readWorktreeUse` asks the host's active-session map, one request that covers every directory, and treats a failed request as unknown, so the next pass retries.
 diff --git a/packages/ui/src/components/session/sidebar/folders/SessionSidebarFolderItem.test.tsx b/packages/ui/src/components/session/sidebar/folders/SessionSidebarFolderItem.test.tsx
-index 069e830..a2fdd32 100644
+index 069e8301e..a2fdd325e 100644
 --- a/packages/ui/src/components/session/sidebar/folders/SessionSidebarFolderItem.test.tsx
 +++ b/packages/ui/src/components/session/sidebar/folders/SessionSidebarFolderItem.test.tsx
 @@ -1,12 +1,30 @@
@@ -469,23 +515,8 @@ index 069e830..a2fdd32 100644
      replaceGlobalSessionStatusById(new Map());
      useGlobalSessionsStore.setState(originalSessions);
      container.remove();
-diff --git a/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.tsx b/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.tsx
-index cecc3c8..c04859e 100644
---- a/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.tsx
-+++ b/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.tsx
-@@ -1090,8 +1090,8 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode
-       ) : null}
-       {hasPendingForm ? (
-         <RowMarkTooltip label={pendingFormLabel}>
--          <span className="inline-flex flex-shrink-0 items-center rounded border border-status-question-border bg-status-question px-1.5 text-status-question-foreground" aria-label={pendingFormLabel}>
--            <Icon name="question" className="h-3.5 w-3.5" />
-+          <span className="inline-flex flex-shrink-0 items-center rounded border border-status-question-border bg-status-question-background px-1 text-status-question" aria-label={pendingFormLabel}>
-+            <Icon name="question" className="h-3 w-3" />
-           </span>
-         </RowMarkTooltip>
-       ) : null}
 diff --git a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.behavior.test.tsx b/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.behavior.test.tsx
-index ba70b51..1407df1 100644
+index ba70b5102..1407df17b 100644
 --- a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.behavior.test.tsx
 +++ b/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.behavior.test.tsx
 @@ -1,20 +1,30 @@
@@ -740,31 +771,8 @@ index ba70b51..1407df1 100644
 +    });
    });
  });
-diff --git a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.tsx b/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.tsx
-index 06803e8..0c2b518 100644
---- a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.tsx
-+++ b/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.tsx
-@@ -32,13 +32,13 @@ export function CollapsedActivityIndicator({
-   }
-   if (state === 'form') {
-     const label = t('sessions.sidebar.session.status.questionPending');
-+    // A header's mark sits inside the "Show more" button, which expands the
-+    // list: a filled chip there reads as the control to press, so the group
-+    // shows the bare glyph its permission mark already uses.
-     return (
-       <RowMarkTooltip label={label}>
--        <span
--          className={cn('inline-flex shrink-0 items-center rounded border border-status-question-border bg-status-question px-1.5 text-status-question-foreground', className)}
--          aria-label={label}
--        >
--          <Icon name="question" className="h-3.5 w-3.5" />
-+        <span className={cn('inline-flex shrink-0 items-center text-status-question', className)} aria-label={label}>
-+          <Icon name="question" className="h-3 w-3" />
-         </span>
-       </RowMarkTooltip>
-     );
 diff --git a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityState.ts b/packages/ui/src/components/session/sidebar/sessions/collapsedActivityState.ts
-index 6134cd6..44d183e 100644
+index 6134cd6d8..44d183e78 100644
 --- a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityState.ts
 +++ b/packages/ui/src/components/session/sidebar/sessions/collapsedActivityState.ts
 @@ -1,13 +1,14 @@
@@ -874,7 +882,7 @@ index 6134cd6..44d183e 100644
    return blocked ?? active ?? waitingOnShell ?? waitingOnImage ?? waitingOnPullRequest ?? waitingOnExtension ?? unread;
  };
 diff --git a/packages/ui/src/components/session/sidebar/sessions/sessionNodeItemUtils.test.ts b/packages/ui/src/components/session/sidebar/sessions/sessionNodeItemUtils.test.ts
-index 2d2112a..6b49639 100644
+index 2d2112a92..6b49639ec 100644
 --- a/packages/ui/src/components/session/sidebar/sessions/sessionNodeItemUtils.test.ts
 +++ b/packages/ui/src/components/session/sidebar/sessions/sessionNodeItemUtils.test.ts
 @@ -92,6 +92,33 @@ describe('selectBlockingBadgeSessionScopes', () => {
@@ -912,7 +920,7 @@ index 2d2112a..6b49639 100644
  
  describe('nodeHasPinnedMembershipChange', () => {
 diff --git a/packages/ui/src/components/session/sidebar/sessions/sessionNodeItemUtils.ts b/packages/ui/src/components/session/sidebar/sessions/sessionNodeItemUtils.ts
-index 99dd2f9..dc7a39f 100644
+index 99dd2f9c4..dc7a39f10 100644
 --- a/packages/ui/src/components/session/sidebar/sessions/sessionNodeItemUtils.ts
 +++ b/packages/ui/src/components/session/sidebar/sessions/sessionNodeItemUtils.ts
 @@ -85,7 +85,8 @@ export const nodeContainsSessionId = (node: SessionNode, sessionId: string | nul
@@ -1004,7 +1012,7 @@ index 99dd2f9..dc7a39f 100644
  
  export const selectFolderRootNodes = (
 diff --git a/packages/ui/src/sync/DOCUMENTATION.md b/packages/ui/src/sync/DOCUMENTATION.md
-index 6b57f90..0b3dbd5 100644
+index 6b57f907f..0b3dbd56e 100644
 --- a/packages/ui/src/sync/DOCUMENTATION.md
 +++ b/packages/ui/src/sync/DOCUMENTATION.md
 @@ -956,7 +956,16 @@ Per-directory snapshots only cover directories with a store, and on mobile that
@@ -1037,7 +1045,7 @@ index 6b57f90..0b3dbd5 100644
  ### Session switch commit
  
 diff --git a/packages/ui/src/sync/bootstrap.test.ts b/packages/ui/src/sync/bootstrap.test.ts
-index 94a501d..3120f26 100644
+index 94a501d4c..3120f261e 100644
 --- a/packages/ui/src/sync/bootstrap.test.ts
 +++ b/packages/ui/src/sync/bootstrap.test.ts
 @@ -106,6 +106,21 @@ describe("bootstrapDirectory", () => {
@@ -1063,7 +1071,7 @@ index 94a501d..3120f26 100644
  
    test("a failed status snapshot preserves live state and does not grant idle authority", async () => {
 diff --git a/packages/ui/src/sync/bootstrap.ts b/packages/ui/src/sync/bootstrap.ts
-index 19d0b62..8523a70 100644
+index 19d0b6235..8523a7057 100644
 --- a/packages/ui/src/sync/bootstrap.ts
 +++ b/packages/ui/src/sync/bootstrap.ts
 @@ -137,6 +137,18 @@ async function initializeDirectory(input: DirectoryBootstrapInput, sessions: Pro
@@ -1104,7 +1112,7 @@ index 19d0b62..8523a70 100644
      read(() => opencodeClient.getConfig(directory).then((config) => {
        if (commit({ config })) emitSyncConfigChanged(directory, config)
 diff --git a/packages/ui/src/sync/child-store.ts b/packages/ui/src/sync/child-store.ts
-index 38308d2..ea88f16 100644
+index 38308d2ab..ea88f163b 100644
 --- a/packages/ui/src/sync/child-store.ts
 +++ b/packages/ui/src/sync/child-store.ts
 @@ -333,9 +333,12 @@ function createDirectoryStore(directory: string, seedSessions: boolean): StoreAp
@@ -1124,7 +1132,7 @@ index 38308d2..ea88f16 100644
    })
  
 diff --git a/packages/ui/src/sync/global-blocking-requests.ts b/packages/ui/src/sync/global-blocking-requests.ts
-index efd0d11..a2f2d65 100644
+index efd0d11c9..a2f2d65e5 100644
 --- a/packages/ui/src/sync/global-blocking-requests.ts
 +++ b/packages/ui/src/sync/global-blocking-requests.ts
 @@ -38,10 +38,48 @@ type PendingBlockingRequests = {
@@ -1207,7 +1215,7 @@ index efd0d11..a2f2d65 100644
   * Applies the server's announcement that a page an agent showed started or
   * stopped waiting for the user's answer. The server names the session's
 diff --git a/packages/ui/src/sync/session-actions.test.ts b/packages/ui/src/sync/session-actions.test.ts
-index cfaba71..9393e7e 100644
+index cfaba71ca..9393e7ebe 100644
 --- a/packages/ui/src/sync/session-actions.test.ts
 +++ b/packages/ui/src/sync/session-actions.test.ts
 @@ -3,6 +3,11 @@ import type { PermissionRequest } from "@/types/permission"
@@ -1278,7 +1286,7 @@ index cfaba71..9393e7e 100644
    beforeEach(() => {
      replyCalls.length = 0
 diff --git a/packages/ui/src/sync/session-actions.ts b/packages/ui/src/sync/session-actions.ts
-index d49256c..c53c330 100644
+index d49256c06..c53c330e7 100644
 --- a/packages/ui/src/sync/session-actions.ts
 +++ b/packages/ui/src/sync/session-actions.ts
 @@ -12,6 +12,7 @@ import { dropSessionCaches } from "./session-cache"
@@ -1406,7 +1414,7 @@ index d49256c..c53c330 100644
          // is still pending server-side, so each copy goes back where it was.
          console.error("[session-actions] Failed to cancel open form on send:", error)
 diff --git a/packages/ui/src/sync/session-blocking-requests.test.tsx b/packages/ui/src/sync/session-blocking-requests.test.tsx
-index 88324dd..e5f671b 100644
+index 88324dd5d..e5f671b0c 100644
 --- a/packages/ui/src/sync/session-blocking-requests.test.tsx
 +++ b/packages/ui/src/sync/session-blocking-requests.test.tsx
 @@ -167,7 +167,27 @@ describe('useSessionBlockingRequests', () => {
@@ -1481,7 +1489,7 @@ index 88324dd..e5f671b 100644
 +  })
  })
 diff --git a/packages/ui/src/sync/sync-context.tsx b/packages/ui/src/sync/sync-context.tsx
-index 7a0e2ef..e684a85 100644
+index 7a0e2ef4b..e684a85ed 100644
 --- a/packages/ui/src/sync/sync-context.tsx
 +++ b/packages/ui/src/sync/sync-context.tsx
 @@ -113,7 +113,7 @@ import {
@@ -1671,7 +1679,7 @@ index 7a0e2ef..e684a85 100644
  }
  
 diff --git a/packages/ui/src/sync/types.ts b/packages/ui/src/sync/types.ts
-index d34cc49..bc94cf4 100644
+index d34cc49a1..bc94cf483 100644
 --- a/packages/ui/src/sync/types.ts
 +++ b/packages/ui/src/sync/types.ts
 @@ -53,6 +53,12 @@ export type State = {
