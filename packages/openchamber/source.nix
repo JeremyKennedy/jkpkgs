@@ -99,6 +99,9 @@ let
       # Chat width levels the retired chat-width patch stored (and its
       # version-2 preferences.json) read as v2.7.2's levels.
       ./patches/chat-width-remap.patch
+      # An 80rem level between Wider and Full, for messages and composer. It
+      # edits the same level maps as the remap above, so it must follow it.
+      ./patches/chat-width-80.patch
       # In work paging and its page-size setting; v2.7.2 lists every work.
       ./patches/in-work-paging-show-more.patch
     ];
