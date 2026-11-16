@@ -106,6 +106,10 @@ let
       # In work paging and its page-size setting; v2.7.2 lists every work.
       ./patches/in-work-paging-show-more.patch
       ./patches/mobile-guest-catalog-failure.patch
+      # A changed-file chip whose file no repository lists (a project that is
+      # not a git repository, or a file outside the repository) opens the file
+      # in the editor instead of an empty Changed list.
+      ./patches/changed-file-chip-opens-file-outside-git.patch
     ];
   };
 in
