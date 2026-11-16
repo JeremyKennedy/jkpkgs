@@ -91,6 +91,10 @@ let
       # viewing a session clears its subagents' phone banners on top of
       # upstream's server-side clearing.
       ./patches/send-past-open-question.patch
+      # The phone removes its own delivered banners when the session is opened
+      # or marked seen; the server's clearing push alone leaves a banner whose
+      # push was missed.
+      ./patches/android-notification-dismiss.patch
       ./patches/notification-family-clear.patch
       # Chat width levels the retired chat-width patch stored (and its
       # version-2 preferences.json) read as v2.7.2's levels.
