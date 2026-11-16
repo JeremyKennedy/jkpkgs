@@ -100,7 +100,7 @@ index 29d5643..1c74217 100644
  
  ### Why a visited extension tab keeps its frame and not a fresh load per visit
 diff --git a/packages/ui/src/apps/MobileApp.tsx b/packages/ui/src/apps/MobileApp.tsx
-index dce5cf9..4ee74f8 100644
+index 62e26c7..c2bb3a9 100644
 --- a/packages/ui/src/apps/MobileApp.tsx
 +++ b/packages/ui/src/apps/MobileApp.tsx
 @@ -30,6 +30,9 @@ import { MobileToaster } from './MobileToaster';
@@ -113,7 +113,7 @@ index dce5cf9..4ee74f8 100644
  import { useUpdatePolling } from '@/hooks/useUpdatePolling';
  import { useWindowTitle } from '@/hooks/useWindowTitle';
  import { useEnterprisePolicySync } from '@/hooks/useEnterprisePolicySync';
-@@ -1491,6 +1494,12 @@ function MobileAppContent({ apis }: MobileAppProps) {
+@@ -1488,6 +1491,12 @@ function MobileAppContent({ apis }: MobileAppProps) {
    // Same as App.tsx: the session's memory index and the Memory tab both read
    // this snapshot, and without it the phone showed no memory at all.
    useAgentMemorySync(currentDirectory || null);
@@ -458,10 +458,10 @@ index 0000000..c2c05a5
 +};
 diff --git a/packages/ui/src/apps/MobileInstanceAttentionBell.test.tsx b/packages/ui/src/apps/MobileInstanceAttentionBell.test.tsx
 new file mode 100644
-index 0000000..e188864
+index 0000000..4efba19
 --- /dev/null
 +++ b/packages/ui/src/apps/MobileInstanceAttentionBell.test.tsx
-@@ -0,0 +1,391 @@
+@@ -0,0 +1,394 @@
 +import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 +import React, { act } from 'react';
 +import type { Root } from 'react-dom/client';
@@ -589,7 +589,10 @@ index 0000000..e188864
 +  useMobileConnection: useMobileConnectionMock,
 +  isActiveRuntimeConnection: (connection: MobileSavedConnection) => connection.id === activeConnectionId,
 +}));
-+mock.module('@/lib/desktopHostActions', () => ({ activateHost: async () => undefined }));
++mock.module('@/lib/desktopHostActions', () => ({
++  activateHost: async () => undefined,
++  activateLocalHost: async () => true,
++}));
 +let attentionRefreshCalls = 0;
 +mock.module('@/hooks/useInstanceAttentionPolling', () => ({
 +  requestInstanceAttentionRefresh: async () => { attentionRefreshCalls += 1; },
@@ -853,10 +856,9 @@ index 0000000..e188864
 +  expect(bell?.textContent?.trim()).toBe('');
 +  expect(bell?.className).not.toContain('status-warning');
 +});
-
 diff --git a/packages/ui/src/apps/MobileInstanceAttentionBell.tsx b/packages/ui/src/apps/MobileInstanceAttentionBell.tsx
 new file mode 100644
-index 0000000..448a119
+index 0000000..40bedc1
 --- /dev/null
 +++ b/packages/ui/src/apps/MobileInstanceAttentionBell.tsx
 @@ -0,0 +1,262 @@
@@ -1122,7 +1124,6 @@ index 0000000..448a119
 +    </>
 +  );
 +};
-
 diff --git a/packages/ui/src/apps/mobileConnections.ts b/packages/ui/src/apps/mobileConnections.ts
 index 9561782..c40ee1b 100644
 --- a/packages/ui/src/apps/mobileConnections.ts
@@ -2923,10 +2924,10 @@ index 0000000..21f0051
 +});
 diff --git a/packages/ui/src/hooks/useInstanceAttentionPolling.identity.test.ts b/packages/ui/src/hooks/useInstanceAttentionPolling.identity.test.ts
 new file mode 100644
-index 0000000..93819bf
+index 0000000..5ae859e
 --- /dev/null
 +++ b/packages/ui/src/hooks/useInstanceAttentionPolling.identity.test.ts
-@@ -0,0 +1,136 @@
+@@ -0,0 +1,169 @@
 +import { beforeEach, describe, expect, mock, test } from 'bun:test';
 +
 +import type { DesktopHost, HostProbeResult } from '@/lib/desktopHosts';
@@ -3061,6 +3062,39 @@ index 0000000..93819bf
 +    expect(directReads).toEqual([]);
 +    expect(relayReads).toEqual([{ relayUrl: 'wss://relay.test', token: 'secret', tunnel: probeTunnel }]);
 +    expect(closedTunnels).toEqual([probeTunnel]);
++  });
++});
++
++describe('the app own server as a target', () => {
++  test('is read directly with the local client token while another instance is shown', async () => {
++    const targets = instanceAttentionTargets(
++      { hosts: [host()], localOrigin: 'http://127.0.0.1:57123' },
++      'host-b',
++      'local-token',
++    );
++
++    expect(targets.map((target) => target.hostId)).toEqual(['local']);
++
++    await targets[0]!.read(new AbortController().signal);
++
++    // No probe: the shell's loopback server is either answering or it is not.
++    expect(probes).toEqual([]);
++    expect(directReads).toEqual([{ url: 'http://127.0.0.1:57123', token: 'local-token' }]);
++  });
++
++  test('is not read while the window shows it', () => {
++    const targets = instanceAttentionTargets(
++      { hosts: [host()], localOrigin: 'http://127.0.0.1:57123' },
++      'local',
++    );
++
++    expect(targets.map((target) => target.hostId)).toEqual(['host-b']);
++  });
++
++  test('is left out when the shell reports no local server', () => {
++    const targets = instanceAttentionTargets({ hosts: [], localOrigin: null }, 'host-b');
++
++    expect(targets).toEqual([]);
 +  });
 +});
 diff --git a/packages/ui/src/hooks/useInstanceAttentionPolling.test.ts b/packages/ui/src/hooks/useInstanceAttentionPolling.test.ts
@@ -3496,10 +3530,10 @@ index 0000000..f15a3a0
 +});
 diff --git a/packages/ui/src/hooks/useInstanceAttentionPolling.ts b/packages/ui/src/hooks/useInstanceAttentionPolling.ts
 new file mode 100644
-index 0000000..56bc09c
+index 0000000..c1365c7
 --- /dev/null
 +++ b/packages/ui/src/hooks/useInstanceAttentionPolling.ts
-@@ -0,0 +1,450 @@
+@@ -0,0 +1,477 @@
 +import React from 'react';
 +
 +import {
@@ -3510,7 +3544,7 @@ index 0000000..56bc09c
 +  type DesktopHost,
 +  type HostProbeResult,
 +} from '@/lib/desktopHosts';
-+import { resolveCurrentDesktopHost, withLocalDesktopHost } from '@/lib/desktopCurrentHost';
++import { resolveCurrentDesktopHost, LOCAL_HOST_ID, withLocalDesktopHost } from '@/lib/desktopCurrentHost';
 +import { probeHost } from '@/lib/desktopHostStatus';
 +import {
 +  readInstanceAttention,
@@ -3521,9 +3555,10 @@ index 0000000..56bc09c
 +import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 +import { useInstanceAttentionStore } from '@/stores/useInstanceAttentionStore';
 +
-+// Polls the saved instances this window is not showing. The active instance is
-+// already reported by the sidebar's own indicators, and its live events keep it
-+// current, so only the others are read here.
++// Polls the instances this window is not showing: the saved ones, plus the
++// app's own server while a saved host is shown. The active instance is already
++// reported by the sidebar's own indicators, and its live events keep it
++// current, so it is not read here.
 +//
 +// Two global routes per server, no directory: `GET /api/session` and
 +// `GET /api/sessions/status`. Neither starts an OpenCode location, so a poll
@@ -3674,31 +3709,57 @@ index 0000000..56bc09c
 +};
 +
 +/**
-+ * The desktop instances to read: saved, not the one this window shows, and
-+ * reachable either directly or over the relay. A relay-only host is included
-+ * now that its tunnel-backed read exists.
++ * The desktop instances to read: the app's own server when this window shows a
++ * saved host, and every saved host that is not the one shown. A relay-only host
++ * is included now that its tunnel-backed read exists.
 + */
 +export const instanceAttentionTargets = (
 +  config: InstanceAttentionHosts,
 +  activeHostId: string,
 +  localClientToken = '',
-+): InstanceAttentionTarget[] => config.hosts
-+  .filter((host) => host.id !== activeHostId)
-+  .flatMap((host) => {
-+    const directUrl = normalizeHostUrl(getDesktopHostApiUrl(host));
-+    if (!directUrl && !host.relay) return [];
-+    return [{
-+      hostId: host.id,
-+      label: host.label,
-+      // Covers the probe's own budgets, the read and a margin, so a healthy
-+      // host that probed slowly is not marked unreachable mid-read.
-+      timeoutMs: INSTANCE_ATTENTION_PROBE_DIRECT_BUDGET_MS
-+        + (host.relay ? INSTANCE_ATTENTION_PROBE_RELAY_BUDGET_MS : 0)
-+        + INSTANCE_ATTENTION_RELAY_READ_TIMEOUT_MS
-+        + INSTANCE_ATTENTION_READ_MARGIN_MS,
-+      read: (signal: AbortSignal) => readDesktopHostAttention(host, localClientToken, signal),
-+    }];
-+  });
++): InstanceAttentionTarget[] => {
++  const targets = config.hosts
++    .filter((host) => host.id !== activeHostId)
++    .flatMap((host) => {
++      const directUrl = normalizeHostUrl(getDesktopHostApiUrl(host));
++      if (!directUrl && !host.relay) return [];
++      return [{
++        hostId: host.id,
++        label: host.label,
++        // Covers the probe's own budgets, the read and a margin, so a healthy
++        // host that probed slowly is not marked unreachable mid-read.
++        timeoutMs: INSTANCE_ATTENTION_PROBE_DIRECT_BUDGET_MS
++          + (host.relay ? INSTANCE_ATTENTION_PROBE_RELAY_BUDGET_MS : 0)
++          + INSTANCE_ATTENTION_RELAY_READ_TIMEOUT_MS
++          + INSTANCE_ATTENTION_READ_MARGIN_MS,
++        read: (signal: AbortSignal) => readDesktopHostAttention(host, localClientToken, signal),
++      }];
++    });
++
++  // The app's own server is not a saved host, so it is read only while the
++  // window shows another instance. It needs no probe: the shell's loopback
++  // server is either answering or it is not, and a failed read keeps the last
++  // known items instead of reading as empty.
++  const localUrl = activeHostId === LOCAL_HOST_ID
++    ? ''
++    : normalizeHostUrl(config.localOrigin ?? '') ?? '';
++  if (localUrl) {
++    targets.unshift({
++      hostId: LOCAL_HOST_ID,
++      label: 'Local',
++      timeoutMs: INSTANCE_ATTENTION_DIRECT_READ_TIMEOUT_MS + INSTANCE_ATTENTION_READ_MARGIN_MS,
++      read: (signal: AbortSignal) => readInstanceAttentionWithin(
++        signal,
++        INSTANCE_ATTENTION_DIRECT_READ_TIMEOUT_MS,
++        (readSignal) => readInstanceAttention({
++          url: localUrl,
++          token: localClientToken,
++        }, { signal: readSignal }),
++      ),
++    });
++  }
++  return targets;
++};
 +
 +/**
 + * Owns the polling loop. Every cycle re-reads the saved instances, so adding,
@@ -4415,10 +4476,10 @@ index 0000000..aeae235
 +  }, [enabled]);
 +};
 diff --git a/packages/ui/src/lib/DOCUMENTATION.md b/packages/ui/src/lib/DOCUMENTATION.md
-index cd38893..69fa02d 100644
+index cd38893..091fe92 100644
 --- a/packages/ui/src/lib/DOCUMENTATION.md
 +++ b/packages/ui/src/lib/DOCUMENTATION.md
-@@ -23,3 +23,20 @@ A rotated phone's viewport and `screen.width` both report the long side, so a wi
+@@ -23,3 +23,22 @@ A rotated phone's viewport and `screen.width` both report the long side, so a wi
  ### Why the short-side rule reads only `(pointer: coarse)` and not the wider touch check
  
  `hover: none` and touch points also match touch laptops driven by a mouse. On those the short side would keep the mobile shell at full width, so they stay on the viewport width rule.
@@ -4427,10 +4488,12 @@ index cd38893..69fa02d 100644
 +
 +### Ownership
 +
-+`lib/instanceAttention.ts` owns the two global wire reads (`/api/session`, `/api/sessions/status`), the ordering and subagent attribution, and the relay transport. `hooks/useInstanceAttentionPolling.ts` owns the desktop poller and its reachability decisions; `hooks/useLocalInstanceAttention.ts` publishes this window's own instance from the live stores. `stores/useInstanceAttentionStore.ts` holds the one sorted list every surface reads. `lib/instanceAttentionJump.ts` owns the shared switch-and-open path.
++`lib/instanceAttention.ts` owns the two global wire reads (`/api/session`, `/api/sessions/status`), the ordering and subagent attribution, and the relay transport. `hooks/useInstanceAttentionPolling.ts` owns the desktop poller and its reachability decisions; `hooks/useLocalInstanceAttention.ts` publishes this window's own instance from the live stores. `stores/useInstanceAttentionStore.ts` holds the one sorted list every surface reads. `lib/instanceAttentionJump.ts` owns the shared switch-and-open path, and `lib/desktopHostActions.ts` owns the saved-host switch and the return to the app's own server.
 +
 +### Invariants
 +
++- The app's own server is a poll target (`local`) only while the window shows a saved host. It is read directly with the shell's local origin and client token and no shared probe, because the shell either runs that loopback server or reports none. The reserved `openchamber:this-instance` entry still names the instance on screen, so the two never describe the same server.
++- A jump to the app's own server goes through `activateLocalHost`, not the saved-host lookup, which does not hold Local. The shell loads the Local UI when the page belongs to another instance, and the switch happens in place on the app's own pages.
 +- A poll names no directory, so it never starts an OpenCode location or an MCP server. It uses the saved host's own address, client token and request headers.
 +- Reachability is the shared answer (`lib/desktopHostStatus.ts` `probeHost`), not a second probe. A relay answer hands its tunnel to the read, which closes it afterwards; a blocked status (`unreachable`, `wrong-service`, `incompatible`, `relay-limit`) reads nothing.
 +- Relay identity comes from `descriptorsEqual` in `lib/relay/runtime-tunnel.ts`, so the switcher's relay and the poller's relay cannot disagree.
@@ -4439,11 +4502,66 @@ index cd38893..69fa02d 100644
 +- A failed poll keeps the host's last known items and marks it unreachable; a partial answer keeps the half that answered. Offline reads nothing and waits at the retry cap. A failed host backs off, and a hidden window schedules no further cycle.
 +- Removing a saved instance drops its rows; a tap on an unreachable host, or one no longer saved, keeps the surface open instead of switching blind.
 +- The runtime gate is deliberate: desktop and mobile run the pollers, while web and VS Code do not show cross-instance attention because neither owns a saved-instance switcher.
+diff --git a/packages/ui/src/lib/desktopCurrentHost.ts b/packages/ui/src/lib/desktopCurrentHost.ts
+index 189769e..6e2b81e 100644
+--- a/packages/ui/src/lib/desktopCurrentHost.ts
++++ b/packages/ui/src/lib/desktopCurrentHost.ts
+@@ -19,6 +19,9 @@ import { getRuntimeApiBaseUrl, getRuntimeKey } from '@/lib/runtime-switch';
+ 
+ export const LOCAL_HOST_ID = 'local';
+ 
++/** The runtime key the app's own server is remembered under. */
++export const LOCAL_RUNTIME_KEY = 'local';
++
+ /**
+  * Where this app's own server listens, as the desktop shell reports it. Empty
+  * when the shell runs no local server (`OPENCHAMBER_SKIP_LOCAL_SERVER=1`) or
+@@ -41,7 +44,7 @@ export const withLocalDesktopHost = (hosts: DesktopHost[], localOrigin: string |
+ );
+ 
+ export const runtimeKeyForDesktopHost = (host: DesktopHost): string => {
+-  if (host.id === LOCAL_HOST_ID) return 'local';
++  if (host.id === LOCAL_HOST_ID) return LOCAL_RUNTIME_KEY;
+   return `host:${host.id}`;
+ };
+ 
 diff --git a/packages/ui/src/lib/desktopHostActions.ts b/packages/ui/src/lib/desktopHostActions.ts
-index 8df361b..5b86440 100644
+index 8df361b..35ca749 100644
 --- a/packages/ui/src/lib/desktopHostActions.ts
 +++ b/packages/ui/src/lib/desktopHostActions.ts
-@@ -20,7 +20,13 @@ const failureOf = (message: string): HostActionFailure => {
+@@ -1,14 +1,23 @@
+ // Host work the desktop shell hands to the main window: redeeming a pairing
+-// link the user confirmed in the shell's prompt, and activating a host that
+-// has a relay leg. Both need the E2EE relay client, which lives here. Pairing
+-// goes through the same importDesktopHostPairing as Import Link in Settings, so
+-// a link whose only reachable leg is the relay pairs over the tunnel and the
+-// saved host keeps both its direct and relay legs. Activation probes the direct
+-// address first and falls back to the tunnel, like the host switcher.
++// link the user confirmed in the shell's prompt, activating a host that has a
++// relay leg, and returning to the app's own server. All three need the shell
++// or the E2EE relay client, which live here. Pairing goes through the same
++// importDesktopHostPairing as Import Link in Settings, so a link whose only
++// reachable leg is the relay pairs over the tunnel and the saved host keeps
++// both its direct and relay legs. Activation probes the direct address first
++// and falls back to the tunnel, like the host switcher.
+ 
+ import { takePendingDesktopHostActions } from '@/lib/desktop';
+-import { runtimeKeyForDesktopHost } from '@/lib/desktopCurrentHost';
+-import { desktopHostsGet, desktopHostsSet, getDesktopHostApiUrl, importDesktopHostPairing, normalizeHostUrl } from '@/lib/desktopHosts';
++import { getLocalDesktopOrigin, LOCAL_RUNTIME_KEY, runtimeKeyForDesktopHost } from '@/lib/desktopCurrentHost';
++import {
++  desktopHostsGet,
++  desktopHostsSet,
++  desktopLocalClientTokenGet,
++  desktopSwitchToLocal,
++  getDesktopHostApiUrl,
++  importDesktopHostPairing,
++  normalizeHostUrl,
++} from '@/lib/desktopHosts';
+ import { restoreDesktopRelayRuntime } from '@/lib/desktopRelayRestore';
+ import { switchRuntimeEndpoint } from '@/lib/runtime-switch';
+ 
+@@ -20,7 +29,13 @@ const failureOf = (message: string): HostActionFailure => {
    return 'failed';
  };
  
@@ -4458,6 +4576,35 @@ index 8df361b..5b86440 100644
    const host = (await desktopHostsGet()).hosts.find((entry) => entry.id === hostId);
    if (!host) throw new Error('host-not-found');
    if (host.relay) {
+@@ -38,6 +53,28 @@ const activateHost = async (hostId: string, options?: { reconnectActive?: boolea
+   });
+ };
+ 
++/**
++ * Switches this window to the app's own server. A page served by another
++ * instance cannot reach the local server, so the shell loads the Local UI into
++ * the window and this answers true without switching here; on the app's own
++ * pages the shell declines and the endpoint switches in place. Answers whether
++ * a switch happened, so a caller leaves the item alone when the shell runs no
++ * local server to move to.
++ */
++export const activateLocalHost = async (): Promise<boolean> => {
++  if (await desktopSwitchToLocal()) return true;
++  const localOrigin = (await desktopHostsGet()).localOrigin || getLocalDesktopOrigin();
++  const apiBaseUrl = normalizeHostUrl(localOrigin);
++  if (!apiBaseUrl) return false;
++  const clientToken = await desktopLocalClientTokenGet().catch(() => '');
++  switchRuntimeEndpoint({
++    apiBaseUrl,
++    clientToken: clientToken || null,
++    runtimeKey: LOCAL_RUNTIME_KEY,
++  });
++  return true;
++};
++
+ const pairAndActivate = async (link: string): Promise<void> => {
+   const config = await desktopHostsGet();
+   const imported = await importDesktopHostPairing(link, config.hosts);
 diff --git a/packages/ui/src/lib/desktopHostStatus.ts b/packages/ui/src/lib/desktopHostStatus.ts
 index 7d91dba..d24c298 100644
 --- a/packages/ui/src/lib/desktopHostStatus.ts
@@ -5932,18 +6079,21 @@ index 0000000..c2a8b6f
 +)];
 diff --git a/packages/ui/src/lib/instanceAttentionJump.test.ts b/packages/ui/src/lib/instanceAttentionJump.test.ts
 new file mode 100644
-index 0000000..059a9e5
+index 0000000..7701828
 --- /dev/null
 +++ b/packages/ui/src/lib/instanceAttentionJump.test.ts
-@@ -0,0 +1,147 @@
+@@ -0,0 +1,198 @@
 +import { beforeEach, describe, expect, mock, test } from 'bun:test';
 +
++import { LOCAL_HOST_ID } from '@/lib/desktopCurrentHost';
 +import { LOCAL_INSTANCE_ATTENTION_HOST_ID, type InstanceAttentionItem } from '@/lib/instanceAttention';
 +import { useInstanceAttentionStore } from '@/stores/useInstanceAttentionStore';
 +
 +const activations: string[] = [];
++const localActivations: boolean[] = [];
 +const openedSessions: Array<[string, string | null]> = [];
 +let failNextActivation = false;
++let nextLocalSwitch = true;
 +
 +const activateHost = mock(async (hostId: string) => {
 +  activations.push(hostId);
@@ -5952,11 +6102,15 @@ index 0000000..059a9e5
 +    throw new Error('unreachable');
 +  }
 +});
++const activateLocalHost = mock(async () => {
++  localActivations.push(true);
++  return nextLocalSwitch;
++});
 +const setCurrentSession = mock((sessionId: string, directory: string | null) => {
 +  openedSessions.push([sessionId, directory]);
 +});
 +
-+mock.module('@/lib/desktopHostActions', () => ({ activateHost }));
++mock.module('@/lib/desktopHostActions', () => ({ activateHost, activateLocalHost }));
 +mock.module('@/sync/session-ui-store', () => ({
 +  useSessionUIStore: { getState: () => ({ setCurrentSession }) },
 +}));
@@ -5977,8 +6131,10 @@ index 0000000..059a9e5
 +
 +beforeEach(() => {
 +  activations.length = 0;
++  localActivations.length = 0;
 +  openedSessions.length = 0;
 +  failNextActivation = false;
++  nextLocalSwitch = true;
 +  useInstanceAttentionStore.getState().reset();
 +});
 +
@@ -5986,6 +6142,14 @@ index 0000000..059a9e5
 +  useInstanceAttentionStore.getState().applyPoll('host-b', 'Build box', {
 +    sessions: [{ id: 'ses_a', directory: '/repo', title: 'Session A', archived: false, idle: 10 }],
 +    pending: new Map([['ses_a', { permissions: 1, forms: 0, pages: 0 }]]),
++    busy: new Set(),
++  }, 100);
++};
++
++const seedLocal = (): void => {
++  useInstanceAttentionStore.getState().applyPoll(LOCAL_HOST_ID, 'Local', {
++    sessions: [{ id: 'ses_navi', directory: '/repo', title: 'Session Navi', archived: false, idle: 10 }],
++    pending: new Map([['ses_navi', { permissions: 1, forms: 0, pages: 0 }]]),
 +    busy: new Set(),
 +  }, 100);
 +};
@@ -6049,6 +6213,40 @@ index 0000000..059a9e5
 +    expect(openedSessions).toEqual([['ses_local', '/repo']]);
 +  });
 +
++  test('an item from the app own server switches back to Local and opens the session', async () => {
++    seedLocal();
++
++    const opened = await openInstanceAttentionItem(item({
++      key: `${LOCAL_HOST_ID}:ses_navi`,
++      hostId: LOCAL_HOST_ID,
++      hostLabel: 'Local',
++      sessionId: 'ses_navi',
++    }));
++
++    expect(opened).toBe(true);
++    // Local is not a saved host, so it goes through the shell's own switch.
++    expect(activations).toEqual([]);
++    expect(localActivations).toEqual([true]);
++    expect(openedSessions).toEqual([['ses_navi', '/repo']]);
++    expect(useInstanceAttentionStore.getState().hosts[LOCAL_HOST_ID]).toBeUndefined();
++  });
++
++  test('a Local switch that did not happen keeps the item', async () => {
++    seedLocal();
++    nextLocalSwitch = false;
++
++    const opened = await openInstanceAttentionItem(item({
++      key: `${LOCAL_HOST_ID}:ses_navi`,
++      hostId: LOCAL_HOST_ID,
++      hostLabel: 'Local',
++      sessionId: 'ses_navi',
++    }));
++
++    expect(opened).toBe(false);
++    expect(openedSessions).toEqual([]);
++    expect(useInstanceAttentionStore.getState().hosts[LOCAL_HOST_ID]).toBeDefined();
++  });
++
 +  test('the phone supplies its own switch and gets the same open path', async () => {
 +    seed();
 +    const switched: string[] = [];
@@ -6085,11 +6283,12 @@ index 0000000..059a9e5
 +});
 diff --git a/packages/ui/src/lib/instanceAttentionJump.ts b/packages/ui/src/lib/instanceAttentionJump.ts
 new file mode 100644
-index 0000000..90c331a
+index 0000000..93c1bdd
 --- /dev/null
 +++ b/packages/ui/src/lib/instanceAttentionJump.ts
-@@ -0,0 +1,78 @@
-+import { activateHost } from '@/lib/desktopHostActions';
+@@ -0,0 +1,84 @@
++import { activateHost, activateLocalHost } from '@/lib/desktopHostActions';
++import { LOCAL_HOST_ID } from '@/lib/desktopCurrentHost';
 +import { isLocalInstanceAttentionHost, type InstanceAttentionItem } from '@/lib/instanceAttention';
 +import { useInstanceAttentionStore } from '@/stores/useInstanceAttentionStore';
 +import { useSessionUIStore } from '@/sync/session-ui-store';
@@ -6161,6 +6360,11 @@ index 0000000..90c331a
 +  }
 +  if (useInstanceAttentionStore.getState().hosts[item.hostId]?.status === 'error') {
 +    return Promise.resolve(false);
++  }
++  // The app's own server is not in the saved list, so `activateHost` cannot
++  // find it: the shell's Local switch is the path back to this machine.
++  if (item.hostId === LOCAL_HOST_ID) {
++    return openInstanceAttentionItemWith(item, activateLocalHost);
 +  }
 +  return openInstanceAttentionItemWith(item, async (hostId) => {
 +    await activateHost(hostId);
@@ -6523,10 +6727,10 @@ index c3f7ea3..0345657 100644
    a.serverId === b.serverId &&
    a.grant === b.grant &&
 diff --git a/packages/ui/src/stores/DOCUMENTATION.md b/packages/ui/src/stores/DOCUMENTATION.md
-index e4fe4ba..72e9e00 100644
+index e4fe4ba..bcb5187 100644
 --- a/packages/ui/src/stores/DOCUMENTATION.md
 +++ b/packages/ui/src/stores/DOCUMENTATION.md
-@@ -98,6 +98,29 @@ owner cannot replace the catalog or finish the current owner's loading state.
+@@ -98,6 +98,32 @@ owner cannot replace the catalog or finish the current owner's loading state.
  
  ### Feature cache / query stores
  
@@ -6534,14 +6738,17 @@ index e4fe4ba..72e9e00 100644
 +
 +`useInstanceAttentionStore.ts` holds one list for every session that needs the
 +user, strongest reason first and newest within that. The saved instances the
-+poller reads answer from their `/api/session` and `/api/sessions/status` routes.
-+The instance this window shows is published by `hooks/useLocalInstanceAttention.ts`
-+as the reserved `openchamber:this-instance` entry, derived from
++poller reads answer from their `/api/session` and `/api/sessions/status` routes,
++and while one of them is on screen the app's own server answers the same two
++routes under the `local` id. The instance this window shows is published by
++`hooks/useLocalInstanceAttention.ts` as the reserved
++`openchamber:this-instance` entry, derived from
 +`sync/global-blocking-requests.ts`, `useGlobalSessionsStore` and
 +`sync/session-unread.ts`; a subagent request attributes to its top-level parent.
 +Every surface reads the same `items` array, so the switcher, the phone bell and
 +the collapsed-sidebar badge show one total. `retainHosts` keeps the reserved
-+entry because it is never in a poller's target list.
++entry because it is never in a poller's target list; the `local` entry leaves
++with the target list when the window returns to it.
 +
 +#### Why the local instance is a store entry and not a second list
 +
