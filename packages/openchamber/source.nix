@@ -85,6 +85,18 @@ let
       # Gitea/Forgejo across-repository listing; upstream still gates
       # `referencesAcross` off for Gitea (#6345 is closed).
       ./patches/gitea-references-across.patch
+      # Restored after the v2.7.2 port retired them on a wrong "upstream has
+      # it" reading: a send with an open question steers into its turn
+      # (upstream main's #6960 defers instead; reconcile on upgrade), and
+      # viewing a session clears its subagents' phone banners on top of
+      # upstream's server-side clearing.
+      ./patches/send-past-open-question.patch
+      ./patches/notification-family-clear.patch
+      # Chat width levels the retired chat-width patch stored (and its
+      # version-2 preferences.json) read as v2.7.2's levels.
+      ./patches/chat-width-remap.patch
+      # In work paging and its page-size setting; v2.7.2 lists every work.
+      ./patches/in-work-paging-show-more.patch
     ];
   };
 in
