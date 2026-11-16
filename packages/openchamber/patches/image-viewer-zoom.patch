@@ -1,17 +1,26 @@
 diff --git a/packages/ui/src/components/chat/message/ToolOutputDialog.tsx b/packages/ui/src/components/chat/message/ToolOutputDialog.tsx
-index 5b9f8fc..716f5e5 100644
+index 5b9f8fce2..396fb52ce 100644
 --- a/packages/ui/src/components/chat/message/ToolOutputDialog.tsx
 +++ b/packages/ui/src/components/chat/message/ToolOutputDialog.tsx
-@@ -28,6 +28,8 @@ import { useDefaultDiffViewMode } from './useDefaultDiffViewMode';
+@@ -28,6 +28,17 @@ import { useDefaultDiffViewMode } from './useDefaultDiffViewMode';
  import { VirtualizedCodeBlock, type CodeLine } from './parts/VirtualizedCodeBlock';
  import { JsonTreeView } from '@/components/ui/JsonTreeView';
  import { StatusImage } from '@/components/ui/status-image';
-+import { wheelZoomFactor } from '@/components/views/files/previews/imageZoom';
-+import { FIT_IMAGE_ZOOM, clampImageZoomOffset, zoomImageAt, type ImageZoom, type ImageZoomPoint } from './imageViewerZoom';
++import { stepImageScale, wheelZoomFactor } from '@/components/views/files/previews/imageZoom';
++import { ImageZoomControls } from '@/components/views/files/previews/ImageZoomControls';
++import {
++    FIT_IMAGE_ZOOM,
++    clampImageZoomOffset,
++    imageZoomAtOwnSize,
++    imageZoomForOwnSize,
++    zoomImageAt,
++    type ImageZoom,
++    type ImageZoomPoint,
++} from './imageViewerZoom';
  import { Icon } from "@/components/icon/Icon";
  import { getToolIcon } from './parts/toolPresentation';
  import { useGuestToolPresentation } from '@/lib/guests/tool-presentation';
-@@ -275,6 +277,23 @@ const imageLoader = (image: GalleryItem | undefined): (() => Promise<Blob>) | nu
+@@ -275,6 +286,23 @@ const imageLoader = (image: GalleryItem | undefined): (() => Promise<Blob>) | nu
  
  const EXTENSION_BY_IMAGE_MIME = new Map([['image/png', 'png'], ['image/jpeg', 'jpg'], ['image/gif', 'gif'], ['image/webp', 'webp'], ['image/svg+xml', 'svg']]);
  
@@ -35,7 +44,7 @@ index 5b9f8fc..716f5e5 100644
  /** The saved file's name: the image's own, given the extension of its format when it has none. */
  const savedImageName = (filename: string | undefined, blob: Blob): string => {
      const name = filename?.split(/[\\/]/).pop()?.trim() || 'image';
-@@ -313,6 +332,14 @@ const ImagePreviewDialog: React.FC<{
+@@ -313,6 +341,14 @@ const ImagePreviewDialog: React.FC<{
      const { isRendered, isVisible, isTransitioning } = usePreviewOverlayState(popup.open);
      const viewport = usePreviewViewport(popup.open);
  
@@ -50,7 +59,7 @@ index 5b9f8fc..716f5e5 100644
      React.useEffect(() => {
          if (!popup.open || gallery.length === 0) {
              return;
-@@ -416,12 +443,214 @@ const ImagePreviewDialog: React.FC<{
+@@ -416,12 +452,234 @@ const ImagePreviewDialog: React.FC<{
          };
      }, [currentNaturalSize, isMobile, viewport.height, viewport.width]);
  
@@ -66,6 +75,16 @@ index 5b9f8fc..716f5e5 100644
 +        zoomRef.current = clamped;
 +        setZoom(clamped);
 +    }, [imageDisplaySize, viewport]);
++
++    // The buttons zoom around the picture's middle, so an offset the user set
++    // stays where it is, scaled with the picture, instead of drifting.
++    const zoomToCenter = React.useCallback((nextScale: number) => {
++        const element = frameRef.current;
++        if (!element) return;
++        const rect = element.getBoundingClientRect();
++        const middle = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
++        applyZoom(zoomImageAt(zoomRef.current, nextScale, middle, middle));
++    }, [applyZoom]);
 +
 +    // A new picture starts at fit; a zoom kept from the last one would open it
 +    // off centre.
@@ -254,6 +273,16 @@ index 5b9f8fc..716f5e5 100644
          return null;
      }
  
++    // How much of the picture's own size the box on screen shows: the shared
++    // zoom buttons read and step the picture in its own pixels, and the chat
++    // keeps its scale against fit. A picture not measured yet reads as fit,
++    // with the buttons disabled.
++    const fitRatio = currentNaturalSize ? imageDisplaySize.width / currentNaturalSize.width : 1;
++    const ownSizeScale = imageZoomAtOwnSize(zoom, fitRatio);
++    const zoomByStep = (direction: 1 | -1) => zoomToCenter(
++        imageZoomForOwnSize(stepImageScale(ownSizeScale, direction), fitRatio),
++    );
++
      const content = (
 -        <div className={cn('fixed inset-0 z-50', popup.open ? 'pointer-events-auto' : 'pointer-events-none')}>
 +        <div
@@ -266,7 +295,7 @@ index 5b9f8fc..716f5e5 100644
              <div
                  aria-hidden="true"
                  className={cn(
-@@ -431,7 +660,7 @@ const ImagePreviewDialog: React.FC<{
+@@ -431,7 +689,7 @@ const ImagePreviewDialog: React.FC<{
                      isTransitioning && 'transition-opacity duration-150 ease-out',
                      isVisible ? 'opacity-100' : 'opacity-0'
                  )}
@@ -275,7 +304,7 @@ index 5b9f8fc..716f5e5 100644
              />
  
              {hasMultipleImages && (
-@@ -469,7 +698,7 @@ const ImagePreviewDialog: React.FC<{
+@@ -469,7 +727,7 @@ const ImagePreviewDialog: React.FC<{
  
              <div
                  className={cn(
@@ -284,7 +313,7 @@ index 5b9f8fc..716f5e5 100644
                      isMobile ? 'p-2.5' : 'p-4'
                  )}
              >
-@@ -481,7 +710,7 @@ const ImagePreviewDialog: React.FC<{
+@@ -481,11 +739,20 @@ const ImagePreviewDialog: React.FC<{
                      )}
                      style={{ width: `${imageDisplaySize.width}px` }}
                  >
@@ -293,7 +322,20 @@ index 5b9f8fc..716f5e5 100644
                          <div className="min-w-0 flex-1 text-foreground typography-ui-header font-semibold truncate" title={imageTitle}>
                              {imageTitle}
                          </div>
-@@ -497,27 +726,46 @@ const ImagePreviewDialog: React.FC<{
+                         <div className="flex shrink-0 items-center gap-0.5">
++                            <ImageZoomControls
++                                percent={ownSizeScale * 100}
++                                atFit={zoom.scale === 1}
++                                disabled={!currentNaturalSize}
++                                onZoomOut={() => zoomByStep(-1)}
++                                onZoomIn={() => zoomByStep(1)}
++                                onActualSize={() => zoomToCenter(imageZoomForOwnSize(1, fitRatio))}
++                                onFit={() => zoomToCenter(1)}
++                            />
+                             {loadCurrentImage ? (
+                                 <ToolbarTooltipButton label={t('chat.image.download')} icon="download" onClick={() => { void handleDownload(); }} />
+                             ) : null}
+@@ -497,27 +764,46 @@ const ImagePreviewDialog: React.FC<{
                          </div>
                      </div>
  
@@ -362,13 +404,13 @@ index 5b9f8fc..716f5e5 100644
          </div>
 diff --git a/packages/ui/src/components/chat/message/imageViewerZoom.test.ts b/packages/ui/src/components/chat/message/imageViewerZoom.test.ts
 new file mode 100644
-index 0000000..4bd31d6
+index 000000000..160fb9712
 --- /dev/null
 +++ b/packages/ui/src/components/chat/message/imageViewerZoom.test.ts
-@@ -0,0 +1,59 @@
+@@ -0,0 +1,84 @@
 +import { describe, expect, test } from 'bun:test';
 +
-+import { FIT_IMAGE_ZOOM, clampImageZoomOffset, clampImageZoomScale, zoomImageAt } from './imageViewerZoom';
++import { FIT_IMAGE_ZOOM, clampImageZoomOffset, clampImageZoomScale, imageZoomAtOwnSize, imageZoomForOwnSize, zoomImageAt } from './imageViewerZoom';
 +
 +describe('imageViewerZoom', () => {
 +    test('a zoom stays between fit and the largest scale', () => {
@@ -424,13 +466,38 @@ index 0000000..4bd31d6
 +
 +        expect(zoom).toEqual({ scale: 8, x: 400, y: -140 });
 +    });
++
++    test('a picture drawn at half its size reads 50% at fit', () => {
++        expect(imageZoomAtOwnSize(FIT_IMAGE_ZOOM, 0.5)).toBe(0.5);
++    });
++
++    test('the 1:1 jump lands on the picture at its own size', () => {
++        const scale = imageZoomForOwnSize(1, 0.5);
++
++        expect(scale).toBe(2);
++        expect(imageZoomAtOwnSize({ scale, x: 0, y: 0 }, 0.5)).toBe(1);
++    });
++
++    test('the 1:1 jump keeps a picture that already fits at fit', () => {
++        expect(imageZoomForOwnSize(1, 1)).toBe(1);
++    });
++
++    test('stepping leaves fit at the preview ladder, up to the chat ceiling', () => {
++        expect(imageZoomForOwnSize(0.75, 0.5)).toBe(1.5);
++        expect(imageZoomForOwnSize(1.5, 1)).toBe(1.5);
++        expect(imageZoomForOwnSize(16, 0.5)).toBe(8);
++    });
++
++    test('stepping below fit stays at fit', () => {
++        expect(imageZoomForOwnSize(0.5, 1)).toBe(1);
++    });
 +});
 diff --git a/packages/ui/src/components/chat/message/imageViewerZoom.ts b/packages/ui/src/components/chat/message/imageViewerZoom.ts
 new file mode 100644
-index 0000000..8ede5b1
+index 000000000..503fbda84
 --- /dev/null
 +++ b/packages/ui/src/components/chat/message/imageViewerZoom.ts
-@@ -0,0 +1,57 @@
+@@ -0,0 +1,71 @@
 +/** A zoom the chat image viewer applies to the picture it shows. */
 +export type ImageZoom = { scale: number; x: number; y: number };
 +
@@ -488,19 +555,221 @@ index 0000000..8ede5b1
 +        y: clampAxis(zoom.y, image.height * zoom.scale, viewport.height, centerOffset.y),
 +    };
 +};
++
++/**
++ * The chat zoom in the files preview's unit, the picture's own size, where 1
++ * draws one image pixel per screen pixel. The chat's scale is against the box
++ * fit draws the picture in, so the two convert through `fitRatio`, how much of
++ * the picture's own size that box shows. That unit is what the shared zoom
++ * buttons step and jump in.
++ */
++export const imageZoomAtOwnSize = (zoom: ImageZoom, fitRatio: number): number => zoom.scale * fitRatio;
++
++/** The chat scale that draws the picture at `ownSizeScale` in its own pixels. */
++export const imageZoomForOwnSize = (ownSizeScale: number, fitRatio: number): number => (
++    clampImageZoomScale(ownSizeScale / fitRatio)
++);
 diff --git a/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md b/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
-index f16f7ae..ca97479 100644
+index f16f7aecb..809523044 100644
 --- a/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
 +++ b/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
-@@ -715,7 +715,10 @@ update, with the `shellID`, when the command starts.
+@@ -715,7 +715,14 @@ update, with the `shellID`, when the command starts.
    fetched page cannot learn when the user read the message. Documents and
    references retain their explicit inline-image policy. A click on loaded
    assistant media opens the shared attachment preview overlay
 -  with every drawn image of the message as its gallery. The viewer's download
-+  with every drawn image of the message as its gallery. A two-finger pinch,
-+  Ctrl/⌘ + wheel, a trackpad pinch in Safari, or a double-click zooms the
-+  picture under the pointer, up to 8x; a zoomed picture pans by dragging and
-+  stays inside the viewer, and a new picture opens at fit. The viewer's download
++  with every drawn image of the message as its gallery. The line above the
++  picture carries the files preview's zoom controls (`ImageZoomControls`): −,
++  the percentage in the picture's own pixels, + and Fit, the same ladder the
++  preview steps, with the chat's fit-relative scale converted through the
++  drawn width. Ctrl/⌘ + wheel, a trackpad pinch in Safari, a two-finger pinch,
++  or a double-click zooms the picture under the pointer, up to 8x; a zoomed
++  picture pans by dragging and stays inside the viewer, and a new picture opens
++  at fit. The viewer's download
    saves an image's own file: each gallery item may carry `load`, which for a
    message's local image reads the whole file through its grant with
    `runtimeFetch` (`loadMessageImageBlob`), never by fetching the asset URL;
+diff --git a/packages/ui/src/components/views/files/DOCUMENTATION.md b/packages/ui/src/components/views/files/DOCUMENTATION.md
+index 16f6afcfd..a76b44d8e 100644
+--- a/packages/ui/src/components/views/files/DOCUMENTATION.md
++++ b/packages/ui/src/components/views/files/DOCUMENTATION.md
+@@ -222,9 +222,11 @@ folders.
+ through −/+ steps, Ctrl/⌘ + wheel or trackpad pinch, Safari gesture events,
+ a two-finger touch pinch, and double-click between fit and 1:1, anchored at
+ the pointer; a zoomed image larger than the viewer pans by mouse drag;
+-`imageZoom.ts` holds the scale math; round arrows fixed to the viewer's
+-edges, and the arrow keys while the image is at fit, show the previous and
+-next image of the same folder, see below),
++`imageZoom.ts` holds the scale math; the −, percentage, + and Fit cluster is
++`ImageZoomControls`, which the chat's image viewer renders too, converting its
++fit-relative scale into the picture's own pixels; round arrows fixed to the
++viewer's edges, and the arrow keys while the image is at fit, show the previous
++and next image of the same folder, see below),
+ `PdfArtifact` (a frame where the runtime has a PDF viewer; elsewhere pages
+ drawn by pdf.js, see below), `MediaArtifact` (native audio/video
+ element, duration and dimensions once metadata loads, a stated failure when
+diff --git a/packages/ui/src/components/views/files/previews/ImageArtifact.tsx b/packages/ui/src/components/views/files/previews/ImageArtifact.tsx
+index 99679500c..0178cda7d 100644
+--- a/packages/ui/src/components/views/files/previews/ImageArtifact.tsx
++++ b/packages/ui/src/components/views/files/previews/ImageArtifact.tsx
+@@ -6,12 +6,12 @@ import { Button } from '@/components/ui/button';
+ import { ContentLoadingState, ContentState } from '@/components/ui/content-state';
+ import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
+ import { isEditableEventTarget } from '@/hooks/keyboard-shortcut-dom';
+-import { ButtonTooltip } from '@/components/ui/action-toolbar';
+ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+ import { useI18n } from '@/lib/i18n';
+ import { cn } from '@/lib/utils';
+ import { ArtifactMetaBar } from './ArtifactMetaBar';
+ import { formatArtifactDimensions, formatArtifactSize } from './artifactMeta';
++import { ImageZoomControls } from './ImageZoomControls';
+ import {
+   IMAGE_VIEWPORT_PADDING,
+   clampImageScale,
+@@ -305,53 +305,15 @@ const ImageArtifactView: React.FC<ImageArtifactProps> = ({ src, name, sizeBytes,
+       <ArtifactMetaBar
+         items={[formatArtifactDimensions(natural), formatArtifactSize(sizeBytes)]}
+         actions={(
+-          <>
+-            <ButtonTooltip side="bottom" label={t('filesView.artifact.image.zoomOut')}>
+-              <Button
+-                variant="ghost"
+-                size="xs"
+-                aria-label={t('filesView.artifact.image.zoomOut')}
+-                disabled={!natural}
+-                onClick={() => zoomAtCenter(stepImageScale(shownScale, -1))}
+-              >
+-                <Icon name="subtract" className="size-3.5" />
+-              </Button>
+-            </ButtonTooltip>
+-            <ButtonTooltip side="bottom" label={t('filesView.artifact.image.actualTitle')}>
+-              <Button
+-                variant="ghost"
+-                size="xs"
+-                className="min-w-11 tabular-nums"
+-                aria-label={t('filesView.artifact.image.actualTitle')}
+-                disabled={!natural}
+-                onClick={() => zoomAtCenter(1)}
+-              >
+-                {`${Math.round(shownScale * 100)}%`}
+-              </Button>
+-            </ButtonTooltip>
+-            <ButtonTooltip side="bottom" label={t('filesView.artifact.image.zoomIn')}>
+-              <Button
+-                variant="ghost"
+-                size="xs"
+-                aria-label={t('filesView.artifact.image.zoomIn')}
+-                disabled={!natural}
+-                onClick={() => zoomAtCenter(stepImageScale(shownScale, 1))}
+-              >
+-                <Icon name="add" className="size-3.5" />
+-              </Button>
+-            </ButtonTooltip>
+-            <ButtonTooltip side="bottom" label={t('filesView.artifact.image.fitTitle')}>
+-              <Button
+-                variant="chip"
+-                size="xs"
+-                aria-pressed={scale === null}
+-                aria-label={t('filesView.artifact.image.fitTitle')}
+-                onClick={() => setScale(null)}
+-              >
+-                {t('filesView.artifact.image.fit')}
+-              </Button>
+-            </ButtonTooltip>
+-          </>
++          <ImageZoomControls
++            percent={shownScale * 100}
++            atFit={scale === null}
++            disabled={!natural}
++            onZoomOut={() => zoomAtCenter(stepImageScale(shownScale, -1))}
++            onZoomIn={() => zoomAtCenter(stepImageScale(shownScale, 1))}
++            onActualSize={() => zoomAtCenter(1)}
++            onFit={() => setScale(null)}
++          />
+         )}
+       />
+       <div ref={viewerRef} className="relative flex min-h-0 flex-1 flex-col">
+diff --git a/packages/ui/src/components/views/files/previews/ImageZoomControls.tsx b/packages/ui/src/components/views/files/previews/ImageZoomControls.tsx
+new file mode 100644
+index 000000000..3cd1f59cc
+--- /dev/null
++++ b/packages/ui/src/components/views/files/previews/ImageZoomControls.tsx
+@@ -0,0 +1,78 @@
++import React from 'react';
++
++import { Icon } from '@/components/icon/Icon';
++import { Button } from '@/components/ui/button';
++import { ButtonTooltip } from '@/components/ui/action-toolbar';
++import { useI18n } from '@/lib/i18n';
++
++/**
++ * The − / percentage / + / Fit cluster above an image: the files preview's
++ * zoom bar, shared with the chat's image viewer so both read and step the same
++ * way. Callers keep their own zoom model and pass the percentage the picture is
++ * drawn at, 100% being one image pixel per screen pixel.
++ */
++export const ImageZoomControls: React.FC<{
++  /** What the picture is drawn at now, in percent of its own size. */
++  percent: number;
++  /** Fit is what the viewer shows now, so the chip reads as pressed. */
++  atFit: boolean;
++  /** The picture's real size is not known yet, so there is nothing to step. */
++  disabled?: boolean;
++  onZoomOut: () => void;
++  onZoomIn: () => void;
++  /** Draw the picture one pixel per screen pixel. */
++  onActualSize: () => void;
++  onFit: () => void;
++}> = ({ percent, atFit, disabled = false, onZoomOut, onZoomIn, onActualSize, onFit }) => {
++  const { t } = useI18n();
++  return (
++    <>
++      <ButtonTooltip side="bottom" label={t('filesView.artifact.image.zoomOut')}>
++        <Button
++          variant="ghost"
++          size="xs"
++          aria-label={t('filesView.artifact.image.zoomOut')}
++          disabled={disabled}
++          onClick={onZoomOut}
++        >
++          <Icon name="subtract" className="size-3.5" />
++        </Button>
++      </ButtonTooltip>
++      <ButtonTooltip side="bottom" label={t('filesView.artifact.image.actualTitle')}>
++        <Button
++          variant="ghost"
++          size="xs"
++          className="min-w-11 tabular-nums"
++          aria-label={t('filesView.artifact.image.actualTitle')}
++          disabled={disabled}
++          onClick={onActualSize}
++        >
++          {`${Math.round(percent)}%`}
++        </Button>
++      </ButtonTooltip>
++      <ButtonTooltip side="bottom" label={t('filesView.artifact.image.zoomIn')}>
++        <Button
++          variant="ghost"
++          size="xs"
++          aria-label={t('filesView.artifact.image.zoomIn')}
++          disabled={disabled}
++          onClick={onZoomIn}
++        >
++          <Icon name="add" className="size-3.5" />
++        </Button>
++      </ButtonTooltip>
++      {/* Fit works at any scale, so unlike the steps it never disables. */}
++      <ButtonTooltip side="bottom" label={t('filesView.artifact.image.fitTitle')}>
++        <Button
++          variant="chip"
++          size="xs"
++          aria-pressed={atFit}
++          aria-label={t('filesView.artifact.image.fitTitle')}
++          onClick={onFit}
++        >
++          {t('filesView.artifact.image.fit')}
++        </Button>
++      </ButtonTooltip>
++    </>
++  );
++};
