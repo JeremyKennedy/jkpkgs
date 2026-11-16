@@ -1,67 +1,121 @@
+diff --git a/docs/CUSTOM_THEMES.md b/docs/CUSTOM_THEMES.md
+index 4808ee8db..688a09028 100644
+--- a/docs/CUSTOM_THEMES.md
++++ b/docs/CUSTOM_THEMES.md
+@@ -110,6 +110,7 @@ Add an override only when the default relationship does not fit your palette.
+ | `interactive` | `selection`, `selectionForeground`, `hover`, `active`, `borderHover`, `borderFocus`, `focus`, `focusRing`, `cursor` |
+ | `status` | Each status accepts `Foreground`, `Background` and `Border` suffixes |
+ | `pr` | `open`, `draft`, `blocked`, `merged`, `closed` |
++| `question` | `base` for the waiting-question mark; `foreground`, `background` and `border` derive from it |
+ | `chat` | `userMessageBackground`, `divider`, legacy `background` used as the inline-code background fallback |
+ | `markdown` | `link`, `linkHover`, `inlineCode`, `inlineCodeBackground`, `blockquote`, `blockquoteBorder`, `listMarker`, `bold`, `italic`, `strikethrough`, `hr` |
+ | `tools` | `border`, `icon`, `title`, `description`; `edit` accepts `addedBackground`, `removedBackground`, `modifiedBackground`, `lineNumber` |
 diff --git a/packages/ui/src/apps/MobileSessionStateBadges.tsx b/packages/ui/src/apps/MobileSessionStateBadges.tsx
-index 4a97ebd4a..87714e402 100644
+index 4a97ebd4a..1ac90acc3 100644
 --- a/packages/ui/src/apps/MobileSessionStateBadges.tsx
 +++ b/packages/ui/src/apps/MobileSessionStateBadges.tsx
-@@ -39,7 +39,7 @@ export const MobileSessionPendingBadges: React.FC<PendingRequests> = ({ hasPermi
-       ) : null}
-       {hasForm ? (
-         <span
+@@ -5,7 +5,6 @@ import { useI18n } from '@/lib/i18n';
+ import type { Session } from '@/lib/opencode/model';
+ import { getSessionGoal } from '@/lib/sessionGoalMetadata';
+ import { sessionGoalMarkLabelKey, sessionGoalStatusColor } from '@/lib/sessionGoalPresentation';
+-import type { PendingRequests } from './usePendingRequests';
+ 
+ /** The goal glyph the desktop sidebar shows, tinted by the goal's status. */
+ export const MobileSessionGoalGlyph: React.FC<{ session: Session }> = ({ session }) => {
+@@ -22,29 +21,3 @@ export const MobileSessionGoalGlyph: React.FC<{ session: Session }> = ({ session
+     />
+   );
+ };
+-
+-/** The permission and question badges the desktop sidebar shows. */
+-export const MobileSessionPendingBadges: React.FC<PendingRequests> = ({ hasPermission, hasForm }) => {
+-  const { t } = useI18n();
+-  if (!hasPermission && !hasForm) return null;
+-  return (
+-    <>
+-      {hasPermission ? (
+-        <span
 -          className="inline-flex shrink-0 items-center text-status-warning"
-+          className="inline-flex shrink-0 items-center rounded border border-status-question-border bg-status-question-background px-1 text-status-question"
-           aria-label={t('sessions.sidebar.session.status.questionPending')}
-         >
-           <Icon name="question" className="size-3" />
+-          aria-label={t('sessions.sidebar.session.status.permissionRequired')}
+-        >
+-          <Icon name="shield" className="size-3" />
+-        </span>
+-      ) : null}
+-      {hasForm ? (
+-        <span
+-          className="inline-flex shrink-0 items-center text-status-warning"
+-          aria-label={t('sessions.sidebar.session.status.questionPending')}
+-        >
+-          <Icon name="question" className="size-3" />
+-        </span>
+-      ) : null}
+-    </>
+-  );
+-};
 diff --git a/packages/ui/src/apps/MobileSessionSwitcher.tsx b/packages/ui/src/apps/MobileSessionSwitcher.tsx
-index e02706384..c9e15b1c0 100644
+index e02706384..c57c32a8f 100644
 --- a/packages/ui/src/apps/MobileSessionSwitcher.tsx
 +++ b/packages/ui/src/apps/MobileSessionSwitcher.tsx
-@@ -1,6 +1,7 @@
- import React from 'react';
+@@ -2,6 +2,7 @@ import React from 'react';
  import { useSessionTurnActivity } from '@/sync/global-session-status';
  import { getSessionActivityTime } from '@/sync/session-ordering';
-+import { Icon } from '@/components/icon/Icon';
  import { SessionActivityIndicator } from '@/components/session/SessionActivityIndicator';
++import { SessionPendingMarks } from '@/components/session/SessionPendingMarks';
  import type { Session } from '@/lib/opencode/model';
  import type { SessionNode } from '@/components/session/sidebar/types';
-@@ -47,6 +48,8 @@ const SwitcherRow: React.FC<{
-   const pendingRequests = usePendingRequests(node, false, resolveGlobalSessionDirectory(session));
-   const { hasPermission: hasPendingPermission, hasForm: hasPendingForm } = pendingRequests;
-   const waitingOnUser = hasPendingPermission || hasPendingForm;
-+  const permissionLabel = t('sessions.sidebar.session.status.permissionRequired');
-+  const questionLabel = t('sessions.sidebar.session.status.questionPending');
-   const hasActivityDuration = useHasSessionTurnDuration(session.id, isStreaming);
-   const showActivityDuration = (isStreaming || showUnreadDot) && !waitingOnUser && hasActivityDuration;
-   const timeLabel = formatSessionCompactDateLabel(getSessionActivityTime(session));
-@@ -70,7 +73,28 @@ const SwitcherRow: React.FC<{
+ 
+@@ -70,7 +71,11 @@ const SwitcherRow: React.FC<{
          ) : null}
        </span>
        {/* Activity sits on the right, before the time — no reserved left gutter. */}
 -      {isStreaming || showUnreadDot ? (
 +      {waitingOnUser ? (
 +        <span className="flex flex-shrink-0 items-center gap-1">
-+          {hasPendingPermission ? (
-+            <span
-+              className="inline-flex shrink-0 items-center text-status-warning"
-+              aria-label={permissionLabel}
-+              title={permissionLabel}
-+            >
-+              <Icon name="shield" className="size-3" />
-+            </span>
-+          ) : null}
-+          {hasPendingForm ? (
-+            <span
-+              className="inline-flex shrink-0 items-center rounded border border-status-question-border bg-status-question-background px-1 text-status-question"
-+              aria-label={questionLabel}
-+              title={questionLabel}
-+            >
-+              <Icon name="question" className="size-3" />
-+            </span>
-+          ) : null}
++          <SessionPendingMarks hasPermission={hasPendingPermission} hasForm={hasPendingForm} />
 +        </span>
 +      ) : isStreaming || showUnreadDot ? (
          <SessionActivityIndicator
            state={turnActivity ?? 'unread'}
          />
+diff --git a/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx b/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx
+index bf7e177a9..25203b5d1 100644
+--- a/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx
++++ b/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx
+@@ -2,6 +2,7 @@ import React from 'react';
+ import { Icon } from '@/components/icon/Icon';
+ import { SessionActivityDuration } from '@/components/session/SessionActivityDuration';
+ import { SessionActivityIndicator } from '@/components/session/SessionActivityIndicator';
++import { SessionPendingMarks } from '@/components/session/SessionPendingMarks';
+ import { SessionReadMenuItem } from '@/components/session/SessionReadMenuItem';
+ import { ContextMenuItem, ContextMenuSeparator } from '@/components/ui/context-menu';
+ import { toast } from '@/components/ui';
+@@ -37,7 +38,7 @@ import { useSessionMarkedUnread, useSessionUnread } from '@/sync/session-unread'
+ import { getSessionDirectory } from '../mobileSessionFields';
+ import { MobileProjectIcon } from '../MobileProjectIcon';
+ import { MobileSessionRenameForm } from '../MobileSessionRenameForm';
+-import { MobileSessionGoalGlyph, MobileSessionPendingBadges } from '../MobileSessionStateBadges';
++import { MobileSessionGoalGlyph } from '../MobileSessionStateBadges';
+ import { MobileSessionRowActions, MobileSwipeActionsRow, ROW_ACTION_SLOT_WIDTH, ROW_ACTIONS_WIDTH } from '../MobileSessionSwipe';
+ import { mobileSessionTitleClass } from '../mobileSessionTitle';
+ import { usePendingRequests } from '../usePendingRequests';
+@@ -243,7 +244,7 @@ export const MobileSessionRow: React.FC<{
+             <MobileSessionGoalGlyph session={session} />
+             {refMark(true)}
+             {marks}
+-            <MobileSessionPendingBadges {...pendingRequests} />
++            <SessionPendingMarks {...pendingRequests} />
+           </span>
+         </> : null}
+       />
+@@ -271,7 +272,7 @@ export const MobileSessionRow: React.FC<{
+           <MobileSessionGoalGlyph session={session} />
+           {refMark(false)}
+           {marks}
+-          <MobileSessionPendingBadges {...pendingRequests} />
++          <SessionPendingMarks {...pendingRequests} />
+           {pinMarker}
+           {doneHint}
+           {liveState}
 diff --git a/packages/ui/src/components/multirun/LaneStatusIcon.tsx b/packages/ui/src/components/multirun/LaneStatusIcon.tsx
 index 9cd1322b1..d10c782e6 100644
 --- a/packages/ui/src/components/multirun/LaneStatusIcon.tsx
@@ -88,114 +142,612 @@ index 87c727bda..57ff3b2d0 100644
    error: { icon: 'error-warning', color: 'var(--status-error)' },
    conflict: { icon: 'git-pull-request', color: 'var(--pr-blocked)' },
    checks: { icon: 'git-pull-request', color: 'var(--pr-blocked)' },
+diff --git a/packages/ui/src/components/session/SessionPendingMarks.test.tsx b/packages/ui/src/components/session/SessionPendingMarks.test.tsx
+new file mode 100644
+index 000000000..7119a6e02
+--- /dev/null
++++ b/packages/ui/src/components/session/SessionPendingMarks.test.tsx
+@@ -0,0 +1,88 @@
++import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
++import { Window } from 'happy-dom';
++import React, { act } from 'react';
++import { createRoot, type Root } from 'react-dom/client';
++
++import { I18nProvider } from '@/lib/i18n';
++import { SessionPendingMarks } from './SessionPendingMarks';
++
++const GLOBAL_NAMES = ['window', 'document', 'HTMLElement', 'Element', 'Node', 'IS_REACT_ACT_ENVIRONMENT'];
++
++describe('SessionPendingMarks', () => {
++  let windowInstance: Window;
++  let host: HTMLDivElement;
++  let root: Root;
++  let globalDescriptors: Map<string, PropertyDescriptor | undefined>;
++
++  const render = async (props: React.ComponentProps<typeof SessionPendingMarks>) => {
++    await act(async () => root.render(<I18nProvider><SessionPendingMarks {...props} /></I18nProvider>));
++  };
++
++  const marks = () => Array.from(host.querySelectorAll<HTMLElement>('[data-session-pending-mark]'));
++
++  beforeEach(() => {
++    windowInstance = new Window();
++    globalDescriptors = new Map(GLOBAL_NAMES.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
++    Object.assign(globalThis, {
++      window: windowInstance,
++      document: windowInstance.document,
++      HTMLElement: windowInstance.HTMLElement,
++      Element: windowInstance.Element,
++      Node: windowInstance.Node,
++      IS_REACT_ACT_ENVIRONMENT: true,
++    });
++    host = document.createElement('div');
++    document.body.append(host);
++    root = createRoot(host);
++  });
++
++  afterEach(async () => {
++    try {
++      await act(async () => root.unmount());
++    } finally {
++      await windowInstance.happyDOM.close();
++      for (const [name, descriptor] of globalDescriptors) {
++        if (descriptor) Object.defineProperty(globalThis, name, descriptor);
++        else Reflect.deleteProperty(globalThis, name);
++      }
++    }
++  });
++
++  test('a row draw native titles: the shield, then the question mark', async () => {
++    await render({ hasPermission: true, hasForm: true });
++    expect(marks().map((mark) => mark.dataset.sessionPendingMark)).toEqual(['permission', 'form']);
++    expect(marks().map((mark) => mark.getAttribute('aria-label'))).toEqual(['Permission required', 'Pending question']);
++    expect(marks().map((mark) => mark.getAttribute('title'))).toEqual(['Permission required', 'Pending question']);
++  });
++
++  test('a clickable header keeps the labels but lets its own tooltip name the marks', async () => {
++    await render({ hasPermission: true, hasForm: true, tooltip: true });
++    expect(marks().map((mark) => mark.getAttribute('aria-label'))).toEqual(['Permission required', 'Pending question']);
++    expect(marks().every((mark) => mark.getAttribute('title') === null)).toBe(true);
++  });
++
++  test('the question mark is the permission shield\'s peer, not a chip', async () => {
++    await render({ hasPermission: true, hasForm: true });
++    for (const mark of marks()) {
++      expect(mark.className).toContain('shrink-0');
++      expect(mark.className).not.toContain('border');
++      expect(mark.className).not.toContain('bg-');
++      expect(mark.className).not.toContain('rounded');
++      const glyph = mark.querySelector('svg');
++      expect(glyph?.getAttribute('class')).toContain('size-3');
++    }
++    expect(marks()[0].querySelector('use')?.getAttribute('href')).toBe('#oc-shield');
++    expect(marks()[1].querySelector('use')?.getAttribute('href')).toBe('#oc-question');
++  });
++
++  test('draws only what waits, and nothing when nothing does', async () => {
++    await render({ hasPermission: true, hasForm: false });
++    expect(marks().map((mark) => mark.dataset.sessionPendingMark)).toEqual(['permission']);
++
++    await render({ hasPermission: false, hasForm: true });
++    expect(marks().map((mark) => mark.dataset.sessionPendingMark)).toEqual(['form']);
++
++    await render({ hasPermission: false, hasForm: false });
++    expect(marks()).toEqual([]);
++  });
++});
+diff --git a/packages/ui/src/components/session/SessionPendingMarks.tsx b/packages/ui/src/components/session/SessionPendingMarks.tsx
+new file mode 100644
+index 000000000..4c46d11f4
+--- /dev/null
++++ b/packages/ui/src/components/session/SessionPendingMarks.tsx
+@@ -0,0 +1,75 @@
++import React from 'react';
++import { Icon } from '@/components/icon/Icon';
++import type { IconName } from '@/components/icon/icons';
++import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
++import { useI18n, type I18nKey } from '@/lib/i18n';
++import { cn } from '@/lib/utils';
++import type { BlockingRequestKinds } from '@/sync/global-blocking-requests';
++
++const MARKS = [
++  {
++    kind: 'permission',
++    enabled: 'hasPermission',
++    icon: 'shield',
++    colorClass: 'text-status-warning',
++    labelKey: 'sessions.sidebar.session.status.permissionRequired',
++  },
++  {
++    kind: 'form',
++    enabled: 'hasForm',
++    icon: 'question',
++    colorClass: 'text-status-question',
++    labelKey: 'sessions.sidebar.session.status.questionPending',
++  },
++] as const satisfies ReadonlyArray<{
++  kind: string;
++  enabled: keyof BlockingRequestKinds;
++  icon: IconName;
++  colorClass: string;
++  labelKey: I18nKey;
++}>;
++
++/**
++ * What waits on the user on a session row: a permission shield, a question
++ * mark, or both, in that order. Both are bare row marks at the row-mark size,
++ * so a question reads as the peer of the permission it ranks below
++ * (`SessionActivityIndicator` is the same kind of mark). The collapsed group
++ * header draws the same glyphs inside its expand button, where a chip would
++ * read as the control to press.
++ *
++ * `tooltip` names the mark with a tooltip above it, as the sidebar's rows and
++ * collapsed headers do; otherwise the mark carries the same label as its
++ * native title.
++ */
++export const SessionPendingMarks: React.FC<BlockingRequestKinds & {
++  className?: string;
++  tooltip?: boolean;
++}> = ({ hasPermission, hasForm, className, tooltip = false }) => {
++  const { t } = useI18n();
++  if (!hasPermission && !hasForm) return null;
++
++  return (
++    <>
++      {MARKS.filter((mark) => (mark.enabled === 'hasPermission' ? hasPermission : hasForm)).map((mark) => {
++        const label = t(mark.labelKey);
++        const glyph = (
++          <span
++            className={cn('inline-flex shrink-0 items-center', className)}
++            aria-label={label}
++            title={tooltip ? undefined : label}
++            data-session-pending-mark={mark.kind}
++          >
++            <Icon name={mark.icon} className={cn('size-3', mark.colorClass)} />
++          </span>
++        );
++        if (!tooltip) return <React.Fragment key={mark.kind}>{glyph}</React.Fragment>;
++        return (
++          <Tooltip key={mark.kind}>
++            <TooltipTrigger asChild>{glyph}</TooltipTrigger>
++            <TooltipContent side="top" sideOffset={6}>{label}</TooltipContent>
++          </Tooltip>
++        );
++      })}
++    </>
++  );
++};
 diff --git a/packages/ui/src/components/session/SessionSwitcherDropdown.tsx b/packages/ui/src/components/session/SessionSwitcherDropdown.tsx
-index b3f7b11b2..153713665 100644
+index b3f7b11b2..7c5c1a773 100644
 --- a/packages/ui/src/components/session/SessionSwitcherDropdown.tsx
 +++ b/packages/ui/src/components/session/SessionSwitcherDropdown.tsx
-@@ -274,6 +274,8 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
-   // A request waiting on the user stands for the turn: the running mark steps
-   // aside for the request badge, as it does on the sidebar and mobile rows.
-   const waitingOnUser = hasPendingPermission || hasPendingForm;
-+  const permissionLabel = t('sessions.sidebar.session.status.permissionRequired');
-+  const questionLabel = t('sessions.sidebar.session.status.questionPending');
- 
-   const timestamp = getSessionActivityTime(session) || Date.now();
-   const timeLabel = formatSessionCompactDateLabel(timestamp);
-@@ -365,7 +367,28 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
+@@ -11,6 +11,8 @@ import {
+ } from '@/components/ui/dropdown-menu';
+ import { Icon } from '@/components/icon/Icon';
+ import { SessionActivityIndicator } from '@/components/session/SessionActivityIndicator';
++import { SessionPendingMarks } from '@/components/session/SessionPendingMarks';
++import { listedChildren } from '@/components/session/sidebar/listedChildren';
+ import { useWaitingBlink } from '@/hooks/useDurationTicker';
+ import { useSessionUIStore } from '@/sync/session-ui-store';
+ import { useSessionMarkedUnread, useSessionUnread } from '@/sync/session-unread';
+@@ -204,7 +206,10 @@ type SwitcherNodeProps = {
+ function SwitcherNode({ item, depth, variant, expandedParents, toggleParent, closeDropdown }: SwitcherNodeProps): React.ReactElement {
+   const { node, secondaryMeta } = item;
+   const session = node.session;
+-  const hasChildren = node.children.length > 0;
++  // The node keeps every child, the workflow agents included, so their waiting
++  // requests count for this row; only the listed ones get rows of their own.
++  const childNodes = listedChildren(node);
++  const hasChildren = childNodes.length > 0;
+   const isExpanded = expandedParents.has(session.id);
+   // A folded row stands for its subsessions too: their waiting requests count
+   // here, exactly as the sidebar's collapsed rows count them.
+@@ -228,7 +233,7 @@ function SwitcherNode({ item, depth, variant, expandedParents, toggleParent, clo
+         closeDropdown={closeDropdown}
+       />
+       {hasChildren && isExpanded
+-        ? node.children.map((childNode) => (
++        ? childNodes.map((childNode) => (
+             <SwitcherNode
+               key={childNode.session.id}
+               item={{ node: childNode, projectId: item.projectId, groupDirectory: item.groupDirectory, secondaryMeta }}
+@@ -365,7 +370,11 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
          ) : null}
        </div>
  
 -      {isStreaming || showUnreadDot ? (
 +      {waitingOnUser ? (
 +        <span className="flex flex-shrink-0 items-center gap-1 self-center">
-+          {hasPendingPermission ? (
-+            <span
-+              className="inline-flex shrink-0 items-center text-status-warning"
-+              aria-label={permissionLabel}
-+              title={permissionLabel}
-+            >
-+              <Icon name="shield" className="h-3 w-3" />
-+            </span>
-+          ) : null}
-+          {hasPendingForm ? (
-+            <span
-+              className="inline-flex shrink-0 items-center rounded border border-status-question-border bg-status-question-background px-1 text-status-question"
-+              aria-label={questionLabel}
-+              title={questionLabel}
-+            >
-+              <Icon name="question" className="h-3 w-3" />
-+            </span>
-+          ) : null}
++          <SessionPendingMarks hasPermission={hasPendingPermission} hasForm={hasPendingForm} />
 +        </span>
 +      ) : isStreaming || showUnreadDot ? (
          <span className="flex h-3 w-3 flex-shrink-0 items-center justify-center self-center">
            <SessionActivityIndicator
              state={turnActivity ?? 'unread'}
+diff --git a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
+index 575977103..04b8115f7 100644
+--- a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
++++ b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
+@@ -347,7 +347,7 @@ no Shift.
+ 
+ ### Why project trees resolve lineage globally
+ 
+-The shared project tree checks parent presence against the global active and archived cache plus the merged active session list. Child expansion uses the lifecycle-ordered global graph. A child whose parent is known renders only beneath that parent, even when its own directory belongs to another project or worktree. An archived parent or intermediate never allows an active descendant to become an independent root. Project buckets contain roots only, so children do not consume root pagination or make a child-only worktree expandable. Temporary `/btw` forks and archived children remain hidden. Workflow agents (`metadata.openchamber.kind === 'workflow-agent'`) stay in the tree but get no rows, and neither does what they started (`listedChildren`): one run can start a hundred, and the run's card and Workflows panel list them. Their pending requests and activity still count for the row above, so an expanded parent's badge scope includes them (`selectBlockingBadgeSessionScopes`). Selection still uses each session's own directory. VS Code applies the same rule after its exact workspace filter.
++The shared project tree checks parent presence against the global active and archived cache plus the merged active session list. Child expansion uses the lifecycle-ordered global graph. A child whose parent is known renders only beneath that parent, even when its own directory belongs to another project or worktree. An archived parent or intermediate never allows an active descendant to become an independent root. Project buckets contain roots only, so children do not consume root pagination or make a child-only worktree expandable. Temporary `/btw` forks and archived children remain hidden. Workflow agents (`metadata.openchamber.kind === 'workflow-agent'`) stay in the tree but get no rows, and neither does what they started (`listedChildren`): one run can start a hundred, and the run's card and Workflows panel list them. Their pending requests and activity still count for the row above, so an expanded parent's badge scope includes them (`selectBlockingBadgeSessionScopes`). The two session switchers build their trees the same way (`collectSwitcherChildren` in `shell/useSwitcherItems.ts` keeps every child), and take their child rows and chevron from `listedChildren`, so a run blocked only by workflow agents shows the mark and keeps no expand control. Selection still uses each session's own directory. VS Code applies the same rule after its exact workspace filter.
+ 
+ Bucket-local lineage promoted cross-project subagents to independent rows and left their parent without an expansion control. The missing-parent fallback applies only while both active and archived sources lack the parent, and clears when either parent arrives. The project-section cache tracks each project's visible ancestors and descendants, including their order and record identity, so a lineage or same-ID semantic change rebuilds the affected trees without replacing unrelated project sections.
+ 
+@@ -376,7 +376,7 @@ bootstrap work. Selection and activity subscriptions stay session-scoped so a
+ structural list update does not make every row observe unrelated streaming
+ updates.
+ 
+-Session-row permission and form badges read the relevant directory-store buckets and show only whether something waits, without a count: one form can hold many questions, and a number that does not drop as the user answers them reads as wrong. A collapsed row covers its own pending requests and those of the descendants it hides; an expanded row covers only its own. Collapsed worktree, folder, group and run headers count their hidden sessions the same way, through `useCollapsedSessionActivityState`. The lookup never bootstraps a directory and never creates a store for one: it reads a store that already exists and leaves a directory nobody opened to the cross-directory index. Until a store's own request snapshots are ready, the row lookup also reads permissions and forms from that index, which the host seed fills at load, so a request already waiting in a project this client never opened still shows after a reload. Once they are ready, the store answers alone, so a form the index kept after a lost settlement stops showing. Mobile rows use the same lookup and icon-only badges: `MobileSessionRow` and `MobileSessionSwitcher` build their scopes with `selectBlockingBadgeSessionScopes`, the helper the desktop row and switcher use, so a session resolves its directory the same way on every surface. A session with no known directory has no store to answer for it, so the index still counts there, on the phone as on the desktop. A page an agent shows that waits for the user's answer has no directory-store bucket, so the row lookup also reads it from the cross-directory index and shows it as a form.
++Session-row permission and form badges read the relevant directory-store buckets and show only whether something waits, without a count: one form can hold many questions, and a number that does not drop as the user answers them reads as wrong. A collapsed row covers its own pending requests and those of the descendants it hides; an expanded row covers only its own. Collapsed worktree, folder, group and run headers count their hidden sessions the same way, through `useCollapsedSessionActivityState`. The lookup never bootstraps a directory and never creates a store for one: it reads a store that already exists and leaves a directory nobody opened to the cross-directory index. Until a store's own request snapshots are ready, the row lookup also reads permissions and forms from that index, which the host seed fills at load, so a request already waiting in a project this client never opened still shows after a reload. Once they are ready, the store answers alone, so a form the index kept after a lost settlement stops showing. Mobile rows use the same lookup and the same marks: `SessionPendingMarks` (`components/session/`) draws the permission shield and the question mark at the row-mark size, as bare glyphs with the label as a tooltip on a row and as the native title elsewhere. `MobileSessionRow`, `MobileSessionSwitcher`, the desktop switcher and the sidebar's rows all take it, and the mobile rows build their scopes with `selectBlockingBadgeSessionScopes`, the helper the desktop row and switcher use, so a session resolves its directory the same way on every surface. A session with no known directory has no store to answer for it, so the index still counts there, on the phone as on the desktop. A page an agent shows that waits for the user's answer has no directory-store bucket, so the row lookup also reads it from the cross-directory index and shows it as a form.
+ 
+ A session row's menu and the header's session menus (a tab's, the title's)
+ are one component, `sessions/SessionActionsMenuItems.tsx`; each surface
+diff --git a/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.marks.test.tsx b/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.marks.test.tsx
+index be36092ac..f35bb726a 100644
+--- a/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.marks.test.tsx
++++ b/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.marks.test.tsx
+@@ -15,9 +15,12 @@ const links: Array<{ url: string; directory: string | null }> = [];
+ const selected: Array<{ sessionId: string; directory: string | null }> = [];
+ let rowRenders = 0;
+ const syncContext = await import('@/sync/sync-context');
++// The hook answers `{ hasPermission, hasForm }`; a fixture with other keys
++// leaves the row's pending-mark branch unreachable.
++let pendingRequests = { hasPermission: false, hasForm: false };
+ mock.module('@/sync/sync-context', () => ({
+   ...syncContext,
+-  useSessionBlockingRequests: () => ({ hasPendingPermissions: false, hasPendingQuestions: false }),
++  useSessionBlockingRequests: () => pendingRequests,
+ }));
+ const aiRename = await import('@/sync/use-session-ai-rename');
+ mock.module('@/sync/use-session-ai-rename', () => ({
+@@ -141,6 +144,7 @@ const render = async (props: SessionNodeItemProps): Promise<void> => {
+ const drawn = (): string[] => Array.from(host.querySelectorAll('[data-guest-mark]')).map((node) => node.getAttribute('aria-label') ?? '');
+ 
+ beforeEach(() => {
++  pendingRequests = { hasPermission: false, hasForm: false };
+   win = new Window({ url: 'http://localhost/' });
+   const globals = {
+     window: win, document: win.document, navigator: win.navigator,
+@@ -250,6 +254,22 @@ test('a mark with nothing to open is an image, not a button', async () => {
+   expect(node?.getAttribute('aria-label')).toBe('Deploy Log: Deployed');
+ });
+ 
++test('a row waiting on the user draws the permission shield and the question mark as peer glyphs', async () => {
++  pendingRequests = { hasPermission: true, hasForm: true };
++  await render(rowProps());
++
++  const marks = Array.from(host.querySelectorAll<HTMLElement>('[data-session-pending-mark]'));
++  expect(marks.map((mark) => mark.dataset.sessionPendingMark)).toEqual(['permission', 'form']);
++  expect(marks.map((mark) => mark.getAttribute('aria-label'))).toEqual(['Permission required', 'Pending question']);
++  for (const mark of marks) {
++    // Neither mark is a chip: the row mark carries no pad, fill or outline.
++    expect(mark.className).not.toContain('border');
++    expect(mark.className).not.toContain('bg-');
++    expect(mark.className).not.toContain('rounded');
++    expect(mark.querySelector('svg')?.getAttribute('class')).toContain('size-3');
++  }
++});
++
+ test('a row of an isolated space shows no marks', async () => {
+   const directory = '/spaces/0123456789ab/app';
+   showMarks([guest('ci', 'CI Watch', 'panel/index.html')], [mark('ci', { sessionId: 'ses_row' }, 'Checks passed'), mark('ci', { directory }, 'Folder')]);
+diff --git a/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.tracker.test.tsx b/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.tracker.test.tsx
+index dc63d68be..709f49561 100644
+--- a/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.tracker.test.tsx
++++ b/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.tracker.test.tsx
+@@ -13,7 +13,7 @@ let rowRenders = 0;
+ const syncContext = await import('@/sync/sync-context');
+ mock.module('@/sync/sync-context', () => ({
+   ...syncContext,
+-  useSessionBlockingRequests: () => ({ hasPendingPermissions: false, hasPendingQuestions: false }),
++  useSessionBlockingRequests: () => ({ hasPermission: false, hasForm: false }),
+ }));
+ const aiRename = await import('@/sync/use-session-ai-rename');
+ mock.module('@/sync/use-session-ai-rename', () => ({
 diff --git a/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.tsx b/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.tsx
-index 24ab9844e..c04859e3d 100644
+index 24ab9844e..76e7de0d0 100644
 --- a/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.tsx
 +++ b/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.tsx
-@@ -1090,7 +1090,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode
-       ) : null}
-       {hasPendingForm ? (
-         <RowMarkTooltip label={pendingFormLabel}>
+@@ -5,6 +5,7 @@ import { getSessionActivityTime } from '@/sync/session-ordering';
+ import React from 'react';
+ import { TooltipLabelWithShortcut } from '@/components/ui/action-toolbar';
+ import { SessionActivityIndicator } from '@/components/session/SessionActivityIndicator';
++import { SessionPendingMarks } from '@/components/session/SessionPendingMarks';
+ import type { Session } from '@/lib/opencode/model';
+ import { ContextMenu } from '@base-ui/react/context-menu';
+ import { ContextMenu as ContextMenuRoot, ContextMenuContent } from '@/components/ui/context-menu';
+@@ -742,7 +743,6 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode
+     );
+   }
+ 
+-  const pendingFormLabel = t('sessions.sidebar.session.status.questionPending');
+   const showUnreadStatus = !isSessionActionPending && !isStreaming && needsAttention && (!isActive || markedUnread);
+   const showStatusMarker = isStreaming || showUnreadStatus;
+   // Running indicators are static by default; the local appearance preference
+@@ -1078,24 +1078,8 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode
+       </span>
+     </RowMarkTooltip>
+   ) : null);
+-  const permissionLabel = t('sessions.sidebar.session.status.permissionRequired');
+-  const rowBadges = (hasPendingPermission || hasPendingForm) ? (
+-    <>
+-      {hasPendingPermission ? (
+-        <RowMarkTooltip label={permissionLabel}>
+-          <span className="inline-flex flex-shrink-0 items-center text-status-warning" aria-label={permissionLabel}>
+-            <Icon name="shield" className="h-3 w-3" />
+-          </span>
+-        </RowMarkTooltip>
+-      ) : null}
+-      {hasPendingForm ? (
+-        <RowMarkTooltip label={pendingFormLabel}>
 -          <span className="inline-flex flex-shrink-0 items-center text-status-warning" aria-label={pendingFormLabel}>
-+          <span className="inline-flex flex-shrink-0 items-center rounded border border-status-question-border bg-status-question-background px-1 text-status-question" aria-label={pendingFormLabel}>
-             <Icon name="question" className="h-3 w-3" />
-           </span>
-         </RowMarkTooltip>
+-            <Icon name="question" className="h-3 w-3" />
+-          </span>
+-        </RowMarkTooltip>
+-      ) : null}
+-    </>
++  const rowBadges = waitingOnUser ? (
++    <SessionPendingMarks hasPermission={hasPendingPermission} hasForm={hasPendingForm} tooltip />
+   ) : null;
+ 
+   // The PR (or issue) badge carries its own tooltip (status text) and opens
 diff --git a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.tsx b/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.tsx
-index 83752e671..0c2b5186c 100644
+index 83752e671..af32c52a7 100644
 --- a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.tsx
 +++ b/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.tsx
-@@ -20,17 +20,25 @@ export function CollapsedActivityIndicator({
+@@ -1,17 +1,14 @@
+ import React from 'react';
+ import { SessionActivityIndicator } from '@/components/session/SessionActivityIndicator';
+-import { cn } from '@/lib/utils';
++import { SessionPendingMarks } from '@/components/session/SessionPendingMarks';
+ import type { SessionNode } from '../types';
+-import { useI18n } from '@/lib/i18n';
+-import { Icon } from '@/components/icon/Icon';
+ import { useCollapsedSessionActivityState, type CollapsedActivityState } from './collapsedActivityState';
+-import { RowMarkTooltip } from './RowMarkTooltip';
+ 
+ // Aggregate rows carry no counters: the elapsed counter is per session and
+ // has no meaning for a collapsed group that may hold several running turns,
+ // and a request count would need the same per-session breakdown. The blocked
+-// states reuse the session row's own badge glyphs and colors so the group
+-// header reads the same way as the row it hides.
++// states reuse the session row's own badges so the group header reads the same
++// way as the row it hides.
+ export function CollapsedActivityIndicator({
+   state,
+   className,
+@@ -19,20 +16,17 @@ export function CollapsedActivityIndicator({
+   state: Exclude<CollapsedActivityState, null>;
    className?: string;
  }): React.ReactNode {
-   const { t } = useI18n();
--  if (state === 'permission' || state === 'form') {
+-  const { t } = useI18n();
+   if (state === 'permission' || state === 'form') {
 -    const label = state === 'permission'
 -      ? t('sessions.sidebar.session.status.permissionRequired')
 -      : t('sessions.sidebar.session.status.questionPending');
-+  if (state === 'permission') {
-+    const label = t('sessions.sidebar.session.status.permissionRequired');
++    // A header's mark sits inside the "Show more" button, which expands the
++    // list: the group draws the row's bare glyphs, never a chip that reads as
++    // the control to press.
      return (
-       <RowMarkTooltip label={label}>
+-      <RowMarkTooltip label={label}>
 -        <span
 -          className={cn('inline-flex shrink-0 items-center text-status-warning', className)}
 -          aria-label={label}
 -        >
 -          <Icon name={state === 'permission' ? 'shield' : 'question'} className="h-3 w-3" />
-+        <span className={cn('inline-flex shrink-0 items-center text-status-warning', className)} aria-label={label}>
-+          <Icon name="shield" className="h-3 w-3" />
-+        </span>
-+      </RowMarkTooltip>
-+    );
-+  }
-+  if (state === 'form') {
-+    const label = t('sessions.sidebar.session.status.questionPending');
-+    // A header's mark sits inside the "Show more" button, which expands the
-+    // list: a filled chip there reads as the control to press, so the group
-+    // shows the bare glyph its permission mark already uses.
-+    return (
-+      <RowMarkTooltip label={label}>
-+        <span className={cn('inline-flex shrink-0 items-center text-status-question', className)} aria-label={label}>
-+          <Icon name="question" className="h-3 w-3" />
-         </span>
-       </RowMarkTooltip>
+-        </span>
+-      </RowMarkTooltip>
++      <SessionPendingMarks
++        hasPermission={state === 'permission'}
++        hasForm={state === 'form'}
++        className={className}
++        tooltip
++      />
      );
+   }
+   return <SessionActivityIndicator state={state === 'active' ? 'running' : 'unread'} className={className} tooltip />;
+diff --git a/packages/ui/src/components/session/sidebar/shell/useSwitcherItems.test.ts b/packages/ui/src/components/session/sidebar/shell/useSwitcherItems.test.ts
+index ea7227a8a..79568d74c 100644
+--- a/packages/ui/src/components/session/sidebar/shell/useSwitcherItems.test.ts
++++ b/packages/ui/src/components/session/sidebar/shell/useSwitcherItems.test.ts
+@@ -2,10 +2,14 @@ import { describe, expect, test } from 'bun:test';
+ import type { Session } from '@/lib/opencode/model';
+ 
+ import {
++  buildSwitcherNode,
++  collectSwitcherChildren,
+   findSwitcherItemAncestorIds,
+   selectSwitcherParents,
+   type SwitcherItem,
+ } from './useSwitcherItems';
++import { listedChildren } from '../listedChildren';
++import { selectBlockingBadgeSessionScopes } from '../sessions/sessionNodeItemUtils';
+ 
+ const session = (id: string, options: { parentID?: string; archived?: boolean; projectId?: string } = {}): Session => ({
+   id,
+@@ -42,3 +46,44 @@ describe('session switcher initial selection', () => {
+     expect(selectParents([...roots, session('archived-child', { archived: true, parentID: 'root-7' })], 'archived-child').map((item) => item.id)).toEqual(roots.slice(0, 7).map((item) => item.id));
+   });
+ });
++
++describe('switcher trees', () => {
++  const byId = (a: Session, b: Session) => a.id.localeCompare(b.id);
++  const workflowAgent = (id: string, parentID: string): Session => ({
++    ...session(id, { parentID }),
++    metadata: { openchamber: { kind: 'workflow-agent' } },
++  } as Session);
++
++  test('a run blocked by a workflow agent keeps the child for its badge, with no row and no chevron of its own', () => {
++    const root = session('root');
++    const children = collectSwitcherChildren([root, workflowAgent('agent', 'root'), session('child', { parentID: 'root' })], () => true, byId);
++    const node = buildSwitcherNode(root, children);
++
++    // The node keeps both children, so the waiting request of an agent the
++    // switcher cannot open still counts for the row above it.
++    expect(node.children.map((child) => child.session.id)).toEqual(['agent', 'child']);
++    expect(listedChildren(node).map((child) => child.session.id)).toEqual(['child']);
++    expect(selectBlockingBadgeSessionScopes(node, false, '/project-a')).toEqual([
++      { directory: '/project-a', sessionIDs: ['root', 'agent', 'child'] },
++    ]);
++  });
++
++  test('an agent-only run keeps no child row, so the row has no chevron', () => {
++    const root = session('root');
++    const node = buildSwitcherNode(root, collectSwitcherChildren([root, workflowAgent('agent', 'root')], () => true, byId));
++
++    expect(node.children.map((child) => child.session.id)).toEqual(['agent']);
++    expect(listedChildren(node)).toEqual([]);
++  });
++
++  test('leaves out archived and unadmitted children', () => {
++    const root = session('root');
++    const children = collectSwitcherChildren(
++      [root, session('archived', { parentID: 'root', archived: true }), session('elsewhere', { parentID: 'root' })],
++      (item) => item.id !== 'elsewhere',
++      byId,
++    );
++
++    expect(buildSwitcherNode(root, children).children).toEqual([]);
++  });
++});
+diff --git a/packages/ui/src/components/session/sidebar/shell/useSwitcherItems.ts b/packages/ui/src/components/session/sidebar/shell/useSwitcherItems.ts
+index c9f19b372..f4df1c5b5 100644
+--- a/packages/ui/src/components/session/sidebar/shell/useSwitcherItems.ts
++++ b/packages/ui/src/components/session/sidebar/shell/useSwitcherItems.ts
+@@ -3,7 +3,6 @@ import type { Session } from '@/lib/opencode/model';
+ 
+ import { useGlobalSessionsStore, resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
+ import { isBtwSession } from '@/lib/sessionBtwMetadata';
+-import { isWorkflowAgentSession } from '@/lib/sessionWorkflowMetadata';
+ import { useProjectsStore } from '@/stores/useProjectsStore';
+ import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
+ import { useGitAllBranches } from '@/stores/useGitStore';
+@@ -110,6 +109,44 @@ export const selectSwitcherParents = (
+   return parents.slice(0, maxParents);
+ };
+ 
++/**
++ * Group the active child sessions by parent for a switcher's tree. Every
++ * session stays in the node, workflow agents included: their waiting requests
++ * and activity count for the row above them, and one expanded row's badge
++ * scope reads the whole subtree. Their own rows stay out through
++ * `listedChildren`, the same rule the sidebar applies.
++ */
++export const collectSwitcherChildren = (
++  sessions: readonly Session[],
++  isAdmitted: (session: Session) => boolean,
++  compare: (a: Session, b: Session) => number,
++): Map<string, Session[]> => {
++  const childrenByParent = new Map<string, Session[]>();
++  for (const session of sessions) {
++    if (!isAdmitted(session)) continue;
++    // SAFETY: the SDK Session type omits parentID, but the server includes it on child sessions.
++    const parentId = (session as Session & { parentID?: string | null }).parentID;
++    if (!parentId || session.time?.archived) continue;
++    const bucket = childrenByParent.get(parentId);
++    if (bucket) {
++      bucket.push(session);
++    } else {
++      childrenByParent.set(parentId, [session]);
++    }
++  }
++  childrenByParent.forEach((list) => list.sort(compare));
++  return childrenByParent;
++};
++
++export const buildSwitcherNode = (
++  session: Session,
++  childrenByParent: ReadonlyMap<string, Session[]>,
++): SessionNode => ({
++  session,
++  children: (childrenByParent.get(session.id) ?? []).map((child) => buildSwitcherNode(child, childrenByParent)),
++  worktree: null,
++});
++
+ export const useSwitcherItems = (enabled: boolean, options: SwitcherItemsOptions = {}): SwitcherItem[] => {
+   const { scopeProjectId = null, currentSessionId = null, maxParents = MAX_PARENT_SESSIONS, ignorePins = false } = options;
+   const activeSessions = useGlobalSessionsStore((state) => state.activeSessions);
+@@ -158,24 +195,16 @@ export const useSwitcherItems = (enabled: boolean, options: SwitcherItemsOptions
+   const items = React.useMemo<SwitcherItem[]>(() => {
+     if (!enabled) return [];
+ 
+-    const childrenByParent = new Map<string, Session[]>();
+-    for (const session of activeSessions) {
+-      if (!isSessionDirectoryAdmitted(resolveGlobalSessionDirectory(session), projects, availableWorktreesByProject)) continue;
+-      const parentId = (session as Session & { parentID?: string | null }).parentID;
+-      if (!parentId) continue;
+-      if (session.time?.archived) continue;
+-      // A workflow run can start a hundred agents; its card lists them.
+-      if (isWorkflowAgentSession(session)) continue;
+-      const bucket = childrenByParent.get(parentId);
+-      if (bucket) {
+-        bucket.push(session);
+-      } else {
+-        childrenByParent.set(parentId, [session]);
+-      }
+-    }
+-    childrenByParent.forEach((list) => {
+-      list.sort((a, b) => compareSessionsByLifecycleOrder(a, b, pinnedSessionIds, sessionOrderRanks));
+-    });
++    const isAdmitted = (session: Session): boolean => isSessionDirectoryAdmitted(
++      resolveGlobalSessionDirectory(session),
++      projects,
++      availableWorktreesByProject,
++    );
++    const childrenByParent = collectSwitcherChildren(
++      activeSessions,
++      isAdmitted,
++      (a, b) => compareSessionsByLifecycleOrder(a, b, pinnedSessionIds, sessionOrderRanks),
++    );
+ 
+     const parents = selectSwitcherParents(
+       activeSessions,
+@@ -190,15 +219,6 @@ export const useSwitcherItems = (enabled: boolean, options: SwitcherItemsOptions
+         || !isSessionDirectoryAdmitted(resolveGlobalSessionDirectory(session), projects, availableWorktreesByProject),
+     );
+ 
+-    const buildNode = (session: Session): SessionNode => {
+-      const childSessions = childrenByParent.get(session.id) ?? [];
+-      return {
+-        session,
+-        children: childSessions.map((child) => buildNode(child)),
+-        worktree: null,
+-      };
+-    };
+-
+     return parents.map((session) => {
+       const directory = resolveGlobalSessionDirectory(session);
+       const matchedProject = findProjectForDirectory(directory);
+@@ -209,7 +229,7 @@ export const useSwitcherItems = (enabled: boolean, options: SwitcherItemsOptions
+       const liveBranch = directory ? branchesByDirectory.get(directory) : undefined;
+       const branchLabel = liveBranch ?? worktreeHit?.meta.branch?.trim() ?? null;
+       return {
+-        node: buildNode(session),
++        node: buildSwitcherNode(session, childrenByParent),
+         projectId: matchedProject?.id ?? null,
+         groupDirectory: directory,
+         secondaryMeta: {
+diff --git a/packages/ui/src/lib/theme/DOCUMENTATION.md b/packages/ui/src/lib/theme/DOCUMENTATION.md
+index 1dec20d58..a03b27018 100644
+--- a/packages/ui/src/lib/theme/DOCUMENTATION.md
++++ b/packages/ui/src/lib/theme/DOCUMENTATION.md
+@@ -59,6 +59,8 @@ the exception. User-message backgrounds take on the primary's hue at their own
+ lightness (`tintColor`: 16% of its chroma in dark, 6% in light), so the bubble
+ reads as colored without becoming a brighter patch, with enough separation from
+ the canvas to remain visible. Mono keeps every role grayscale.
++
++The question mark a waiting question puts on a row is part of the resolved theme, like `pr`: the app owns the default violet pair, a palette may override `colors.question.base` (Mono and Mono Plus give it a neutral), and its tint and outline take the status family's alphas (0.125 and 0.314) instead of their own. Rows, collapsed headers and switchers draw the solid role with no pad, so `definition.test.ts` checks that glyph on the canvas, sidebar and elevated surfaces rather than a foreground-over-tint pair nothing paints.
+ Body and secondary text retain the palette's neutral cast with distinct
+ contrast levels. Body text sits at about 15.4:1 on the canvas in dark palettes
+ and 13:1 in light ones, the level T3 Code's default chat text reaches (its
 diff --git a/packages/ui/src/lib/theme/cssGenerator.ts b/packages/ui/src/lib/theme/cssGenerator.ts
-index a9f6361c0..c816e3ed5 100644
+index a9f6361c0..8078e6449 100644
 --- a/packages/ui/src/lib/theme/cssGenerator.ts
 +++ b/packages/ui/src/lib/theme/cssGenerator.ts
-@@ -2,7 +2,7 @@ import type { Theme } from '@/types/theme';
- import { SEMANTIC_TYPOGRAPHY, VSCODE_TYPOGRAPHY } from '@/lib/typography';
- import { isVSCodeRuntime } from '@/lib/desktop';
- import { resolveSyntaxTokens } from './syntax';
--import { withOpacity } from './color';
-+import { onColor, withOpacity } from './color';
- import { getReadableThemeColors } from './readableColors';
- 
- const hexToRgb = (value: string | undefined | null): string | null => {
 @@ -46,6 +46,7 @@ export class CSSVariableGenerator {
      cssVars.push(...this.generateSurfaceColors(theme.colors.surface));
      cssVars.push(...this.generateInteractiveColors(theme.colors.interactive));
@@ -204,24 +756,22 @@ index a9f6361c0..c816e3ed5 100644
      cssVars.push(...this.generatePullRequestColors(theme));
  
      cssVars.push(...this.generateSyntaxColors(theme.colors.syntax));
-@@ -240,6 +241,23 @@ const sidebarBaseRgb = hexToRgb(theme.colors.surface.muted);
+@@ -240,6 +241,21 @@ const sidebarBaseRgb = hexToRgb(theme.colors.surface.muted);
      return vars;
    }
  
 +  /**
 +   * The pending-question mark is not "info": a turn that is still running and a
-+   * turn blocked on the user's answer must not read the same. The violet is
-+   * app-owned like the merged-PR default, so every theme, built-in or imported,
-+   * gets it without the theme schema having to declare it.
++   * turn blocked on the user's answer must not read the same. The role is
++   * resolved with the theme (`colors.question`), so the app's violet is the
++   * default and a palette, Mono included, may name its own.
 +   */
 +  private generateQuestionColors(theme: Theme): string[] {
-+    const dark = theme.metadata.variant === 'dark';
-+    const base = dark ? '#a78bfa' : '#7c3aed';
++    const question = theme.colors.question;
 +    return [
-+      `  --status-question: ${base};`,
-+      `  --status-question-foreground: ${onColor(base, theme.colors.surface.background)};`,
-+      `  --status-question-background: ${withOpacity(base, 0.16)};`,
-+      `  --status-question-border: ${withOpacity(base, 0.5)};`,
++      `  --status-question: ${question.base};`,
++      `  --status-question-background: ${question.background};`,
++      `  --status-question-border: ${question.border};`,
 +    ];
 +  }
 +
@@ -229,41 +779,190 @@ index a9f6361c0..c816e3ed5 100644
      const vars: string[] = [];
      const pr = theme.colors.pr;
 diff --git a/packages/ui/src/lib/theme/definition.test.ts b/packages/ui/src/lib/theme/definition.test.ts
-index 8d7797ec3..63e838eaf 100644
+index 8d7797ec3..683324a23 100644
 --- a/packages/ui/src/lib/theme/definition.test.ts
 +++ b/packages/ui/src/lib/theme/definition.test.ts
-@@ -263,6 +263,19 @@ describe('rendered theme color pairs', () => {
+@@ -263,6 +263,26 @@ describe('rendered theme color pairs', () => {
      }
    });
  
-+  test('keeps the pending-question mark readable on its own fill', () => {
-+    const generator = new CSSVariableGenerator();
++  test('keeps the pending-question mark readable on every surface it sits on', () => {
++    // The shipped mark is the question glyph in the role's solid colour, drawn
++    // on the rows, collapsed headers and switchers: canvas, sidebar and
++    // elevated surfaces, with no tinted pad behind it. A state glyph is a
++    // non-text mark, so the 3:1 floor applies to the pair actually painted.
++    const failures: string[] = [];
 +    for (const theme of themes) {
-+      const css = generator.generate(theme);
-+      const base = /--status-question: ([^;]+);/.exec(css)?.[1];
-+      const foreground = /--status-question-foreground: ([^;]+);/.exec(css)?.[1];
-+      expect(base).toBeDefined();
-+      expect(foreground).toBeDefined();
-+      expect(contrastRatio(foreground!, base!)).toBeGreaterThanOrEqual(4.5);
-+      expect(contrastRatio(base!, theme.colors.surface.background)).toBeGreaterThanOrEqual(3);
++      const { question, surface } = theme.colors;
++      for (const [name, background] of [
++        ['canvas', surface.background],
++        ['sidebar', surface.muted],
++        ['elevated', surface.elevated],
++      ] as const) {
++        const ratio = contrastRatio(question.base, background);
++        if (ratio === null || ratio < 3) failures.push(`${theme.metadata.id}: question on ${name} (${ratio?.toFixed(2) ?? 'n/a'})`);
++      }
 +    }
++    expect(failures).toEqual([]);
 +  });
 +
    test('keeps error text readable on the terminal alert surface', () => {
      for (const theme of themes) {
        const css = new CSSVariableGenerator().generate(theme);
+diff --git a/packages/ui/src/lib/theme/definition.ts b/packages/ui/src/lib/theme/definition.ts
+index ad1d29fc7..e7d3aedc2 100644
+--- a/packages/ui/src/lib/theme/definition.ts
++++ b/packages/ui/src/lib/theme/definition.ts
+@@ -32,6 +32,7 @@ const definition = z.object({
+   colors: z.object({
+     primary, surface, interactive, status, syntax,
+     pr: z.object({ open: color.optional(), draft: color.optional(), blocked: color.optional(), merged: color.optional(), closed: color.optional() }).optional(),
++    question: z.object({ base: color.optional(), foreground: color.optional(), background: color.optional(), border: color.optional() }).optional(),
+     chat: optionalColors(['background', 'userMessageBackground', 'divider']).optional(),
+     markdown: optionalColors(['link', 'linkHover', 'inlineCode', 'inlineCodeBackground', 'blockquote', 'blockquoteBorder', 'listMarker', 'bold', 'italic', 'strikethrough', 'hr']).optional(),
+     tools: z.object({ border: color.optional(), icon: color.optional(), title: color.optional(), description: color.optional(), edit: optionalColors(['addedBackground', 'removedBackground', 'modifiedBackground', 'lineNumber']).optional() }).optional(),
+@@ -49,13 +50,24 @@ function resolveTheme(source: z.output<typeof definition>): Theme {
+   const s = { ...c.surface, elevatedForeground: c.surface.elevatedForeground ?? c.surface.foreground, overlay: c.surface.overlay ?? withOpacity('#000000', 0.6), subtle: c.surface.subtle ?? c.surface.muted };
+   const selection = c.interactive.selection ?? withOpacity(s.foreground, 0.16);
+   const base = { ...c.syntax.base, background: c.syntax.base.background ?? s.background, foreground: c.syntax.base.foreground ?? s.foreground };
+-  const statusFamily = (name: 'error' | 'warning' | 'success' | 'info') => ({
+-    base: c.status[name],
+-    foreground: c.status[`${name}Foreground`] ?? onColor(c.status[name], s.background),
+-    background: c.status[`${name}Background`] ?? withOpacity(c.status[name], 0.125),
+-    border: c.status[`${name}Border`] ?? withOpacity(c.status[name], 0.314),
++  // One tinted role family: a solid mark, its text on that tint, and the tint
++  // and outline a card or chip draws. A theme may override any part; the rest
++  // derives from the solid colour.
++  const tintedRole = (seed: string, overrides: { foreground?: string; background?: string; border?: string }) => ({
++    base: seed,
++    foreground: overrides.foreground ?? onColor(seed, s.background),
++    background: overrides.background ?? withOpacity(seed, 0.125),
++    border: overrides.border ?? withOpacity(seed, 0.314),
++  });
++  const statusFamily = (name: 'error' | 'warning' | 'success' | 'info') => tintedRole(c.status[name], {
++    foreground: c.status[`${name}Foreground`],
++    background: c.status[`${name}Background`],
++    border: c.status[`${name}Border`],
+   });
+   const error = statusFamily('error'), warning = statusFamily('warning'), success = statusFamily('success'), info = statusFamily('info');
++  // A question ranks a step below a permission and is its own role: violet in
++  // the app's palettes, neutral in a monochrome one, never a fixed hue.
++  const question = tintedRole(c.question?.base ?? (metadata.variant === 'dark' ? '#a78bfa' : '#7c3aed'), c.question ?? {});
+   const diffAdded = c.syntax.highlights?.diffAdded ?? success.base;
+   const diffRemoved = c.syntax.highlights?.diffRemoved ?? error.base;
+   const diffModified = c.syntax.highlights?.diffModified ?? info.base;
+@@ -84,6 +96,7 @@ function resolveTheme(source: z.output<typeof definition>): Theme {
+         info: info.base, infoForeground: info.foreground, infoBackground: info.background, infoBorder: info.border,
+       },
+       pr: { open: success.base, draft: s.mutedForeground, blocked: warning.base, merged: metadata.variant === 'dark' ? '#8957e5' : '#8250df', closed: error.base, ...c.pr },
++      question,
+       syntax: resolvedSyntax,
+       chat: c.chat,
+       markdown: c.markdown,
+@@ -141,5 +154,9 @@ export function compactTheme(value: ThemeDefinition): ThemeDefinition {
+     const inherited = requireTheme({ ...source, colors: { ...c, pr: undefined } });
+     c.pr = prune(c.pr, { ...inherited.colors.pr });
+   }
++  if (c.question) {
++    const inherited = requireTheme({ ...source, colors: { ...c, question: undefined } });
++    c.question = prune(c.question, { ...inherited.colors.question });
++  }
+   return source;
+ }
+diff --git a/packages/ui/src/lib/theme/themes/mono-dark.json b/packages/ui/src/lib/theme/themes/mono-dark.json
+index ca0fe7d62..882b65237 100644
+--- a/packages/ui/src/lib/theme/themes/mono-dark.json
++++ b/packages/ui/src/lib/theme/themes/mono-dark.json
+@@ -103,6 +103,9 @@
+     "pr": {
+       "merged": "#CCCCCC"
+     },
++    "question": {
++      "base": "#CCCCCC"
++    },
+     "chat": {
+       "userMessageBackground": "#1A1A1A",
+       "divider": "#242424",
+diff --git a/packages/ui/src/lib/theme/themes/mono-light.json b/packages/ui/src/lib/theme/themes/mono-light.json
+index bfaed814c..f64cae529 100644
+--- a/packages/ui/src/lib/theme/themes/mono-light.json
++++ b/packages/ui/src/lib/theme/themes/mono-light.json
+@@ -103,6 +103,9 @@
+       "merged": "#333333",
+       "closed": "#666666"
+     },
++    "question": {
++      "base": "#333333"
++    },
+     "chat": {
+       "userMessageBackground": "#E5E5E5",
+       "divider": "#D9D9D9",
+diff --git a/packages/ui/src/lib/theme/themes/mono-plus-dark.json b/packages/ui/src/lib/theme/themes/mono-plus-dark.json
+index 0797f56eb..fcdf373e2 100644
+--- a/packages/ui/src/lib/theme/themes/mono-plus-dark.json
++++ b/packages/ui/src/lib/theme/themes/mono-plus-dark.json
+@@ -75,6 +75,9 @@
+     "pr": {
+       "merged": "#bda2e8"
+     },
++    "question": {
++      "base": "#CCCCCC"
++    },
+     "chat": {
+       "userMessageBackground": "#0e1219",
+       "divider": "#242424",
+diff --git a/packages/ui/src/lib/theme/themes/mono-plus-light.json b/packages/ui/src/lib/theme/themes/mono-plus-light.json
+index e2750933c..22c8ca9c7 100644
+--- a/packages/ui/src/lib/theme/themes/mono-plus-light.json
++++ b/packages/ui/src/lib/theme/themes/mono-plus-light.json
+@@ -83,6 +83,9 @@
+       "open": "#6a8e6a",
+       "merged": "#8769b6"
+     },
++    "question": {
++      "base": "#333333"
++    },
+     "chat": {
+       "userMessageBackground": "#ebeef3",
+       "divider": "#D9D9D9",
 diff --git a/packages/ui/src/styles/design-system.css b/packages/ui/src/styles/design-system.css
-index b0b9899e0..68424dbea 100644
+index b0b9899e0..f2665c21a 100644
 --- a/packages/ui/src/styles/design-system.css
 +++ b/packages/ui/src/styles/design-system.css
-@@ -1060,6 +1060,10 @@ html[data-glass-redraw-guard] body::before {
+@@ -1060,6 +1060,9 @@ html[data-glass-redraw-guard] body::before {
    --color-status-warning: var(--status-warning);
    --color-status-error: var(--status-error);
    --color-status-info: var(--status-info);
 +  --color-status-question: var(--status-question);
-+  --color-status-question-foreground: var(--status-question-foreground);
 +  --color-status-question-background: var(--status-question-background);
 +  --color-status-question-border: var(--status-question-border);
    --color-sidebar-primary: var(--sidebar-primary);
    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
    --color-sidebar-accent: var(--sidebar-accent);
+diff --git a/packages/ui/src/types/theme.ts b/packages/ui/src/types/theme.ts
+index 6a5e03313..b288b0144 100644
+--- a/packages/ui/src/types/theme.ts
++++ b/packages/ui/src/types/theme.ts
+@@ -74,6 +74,14 @@ interface PullRequestColors {
+   closed: string;
+ }
+ 
++/** The mark that says a question waits on the user, with its card's tint. */
++interface QuestionColors {
++  base: string;
++  foreground: string;
++  background: string;
++  border: string;
++}
++
+ interface SyntaxBaseColors {
+   background: string;
+   foreground: string;
+@@ -102,6 +110,7 @@ export interface Theme {
+     surface: SurfaceColors;
+     interactive: InteractiveColors;
+     status: StatusColors;
++    question: QuestionColors;
+     pr?: PullRequestColors;
+ 
+     syntax: SyntaxColors;
