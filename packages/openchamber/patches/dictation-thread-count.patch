@@ -1,26 +1,237 @@
+diff --git a/packages/web/server/lib/dictation/DOCUMENTATION.md b/packages/web/server/lib/dictation/DOCUMENTATION.md
+index f0dca542d..05ae0b8f4 100644
+--- a/packages/web/server/lib/dictation/DOCUMENTATION.md
++++ b/packages/web/server/lib/dictation/DOCUMENTATION.md
+@@ -200,6 +200,18 @@ sherpa's default of 128 generated tokens can cut off a 25 s segment of fast
+ speech. With 512, 25 s segments of English and Ukrainian speech decoded in
+ full.
+ 
++### Why engine threads follow the CPU quota and not only the core count
++
++The worker is its own process and exits after its idle TTL, so a decode can use
++the host's cores without slowing the server's event loop: on a 32-core host a
++7.4 s Parakeet clip decoded in 409 ms at 2 threads and ~200 ms at 8. The count
++is the CPUs the process may run on, capped at 8 (`engine-threads.js`).
++`availableParallelism()` alone reports the affinity mask, not a Linux cgroup
++CPU quota, so a container limited to 2 CPUs on a many-core host would run 8
++threads and be throttled; the quota bounds the count too. When a Linux host's
++quota cannot be read, the worker keeps the old 2 threads. The memory figures in
++this document were measured at 2 threads.
++
+ ### Why retired models are deleted on startup
+ 
+ A model removed from the catalog (`RETIRED_LOCAL_MODEL_DIRS`) no longer shows
+diff --git a/packages/web/server/lib/dictation/local/engine-threads.js b/packages/web/server/lib/dictation/local/engine-threads.js
+new file mode 100644
+index 000000000..cff140c93
+--- /dev/null
++++ b/packages/web/server/lib/dictation/local/engine-threads.js
+@@ -0,0 +1,110 @@
++/**
++ * ONNX Runtime thread count for the sherpa engines in the dictation worker.
++ *
++ * Bounded by the CPUs the process may run on (affinity), by a Linux cgroup CPU
++ * quota (a container on a many-core host), and by MAX_ENGINE_THREADS. When a
++ * Linux host's quota cannot be read, the count stays at the old fixed value.
++ */
++import { readFileSync } from 'fs';
++import { availableParallelism } from 'os';
++import path from 'path';
++
++const MAX_ENGINE_THREADS = 8;
++const UNKNOWN_QUOTA_THREADS = 2;
++const CGROUP_ROOT = '/sys/fs/cgroup';
++// Where a v1 cpu controller is mounted: its own name, or the combined mount
++// some hosts and containers use without the `cpu` symlink.
++const CGROUP_V1_CPU_ROOTS = ['/sys/fs/cgroup/cpu', '/sys/fs/cgroup/cpu,cpuacct', '/sys/fs/cgroup/cpuacct,cpu'];
++
++function readOptional(readText, file) {
++  try {
++    return readText(file);
++  } catch (error) {
++    if (error?.code === 'ENOENT') return undefined;
++    throw error;
++  }
++}
++
++// Walks from the process's cgroup up to the hierarchy root and returns the
++// tightest limit any level sets. A level without a limit file (readLevel gives
++// undefined) is skipped: the cgroup path may not be visible inside a container,
++// whose own limit then sits at the root of the mount. Null when no level had one.
++function tightestLimit(root, cgroupPath, readLevel) {
++  let limit = null;
++  let dir = path.posix.resolve(root, `.${cgroupPath}`);
++  for (;;) {
++    const level = readLevel(dir);
++    if (level !== undefined) limit = Math.min(limit ?? Infinity, level);
++    if (dir === root || !dir.startsWith(`${root}/`)) return limit;
++    dir = path.posix.dirname(dir);
++  }
++}
++
++function cpusFromQuota(quota, period) {
++  if (!Number.isFinite(quota) || !Number.isFinite(period) || quota <= 0 || period <= 0) return Infinity;
++  return Math.max(1, Math.ceil(quota / period));
++}
++
++function readV2Limit(readText, cgroupPath) {
++  // The root cgroup has no cpu.max, so only a mounted hierarchy may read as unlimited.
++  if (readOptional(readText, `${CGROUP_ROOT}/cgroup.controllers`) === undefined) return null;
++  const limit = tightestLimit(CGROUP_ROOT, cgroupPath, (dir) => {
++    const max = readOptional(readText, `${dir}/cpu.max`);
++    if (max === undefined) return undefined;
++    const [quota, period] = max.trim().split(/\s+/);
++    if (quota === 'max') return Infinity;
++    return cpusFromQuota(Number(quota), Number(period));
++  });
++  return limit ?? Infinity;
++}
++
++// Every v1 cpu hierarchy has the quota files at its root, so a root where no
++// level has them is not the mount.
++function readV1Limit(readText, cgroupPath) {
++  for (const root of CGROUP_V1_CPU_ROOTS) {
++    const limit = tightestLimit(root, cgroupPath, (dir) => {
++      const quota = readOptional(readText, `${dir}/cpu.cfs_quota_us`);
++      const period = readOptional(readText, `${dir}/cpu.cfs_period_us`);
++      if (quota === undefined || period === undefined) return undefined;
++      return cpusFromQuota(Number(quota.trim()), Number(period.trim()));
++    });
++    if (limit !== null) return limit;
++  }
++  return null;
++}
++
++/**
++ * CPUs the cgroup quota allows: a number, Infinity when no quota applies, or
++ * null when it cannot be determined.
++ */
++function readCgroupCpuLimit(readText) {
++  try {
++    const entries = readText('/proc/self/cgroup')
++      .split('\n')
++      .filter(Boolean)
++      .map((line) => {
++        const [, controllers = '', ...rest] = line.split(':');
++        return { controllers: controllers.split(','), cgroupPath: rest.join(':') || '/' };
++      });
++    // A hybrid host lists both; the cpu controller then lives in v1.
++    const v1 = entries.find((entry) => entry.controllers.includes('cpu'));
++    if (v1) return readV1Limit(readText, v1.cgroupPath);
++    const v2 = entries.find((entry) => entry.controllers.length === 1 && entry.controllers[0] === '');
++    if (v2) return readV2Limit(readText, v2.cgroupPath);
++    return null;
++  } catch {
++    return null;
++  }
++}
++
++export function resolveEngineThreads({
++  platform = process.platform,
++  parallelism = availableParallelism(),
++  readText = (file) => readFileSync(file, 'utf8'),
++} = {}) {
++  const affinity = Math.min(MAX_ENGINE_THREADS, parallelism);
++  if (platform !== 'linux') return Math.max(1, affinity);
++  const quota = readCgroupCpuLimit(readText);
++  const limit = quota === null ? UNKNOWN_QUOTA_THREADS : quota;
++  return Math.max(1, Math.min(affinity, limit));
++}
+diff --git a/packages/web/server/lib/dictation/local/engine-threads.test.js b/packages/web/server/lib/dictation/local/engine-threads.test.js
+new file mode 100644
+index 000000000..6185271ff
+--- /dev/null
++++ b/packages/web/server/lib/dictation/local/engine-threads.test.js
+@@ -0,0 +1,71 @@
++import { describe, expect, it } from 'vitest';
++
++import { resolveEngineThreads } from './engine-threads.js';
++
++function filesystem(files) {
++  return (file) => {
++    if (Object.hasOwn(files, file)) return files[file];
++    const error = new Error(`ENOENT: ${file}`);
++    error.code = 'ENOENT';
++    throw error;
++  };
++}
++
++const linux = (parallelism, files) => resolveEngineThreads({ platform: 'linux', parallelism, readText: filesystem(files) });
++
++describe('resolveEngineThreads', () => {
++  it('uses the cores of an unrestricted host, capped at 8', () => {
++    expect(linux(32, { '/proc/self/cgroup': '0::/user.slice/session.scope\n', '/sys/fs/cgroup/cgroup.controllers': 'cpu\n', '/sys/fs/cgroup/user.slice/cpu.max': 'max 100000\n' })).toBe(8);
++    expect(linux(4, { '/proc/self/cgroup': '0::/\n', '/sys/fs/cgroup/cgroup.controllers': 'cpu\n' })).toBe(4);
++    expect(resolveEngineThreads({ platform: 'darwin', parallelism: 12 })).toBe(8);
++    expect(resolveEngineThreads({ platform: 'win32', parallelism: 1 })).toBe(1);
++  });
++
++  it('holds a many-core container to its 2-CPU quota (cgroup v2)', () => {
++    expect(linux(32, { '/proc/self/cgroup': '0::/\n', '/sys/fs/cgroup/cgroup.controllers': 'cpu\n', '/sys/fs/cgroup/cpu.max': '200000 100000\n' })).toBe(2);
++  });
++
++  it('takes the tightest quota on the way to the root, past levels it cannot see', () => {
++    expect(linux(32, {
++      '/proc/self/cgroup': '0::/system.slice/docker-abc.scope\n',
++      '/sys/fs/cgroup/cgroup.controllers': 'cpu\n',
++      '/sys/fs/cgroup/system.slice/docker-abc.scope/cpu.max': 'max 100000\n',
++      '/sys/fs/cgroup/system.slice/cpu.max': '300000 100000\n',
++    })).toBe(3);
++    // Without a cgroup namespace the listed path is absent inside the container.
++    expect(linux(32, { '/proc/self/cgroup': '0::/docker/abc\n', '/sys/fs/cgroup/cgroup.controllers': 'cpu\n', '/sys/fs/cgroup/cpu.max': '150000 100000\n' })).toBe(2);
++  });
++
++  it('holds a many-core container to its 2-CPU quota (cgroup v1)', () => {
++    expect(linux(32, {
++      '/proc/self/cgroup': '5:cpu,cpuacct:/\n1:name=systemd:/\n0::/\n',
++      '/sys/fs/cgroup/cpu/cpu.cfs_quota_us': '200000\n',
++      '/sys/fs/cgroup/cpu/cpu.cfs_period_us': '100000\n',
++    })).toBe(2);
++    expect(linux(32, {
++      '/proc/self/cgroup': '5:cpu,cpuacct:/\n',
++      '/sys/fs/cgroup/cpu/cpu.cfs_quota_us': '-1\n',
++      '/sys/fs/cgroup/cpu/cpu.cfs_period_us': '100000\n',
++    })).toBe(8);
++    // Combined controller mount without the `cpu` symlink.
++    expect(linux(32, {
++      '/proc/self/cgroup': '5:cpu,cpuacct:/\n',
++      '/sys/fs/cgroup/cpu,cpuacct/cpu.cfs_quota_us': '200000\n',
++      '/sys/fs/cgroup/cpu,cpuacct/cpu.cfs_period_us': '100000\n',
++    })).toBe(2);
++  });
++
++  it('keeps the old 2 threads on Linux when the quota cannot be read', () => {
++    expect(linux(32, {})).toBe(2);
++    const denied = () => {
++      const error = new Error('EACCES');
++      error.code = 'EACCES';
++      throw error;
++    };
++    expect(resolveEngineThreads({ platform: 'linux', parallelism: 32, readText: denied })).toBe(2);
++    expect(linux(1, {})).toBe(1);
++    // /proc/self/cgroup is readable but the hierarchy is not mounted.
++    expect(linux(32, { '/proc/self/cgroup': '5:cpu,cpuacct:/docker/abc\n' })).toBe(2);
++    expect(linux(32, { '/proc/self/cgroup': '0::/\n' })).toBe(2);
++  });
++});
 diff --git a/packages/web/server/lib/dictation/local/worker-process.js b/packages/web/server/lib/dictation/local/worker-process.js
-index 2b91966..0d5a46f 100644
+index 2b9196698..88ba13b70 100644
 --- a/packages/web/server/lib/dictation/local/worker-process.js
 +++ b/packages/web/server/lib/dictation/local/worker-process.js
-@@ -23,9 +23,17 @@ import { SherpaTtsEngine } from './sherpa-tts.js';
+@@ -23,9 +23,12 @@ import { SherpaTtsEngine } from './sherpa-tts.js';
  import { getLocalSttModelDir, getLocalSttModelSpec } from './model-catalog.js';
  import { resolveModelLanguage } from './model-language.js';
  import { pcm16ToWav } from '../audio.js';
-+import { availableParallelism } from 'os';
++import { resolveEngineThreads } from './engine-threads.js';
  
  process.title = 'OpenChamber Dictation';
  
-+// ONNX Runtime threads for the sherpa engines. Upstream pins 2, which leaves
-+// most of a workstation idle while the tail of a dictation decodes: on a
-+// 32-core host the same 7.4s clip decodes in 195ms at 8 threads instead of
-+// 409ms at 2. The worker exits after its idle TTL, so this does not hold
-+// cores while dictation is unused.
-+const ENGINE_THREADS = Math.max(1, Math.min(8, availableParallelism()));
++const ENGINE_THREADS = resolveEngineThreads();
 +
  const engines = new Map();
  const ttsEngines = new Map();
  const sessions = new Map();
-@@ -75,7 +83,7 @@ function getEngine(modelsDir, modelId, language) {
+@@ -75,7 +78,7 @@ function getEngine(modelsDir, modelId, language) {
      modelDir: getLocalSttModelDir(modelsDir, modelId),
      files: spec.files,
      language,
@@ -29,7 +240,7 @@ index 2b91966..0d5a46f 100644
    });
    engines.set(key, created);
    return created;
-@@ -116,7 +124,7 @@ function getTtsEngine(modelsDir, modelId) {
+@@ -116,7 +119,7 @@ function getTtsEngine(modelsDir, modelId) {
      type: spec.type,
      files: spec.files,
      lexicon: spec.lexicon,
