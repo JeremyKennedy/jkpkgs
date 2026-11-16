@@ -1,0 +1,267 @@
+diff --git a/packages/mobile/android/app/src/main/java/com/openchamber/app/SealedPushMessagingService.java b/packages/mobile/android/app/src/main/java/com/openchamber/app/SealedPushMessagingService.java
+index 7693b7105..6ecf273cd 100644
+--- a/packages/mobile/android/app/src/main/java/com/openchamber/app/SealedPushMessagingService.java
++++ b/packages/mobile/android/app/src/main/java/com/openchamber/app/SealedPushMessagingService.java
+@@ -103,12 +103,15 @@ public class SealedPushMessagingService extends MessagingService {
+             .setAutoCancel(true)
+             .setPriority(NotificationCompat.PRIORITY_HIGH)
+             .setContentIntent(pendingIntent);
++        Bundle extras = new Bundle();
+         String notificationId = data.get("nid");
+-        if (notificationId != null) {
+-            Bundle extras = new Bundle();
+-            extras.putString(NOTIFICATION_ID_EXTRA, notificationId);
+-            builder.addExtras(extras);
+-        }
++        if (notificationId != null) extras.putString(NOTIFICATION_ID_EXTRA, notificationId);
++        // The tap intent's extras do not reach the notification itself, and the
++        // web layer reads this one to remove the session's banners once the
++        // user opens it (getDeliveredNotifications exposes notification extras).
++        String sessionId = data.get("sessionId");
++        if (sessionId != null) extras.putString("sessionId", sessionId);
++        if (!extras.isEmpty()) builder.addExtras(extras);
+         String badge = data.get("badge");
+         if (badge != null) {
+             try {
+diff --git a/packages/ui/src/lib/nativeNotifications.test.ts b/packages/ui/src/lib/nativeNotifications.test.ts
+new file mode 100644
+index 000000000..f4b8229bd
+--- /dev/null
++++ b/packages/ui/src/lib/nativeNotifications.test.ts
+@@ -0,0 +1,96 @@
++import { beforeEach, describe, expect, mock, test } from 'bun:test';
++import type { PushNotificationSchema } from '@capacitor/push-notifications';
++
++let platform: 'ios' | 'android' | 'web' = 'web';
++let delivered: PushNotificationSchema[] = [];
++let removed: PushNotificationSchema[][] = [];
++let readFailure: Error | null = null;
++
++mock.module('@/lib/platform', () => ({ getClientPlatform: () => platform }));
++mock.module('@capacitor/push-notifications', () => ({
++  PushNotifications: {
++    getDeliveredNotifications: async () => {
++      if (readFailure) throw readFailure;
++      return { notifications: delivered };
++    },
++    removeDeliveredNotifications: async ({ notifications }: { notifications: PushNotificationSchema[] }) => {
++      removed.push(notifications);
++    },
++  },
++}));
++
++const { clearNativeSessionNotifications } = await import('./nativeNotifications');
++
++// SAFETY: the clear path reads only id and data, which the fixture sets.
++const banner = (id: string, sessionId?: string): PushNotificationSchema => ({
++  id,
++  title: 'Agent response is ready',
++  body: '',
++  data: sessionId ? { sessionId } : { type: 'pull-request' },
++} as PushNotificationSchema);
++
++describe('clearing native session notifications', () => {
++  beforeEach(() => {
++    platform = 'android';
++    delivered = [];
++    removed = [];
++    readFailure = null;
++  });
++
++  test('removes only the banners of the sessions the user saw', async () => {
++    delivered = [
++      banner('a', 'ses_seen'),
++      banner('b', 'ses_other'),
++      banner('c', 'ses_seen'),
++      banner('d'),
++    ];
++
++    await clearNativeSessionNotifications(['ses_seen']);
++
++    expect(removed).toEqual([[delivered[0], delivered[2]]]);
++  });
++
++  test('removes banners for every session marked seen', async () => {
++    delivered = [banner('a', 'ses_one'), banner('b', 'ses_two'), banner('c', 'ses_other')];
++
++    await clearNativeSessionNotifications(['ses_one', 'ses_two']);
++
++    expect(removed).toEqual([[delivered[0], delivered[1]]]);
++  });
++
++  test('does nothing when no banner belongs to the session', async () => {
++    delivered = [banner('a', 'ses_other')];
++
++    await clearNativeSessionNotifications(['ses_seen']);
++
++    expect(removed).toEqual([]);
++  });
++
++  test('marking everything seen removes every banner of the known sessions and leaves pull requests', async () => {
++    delivered = [banner('a', 'ses_one'), banner('b', 'ses_two'), banner('c')];
++
++    await clearNativeSessionNotifications(['ses_one', 'ses_two']);
++
++    expect(removed).toEqual([[delivered[0], delivered[1]]]);
++  });
++
++  test('runs on iOS and stays quiet elsewhere', async () => {
++    delivered = [banner('a', 'ses_seen')];
++
++    platform = 'web';
++    await clearNativeSessionNotifications(['ses_seen']);
++    expect(removed).toEqual([]);
++
++    platform = 'ios';
++    await clearNativeSessionNotifications(['ses_seen']);
++    expect(removed).toEqual([[delivered[0]]]);
++  });
++
++  test('survives a list read that fails before registration completes', async () => {
++    readFailure = new Error('registration not called');
++
++    await clearNativeSessionNotifications(['ses_seen']);
++
++    expect(removed).toEqual([]);
++  });
++});
+diff --git a/packages/ui/src/lib/nativeNotifications.ts b/packages/ui/src/lib/nativeNotifications.ts
+new file mode 100644
+index 000000000..5cf8048c7
+--- /dev/null
++++ b/packages/ui/src/lib/nativeNotifications.ts
+@@ -0,0 +1,50 @@
++// Removes the native app's delivered notifications for sessions the user has
++// seen. Desktop clears its own through the Electron IPC command in
++// `desktop.ts`; a browser has no delivered-notification list to clear.
++//
++// The Capacitor push plugin owns the delivered-notification list on both
++// platforms, so no app-local native plugin is needed: `getDeliveredNotifications`
++// returns each banner with its `data`, which carries `sessionId` from the push
++// (Android's `SealedPushMessagingService` copies it into the notification's
++// extras, iOS keeps it in the request's userInfo). Matching on that id, never on
++// the banner tag, keeps a session's banners apart from pull-request alerts,
++// which name no session.
++
++import type { PushNotificationSchema } from '@capacitor/push-notifications';
++
++import { getClientPlatform } from '@/lib/platform';
++
++// The plugin types `data` as `any`. This app's push sender puts a string
++// `sessionId` there, so that is the shape read at this boundary; a banner from
++// another sender, such as a pull-request alert, has none and does not match.
++type SessionPushData = { sessionId?: string };
++
++const sessionIdOf = (notification: PushNotificationSchema): string | undefined => {
++  const data: SessionPushData | undefined = notification.data;
++  return data?.sessionId;
++};
++
++const removeDelivered = async (matches: (notification: PushNotificationSchema) => boolean): Promise<void> => {
++  const platform = getClientPlatform();
++  if (platform !== 'ios' && platform !== 'android') return;
++
++  try {
++    const { PushNotifications } = await import('@capacitor/push-notifications');
++    const delivered = await PushNotifications.getDeliveredNotifications();
++    const matching = delivered.notifications.filter(matches);
++    if (matching.length === 0) return;
++    await PushNotifications.removeDeliveredNotifications({ notifications: matching });
++  } catch {
++    // The plugin rejects the list read before its registration completes, and
++    // the next view clears what this one missed.
++  }
++};
++
++export const clearNativeSessionNotifications = async (sessionIds: readonly string[]): Promise<void> => {
++  if (sessionIds.length === 0) return;
++  const wanted = new Set(sessionIds);
++  await removeDelivered((notification) => {
++    const sessionId = sessionIdOf(notification);
++    return sessionId !== undefined && wanted.has(sessionId);
++  });
++};
+diff --git a/packages/ui/src/sync/notification-store.ts b/packages/ui/src/sync/notification-store.ts
+index 127f5c319..482e12fac 100644
+--- a/packages/ui/src/sync/notification-store.ts
++++ b/packages/ui/src/sync/notification-store.ts
+@@ -9,8 +9,9 @@
+ 
+ import { create } from "zustand"
+ import { clearDesktopSessionNotifications } from "@/lib/desktop"
++import { clearNativeSessionNotifications } from "@/lib/nativeNotifications"
+ import { runtimeFetch } from "@/lib/runtime-fetch"
+-import { getUnreadSessionIds, markSessionsUnreadSeen, markSessionUnreadSeen } from "./session-unread"
++import { getKnownSessionIds, getSessionFamilyIds, getUnreadSessionIds, markSessionsUnreadSeen, markSessionUnreadSeen } from "./session-unread"
+ 
+ export type ErrorNotification = {
+   directory?: string
+@@ -60,9 +61,15 @@ function closeWebPushSessionNotifications(sessionId: string) {
+     .catch(() => { /* a browser without push notifications has nothing to close */ })
+ }
+ 
+-function clearSessionNotifications(sessionId: string) {
++function clearSessionNotifications(sessionId: string, { clearNativeBanners = true } = {}) {
+   clearDesktopSessionNotifications(sessionId)
+   closeWebPushSessionNotifications(sessionId)
++  // The native app removes the phone's delivered banners for this session and
++  // every session nested under it: opening the parent shows the requests its
++  // subagents wait on, and a pull-request alert names no session so it stays.
++  // This is the local path; the clearing request below covers the phones only
++  // while they can receive it.
++  if (clearNativeBanners) void clearNativeSessionNotifications(getSessionFamilyIds(sessionId))
+   // The server removes the session's pushed notifications from the phones and
+   // resets their badge count, since the user is in the app.
+   runtimeFetch(`/api/sessions/${encodeURIComponent(sessionId)}/view`, { method: "POST" })
+@@ -87,7 +94,13 @@ export function markSessionRead(sessionId: string) {
+ 
+ /** Every unread session the client knows of is marked read, the way Mark as read does for one. */
+ export function markAllSessionsViewed() {
+-  for (const sessionId of markSessionsUnreadSeen(getUnreadSessionIds(), { explicit: true })) clearSessionNotifications(sessionId)
++  // Every banner of a session this runtime knows goes, including ones that left
++  // no unread mark, such as a permission request. Sessions of another paired
++  // server stay.
++  void clearNativeSessionNotifications(getKnownSessionIds())
++  for (const sessionId of markSessionsUnreadSeen(getUnreadSessionIds(), { explicit: true })) {
++    clearSessionNotifications(sessionId, { clearNativeBanners: false })
++  }
+ }
+ 
+ /** The newest error OpenCode reported for this session. */
+diff --git a/packages/ui/src/sync/session-unread.ts b/packages/ui/src/sync/session-unread.ts
+index 8b021e0f9..a22e7c056 100644
+--- a/packages/ui/src/sync/session-unread.ts
++++ b/packages/ui/src/sync/session-unread.ts
+@@ -21,6 +21,7 @@ import { z } from "zod"
+ import { compact, type Metadata, type Session } from "@/lib/opencode/model"
+ import { opencodeClient } from "@/lib/opencode/client"
+ import { getRuntimeKey } from "@/lib/runtime-switch"
++import { readGlobalSessionLineage } from "@/stores/sessionLineage"
+ import { resolveGlobalSessionDirectory, useGlobalSessionsStore } from "@/stores/useGlobalSessionsStore"
+ import { requestSessionMetadataUpdate } from "./session-archive-batch"
+ 
+@@ -245,6 +246,24 @@ export const markSessionUnreadSeen = (sessionId: string, options?: MarkSeenOptio
+   markSessionsUnreadSeen([sessionId], options)
+ }
+ 
++/** Every session this runtime knows, for clearing banners that left no unread mark. */
++export const getKnownSessionIds = (): string[] => {
++  const ids: string[] = []
++  for (const session of useGlobalSessionsStore.getState().entityById.values()) ids.push(session.id)
++  return ids
++}
++
++/**
++ * A session and every session nested under it. A view of the parent shows the
++ * requests its subagents wait on, so their notifications belong to it too. The
++ * walk comes from `sessionLineage.ts`, which carries the visited set that ends
++ * a parent cycle and the review-session handling the other lineage callers use.
++ */
++export const getSessionFamilyIds = (sessionId: string): string[] => {
++  const descendants = readGlobalSessionLineage().descendantsOf(sessionId, "active")
++  return [sessionId, ...descendants.map((session) => session.id)]
++}
++
+ /** Every unread session the client knows of. */
+ export const getUnreadSessionIds = (): string[] => {
+   const ids: string[] = []
