@@ -100,6 +100,9 @@ let
       # viewing a session clears its subagents' phone banners on top of
       # upstream's server-side clearing.
       ./patches/send-past-open-question.patch
+      # The composer half above steers into the waiting turn; this is the
+      # release half, where the queue delivered a held send into the ask.
+      ./patches/queue-holds-pending-question.patch
       # The phone removes its own delivered banners when the session is opened
       # or marked seen; the server's clearing push alone leaves a banner whose
       # push was missed.
