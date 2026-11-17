@@ -416,7 +416,7 @@ index 97054f986..a5af3c157 100644
    );
  };
 diff --git a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-index 2a2959cfe..9a42d2193 100644
+index c73218d76..0cef756d5 100644
 --- a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
 +++ b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
 @@ -661,7 +661,8 @@ the same Mark all as read.
@@ -455,7 +455,7 @@ index 2a2959cfe..9a42d2193 100644
  A session work is in work when its root
  or a nested non-subagent session is (`metadata.openchamber.work.state ===
  'open'`, see `packages/web/server/lib/session-work/DOCUMENTATION.md`); a
-@@ -1413,10 +1421,10 @@ rest it is as quiet as the button was.
+@@ -1413,13 +1421,12 @@ rest it is as quiet as the button was.
    `sidebarSessionBatchSize`, 3 to 50, set in the sections manager; the phone
    has no control and follows it). Unset, a project shows 7, 10 in VS Code,
    and VS Code's single-project flat mode 20. A run or a worktree spends one
@@ -463,32 +463,63 @@ index 2a2959cfe..9a42d2193 100644
 -  everything: In work is what is being worked on now, and the list by time is
 -  the whole sidebar (maintainer, 2026-11-14). A search shows every match in
 -  a zone. Show more and Show less share one row under the list, in the
-+  slot. Chats keeps its reveal of 3, In work pages by its own number
-+  (`workPageSize`, below), and the list by time lists everything: it is the
-+  whole sidebar (maintainer, 2026-11-14). This build pages In work again,
-+  where upstream lists it whole. A search shows every match in a zone. Show more and Show less share one row under the list, in the
-   micro size so it reads as a control rather than a row: Show more while
-   something is hidden, Show less once more than the first batch shows
-   (maintainer, 2026-10-27). Reveal
+-  micro size so it reads as a control rather than a row: Show more while
+-  something is hidden, Show less once more than the first batch shows
+-  (maintainer, 2026-10-27). Reveal
++  slot. Chats keeps its reveal of 3. In work pages by its own number
++  (`workPageSize`, above), and the list by time lists everything: it is the
++  whole sidebar. A search shows every match in a zone. Show more and Show
++  less share one row under the list, in the micro size so it reads as a
++  control rather than a row: Show more while something is hidden, Show less
++  once more than the first batch shows (maintainer, 2026-10-27). Reveal
+   controls change the logical list, not the viewport's bounded mounted window.
+   Show more carries the collapsed-header activity indicator after its label,
+   covering only the sessions it hides, including runs and worktree contents.
 diff --git a/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx b/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx
-index 43517f41d..424a145ff 100644
+index 43517f41d..2000ccc18 100644
 --- a/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx
 +++ b/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx
-@@ -491,9 +491,10 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+@@ -188,7 +188,13 @@ type SessionProjectCollectionProps = {
+   };
+ };
+ 
+-const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topology, view, actions }) => {
++type VisibleSessionProjectsProps = SessionProjectCollectionProps & {
++  /** In work's held order and its setter, owned by `SessionProjectCollection`. */
++  heldWorkOrder: readonly string[] | null;
++  setHeldWorkOrder: (order: readonly string[] | null) => void;
++};
++
++const VisibleSessionProjects: React.FC<VisibleSessionProjectsProps> = ({ topology, view, actions, heldWorkOrder, setHeldWorkOrder }) => {
+   const { t } = useI18n();
+   const { alwaysShowActions, projectViewActions, rowActions, ...scrollerActions } = actions;
+   const foldersMap = useSessionFoldersStore((state) => state.foldersMap);
+@@ -489,13 +495,18 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+   const [heldProjectOrder, setHeldProjectOrder] = React.useState<readonly string[] | null>(null);
+   const shownProjectOrderRef = React.useRef<readonly string[]>([]);
    const holdsProjectOrder = view.projectSortOrder === 'recent';
-   // In work holds its order the same way, and for a sharper reason: opening a
-   // work marks it read, which drops it a rank, so the row the user just
+-  // In work holds its order the same way, and for a sharper reason: opening a
+-  // work marks it read, which drops it a rank, so the row the user just
 -  // clicked would leave the page and take another work's slot. The held order
 -  // keeps the page as it was under the pointer or focus; leaving applies the
 -  // live rank.
-+  // clicked could fall past the block's page (`workPageSize`, cut by the row
-+  // model) and another work would take its slot. The held order keeps the page
-+  // as it was under the pointer or focus, works that appear meanwhile
-+  // following it; leaving applies the live rank.
-   const [heldWorkOrder, setHeldWorkOrder] = React.useState<readonly string[] | null>(null);
+-  const [heldWorkOrder, setHeldWorkOrder] = React.useState<readonly string[] | null>(null);
++  // In work's hold itself is owned above this component, so a remount of the
++  // list cannot drop it; this ref only remembers the order it was showing for
++  // the next enter.
    const shownWorkOrderRef = React.useRef<readonly string[]>([]);
++  // The hold stays while either the pointer or keyboard focus is inside the
++  // list. A click moves focus to the composer before the pointer leaves, so
++  // releasing on blur alone would drop the hold under the reader's cursor.
++  const pointerInListRef = React.useRef(false);
++  const focusInListRef = React.useRef(false);
++  const releaseWorkHoldIfOutside = React.useCallback(() => {
++    if (!pointerInListRef.current && !focusInListRef.current) setHeldWorkOrder(null);
++  }, [setHeldWorkOrder]);
    React.useEffect(() => {
-@@ -514,6 +515,20 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+     if (!holdsProjectOrder) setHeldProjectOrder(null);
+   }, [holdsProjectOrder]);
+@@ -514,6 +525,20 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
    // any of its sessions is. Sections hand works out from the top down (`sections/sectionMembership.ts`).
    const sessionWorkEnabled = useUIStore((state) => state.sessionWorkEnabled);
    const showWorkSection = useSessionDisplayStore((state) => state.showWorkSection);
@@ -509,7 +540,7 @@ index 43517f41d..424a145ff 100644
    const showPinnedSection = useSessionDisplayStore((state) => state.showPinnedSection);
    const keepPinnedInPlace = useSessionDisplayStore((state) => state.keepPinnedInPlace);
    const detailedZoneRows = useSessionDisplayStore((state) => state.detailedZoneRows);
-@@ -1372,6 +1387,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+@@ -1372,6 +1397,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
      movedSessionIds,
      movedGroupKeys,
      detailedZoneRows,
@@ -517,7 +548,7 @@ index 43517f41d..424a145ff 100644
      foldersMap,
      contentSearchResults: conversationResults,
      revealedSearchSections,
-@@ -1404,7 +1420,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+@@ -1404,7 +1430,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
      sessionBatchSize,
      runIndex,
      blocks: sidebarBlocks,
@@ -526,6 +557,57 @@ index 43517f41d..424a145ff 100644
    React.useEffect(() => {
      onSearchMatchCountChange(searchTotalCount);
    }, [searchTotalCount, onSearchMatchCountChange]);
+@@ -1536,20 +1562,30 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+         className="contents"
+         onPointerEnter={(event) => {
+           if (event.pointerType !== 'mouse') return;
++          pointerInListRef.current = true;
+           if (holdsProjectOrder) setHeldProjectOrder(shownProjectOrderRef.current);
+           setHeldWorkOrder(shownWorkOrderRef.current);
+         }}
+         onPointerLeave={() => {
++          pointerInListRef.current = false;
+           setHeldProjectOrder(null);
+-          setHeldWorkOrder(null);
++          releaseWorkHoldIfOutside();
++        }}
++        onFocus={() => {
++          focusInListRef.current = true;
++          setHeldWorkOrder(shownWorkOrderRef.current);
+         }}
+-        onFocus={() => setHeldWorkOrder(shownWorkOrderRef.current)}
+         onBlur={(event) => {
+           // React's blur bubbles from every descendant; moving between rows
+-          // keeps the hold, leaving the list releases it.
++          // keeps the hold, leaving the list releases it. Opening a work takes
++          // focus to the composer while the pointer is still on the row, and
++          // the hold has to survive that: the reader is looking at the row they
++          // just clicked, not at a list they left.
+           // SAFETY: a React focus event's relatedTarget is the node that took
+           // or lost focus, or null when focus left the document.
+-          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setHeldWorkOrder(null);
++          if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
++          focusInListRef.current = false;
++          releaseWorkHoldIfOutside();
+         }}
+       >
+         {view.renderList
+@@ -1570,5 +1606,14 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+ export const SessionProjectCollection: React.FC<SessionProjectCollectionProps> = (props) => {
+   const [shown, setShown] = React.useState(props.view.isVisible);
+   if (props.view.isVisible && !shown) setShown(true);
+-  return shown ? <VisibleSessionProjects {...props} /> : null;
++  // In work holds its order and page while the pointer or focus is inside the
++  // list, for a sharper reason than Recent: opening a work marks it read, which
++  // drops it a rank, so the row the user just clicked could fall past the
++  // block's page and another work would take its slot. The state lives here
++  // because opening a work remounts the list, and the hold has to outlive that
++  // remount to keep the clicked row where it was.
++  const [heldWorkOrder, setHeldWorkOrder] = React.useState<readonly string[] | null>(null);
++  return shown
++    ? <VisibleSessionProjects {...props} heldWorkOrder={heldWorkOrder} setHeldWorkOrder={setHeldWorkOrder} />
++    : null;
+ };
 diff --git a/packages/ui/src/components/session/sidebar/sessionSidebarRowModel.test.ts b/packages/ui/src/components/session/sidebar/sessionSidebarRowModel.test.ts
 index d7c90628e..df66082c5 100644
 --- a/packages/ui/src/components/session/sidebar/sessionSidebarRowModel.test.ts
@@ -730,227 +812,227 @@ index b66e7025d..b072d4278 100644
  
    const selectedSection = args.singleProjectMode
 diff --git a/packages/ui/src/lib/i18n/messages/ar.settings.ts b/packages/ui/src/lib/i18n/messages/ar.settings.ts
-index fe07eb0b5..b034ce6fc 100644
+index 5fcd4db80..e2d0f40fc 100644
 --- a/packages/ui/src/lib/i18n/messages/ar.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/ar.settings.ts
 @@ -1137,6 +1137,10 @@ export const settingsDict = {
    'settings.openchamber.sessionWork.title': 'الجلسات قيد العمل',
    'settings.openchamber.sessionWork.info': 'قسم في الشريط الجانبي أسفل المحادثات للجلسات التي تعمل عليها. تظهر الجلسة هنا عند إرسال رسالة فيها. افتراضيًا، تظهر في هذا القسم فقط. لعرضها في مشروعها كذلك، افتح «تخصيص الأقسام…» من قائمة الشريط الجانبي وفعّل «في المشاريع أيضاً» في صف «قيد العمل». على الهاتف، فعّل «إظهار العمل الجاري تحت المشاريع أيضًا» من قائمة الشريط الجانبي. في VS Code تظهر الجلسات دائمًا ضمن مشاريعها. علّم الجلسة كمنتهية باستخدام علامة الصح أو قائمة الجلسة. عندما تبدو الجولة نهايةً للعمل، تتحول علامة الصح إلى الرمادي كتلميح.',
    'settings.openchamber.sessionWork.field.enabled': 'إظهار الجلسات قيد العمل',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWork': 'الأعمال في "قيد العمل"',
++  'settings.openchamber.sessionWork.field.sessionsShownInWork': 'الأعمال المعروضة في "قيد العمل"',
 +  'settings.openchamber.sessionWork.field.sessionsShownInWorkInfo': 'عدد الأعمال التي تُفتح بها كتلة "قيد العمل". يعرض زر "عرض المزيد" العدد نفسه مرة أخرى.',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWorkAria': 'الأعمال في "قيد العمل"',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWorkResetAria': 'إعادة تعيين الأعمال في "قيد العمل"',
++  'settings.openchamber.sessionWork.field.sessionsShownInWorkAria': 'عدد الأعمال المعروضة في "قيد العمل"',
++  'settings.openchamber.sessionWork.field.sessionsShownInWorkResetAria': 'إعادة تعيين الأعمال المعروضة في "قيد العمل"',
    'settings.openchamber.sessionRetention.archivedTooltip': 'يحذف الجلسات المؤرشفة المنتهية المدة. يحتفظ بآخر 5 جلسات مؤرشفة، والجلسة المفتوحة، والجلسات قيد التشغيل، والجلسات المثبّتة. يُحتفظ بالجلسة الأم إذا كان حذفها سيحذف أيضًا جلسة فرعية محمية.',
    'settings.openchamber.sessionRetention.tooltip': 'يؤرشف الجلسات غير المؤرشفة أو يحذفها بناءً على آخر نشاط. يحتفظ بآخر 5 جلسات، والجلسة المفتوحة، والجلسات قيد التشغيل، والجلسات المثبّتة. تبقى أيضًا الجلسات في قسم «قيد العمل» ما لم تُضمّنها. تُحفظ الجلسات المؤرشفة. يُحتفظ بالجلسة الأم إذا كان حذفها سيحذف أيضًا جلسة فرعية محمية.',
    'settings.openchamber.sessionRetention.field.enableAutoCleanupAria': 'تفعيل التنظيف التلقائي',
 diff --git a/packages/ui/src/lib/i18n/messages/de.settings.ts b/packages/ui/src/lib/i18n/messages/de.settings.ts
-index cf98c8c8e..a1d216b5a 100644
+index 6bc0b0b23..339ff5105 100644
 --- a/packages/ui/src/lib/i18n/messages/de.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/de.settings.ts
 @@ -1096,6 +1096,10 @@ export const settingsDict = {
    'settings.openchamber.sessionWork.title': 'Sitzungen in Arbeit',
    'settings.openchamber.sessionWork.info': 'Ein Bereich in der Seitenleiste unter den Chats für die Sitzungen, an denen Sie arbeiten. Eine Sitzung erscheint dort, sobald Sie eine Nachricht senden. Standardmäßig wird sie nur in diesem Bereich angezeigt. Damit sie auch in ihrem Projekt erscheint, öffnen Sie im Seitenleistenmenü „Abschnitte anpassen…“ und aktivieren Sie bei „In Arbeit“ die Option „Auch in Projekten“. Auf dem Telefon aktivieren Sie im Seitenleistenmenü „In Arbeit auch unter Projekten zeigen“. In VS Code werden Sitzungen immer in ihren Projekten angezeigt. Markieren Sie eine Sitzung über den Haken oder das Sitzungsmenü als erledigt. Sieht ein Durchgang nach dem Ende der Arbeit aus, wird der Haken als Hinweis grau.',
    'settings.openchamber.sessionWork.field.enabled': 'Sitzungen in Arbeit anzeigen',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWork': 'Arbeiten in „In Arbeit“',
++  'settings.openchamber.sessionWork.field.sessionsShownInWork': 'Angezeigte Arbeiten in „In Arbeit“',
 +  'settings.openchamber.sessionWork.field.sessionsShownInWorkInfo': 'Wie viele Arbeiten der Block „In Arbeit“ beim Öffnen zeigt. „Mehr anzeigen“ zeigt erneut dieselbe Anzahl.',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWorkAria': 'Arbeiten in „In Arbeit“',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWorkResetAria': 'Arbeiten in „In Arbeit“ zurücksetzen',
++  'settings.openchamber.sessionWork.field.sessionsShownInWorkAria': 'Anzahl der angezeigten Arbeiten in „In Arbeit“',
++  'settings.openchamber.sessionWork.field.sessionsShownInWorkResetAria': 'Angezeigte Arbeiten in „In Arbeit“ zurücksetzen',
    'settings.openchamber.sessionRetention.archivedTooltip': 'Löscht archivierte Sitzungen nach Ablauf der Aufbewahrungsdauer. Behält die 5 zuletzt archivierten Sitzungen, die geöffnete Sitzung sowie laufende und angeheftete Sitzungen. Eine übergeordnete Sitzung bleibt erhalten, wenn ihre Löschung auch eine geschützte untergeordnete Sitzung löschen würde.',
    'settings.openchamber.sessionRetention.tooltip': 'Archiviert oder löscht nicht archivierte Sitzungen anhand ihrer letzten Aktivität. Behält die 5 neuesten Sitzungen, die geöffnete Sitzung sowie laufende und angeheftete Sitzungen. Sitzungen im Bereich „In Arbeit“ bleiben ebenfalls erhalten, sofern Sie sie nicht einbeziehen. Archivierte Sitzungen bleiben erhalten. Eine übergeordnete Sitzung bleibt erhalten, wenn ihre Löschung auch eine geschützte untergeordnete Sitzung löschen würde.',
    'settings.openchamber.sessionRetention.field.enableAutoCleanupAria': 'Automatische Bereinigung aktivieren',
 diff --git a/packages/ui/src/lib/i18n/messages/en.settings.ts b/packages/ui/src/lib/i18n/messages/en.settings.ts
-index 8caf33c43..85c5a8440 100644
+index b0e8f11aa..aa834a839 100644
 --- a/packages/ui/src/lib/i18n/messages/en.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/en.settings.ts
 @@ -1137,6 +1137,10 @@ export const settingsDict = {
    'settings.openchamber.sessionWork.title': 'Sessions in work',
    'settings.openchamber.sessionWork.info': 'A block in the sidebar, under Chats, for the sessions you\'re working in. A session goes there when you send a message in it. By default, it appears only in this block; to keep it in its project too, open "Customize sections…" in the sidebar menu and turn on "Also in projects" on In work. On a phone, turn on "Also show in work under projects" in the sidebar menu. VS Code always shows sessions in their projects. Mark a session done with the check or the session menu. When a turn looks like the end of the work, the check turns grey as a hint.',
    'settings.openchamber.sessionWork.field.enabled': 'Show sessions in work',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWork': 'Works in In work',
++  'settings.openchamber.sessionWork.field.sessionsShownInWork': 'Works shown in In work',
 +  'settings.openchamber.sessionWork.field.sessionsShownInWorkInfo': 'How many works the In work block opens with. Show more reveals the same number again.',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWorkAria': 'Works in In work',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWorkResetAria': 'Reset works in In work',
++  'settings.openchamber.sessionWork.field.sessionsShownInWorkAria': 'Number of works shown in In work',
++  'settings.openchamber.sessionWork.field.sessionsShownInWorkResetAria': 'Reset works shown in In work',
    'settings.openchamber.sessionRetention.archivedTooltip': 'Deletes expired archived sessions. Keeps the 5 most recently archived sessions, the open session, running sessions and pinned sessions. A parent is kept if deleting it would also delete a protected child.',
    'settings.openchamber.sessionRetention.tooltip': 'Archives or deletes unarchived sessions based on last activity. Keeps the 5 most recent sessions, the open session, running sessions and pinned sessions. Sessions in the In work block are kept too unless you include them. Archived sessions are kept. A parent is kept if deleting it would also delete a protected child.',
    'settings.openchamber.sessionRetention.field.enableAutoCleanupAria': 'Enable auto-cleanup',
 diff --git a/packages/ui/src/lib/i18n/messages/es.settings.ts b/packages/ui/src/lib/i18n/messages/es.settings.ts
-index 79bda4245..d20a61eab 100644
+index 43aae80a1..21f80c2ac 100644
 --- a/packages/ui/src/lib/i18n/messages/es.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/es.settings.ts
 @@ -1105,6 +1105,10 @@ export const settingsDict = {
    "settings.openchamber.sessionWork.title": "Sesiones en curso",
    "settings.openchamber.sessionWork.info": "Un bloque en la barra lateral, debajo de los chats, para las sesiones en las que estás trabajando. La sesión aparece ahí cuando envías un mensaje. De forma predeterminada, solo aparece en este bloque. Para mantenerla también en su proyecto, abre «Personalizar secciones…» en el menú de la barra lateral y activa «También en proyectos» en «En curso». En un teléfono, activa «Mostrar también lo que está en curso bajo los proyectos» en el menú de la barra lateral. En VS Code, las sesiones siempre se muestran en sus proyectos. Márcala como terminada con la marca o el menú de la sesión. Cuando un turno parece el final del trabajo, la marca se vuelve gris como pista.",
    "settings.openchamber.sessionWork.field.enabled": "Mostrar sesiones en curso",
-+  "settings.openchamber.sessionWork.field.sessionsShownInWork": "Trabajos en «En curso»",
++  "settings.openchamber.sessionWork.field.sessionsShownInWork": "Trabajos mostrados en «En curso»",
 +  "settings.openchamber.sessionWork.field.sessionsShownInWorkInfo": "Cuántos trabajos muestra el bloque «En curso» al abrirse. «Mostrar más» revela la misma cantidad otra vez.",
-+  "settings.openchamber.sessionWork.field.sessionsShownInWorkAria": "Trabajos en «En curso»",
-+  "settings.openchamber.sessionWork.field.sessionsShownInWorkResetAria": "Restablecer trabajos en «En curso»",
++  "settings.openchamber.sessionWork.field.sessionsShownInWorkAria": "Número de trabajos mostrados en «En curso»",
++  "settings.openchamber.sessionWork.field.sessionsShownInWorkResetAria": "Restablecer trabajos mostrados en «En curso»",
    "settings.openchamber.sessionRetention.archivedTooltip": "Elimina sesiones archivadas cuyo periodo de retención ha vencido. Conserva las 5 sesiones archivadas más recientemente, la sesión abierta, las sesiones en ejecución y las ancladas. Una sesión principal se conserva si eliminarla también eliminaría una sesión secundaria protegida.",
    "settings.openchamber.sessionRetention.tooltip": "Archiva o elimina sesiones no archivadas según su última actividad. Conserva las 5 sesiones más recientes, la sesión abierta, las sesiones en ejecución y las ancladas. Las sesiones del bloque «En curso» también se conservan, salvo que las incluyas. Las sesiones archivadas se conservan. Una sesión principal se conserva si eliminarla también eliminaría una sesión secundaria protegida.",
    "settings.openchamber.sessionRetention.field.enableAutoCleanupAria": "Habilitar limpieza automática",
 diff --git a/packages/ui/src/lib/i18n/messages/fr.settings.ts b/packages/ui/src/lib/i18n/messages/fr.settings.ts
-index 9d61545ae..e9a6e0d1b 100644
+index 004a0bd10..7e0506118 100644
 --- a/packages/ui/src/lib/i18n/messages/fr.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/fr.settings.ts
 @@ -1009,6 +1009,10 @@ export const settingsDict = {
    'settings.openchamber.sessionWork.title': 'Sessions en cours',
    'settings.openchamber.sessionWork.info': 'Un bloc dans la barre latérale, sous les discussions, pour les sessions sur lesquelles vous travaillez. Une session y apparaît dès que vous lui envoyez un message. Par défaut, elle apparaît uniquement dans ce bloc. Pour la garder aussi dans son projet, ouvrez « Personnaliser les sections… » dans le menu de la barre latérale et activez « Aussi dans les projets » sur la ligne « En cours ». Sur un téléphone, activez « Afficher aussi le travail en cours sous les projets » dans le menu de la barre latérale. Dans VS Code, les sessions restent toujours dans leur projet. Marquez une session comme terminée avec la coche ou son menu. Quand un tour ressemble à la fin du travail, la coche devient grise en guise d’indice.',
    'settings.openchamber.sessionWork.field.enabled': 'Afficher les sessions en cours',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWork': 'Travaux dans « En cours »',
++  'settings.openchamber.sessionWork.field.sessionsShownInWork': 'Travaux affichés dans « En cours »',
 +  'settings.openchamber.sessionWork.field.sessionsShownInWorkInfo': 'Combien de travaux le bloc « En cours » affiche à l’ouverture. « Afficher plus » en révèle autant à nouveau.',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWorkAria': 'Travaux dans « En cours »',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWorkResetAria': 'Réinitialiser les travaux dans « En cours »',
++  'settings.openchamber.sessionWork.field.sessionsShownInWorkAria': 'Nombre de travaux affichés dans « En cours »',
++  'settings.openchamber.sessionWork.field.sessionsShownInWorkResetAria': 'Réinitialiser les travaux affichés dans « En cours »',
    'settings.openchamber.sessionRetention.archivedTooltip': 'Supprime les sessions archivées dont la période de conservation a expiré. Conserve les 5 sessions archivées le plus récemment, la session ouverte, les sessions en cours d’exécution et les sessions épinglées. Une session parente est conservée si sa suppression supprimerait aussi une session enfant protégée.',
    'settings.openchamber.sessionRetention.tooltip': 'Archive ou supprime les sessions non archivées selon leur dernière activité. Conserve les 5 sessions les plus récentes, la session ouverte, les sessions en cours d’exécution et les sessions épinglées. Les sessions du bloc « En cours » sont aussi conservées, sauf si vous les incluez. Les sessions archivées sont conservées. Une session parente est conservée si sa suppression supprimerait aussi une session enfant protégée.',
    'settings.openchamber.sessionRetention.field.enableAutoCleanupAria': 'Activer le nettoyage automatique',
 diff --git a/packages/ui/src/lib/i18n/messages/he.settings.ts b/packages/ui/src/lib/i18n/messages/he.settings.ts
-index 58dfe21ba..8836928cd 100644
+index 5848f083c..76cf2a174 100644
 --- a/packages/ui/src/lib/i18n/messages/he.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/he.settings.ts
 @@ -1137,6 +1137,10 @@ export const settingsDict = {
    'settings.openchamber.sessionWork.title': 'הפעלות בעבודה',
    'settings.openchamber.sessionWork.info': 'אזור בסרגל הצד, מתחת לצ\'אטים, להפעלות שבהן עובדים. הפעלה מופיעה כאן כששולחים בה הודעה. כברירת מחדל היא מופיעה באזור הזה בלבד. כדי להציג אותה גם בפרויקט שלה, פתחו בתפריט סרגל הצד את „התאמת מקטעים…” והפעילו את „גם בפרויקטים” בשורה „בעבודה”. בטלפון, הפעילו בתפריט סרגל הצד את „להציג עבודה פעילה גם תחת הפרויקטים”. ב-VS Code ההפעלות מופיעות תמיד בפרויקטים שלהן. סמנו הפעלה כהושלמה באמצעות סימן הווי או תפריט ההפעלה. כשנראה שתור מסיים את העבודה, סימן הווי הופך לאפור כרמז.',
    'settings.openchamber.sessionWork.field.enabled': 'הצג הפעלות בעבודה',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWork': 'עבודות ב"בעבודה"',
++  'settings.openchamber.sessionWork.field.sessionsShownInWork': 'עבודות מוצגות ב"בעבודה"',
 +  'settings.openchamber.sessionWork.field.sessionsShownInWorkInfo': 'כמה עבודות בלוק "בעבודה" מציג בפתיחה. "הצג עוד" חושף שוב את אותו מספר.',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWorkAria': 'עבודות ב"בעבודה"',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWorkResetAria': 'איפוס עבודות ב"בעבודה"',
++  'settings.openchamber.sessionWork.field.sessionsShownInWorkAria': 'מספר העבודות המוצגות ב"בעבודה"',
++  'settings.openchamber.sessionWork.field.sessionsShownInWorkResetAria': 'איפוס עבודות מוצגות ב"בעבודה"',
    'settings.openchamber.sessionRetention.archivedTooltip': 'מוחק הפעלות בארכיון שפג תוקפן. שומר את 5 ההפעלות שהועברו לארכיון לאחרונה, את ההפעלה הפתוחה, הפעלות שרצות והפעלות מוצמדות. הפעלת אב נשמרת אם מחיקתה תמחק גם הפעלת צאצא מוגנת.',
    'settings.openchamber.sessionRetention.tooltip': 'מעביר לארכיון או מוחק הפעלות שלא בארכיון לפי הפעילות האחרונה. שומר את 5 ההפעלות האחרונות, את ההפעלה הפתוחה, הפעלות שרצות והפעלות מוצמדות. גם הפעלות באזור „בעבודה” נשמרות, אלא אם כוללים אותן. הפעלות בארכיון נשמרות. הפעלת אב נשמרת אם מחיקתה תמחק גם הפעלת צאצא מוגנת.',
    'settings.openchamber.sessionRetention.field.enableAutoCleanupAria': 'הפעל ניקוי אוטומטי',
 diff --git a/packages/ui/src/lib/i18n/messages/ja.settings.ts b/packages/ui/src/lib/i18n/messages/ja.settings.ts
-index 5e2655109..3d3c4d56c 100644
+index 7aea8862a..01165a6a9 100644
 --- a/packages/ui/src/lib/i18n/messages/ja.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/ja.settings.ts
 @@ -1138,6 +1138,10 @@ export const settingsDict = {
    'settings.openchamber.sessionWork.title': '作業中のセッション',
    'settings.openchamber.sessionWork.info': '作業中のセッションを、サイドバーのチャットの下にまとめるブロックです。セッションでメッセージを送るとここに表示されます。既定ではこのブロックだけに表示されます。プロジェクトにも残すには、サイドバーのメニューで「セクションをカスタマイズ…」を開き、「作業中」の「プロジェクトにも」を有効にしてください。スマートフォンでは、サイドバーのメニューで「作業中の項目もプロジェクトの下に表示」を有効にしてください。VS Code では常にプロジェクト内にも表示されます。チェックまたはセッションメニューから完了にできます。ターンが作業の終わりに見えると、ヒントとしてチェックが灰色になります。',
    'settings.openchamber.sessionWork.field.enabled': '作業中のセッションを表示',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWork': '「作業中」の作業数',
++  'settings.openchamber.sessionWork.field.sessionsShownInWork': '「作業中」に表示する作業',
 +  'settings.openchamber.sessionWork.field.sessionsShownInWorkInfo': '「作業中」ブロックを開いたときに表示する作業の数です。「さらに表示」で同じ数だけ追加表示します。',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWorkAria': '「作業中」の作業数',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWorkResetAria': '「作業中」の作業数をリセット',
++  'settings.openchamber.sessionWork.field.sessionsShownInWorkAria': '「作業中」に表示する作業の数',
++  'settings.openchamber.sessionWork.field.sessionsShownInWorkResetAria': '「作業中」に表示する作業をリセット',
    'settings.openchamber.sessionRetention.archivedTooltip': '保持期間を過ぎたアーカイブ済みのセッションを削除します。最後にアーカイブされた5件、開いているセッション、実行中のセッション、ピン留めしたセッションは保持されます。保護された子セッションまで削除される場合、親セッションは削除されません。',
    'settings.openchamber.sessionRetention.tooltip': '最終アクティビティに基づいて未アーカイブのセッションをアーカイブまたは削除します。最新5件、開いているセッション、実行中のセッション、ピン留めしたセッションは保持されます。「作業中」ブロックのセッションも、含める設定にしない限り保持されます。アーカイブ済みのセッションも保持されます。保護された子セッションまで削除される場合、親セッションは削除されません。',
    'settings.openchamber.sessionRetention.field.enableAutoCleanupAria': '自動クリーンアップを有効化',
 diff --git a/packages/ui/src/lib/i18n/messages/ko.settings.ts b/packages/ui/src/lib/i18n/messages/ko.settings.ts
-index 0ff99dbcb..57bd011a2 100644
+index c30e4e7f1..81776efc9 100644
 --- a/packages/ui/src/lib/i18n/messages/ko.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/ko.settings.ts
 @@ -1105,6 +1105,10 @@ export const settingsDict = {
    'settings.openchamber.sessionWork.title': '작업 중인 세션',
    'settings.openchamber.sessionWork.info': '작업 중인 세션을 사이드바의 채팅 아래에 모아 두는 영역입니다. 세션에서 메시지를 보내면 이곳에 표시됩니다. 기본적으로 이 영역에만 표시됩니다. 프로젝트에도 표시하려면 사이드바 메뉴에서 "섹션 사용자 지정…"을 열고 "작업 중"의 "프로젝트에도"를 켜세요. 휴대폰에서는 사이드바 메뉴에서 "진행 중인 작업을 프로젝트 아래에도 표시"를 켜세요. VS Code에서는 항상 프로젝트에도 표시됩니다. 체크 표시나 세션 메뉴에서 완료로 표시할 수 있습니다. 턴이 작업의 끝처럼 보이면 힌트로 체크가 회색으로 바뀝니다.',
    'settings.openchamber.sessionWork.field.enabled': '작업 중인 세션 표시',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWork': '"작업 중"의 작업 수',
++  'settings.openchamber.sessionWork.field.sessionsShownInWork': '"작업 중"에 표시되는 작업',
 +  'settings.openchamber.sessionWork.field.sessionsShownInWorkInfo': '"작업 중" 블록을 열 때 표시할 작업 수입니다. "더 보기"를 누르면 같은 수만큼 더 표시합니다.',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWorkAria': '"작업 중"의 작업 수',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWorkResetAria': '"작업 중" 작업 수 초기화',
++  'settings.openchamber.sessionWork.field.sessionsShownInWorkAria': '"작업 중"에 표시되는 작업 수',
++  'settings.openchamber.sessionWork.field.sessionsShownInWorkResetAria': '"작업 중"에 표시되는 작업 초기화',
    'settings.openchamber.sessionRetention.archivedTooltip': '보존 기간이 지난 보관된 세션을 삭제합니다. 가장 최근에 보관된 세션 5개, 열려 있는 세션, 실행 중인 세션과 고정된 세션은 유지됩니다. 상위 세션을 삭제하면 보호된 하위 세션도 삭제되는 경우 상위 세션을 유지합니다.',
    'settings.openchamber.sessionRetention.tooltip': '마지막 활동을 기준으로 보관되지 않은 세션을 보관하거나 삭제합니다. 최근 세션 5개, 열려 있는 세션, 실행 중인 세션과 고정된 세션은 유지됩니다. "작업 중" 영역의 세션도 포함하도록 설정하지 않으면 유지됩니다. 보관된 세션도 유지됩니다. 상위 세션을 삭제하면 보호된 하위 세션도 삭제되는 경우 상위 세션을 유지합니다.',
    'settings.openchamber.sessionRetention.field.enableAutoCleanupAria': '자동 정리 활성화',
 diff --git a/packages/ui/src/lib/i18n/messages/nl.settings.ts b/packages/ui/src/lib/i18n/messages/nl.settings.ts
-index 08fcceb72..c484178ce 100644
+index 29e586cb6..5d2a98986 100644
 --- a/packages/ui/src/lib/i18n/messages/nl.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/nl.settings.ts
 @@ -1138,6 +1138,10 @@ export const settingsDict = {
    'settings.openchamber.sessionWork.title': 'Sessies in uitvoering',
    'settings.openchamber.sessionWork.info': 'Een blok in de zijbalk, onder Chats, voor de sessies waaraan u werkt. Een sessie verschijnt daar zodra u een bericht stuurt. Standaard staat ze alleen in dit blok. Om haar ook in haar project te tonen, opent u "Secties aanpassen…" in het zijbalkmenu en schakelt u bij "In bewerking" "Ook in projecten" in. Op een telefoon schakelt u "Werk in uitvoering ook onder projecten tonen" in via het zijbalkmenu. In VS Code verschijnen sessies altijd in hun projecten. Markeer een sessie als afgerond met het vinkje of via het sessiemenu. Als een beurt op het einde van het werk lijkt, wordt het vinkje grijs als hint.',
    'settings.openchamber.sessionWork.field.enabled': 'Sessies in uitvoering tonen',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWork': 'Stuks werk in "In bewerking"',
++  'settings.openchamber.sessionWork.field.sessionsShownInWork': 'Getoond werk in "In bewerking"',
 +  'settings.openchamber.sessionWork.field.sessionsShownInWorkInfo': 'Hoeveel stuks werk het blok "In bewerking" bij openen toont. "Meer tonen" toont opnieuw hetzelfde aantal.',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWorkAria': 'Stuks werk in "In bewerking"',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWorkResetAria': 'Stuks werk in "In bewerking" herstellen',
++  'settings.openchamber.sessionWork.field.sessionsShownInWorkAria': 'Aantal getoond werk in "In bewerking"',
++  'settings.openchamber.sessionWork.field.sessionsShownInWorkResetAria': 'Getoond werk in "In bewerking" herstellen',
    'settings.openchamber.sessionRetention.archivedTooltip': 'Verwijdert verlopen gearchiveerde sessies. Behoudt de 5 meest recent gearchiveerde sessies, de geopende sessie, lopende sessies en vastgezette sessies. Een bovenliggende sessie blijft behouden als verwijderen daarvan ook een beschermde subsessie zou verwijderen.',
    'settings.openchamber.sessionRetention.tooltip': 'Archiveert of verwijdert niet-gearchiveerde sessies op basis van de laatste activiteit. Behoudt de 5 meest recente sessies, de geopende sessie, lopende sessies en vastgezette sessies. Sessies in het blok "In bewerking" blijven ook bewaard, tenzij u ze meeneemt. Gearchiveerde sessies blijven behouden. Een bovenliggende sessie blijft behouden als verwijderen daarvan ook een beschermde subsessie zou verwijderen.',
    'settings.openchamber.sessionRetention.field.enableAutoCleanupAria': 'Automatisch opschonen aanzetten',
 diff --git a/packages/ui/src/lib/i18n/messages/pl.settings.ts b/packages/ui/src/lib/i18n/messages/pl.settings.ts
-index 362aefc50..7a968f1cc 100644
+index aaa5d9c90..acbdca7c7 100644
 --- a/packages/ui/src/lib/i18n/messages/pl.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/pl.settings.ts
 @@ -1146,6 +1146,10 @@ export const settingsDict = {
    'settings.openchamber.sessionWork.title': 'Sesje w toku',
    'settings.openchamber.sessionWork.info': 'Blok na pasku bocznym pod czatami, przeznaczony dla sesji, nad którymi pracujesz. Sesja pojawia się tam po wysłaniu wiadomości. Domyślnie jest widoczna tylko w tym bloku. Aby była widoczna również w swoim projekcie, otwórz „Dostosuj sekcje…” w menu paska bocznego i włącz „Także w projektach” przy „W toku”. Na telefonie włącz „Pokazuj też prace w toku pod projektami” w menu paska bocznego. W VS Code sesje są zawsze widoczne w projektach. Oznacz sesję jako gotową znacznikiem lub w jej menu. Gdy tura wygląda na koniec pracy, znacznik szarzeje jako podpowiedź.',
    'settings.openchamber.sessionWork.field.enabled': 'Pokazuj sesje w toku',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWork': 'Prace w „W toku”',
++  'settings.openchamber.sessionWork.field.sessionsShownInWork': 'Prace pokazywane w „W toku”',
 +  'settings.openchamber.sessionWork.field.sessionsShownInWorkInfo': 'Ile prac blok „W toku” pokazuje po otwarciu. „Pokaż więcej” odsłania ponownie tę samą liczbę.',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWorkAria': 'Prace w „W toku”',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWorkResetAria': 'Resetuj prace w „W toku”',
++  'settings.openchamber.sessionWork.field.sessionsShownInWorkAria': 'Liczba prac pokazywanych w „W toku”',
++  'settings.openchamber.sessionWork.field.sessionsShownInWorkResetAria': 'Resetuj prace pokazywane w „W toku”',
    'settings.openchamber.sessionRetention.archivedTooltip': 'Usuwa zarchiwizowane sesje po upływie okresu przechowywania. Zachowuje 5 ostatnio zarchiwizowanych sesji, otwartą sesję oraz sesje działające i przypięte. Sesja nadrzędna pozostaje, jeśli jej usunięcie usunęłoby też chronioną sesję podrzędną.',
    'settings.openchamber.sessionRetention.toast.archivedCount': 'Zarchiwizowano {count} sesji',
    'settings.openchamber.sessionRetention.toast.deletedCount': 'Usunięto {count} sesji',
 diff --git a/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts b/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
-index efdeda8af..5a79d8021 100644
+index 9c3a63a58..26722fd5f 100644
 --- a/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
 @@ -1105,6 +1105,10 @@ export const settingsDict = {
    "settings.openchamber.sessionWork.title": "Sessões em andamento",
    "settings.openchamber.sessionWork.info": "Um bloco na barra lateral, abaixo das conversas, para as sessões em que você está trabalhando. A sessão aparece ali assim que você envia uma mensagem. Por padrão, ela aparece somente nesse bloco. Para mantê-la também no projeto, abra 'Personalizar seções…' no menu da barra lateral e ative 'Também nos projetos' em 'Em andamento'. No celular, ative 'Mostrar também o que está em andamento nos projetos' no menu da barra lateral. No VS Code, as sessões sempre aparecem nos projetos. Marque uma sessão como concluída pelo check ou pelo menu. Quando um turno parece o fim do trabalho, o check fica cinza como dica.",
    "settings.openchamber.sessionWork.field.enabled": "Mostrar sessões em andamento",
-+  "settings.openchamber.sessionWork.field.sessionsShownInWork": "Trabalhos em “Em andamento”",
++  "settings.openchamber.sessionWork.field.sessionsShownInWork": "Trabalhos exibidos em “Em andamento”",
 +  "settings.openchamber.sessionWork.field.sessionsShownInWorkInfo": "Quantos trabalhos o bloco “Em andamento” mostra ao abrir. “Mostrar mais” revela a mesma quantidade novamente.",
-+  "settings.openchamber.sessionWork.field.sessionsShownInWorkAria": "Trabalhos em “Em andamento”",
-+  "settings.openchamber.sessionWork.field.sessionsShownInWorkResetAria": "Redefinir trabalhos em “Em andamento”",
++  "settings.openchamber.sessionWork.field.sessionsShownInWorkAria": "Número de trabalhos exibidos em “Em andamento”",
++  "settings.openchamber.sessionWork.field.sessionsShownInWorkResetAria": "Redefinir trabalhos exibidos em “Em andamento”",
    "settings.openchamber.sessionRetention.archivedTooltip": "Exclui sessões arquivadas cujo período de retenção terminou. Mantém as 5 sessões arquivadas mais recentemente, a sessão aberta, as sessões em execução e as fixadas. Uma sessão principal é mantida se sua exclusão também excluir uma sessão filha protegida.",
    "settings.openchamber.sessionRetention.tooltip": "Arquiva ou exclui sessões não arquivadas com base na última atividade. Mantém as 5 sessões mais recentes, a sessão aberta, as sessões em execução e as fixadas. As sessões do bloco 'Em andamento' também ficam, a menos que você as inclua. As sessões arquivadas são mantidas. Uma sessão principal é mantida se sua exclusão também excluir uma sessão filha protegida.",
    "settings.openchamber.sessionRetention.field.enableAutoCleanupAria": "Ativar limpeza automática",
 diff --git a/packages/ui/src/lib/i18n/messages/tr.settings.ts b/packages/ui/src/lib/i18n/messages/tr.settings.ts
-index 08c730c10..28a9690a0 100644
+index 2bd4ebb4d..d2094bbd1 100644
 --- a/packages/ui/src/lib/i18n/messages/tr.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/tr.settings.ts
 @@ -1110,6 +1110,10 @@ export const settingsDict = {
    'settings.openchamber.sessionWork.title': 'Devam eden oturumlar',
    'settings.openchamber.sessionWork.info': 'Üzerinde çalıştığınız oturumlar için kenar çubuğunda sohbetlerin altındaki bölüm. Bir oturum, mesaj gönderdiğinizde burada görünür. Varsayılan olarak yalnızca bu bölümde görünür. Projesinde de görünmesi için kenar çubuğu menüsünden "Bölümleri özelleştir…" penceresini açın ve "Devam eden" satırında "Projelerde de" seçeneğini açın. Telefonda kenar çubuğu menüsünden "Devam eden işleri projelerin altında da göster" seçeneğini açın. VS Code oturumları her zaman projelerinde gösterir. Onay işaretiyle veya oturum menüsünden tamamlandı olarak işaretleyin. Bir tur işin sonu gibi göründüğünde onay işareti ipucu olarak griye döner.',
    'settings.openchamber.sessionWork.field.enabled': 'Devam eden oturumları göster',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWork': '"Devam eden" işleri',
++  'settings.openchamber.sessionWork.field.sessionsShownInWork': '"Devam eden" bölümünde gösterilen işler',
 +  'settings.openchamber.sessionWork.field.sessionsShownInWorkInfo': '"Devam eden" bloğunun açılışta kaç iş göstereceği. "Daha fazla göster" aynı sayıyı yeniden gösterir.',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWorkAria': '"Devam eden" işleri',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWorkResetAria': '"Devam eden" işlerini sıfırla',
++  'settings.openchamber.sessionWork.field.sessionsShownInWorkAria': '"Devam eden" bölümünde gösterilen iş sayısı',
++  'settings.openchamber.sessionWork.field.sessionsShownInWorkResetAria': '"Devam eden" bölümünde gösterilen işleri sıfırla',
    'settings.openchamber.sessionRetention.archivedTooltip': 'Saklama süresi dolan arşivlenmiş oturumları siler. En son arşivlenen 5 oturumu, açık oturumu, çalışan ve sabitlenen oturumları korur. Bir üst oturumun silinmesi korunan bir alt oturumu da silecekse üst oturum korunur.',
    'settings.openchamber.sessionRetention.tooltip': 'Arşivlenmemiş oturumları son etkinliğe göre arşivler veya siler. En yeni 5 oturumu, açık oturumu, çalışan ve sabitlenen oturumları korur. "Devam eden" bölümündeki oturumlar da dahil etmediğiniz sürece korunur. Arşivlenmiş oturumlar korunur. Bir üst oturumun silinmesi korunan bir alt oturumu da silecekse üst oturum korunur.',
    'settings.openchamber.sessionRetention.field.enableAutoCleanupAria': 'Otomatik temizlemeyi etkinleştir',
 diff --git a/packages/ui/src/lib/i18n/messages/uk.settings.ts b/packages/ui/src/lib/i18n/messages/uk.settings.ts
-index bb2fa7744..b09d1b6c2 100644
+index f36c1129e..72d2586fa 100644
 --- a/packages/ui/src/lib/i18n/messages/uk.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/uk.settings.ts
 @@ -1105,6 +1105,10 @@ export const settingsDict = {
    "settings.openchamber.sessionWork.title": "Сесії в роботі",
    "settings.openchamber.sessionWork.info": "Блок у сайдбарі під «Чатами» для сесій, у яких ви працюєте. Сесія з’являється там, щойно ви надсилаєте повідомлення. За замовчуванням вона відображається лише в цьому блоці. Щоб вона відображалася і у своєму проєкті, відкрийте «Налаштувати секції…» в меню сайдбара й увімкніть «Також у проєктах» у рядку «В роботі». На телефоні увімкніть «Також показувати роботу в проєктах» у меню сайдбара. У VS Code сесії завжди показуються у своїх проєктах. Позначте сесію як готову галочкою або в її меню. Коли хід схожий на завершення роботи, галочка сіріє як підказка.",
    "settings.openchamber.sessionWork.field.enabled": "Показувати сесії в роботі",
-+  "settings.openchamber.sessionWork.field.sessionsShownInWork": "Роботи в «У роботі»",
++  "settings.openchamber.sessionWork.field.sessionsShownInWork": "Роботи, показані в «У роботі»",
 +  "settings.openchamber.sessionWork.field.sessionsShownInWorkInfo": "Скільки робіт блок «У роботі» показує під час відкриття. «Показати більше» відкриває знову ту саму кількість.",
-+  "settings.openchamber.sessionWork.field.sessionsShownInWorkAria": "Роботи в «У роботі»",
-+  "settings.openchamber.sessionWork.field.sessionsShownInWorkResetAria": "Скинути роботи в «У роботі»",
++  "settings.openchamber.sessionWork.field.sessionsShownInWorkAria": "Кількість робіт, показаних у блоці «У роботі»",
++  "settings.openchamber.sessionWork.field.sessionsShownInWorkResetAria": "Скинути роботи, показані в «У роботі»",
    "settings.openchamber.sessionRetention.archivedTooltip": "Видаляє архівні сесії після завершення періоду зберігання. Зберігає 5 останніх архівованих сесій, відкриту сесію, сесії, що виконуються, і закріплені сесії. Батьківська сесія залишається, якщо її видалення зачепить захищену дочірню.",
    "settings.openchamber.sessionRetention.tooltip": "Архівує або видаляє неархівовані сесії за часом останньої активності. Зберігає 5 найновіших сесій, відкриту сесію, сесії, що виконуються, і закріплені сесії. Сесії в блоці «В роботі» теж зберігаються, якщо ви їх не включили. Архівні сесії зберігаються. Батьківська сесія залишається, якщо її видалення зачепить захищену дочірню.",
    "settings.openchamber.sessionRetention.field.enableAutoCleanupAria": "Увімкнути автоматичне очищення",
 diff --git a/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts b/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
-index 14e5b06b3..86343d449 100644
+index 95a41abe8..af457a6dd 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
 @@ -1105,6 +1105,10 @@ export const settingsDict = {
    'settings.openchamber.sessionWork.title': '进行中的会话',
    'settings.openchamber.sessionWork.info': '侧边栏中位于聊天下方的区块，用于显示正在处理的会话。发送消息后，会话就会显示在这里。默认情况下，会话只显示在此区块中。若要同时在所属项目下显示，请在侧边栏菜单中打开“自定义分区…”，并在“进行中”一行开启“也在项目中”。在手机上，请在侧边栏菜单中开启“在项目下也显示进行中的工作”。VS Code 始终会在项目下显示会话。点击对勾或使用会话菜单可将会话标记为完成。当某一轮看起来像工作的结尾时，对勾会变灰作为提示。',
    'settings.openchamber.sessionWork.field.enabled': '显示进行中的会话',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWork': '“进行中”中的工作',
++  'settings.openchamber.sessionWork.field.sessionsShownInWork': '“进行中”中显示的工作',
 +  'settings.openchamber.sessionWork.field.sessionsShownInWorkInfo': '“进行中”区块打开时显示的工作数量。“显示更多”会再次显示相同数量。',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWorkAria': '“进行中”中的工作',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWorkResetAria': '重置“进行中”中的工作',
++  'settings.openchamber.sessionWork.field.sessionsShownInWorkAria': '“进行中”中显示的工作数量',
++  'settings.openchamber.sessionWork.field.sessionsShownInWorkResetAria': '重置“进行中”中显示的工作',
    'settings.openchamber.sessionRetention.archivedTooltip': '删除超过保留期限的已归档会话。保留最近归档的 5 个会话、当前打开的会话、运行中的会话和已置顶的会话。如果删除父会话会同时删除受保护的子会话，则保留父会话。',
    'settings.openchamber.sessionRetention.tooltip': '根据最后活动时间归档或删除未归档的会话。保留最近 5 个会话、当前打开的会话、运行中的会话和已置顶的会话。“进行中”区块里的会话也会保留，除非你选择包含它们。已归档的会话会保留。如果删除父会话会同时删除受保护的子会话，则保留父会话。',
    'settings.openchamber.sessionRetention.field.enableAutoCleanupAria': '启用自动清理',
 diff --git a/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts b/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
-index f294604b8..2f0156198 100644
+index 338427390..005a69e94 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
 @@ -1102,6 +1102,10 @@ export const settingsDict = {
    'settings.openchamber.sessionWork.title': '進行中的工作階段',
    'settings.openchamber.sessionWork.info': '側邊欄中位於聊天下方的區塊，用來顯示正在處理的工作階段。傳送訊息後，工作階段就會顯示在這裡。預設只會顯示在此區塊。若要同時顯示在所屬專案下，請在側邊欄選單中開啟「自訂區段…」，並在「進行中」一列開啟「也在專案中」。在手機上，請在側邊欄選單中開啟「在專案下也顯示進行中的工作」。VS Code 一律會在專案下顯示工作階段。點選勾號或使用工作階段選單即可將其標記為完成。當某一輪看起來像工作的結尾時，勾號會變灰作為提示。',
    'settings.openchamber.sessionWork.field.enabled': '顯示進行中的工作階段',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWork': '「進行中」中的工作',
++  'settings.openchamber.sessionWork.field.sessionsShownInWork': '「進行中」中顯示的工作',
 +  'settings.openchamber.sessionWork.field.sessionsShownInWorkInfo': '「進行中」區塊開啟時顯示的工作數量。「顯示更多」會再次顯示相同數量。',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWorkAria': '「進行中」中的工作',
-+  'settings.openchamber.sessionWork.field.sessionsShownInWorkResetAria': '重設「進行中」中的工作',
++  'settings.openchamber.sessionWork.field.sessionsShownInWorkAria': '「進行中」中顯示的工作數量',
++  'settings.openchamber.sessionWork.field.sessionsShownInWorkResetAria': '重設「進行中」中顯示的工作',
    'settings.openchamber.sessionRetention.archivedTooltip': '刪除超過保留期限的已封存工作階段。保留最近封存的 5 個工作階段、目前開啟的工作階段、執行中的工作階段及已釘選的工作階段。如果刪除父工作階段會同時刪除受保護的子工作階段，則保留父工作階段。',
    'settings.openchamber.sessionRetention.tooltip': '根據最後活動時間封存或刪除未封存的工作階段。保留最近 5 個工作階段、目前開啟的工作階段、執行中的工作階段及已釘選的工作階段。「進行中」區塊裡的工作階段也會保留，除非你選擇包含它們。已封存的工作階段會保留。如果刪除父工作階段會同時刪除受保護的子工作階段，則保留父工作階段。',
    'settings.openchamber.sessionRetention.field.enableAutoCleanupAria': '啟用自動清理',
@@ -1089,10 +1171,10 @@ index 03866d4f5..a3e057fb9 100644
      page: 'sessions',
 diff --git a/packages/ui/src/lib/workPageSize.ts b/packages/ui/src/lib/workPageSize.ts
 new file mode 100644
-index 000000000..ab9f22882
+index 000000000..e07ffabbf
 --- /dev/null
 +++ b/packages/ui/src/lib/workPageSize.ts
-@@ -0,0 +1,15 @@
+@@ -0,0 +1,21 @@
 +/**
 + * The In work block's first page: the works it opens with, Show more revealing
 + * the same number again. One source for the store's initial value, the
@@ -1108,11 +1190,17 @@ index 000000000..ab9f22882
 +export const DEFAULT_WORK_PAGE_SIZE = 7;
 +export const WORK_PAGE_SIZE_MIN = 1;
 +export const WORK_PAGE_SIZE_MAX = 50;
++/** The page the store keeps, whatever a writer hands it. */
++export const clampWorkPageSize = (size: number): number => (
++  Number.isFinite(size)
++    ? Math.max(WORK_PAGE_SIZE_MIN, Math.min(WORK_PAGE_SIZE_MAX, Math.round(size)))
++    : DEFAULT_WORK_PAGE_SIZE
++);
 diff --git a/packages/ui/src/stores/DOCUMENTATION.md b/packages/ui/src/stores/DOCUMENTATION.md
-index 72e9e0033..b9e34ea51 100644
+index bcb5187bc..dd8aee333 100644
 --- a/packages/ui/src/stores/DOCUMENTATION.md
 +++ b/packages/ui/src/stores/DOCUMENTATION.md
-@@ -740,7 +740,7 @@ Settings reads retain overlapping local mutations until the read settles, includ
+@@ -743,7 +743,7 @@ Settings reads retain overlapping local mutations until the read settles, includ
  
  Project ordering defaults to manual. Session display persistence v3 migrates the previously shipped `recent` project order to `manual` while preserving every other explicit sort mode.
  
@@ -1122,16 +1210,16 @@ index 72e9e0033..b9e34ea51 100644
  Session folders are stored by the OpenChamber server and shared by all of its clients (`packages/web/server/lib/session-folders/DOCUMENTATION.md` owns the stored format and the change semantics). `useSessionFoldersStore` shows the server's last answer with this device's not-yet-stored changes laid over it. Every folder action is one change (`lib/sessionFolders/folderChanges.ts`) that the store applies at once, queues in runtime-scoped storage (`oc.sessions.folderChanges.v2:<runtime>`, written immediately so a reload still sends it) and sends to `PATCH /api/session-folders` 150 ms later, up to 500 changes per request; a change stays queued until the server stored it, a failed write retries with backoff up to 30 s and again when the event stream reconnects, and a change the server rejects as malformed is dropped and the server copy read again. The server's answer and every later read replace the shown folders only when their revision is not older than the last one shown. `sync/session-folders-sync.ts` reads them again when the control stream announces `session-folders-changed` with a newer revision, after each reconnect, and when the window comes back (visible, focused, online or woken). A failed read keeps what is shown and retries with the same backoff; every folder request times out after 15 s (2 minutes for a device's whole copy, which on a slow link would never fit in 15 s) and counts as failed, so a hung one cannot hold the sync. A move records which folder each chat was in (`from`), and both sides skip a chat that has since moved elsewhere, so a move re-sent after a timeout or a reload cannot undo a newer one. Before the first successful read nothing is sent: on its first contact with a server a device hands its own folders from older versions to the server once (an `import` change, with any tombstones an older version left unsent), marks the runtime in `oc.sessions.foldersShared.v2:<runtime>` and only then shows the server's folders. Creates, renames, moves and deletions queued before that are already in the copy the import sends (deletions as tombstones) and leave the queue with it, since a new folder the server joins by name would otherwise come back as a second one under its local id; until that succeeds the local copy stays on screen. An import the server rejects is not sent again until the next start. Changes still queued after an import lose their `from`, since the folders it names may have joined server folders. A missing file on a server that stores shared folders is an empty list; a failed or malformed read keeps what is shown. A server from before shared folders answers 404 to `PATCH`; the store then writes its whole copy with `POST` the way older clients did, with the folders it deleted as tombstones, and gets no live updates from that server. The runtime-specific v2 browser keys stay as this device's cache of the server copy, flushed on runtime switch, page hide, freeze and unload. Which folders are collapsed stays on the device (`oc.sessions.folderCollapse.v2:<runtime>`) and is never read from the server. VS Code has no OpenChamber server, so its folders stay in its own storage and nothing is sent. File-search cache and in-flight keys include runtime plus directory and are cleared on endpoint reset.
  
 diff --git a/packages/ui/src/stores/useSessionDisplayStore.sections.test.ts b/packages/ui/src/stores/useSessionDisplayStore.sections.test.ts
-index bc666b46f..1da8ff3e2 100644
+index bc666b46f..a4d2ae3ee 100644
 --- a/packages/ui/src/stores/useSessionDisplayStore.sections.test.ts
 +++ b/packages/ui/src/stores/useSessionDisplayStore.sections.test.ts
 @@ -1,4 +1,5 @@
  import { describe, expect, test } from 'bun:test';
-+import { DEFAULT_WORK_PAGE_SIZE } from '@/lib/workPageSize';
++import { DEFAULT_WORK_PAGE_SIZE, WORK_PAGE_SIZE_MAX, WORK_PAGE_SIZE_MIN } from '@/lib/workPageSize';
  import { dropSectionsOfOtherInstance, useSessionDisplayStore } from './useSessionDisplayStore';
  
  const custom = { kind: 'custom' as const, id: 's1', name: 'Mine', grouping: 'time' as const, filter: { states: ['running' as const], work: [], pins: [], kinds: [], links: [], projectIds: [], folders: [], activity: 'any' as const, text: [] }, claims: false, hideWhenEmpty: true };
-@@ -21,4 +22,38 @@ describe('sidebar sections belong to their instance', () => {
+@@ -21,4 +22,49 @@ describe('sidebar sections belong to their instance', () => {
      expect(state.hiddenSections).toEqual([]);
      expect(state.sectionsOwner).toBeNull();
    });
@@ -1169,16 +1257,27 @@ index bc666b46f..1da8ff3e2 100644
 +    useSessionDisplayStore.getState().setSessionBatchSize(20);
 +    expect(useSessionDisplayStore.getState().workPageSize).toBe(DEFAULT_WORK_PAGE_SIZE);
 +  });
++
++  test('the page size setter keeps the stored page inside its range', () => {
++    useSessionDisplayStore.getState().setWorkPageSize(0);
++    expect(useSessionDisplayStore.getState().workPageSize).toBe(WORK_PAGE_SIZE_MIN);
++
++    useSessionDisplayStore.getState().setWorkPageSize(999);
++    expect(useSessionDisplayStore.getState().workPageSize).toBe(WORK_PAGE_SIZE_MAX);
++
++    useSessionDisplayStore.getState().setWorkPageSize(Number.NaN);
++    expect(useSessionDisplayStore.getState().workPageSize).toBe(DEFAULT_WORK_PAGE_SIZE);
++  });
  });
 diff --git a/packages/ui/src/stores/useSessionDisplayStore.ts b/packages/ui/src/stores/useSessionDisplayStore.ts
-index 255624fc4..ecf28e776 100644
+index 255624fc4..c22c70b94 100644
 --- a/packages/ui/src/stores/useSessionDisplayStore.ts
 +++ b/packages/ui/src/stores/useSessionDisplayStore.ts
 @@ -2,6 +2,7 @@ import { create } from 'zustand';
  import { persist } from 'zustand/middleware';
  import { getSettingsSurface } from '@/lib/settings/surface';
  import { getRuntimeKey, isTransientRuntimeKey, subscribeRuntimeEndpointWillChange } from '@/lib/runtime-switch';
-+import { DEFAULT_WORK_PAGE_SIZE } from '@/lib/workPageSize';
++import { clampWorkPageSize, DEFAULT_WORK_PAGE_SIZE } from '@/lib/workPageSize';
  import type { SettingsSurface } from '@/lib/settings/registry';
  import {
    clampSessionBatchSize,
@@ -1222,11 +1321,32 @@ index 255624fc4..ecf28e776 100644
        projectSortOrder: 'manual',
        setShowChatsSection: (show) => set({ showChatsSection: show }),
        setShowWorkSection: (show) => set({ showWorkSection: show }),
-+      setWorkPageSize: (size) => set({ workPageSize: size, workPageSizeOwner: getRuntimeKey() }),
++      setWorkPageSize: (size) => set({ workPageSize: clampWorkPageSize(size), workPageSizeOwner: getRuntimeKey() }),
        setShowPinnedSection: (show) => set({ showPinnedSection: show }),
        setDetailedZoneRows: (detailed) => set({ detailedZoneRows: detailed }),
        setWorktreeNameByBranch: (byBranch) => set({ worktreeNameByBranch: byBranch }),
-@@ -263,12 +280,30 @@ export type {
+@@ -246,12 +263,18 @@ export const useSessionDisplayStore = create<SessionDisplayStore>()(
+       // v11→v12 turns two-line rows on for a phone that was on List.
+       migrate: migrateSessionDisplayState,
+       // Sections cached by another build (an older one before a filter field
+-      // existed) are read through the same rules as the stored setting.
++      // existed) are read through the same rules as the stored setting, and
++      // the page size goes through the store's own clamp.
+       merge: (persisted, current) => {
+         // SAFETY: `migrate` has already brought the stored state to this version's shape.
+         const state = (persisted ?? {}) as Partial<SessionDisplayStore>;
+         const sections = sidebarSectionsSchema.safeParse(state.sections ?? current.sections);
+-        return { ...current, ...state, sections: sections.success ? sections.data : [...DEFAULT_SIDEBAR_SECTIONS] };
++        return {
++          ...current,
++          ...state,
++          sections: sections.success ? sections.data : [...DEFAULT_SIDEBAR_SECTIONS],
++          workPageSize: clampWorkPageSize(state.workPageSize ?? current.workPageSize),
++        };
+       },
+     },
+   ),
+@@ -263,12 +286,30 @@ export type {
  
  // The user's sections, pin lists and hidden sections are another instance's
  // once the client switches: back to the built-in sections until the new
@@ -1294,7 +1414,7 @@ index 94335a6be..aad310065 100644
  
  ## Public exports (settings-files.js)
 diff --git a/packages/web/server/lib/opencode/settings-helpers.js b/packages/web/server/lib/opencode/settings-helpers.js
-index 341743f15..5952782b7 100644
+index edf0f00f8..35c345ab1 100644
 --- a/packages/web/server/lib/opencode/settings-helpers.js
 +++ b/packages/web/server/lib/opencode/settings-helpers.js
 @@ -128,6 +128,10 @@ const SECRET_SETTINGS_KEYS = Object.freeze(
@@ -1324,10 +1444,10 @@ index 341743f15..5952782b7 100644
        result.sidebarShowPinnedSection = candidate.sidebarShowPinnedSection;
      }
 diff --git a/packages/web/server/lib/opencode/settings-helpers.test.js b/packages/web/server/lib/opencode/settings-helpers.test.js
-index a635b2536..7904b988c 100644
+index 4bff29785..790ce7b5d 100644
 --- a/packages/web/server/lib/opencode/settings-helpers.test.js
 +++ b/packages/web/server/lib/opencode/settings-helpers.test.js
-@@ -974,7 +974,7 @@ describe('settings registry gate', () => {
+@@ -975,7 +975,7 @@ describe('settings registry gate', () => {
      lastDirectory: '/home/testuser/project', homeDirectory: '/home/testuser', opencodeBinary: '/usr/local/bin/opencode',
      projects: [{ id: 'p', path: '/home/testuser/project' }], activeProjectId: 'p',
      securityScopedBookmarks: ['bookmark'], pinnedDirectories: ['/home/testuser/project'],
@@ -1336,7 +1456,7 @@ index a635b2536..7904b988c 100644
      desktopUiPassword: 'secret', githubClientId: 'client', githubScopes: 'repo', gitlabClientId: 'gitlab-client', skillCatalogs: [{ id: 'c', label: 'C', source: 'https://x' }],
      defaultGitIdentityId: 'global', permissionAutoAccept: { sessions: { s: true }, revision: 1 }, permissionDefaultMode: 'safety', messageSearchEnabled: true, messageSearchReasoningEnabled: true,
      agentControlToolEnabled: true, agentScheduleToolEnabled: true, agentWebToolEnabled: true, browserProvider: 'builtin', agentMemoryToolEnabled: true, agentMemoryDreamingEnabled: true, agentMemoryDreamingModel: 'openai/gpt-mini', agentMemoryDreamingVariant: 'low', agentKnowledgeToolEnabled: true, agentNotifyToolEnabled: true, agentRenderToolEnabled: true, agentImageToolEnabled: true, agentSecretToolEnabled: true, agentUsageToolEnabled: true, agentImageModel: 'openrouter/openai/gpt-image-2', agentWorkflowToolEnabled: true, isolatedSpacesEnabled: true, isolatedSpacesIdleStop: { enabled: true, hours: 4 }, isolatedSpacesSshHost: 'me@box.local:2222', openCodeUpdateToastDismissedVersion: '1.0.0',
-@@ -1049,6 +1049,18 @@ describe('settings registry gate', () => {
+@@ -1050,6 +1050,18 @@ describe('settings registry gate', () => {
      expect(rejected).toEqual([]);
    });
  
