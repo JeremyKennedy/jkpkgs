@@ -1,3 +1,16 @@
+diff --git a/packages/web/server/index.js b/packages/web/server/index.js
+index 574670953..eaf2dae6d 100644
+--- a/packages/web/server/index.js
++++ b/packages/web/server/index.js
+@@ -3041,7 +3041,7 @@ async function main(options = {}) {
+     removeApnsToken,
+     updateUiVisibility,
+     clearPendingPushBadge: () => clearPendingPushBadge(),
+-    clearSessionPushNotifications: (sessionId) => notificationTriggerRuntime.clearSessionPushNotifications(sessionId),
++    clearSessionPushNotifications: (sessionId, options) => notificationTriggerRuntime.clearSessionPushNotifications(sessionId, options),
+     isUiVisible,
+     getUiNotificationClients: () => uiNotificationClients,
+     writeSseEvent,
 diff --git a/packages/web/server/lib/notifications/DOCUMENTATION.md b/packages/web/server/lib/notifications/DOCUMENTATION.md
 index 14ca0218c..b3677c3b9 100644
 --- a/packages/web/server/lib/notifications/DOCUMENTATION.md
@@ -39,6 +52,70 @@ index 13cb6de22..2862478f8 100644
  
      return res.json({
        success: true,
+diff --git a/packages/web/server/lib/notifications/routes.view-clear.test.js b/packages/web/server/lib/notifications/routes.view-clear.test.js
+new file mode 100644
+index 000000000..fd859671e
+--- /dev/null
++++ b/packages/web/server/lib/notifications/routes.view-clear.test.js
+@@ -0,0 +1,58 @@
++import { readFileSync } from 'node:fs';
++
++import { describe, expect, test, vi } from 'vitest';
++
++import { registerNotificationRoutes } from './routes.js';
++
++// The routes receive an injected clearSessionPushNotifications; the server
++// builds that injection in index.js. A wrapper there once dropped the second
++// argument, so a view never asked the runtime to walk subagents and no runtime
++// test could see it. These two tests pin both halves of the wiring.
++
++const withRoutes = (dependencies) => {
++  const handlers = new Map();
++  const app = {
++    get: (path, handler) => handlers.set(path, handler),
++    post: (path, handler) => handlers.set(path, handler),
++    put: () => undefined,
++    delete: () => undefined,
++  };
++  const clearPendingPushBadge = vi.fn();
++  registerNotificationRoutes(app, { ...dependencies, clearPendingPushBadge });
++  return { handlers, clearPendingPushBadge };
++};
++
++const response = () => {
++  const json = vi.fn((body) => body);
++  return { json };
++};
++
++describe('session view clears a session and its subagents', () => {
++  test('the view route asks for the subagent walk', () => {
++    const clearSessionPushNotifications = vi.fn();
++    const { handlers } = withRoutes({ clearSessionPushNotifications });
++    const handler = handlers.get('/api/sessions/:id/view');
++    expect(handler).toBeTypeOf('function');
++
++    handler({ params: { id: 'ses_parent' } }, response());
++
++    expect(clearSessionPushNotifications).toHaveBeenCalledWith('ses_parent', { withSubagents: true });
++  });
++
++  test('a sent message clears only that session', () => {
++    const clearSessionPushNotifications = vi.fn();
++    const { handlers } = withRoutes({ clearSessionPushNotifications });
++    const handler = handlers.get('/api/sessions/:id/message-sent');
++
++    handler({ params: { id: 'ses_parent' } }, response());
++
++    expect(clearSessionPushNotifications).toHaveBeenCalledWith('ses_parent');
++  });
++
++  test('the server wiring forwards the options it is given', () => {
++    // index.js builds the injection; the one-line assertion is deliberate, so a
++    // wrapper that drops the argument fails here rather than only on a phone.
++    const source = readFileSync(new URL('../../index.js', import.meta.url), 'utf8');
++    expect(source).toContain('clearSessionPushNotifications: (sessionId, options) => notificationTriggerRuntime.clearSessionPushNotifications(sessionId, options)');
++  });
++});
 diff --git a/packages/web/server/lib/notifications/runtime.js b/packages/web/server/lib/notifications/runtime.js
 index 4222d5253..11acb7a0f 100644
 --- a/packages/web/server/lib/notifications/runtime.js
