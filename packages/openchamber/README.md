@@ -35,12 +35,33 @@ One record per patch, and the reason each patch exists:
 - `relationship`: `same` (upstream has or will have this change), `alternative`
   (upstream shipped a different design for the same need), `partial`, `pending`
   (a PR or issue is open, nothing shipped) or `none` (local only).
+- `intent`: what the patch deserves upstream — `bugfix` (a broken thing upstream
+  owns), `feature`, `personal` (stays local), `testing` (wants more use before
+  deciding) or `declined` (the maintainer refused it). `relationship` says what a
+  release means for the patch; `intent` says what to do with it.
 - `pr` / `issue`, `mergedAs` (merge commit), `release` (`unreleased` until a tag
   contains it), and a one-line `note`.
 
 Update it in the same change that adds, drops or re-expresses a patch. The
-script fails a patch that is in the queue without a record, and a record with
-no patch.
+script fails a patch that is in the queue without a record, a record with no
+patch, and a record without an `intent`.
+
+`candidates` is the other half: upstream work worth doing that has no local patch
+yet, each with `name`, `intent`, `note` and `since`. A candidate becomes a patch
+record when someone writes the patch, not before.
+
+## The backlog
+
+```
+just upstream-backlog
+```
+
+Prints every patch and candidate grouped by intent, `bugfix` first and
+`declined` last, with the relationship, the open PR or issue, and the note. It
+reads `upstream.json` only, so it needs no upstream checkout and no network. Use
+it to answer "what still needs to go upstream" before a batch of PRs or at a base
+bump; `just upstream <tag>` answers the other question, whether an existing patch
+survives a tag.
 
 ## Retiring a patch
 

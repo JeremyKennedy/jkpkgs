@@ -21,9 +21,15 @@
 #
 # Usage:
 #   scripts/openchamber-upstream.sh --upstream ~/dev/openchamber [--tag v2.7.2] [--json]
+#   scripts/openchamber-upstream.sh --backlog
 #
 # --upstream is a checkout of openchamber/openchamber with the tag fetched. The
 # script copies the tag into a scratch directory and never touches the checkout.
+#
+# --backlog needs no checkout and no network: it reads upstream.json alone and
+# prints every patch and candidate as upstream work owed, grouped by intent in
+# the order bugfix, feature, personal, testing, declined. That is the answer to
+# "what still needs to go upstream".
 set -uo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -32,19 +38,87 @@ ledger="$package_dir/upstream.json"
 upstream=""
 tag=""
 json=0
+backlog=0
+
+usage() {
+  awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "${BASH_SOURCE[0]}"
+}
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --upstream) upstream="$2"; shift 2 ;;
     --tag) tag="$2"; shift 2 ;;
     --json) json=1; shift ;;
-    -h|--help) sed -n '2,26p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --backlog) backlog=1; shift ;;
+    -h|--help) usage; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 1 ;;
   esac
 done
 
-[ -n "$upstream" ] || { echo "--upstream is required" >&2; exit 1; }
 [ -f "$ledger" ] || { echo "missing $ledger" >&2; exit 1; }
+
+if [ "$backlog" -eq 1 ]; then
+  python3 - "$ledger" "$package_dir/source.nix" <<'PY'
+import json, re, sys
+
+ledger_path, source_path = sys.argv[1], sys.argv[2]
+data = json.load(open(ledger_path))
+records = data.get("patches") or {}
+candidates = data.get("candidates") or []
+queue = re.findall(r"patches/([a-z0-9._-]+)\.patch", open(source_path).read())
+
+order = ["bugfix", "feature", "personal", "testing", "declined"]
+
+
+def reference(record):
+    if record.get("pr"):
+        ref = "PR #%s" % record["pr"]
+    elif record.get("issue"):
+        ref = "issue #%s" % record["issue"]
+    else:
+        ref = "-"
+    if record.get("mergedAs"):
+        ref += " (merged)"
+    return ref
+
+
+groups = {intent: [] for intent in order}
+for name in queue:
+    record = records.get(name) or {}
+    groups.setdefault(record.get("intent") or "(no intent)", []).append(
+        (name, record.get("relationship") or "-", reference(record), record.get("note") or "-")
+    )
+for candidate in candidates:
+    groups.setdefault(candidate.get("intent") or "(no intent)", []).append(
+        (
+            candidate.get("name") or "?",
+            "candidate",
+            reference(candidate),
+            candidate.get("note") or "-",
+        )
+    )
+
+counts = ", ".join("%d %s" % (len(rows), intent) for intent, rows in groups.items() if rows)
+print(
+    "OpenChamber upstream backlog: %d patches, %d candidate%s (%s)"
+    % (len(queue), len(candidates), "" if len(candidates) == 1 else "s", counts)
+)
+print()
+print("relationship: same | alternative | partial | pending | none. candidate = local patch not written yet.")
+print()
+name_width = max([34] + [len(name) for rows in groups.values() for name, _, _, _ in rows])
+for intent, rows in groups.items():
+    if not rows:
+        continue
+    print("%s (%d)" % (intent, len(rows)))
+    for name, relationship, ref, note in rows:
+        print("  %-*s %-11s %-20s %s" % (name_width, name, relationship, ref, note))
+    print()
+PY
+  exit 0
+fi
+
+[ -n "$upstream" ] || { echo "--upstream is required" >&2; exit 1; }
 [ -d "$upstream/.git" ] || { echo "$upstream is not a git checkout" >&2; exit 1; }
 
 if [ -z "$tag" ]; then
