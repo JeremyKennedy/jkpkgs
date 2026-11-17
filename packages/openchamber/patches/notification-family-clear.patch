@@ -1,18 +1,20 @@
 diff --git a/packages/web/server/index.js b/packages/web/server/index.js
-index 574670953..eaf2dae6d 100644
+index d4db74913..b6b35c581 100644
 --- a/packages/web/server/index.js
 +++ b/packages/web/server/index.js
-@@ -3041,7 +3041,7 @@ async function main(options = {}) {
+@@ -3044,7 +3044,9 @@ async function main(options = {}) {
      removeApnsToken,
      updateUiVisibility,
      clearPendingPushBadge: () => clearPendingPushBadge(),
 -    clearSessionPushNotifications: (sessionId) => notificationTriggerRuntime.clearSessionPushNotifications(sessionId),
-+    clearSessionPushNotifications: (sessionId, options) => notificationTriggerRuntime.clearSessionPushNotifications(sessionId, options),
++    // Passed by reference: a wrapper that restated the parameter list is what
++    // dropped the options before, and nothing type-checks this bag.
++    clearSessionPushNotifications: notificationTriggerRuntime.clearSessionPushNotifications,
      isUiVisible,
      getUiNotificationClients: () => uiNotificationClients,
      writeSseEvent,
 diff --git a/packages/web/server/lib/notifications/DOCUMENTATION.md b/packages/web/server/lib/notifications/DOCUMENTATION.md
-index 14ca0218c..b3677c3b9 100644
+index 14ca0218c..c0aa4b1b7 100644
 --- a/packages/web/server/lib/notifications/DOCUMENTATION.md
 +++ b/packages/web/server/lib/notifications/DOCUMENTATION.md
 @@ -40,7 +40,7 @@ This module provides notification message preparation utilities for the web serv
@@ -20,19 +22,47 @@ index 14ca0218c..b3677c3b9 100644
    - `GET /api/sessions/status`
    - `GET /api/sessions/:id/status`
 -  - `POST /api/sessions/:id/view` and `POST /api/sessions/:id/message-sent`: reset the native push badge and clear the session's pushed notifications (*Clearing handled notifications*). Whether a session is unread is OpenCode's own `time.viewed`.
-+  - `POST /api/sessions/:id/view` and `POST /api/sessions/:id/message-sent`: reset the native push badge and clear the session's pushed notifications (*Clearing handled notifications*); a view also clears those of its subagents. Whether a session is unread is OpenCode's own `time.viewed`.
++  - `POST /api/sessions/:id/view` and `POST /api/sessions/:id/message-sent`: reset the native push badge and clear the session's pushed notifications (*Clearing handled notifications*); a view also clears its subagents' notifications on the phones (bounded, see *Clearing handled notifications*). Whether a session is unread is OpenCode's own `time.viewed`.
  
  ### Trigger runtime API (runtime.js)
  
-@@ -77,6 +77,8 @@ A pushed notification is removed from the phones and browsers once its cause is
+@@ -53,6 +53,7 @@ This module provides notification message preparation utilities for the web serv
+ - `createNotificationTriggerRuntime(dependencies)`: creates runtime-owned debounced trigger handling for OpenCode events.
+ - Returned API:
+   - `maybeSendPushForTrigger(payload)`
++  - `clearSessionPushNotifications(sessionId, { turnStart = false, withSubagents = false })`: clears the session's pushed notifications. `turnStart` keeps a `skipTurnStart` tag once, for a turn the notification itself woke; `withSubagents` (a view) also clears its subagents' notifications on the phones.
+ - Owns:
+   - completion/error/question/permission trigger routing (a page an agent shows that waits for the user's answer, `openchamber:page-waiting` from this server, notifies exactly like a form, with the page title as the ask); permission suppression consults the authoritative permission-auto-accept runtime
+   - an interrupted step marked `aborted` after Stop, steering, or question dismissal emits no external error notification. Terminal execution failures through `session.error` still notify, including exhausted auto-resume attempts with error type `aborted`. In-app `SessionErrorNotice` diagnostics and VS Code's separate notification path are unchanged.
+@@ -69,7 +70,7 @@ This module provides notification message preparation utilities for the web serv
+ 
+ ### Clearing handled notifications (runtime.js, apns-runtime.js)
+ 
+-A pushed notification is removed from the phones and browsers once its cause is handled anywhere. Every push has a tag that names its cause, and the same tag is the APNs collapse id, the Android notification tag, the web notification tag and `data.tag` on the phone:
++A pushed notification is removed on the phones once its cause is handled anywhere. Every push has a tag that names its cause, and the same tag is the APNs collapse id, the Android notification tag, the web notification tag and `data.tag` on the phone:
+ 
+ | Tag | Cleared when |
+ |---|---|
+@@ -77,6 +78,8 @@ A pushed notification is removed from the phones and browsers once its cause is
  | `question-<sessionId>` | the form it shows settles (`form.settled`) or the page it shows stops waiting (`openchamber:page-settled`), or as above |
  | `permission-<sessionId>` | the request it shows is replied to (`permission.replied`), or as above |
  
-+Viewing a session (`POST /api/sessions/:id/view`, `clearSessionPushNotifications(id, { withSubagents: true })`) also clears the open notifications of its subagents, children and deeper: a subagent's banner carries the subagent's own id, and the user reaches it through the parent. The session's own tags are cleared first. Then each other session with an open tag (the 50 newest) is walked up its parent chain, at most 8 steps, with the trigger runtime's parent cache or a 2 s read of its record (`fetchSessionParentId`); a chain that reaches the viewed session clears that session as a view would. A repeated id ends the walk (a cycle), and a session whose record cannot be read keeps its tags. Only the host's OpenCode is asked, since an open tag does not record a space. A message sent, a turn start and a settled request clear the session itself only.
++Viewing a session (`POST /api/sessions/:id/view`, `clearSessionPushNotifications(id, { withSubagents: true })`) also clears the open notifications of its subagents (children and deeper) on the phones: a subagent's banner carries the subagent's own id, and the user reaches it through the parent. The session's own tags are cleared first. Then each other session with an open tag is walked up its parent chain, at most 8 steps, from the cache the walk itself fills or a 2 s read of its record (`fetchSessionParentId`); only the 50 newest distinct sessions with an open tag are considered, newest first. A chain that reaches the viewed session clears that session as a view would. A repeated id ends the walk (a cycle), and a session whose record cannot be read keeps its tags. Only the host's OpenCode is asked, since an open tag does not record a space. A message sent, a turn start and a settled request clear the session itself only.
 +
  A `share-` tag survives the turn its own answer woke (`skipTurnStart`, see `notifyShareAnswer`). Pull request notifications have no cause the server can see handled, and stay until dismissed.
  
  The trigger runtime keeps the open tags (`openPushTags`: the session, the request a tag shows, whether it went to the phone apps, the id of its latest push) and the 20 most recently cleared ones, and saves both to `push-open-tags.json` in the data directory on every change, one write at a time, so a notification pushed before a restart is still cleared after it. One tag can show several requests in turn (two permissions of one session), so a reply clears the tag only when it answers the request the tag shows now. Clearing a tag also takes it out of the badge count, and the clearing push carries the new count.
+@@ -103,6 +106,10 @@ A push that shows no notification costs the subscription: Safari revokes it afte
+ 
+ The desktop already removes all of a session's notifications when it is viewed (`clearDesktopSessionNotifications`). The user has the request in front of them on that device, so the copy on the phone only duplicates it.
+ 
++#### Why the subagent walk is bounded and best-effort
++
++A view is a background request on the OpenCode that also serves the UI, so the walk reads at most 50 candidate sessions, eight levels each, and stops at a chain it cannot read. A missed clear costs a stale banner that the next push or view removes; clearing a session the chain did not prove is a descendant would hide a request the user never saw.
++
+ ### Extension notification channels (extension-channels.js, channel-accounts.js, channel-routes.js)
+ 
+ An installed extension whose service provides `notifications` (SDK `contributes.notifications`) is a delivery channel next to the desktop and the phone. `createExtensionNotificationChannels` owns which channels exist, their accounts and the delivery; `index.js` builds one, hands its `deliver` to `createNotificationTriggerRuntime` as `deliverToExtensionChannels`, and passes it to `feature-routes-runtime.js`, which registers the routes, reconciles it at start and from the guest activation and deactivation listeners.
 diff --git a/packages/web/server/lib/notifications/routes.js b/packages/web/server/lib/notifications/routes.js
 index 13cb6de22..2862478f8 100644
 --- a/packages/web/server/lib/notifications/routes.js
@@ -52,75 +82,11 @@ index 13cb6de22..2862478f8 100644
  
      return res.json({
        success: true,
-diff --git a/packages/web/server/lib/notifications/routes.view-clear.test.js b/packages/web/server/lib/notifications/routes.view-clear.test.js
-new file mode 100644
-index 000000000..fd859671e
---- /dev/null
-+++ b/packages/web/server/lib/notifications/routes.view-clear.test.js
-@@ -0,0 +1,58 @@
-+import { readFileSync } from 'node:fs';
-+
-+import { describe, expect, test, vi } from 'vitest';
-+
-+import { registerNotificationRoutes } from './routes.js';
-+
-+// The routes receive an injected clearSessionPushNotifications; the server
-+// builds that injection in index.js. A wrapper there once dropped the second
-+// argument, so a view never asked the runtime to walk subagents and no runtime
-+// test could see it. These two tests pin both halves of the wiring.
-+
-+const withRoutes = (dependencies) => {
-+  const handlers = new Map();
-+  const app = {
-+    get: (path, handler) => handlers.set(path, handler),
-+    post: (path, handler) => handlers.set(path, handler),
-+    put: () => undefined,
-+    delete: () => undefined,
-+  };
-+  const clearPendingPushBadge = vi.fn();
-+  registerNotificationRoutes(app, { ...dependencies, clearPendingPushBadge });
-+  return { handlers, clearPendingPushBadge };
-+};
-+
-+const response = () => {
-+  const json = vi.fn((body) => body);
-+  return { json };
-+};
-+
-+describe('session view clears a session and its subagents', () => {
-+  test('the view route asks for the subagent walk', () => {
-+    const clearSessionPushNotifications = vi.fn();
-+    const { handlers } = withRoutes({ clearSessionPushNotifications });
-+    const handler = handlers.get('/api/sessions/:id/view');
-+    expect(handler).toBeTypeOf('function');
-+
-+    handler({ params: { id: 'ses_parent' } }, response());
-+
-+    expect(clearSessionPushNotifications).toHaveBeenCalledWith('ses_parent', { withSubagents: true });
-+  });
-+
-+  test('a sent message clears only that session', () => {
-+    const clearSessionPushNotifications = vi.fn();
-+    const { handlers } = withRoutes({ clearSessionPushNotifications });
-+    const handler = handlers.get('/api/sessions/:id/message-sent');
-+
-+    handler({ params: { id: 'ses_parent' } }, response());
-+
-+    expect(clearSessionPushNotifications).toHaveBeenCalledWith('ses_parent');
-+  });
-+
-+  test('the server wiring forwards the options it is given', () => {
-+    // index.js builds the injection; the one-line assertion is deliberate, so a
-+    // wrapper that drops the argument fails here rather than only on a phone.
-+    const source = readFileSync(new URL('../../index.js', import.meta.url), 'utf8');
-+    expect(source).toContain('clearSessionPushNotifications: (sessionId, options) => notificationTriggerRuntime.clearSessionPushNotifications(sessionId, options)');
-+  });
-+});
 diff --git a/packages/web/server/lib/notifications/runtime.js b/packages/web/server/lib/notifications/runtime.js
-index 4222d5253..11acb7a0f 100644
+index 49354dff6..ede7cb238 100644
 --- a/packages/web/server/lib/notifications/runtime.js
 +++ b/packages/web/server/lib/notifications/runtime.js
-@@ -292,8 +292,9 @@ export const createNotificationTriggerRuntime = (deps) => {
+@@ -299,8 +299,9 @@ export const createNotificationTriggerRuntime = (deps) => {
     * moved on. On a turn start (`turnStart`), a notification marked
     * `skipTurnStart` (a shared page's answer, whose delivery wakes the session)
     * stays once and loses the mark; the next turn, a view or a message clears it.
@@ -131,7 +97,7 @@ index 4222d5253..11acb7a0f 100644
      if (!sessionId) return;
      sessionClearedAt.delete(sessionId);
      sessionClearedAt.set(sessionId, Date.now());
-@@ -311,6 +312,42 @@ export const createNotificationTriggerRuntime = (deps) => {
+@@ -318,6 +319,42 @@ export const createNotificationTriggerRuntime = (deps) => {
        tags.push(tag);
      }
      clearPushTags(tags);
@@ -174,11 +140,29 @@ index 4222d5253..11acb7a0f 100644
    };
  
    // Generic notification for native push (per the mobile design): a fixed, scenario-based
+@@ -470,6 +507,9 @@ export const createNotificationTriggerRuntime = (deps) => {
+ 
+   const sessionParentIdCache = new Map();
+   const SESSION_PARENT_CACHE_TTL_MS = 60 * 1000;
++  // Entries expire only when read, and a view walks up to 50 candidates eight
++  // levels deep, so a long-lived server needs a size cap as well.
++  const SESSION_PARENT_CACHE_LIMIT = 500;
+ 
+   // Sessions where the client has enabled Permission Auto-Accept. Mirrored
+   // from the client-side permissionStore via POST /api/notifications/auto-accept
+@@ -508,6 +548,7 @@ export const createNotificationTriggerRuntime = (deps) => {
+ 
+   const setCachedSessionParentId = (sessionId, directory, spaceId, parentID) => {
+     sessionParentIdCache.set(getSessionParentCacheKey(sessionId, directory, spaceId), { parentID: parentID ?? null, at: Date.now() });
++    keepNewest(sessionParentIdCache, SESSION_PARENT_CACHE_LIMIT);
+   };
+ 
+   const getParentIdFromPayload = (payload) => {
 diff --git a/packages/web/server/lib/notifications/trigger-runtime.test.js b/packages/web/server/lib/notifications/trigger-runtime.test.js
-index d21be7eea..cc2aea307 100644
+index 88438f472..9ae658842 100644
 --- a/packages/web/server/lib/notifications/trigger-runtime.test.js
 +++ b/packages/web/server/lib/notifications/trigger-runtime.test.js
-@@ -888,6 +888,77 @@ describe('clearing a pushed notification once its cause is handled', () => {
+@@ -909,6 +909,77 @@ describe('clearing a pushed notification once its cause is handled', () => {
      expect(clearApnsNotifications.mock.calls[0][0].tags.sort()).toEqual([entryOf('permission-ses_1'), entryOf('question-ses_1')]);
    });
  
@@ -256,3 +240,43 @@ index d21be7eea..cc2aea307 100644
    it('sends no clearing push for a notification the phones never got, but still drops it in browsers', async () => {
      const { runtime, sendPushToAllUiSessions, clearApnsNotifications } = makeClearRuntime({ desktopVisible: true });
      await readyFor(runtime, 'ses_1');
+diff --git a/packages/web/server/sse-routes.test.js b/packages/web/server/sse-routes.test.js
+index ed640ebbc..129b07d4e 100644
+--- a/packages/web/server/sse-routes.test.js
++++ b/packages/web/server/sse-routes.test.js
+@@ -187,3 +187,35 @@ describe('local SSE routes', () => {
+     expect(clients.has(res)).toBe(false);
+   });
+ });
++
++// The routes receive an injected clearSessionPushNotifications and forward the
++// walk decision to it: a view asks for the subagents, a sent message does not.
++describe('session view clears a session and its subagents', () => {
++  const registerClearingRoutes = (clearSessionPushNotifications) => {
++    const registry = createRouteRegistry();
++    registerNotificationRoutes(registry.app, {
++      clearSessionPushNotifications,
++      clearPendingPushBadge: vi.fn(),
++    });
++    return registry;
++  };
++
++  it('asks for the subagent walk when a session is viewed', () => {
++    const clearSessionPushNotifications = vi.fn();
++    const { getRoute } = registerClearingRoutes(clearSessionPushNotifications);
++
++    getRoute('POST', '/api/sessions/:id/view')({ params: { id: 'ses_parent' } }, createMockResponse());
++
++    expect(clearSessionPushNotifications).toHaveBeenCalledWith('ses_parent', { withSubagents: true });
++  });
++
++  it('clears only that session when a message is sent', () => {
++    const clearSessionPushNotifications = vi.fn();
++    const { getRoute } = registerClearingRoutes(clearSessionPushNotifications);
++
++    getRoute('POST', '/api/sessions/:id/message-sent')({ params: { id: 'ses_parent' } }, createMockResponse());
++
++    expect(clearSessionPushNotifications).toHaveBeenCalledWith('ses_parent');
++  });
++});
++
