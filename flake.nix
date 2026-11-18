@@ -59,7 +59,9 @@
           opencode = pkgs.callPackage ./packages/opencode/package.nix { };
           codex = pkgs.callPackage ./packages/codex/package.nix { };
           ccstatusline = pkgs.callPackage ./packages/ccstatusline/package.nix { };
-          rea = pkgs.callPackage ./packages/rea/package.nix { };
+          # rea 6.9.0 refuses to run below Node 22.23.4 / 24.22.1 / 26.12.1;
+          # nixpkgs' default nodejs (24.21.0) is under the 24.x floor.
+          rea = pkgs.callPackage ./packages/rea/package.nix { nodejs = pkgs.nodejs_26; };
           pi = pkgs.callPackage ./packages/pi/package.nix { };
           oh-my-pi = pkgs.callPackage ./packages/oh-my-pi/package.nix { };
           herdr = pkgs.callPackage ./packages/herdr/package.nix {
