@@ -130,11 +130,11 @@
       "since": "2026-11-16"
     },
     "send-past-open-question": {
-      "relationship": "pending",
+      "relationship": "alternative",
       "intent": "bugfix",
       "issue": 6928,
-      "since": "2026-11-16",
-      "note": "Sending while a question is open kills the ask. Reproduced on 2.7.2; queue-holds-pending-question is the release half."
+      "note": "Composer half of the send-while-a-question-waits behaviour: the message steers into the waiting turn and the question stays answerable. Verified on 2.7.2 by typing into the composer with a question open: the message appeared, the question still read as awaiting, and the messages were delivered once the question settled. Upstream took a different design (#5391): the question is marked deferred and the message goes through. Ours leaves the queue when a release carries that.",
+      "since": "2026-11-19"
     },
     "android-notification-dismiss": {
       "relationship": "pending",
@@ -190,14 +190,14 @@
       "intent": "feature",
       "issue": 7108,
       "pr": 7109,
-      "note": "Rides with the question-rows/question-cards stack rather than a separate request; upstream now has a PR for the quote case (an expanded row cutting an answer at its first double quote). questionEntries.ts is ours, not upstream's.",
+      "note": "Rides with the question-rows/question-cards stack rather than a separate request; upstream has a PR for the quote case (an expanded row cutting an answer at its first double quote). questionEntries.ts is ours, not upstream's. If #7109 merges, ours leaves the queue at the next bump.",
       "since": "2026-11-18"
     },
     "queue-holds-pending-question": {
-      "relationship": "none",
+      "relationship": "alternative",
       "intent": "bugfix",
-      "note": "Release half of the pending-question send: the queue holds a session while a question or page form waits, then releases on settle. Pairs with send-past-open-question, which covers the composer path.",
-      "since": "2026-11-16"
+      "note": "Release half of the same behaviour: the queue holds a session while a question or page form waits, then releases on settle. Upstream's deferred-question design covers the same class, so this leaves the queue with send-past-open-question at the next bump.",
+      "since": "2026-11-19"
     }
   },
   "candidates": [
