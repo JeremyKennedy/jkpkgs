@@ -132,6 +132,11 @@ let
       cp packages/web/package.json "$appRoot/packages/web/package.json"
       cp -a packages/web/bin "$appRoot/packages/web/bin"
       cp -a packages/web/server "$appRoot/packages/web/server"
+      # The desktop's bundled main process imports
+      # @openchamber/web/server/*, and this base's package exports map that
+      # subpath to build/server/*. Without build/ beside server/ in the
+      # runtime tree, Electron dies at startup with ERR_MODULE_NOT_FOUND.
+      cp -a packages/web/build "$appRoot/packages/web/build"
       cp -a packages/web/dist "$appRoot/packages/web/dist"
       cp packages/sdk/package.json "$appRoot/packages/sdk/package.json"
       cp -a packages/sdk/dist "$appRoot/packages/sdk/dist"
