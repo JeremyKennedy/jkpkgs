@@ -1331,7 +1331,7 @@ new file mode 100644
 index 000000000..8925fd844
 --- /dev/null
 +++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
-@@ -0,0 +1,324 @@
+@@ -0,0 +1,326 @@
 +import React, { act } from 'react';
 +import { createRoot } from 'react-dom/client';
 +import { expect, test } from 'bun:test';
@@ -1554,6 +1554,8 @@ index 000000000..8925fd844
 +    expect(markup).toContain('typography-markdown');
 +    expect(markup).not.toContain('text-base');
 +    expect(markup).toContain('color-mix(in srgb, var(--status-question-background) 55%, transparent)');
++    // The tint is painted on the canvas, so the transcript cannot read through it.
++    expect(markup).toContain('background-color:var(--surface-background)');
 +});
 +
 +test('text is selectable and expansion uses the native message link instead of a clickable card', () => {
@@ -1661,7 +1663,7 @@ new file mode 100644
 index 000000000..ded3cf7b3
 --- /dev/null
 +++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
-@@ -0,0 +1,434 @@
+@@ -0,0 +1,439 @@
 +import React from 'react';
 +
 +import { useDeviceInfo } from '@/lib/device';
@@ -1688,11 +1690,16 @@ index 000000000..ded3cf7b3
 +const RAIL_STYLE: React.CSSProperties = { borderColor: 'var(--status-question)' };
 +
 +// Match the prompt bubble's shape and subtle border without its body-sized
-+// text or full-column footprint. The faint purple fill identifies questions.
++// text or full-column footprint. The faint purple fill identifies questions,
++// and it is painted on the canvas rather than left at the tint's own alpha:
++// at 55% of a 12.5% tint it was near-clear, so the transcript read through
++// the card and through the bar that covers the chat while the card is open.
++const QUESTION_TINT = 'color-mix(in srgb, var(--status-question-background) 55%, transparent)';
 +const CARD_STYLE: React.CSSProperties = {
 +    borderRadius: 'var(--radius-xl)',
 +    borderBottomRightRadius: 'var(--radius-sm)',
-+    backgroundColor: 'color-mix(in srgb, var(--status-question-background) 55%, transparent)',
++    backgroundColor: 'var(--surface-background)',
++    backgroundImage: `linear-gradient(${QUESTION_TINT}, ${QUESTION_TINT})`,
 +};
 +
 +const LINK_STYLE: React.CSSProperties = { minHeight: 0, minWidth: 0 };
