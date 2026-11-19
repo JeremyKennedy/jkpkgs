@@ -324,10 +324,10 @@ index bb06225e2..94335a6be 100644
  
  ## Public exports (settings-files.js)
  - `parsePreferencesDocument(raw)`, `serializePreferencesDocument(fields)`, `flattenPreferences(fields)`, `buildPreferencesFields(previousFields, document, now)`, `instancePartOf(document)`, `seedPreferencesFrom(document, now)`, `readMergedSettingsSync({ fs, path, settingsFilePath })`, `getSettingsScope(key)`, `isProfileSettingsKey(key)`, `isDeviceSettingsKey(key)`, `preferencesFilePathFor(settingsFilePath, path)`.
-diff --git a/packages/web/server/lib/opencode/settings-files.js b/packages/web/server/lib/opencode/settings-files.js
+diff --git a/packages/web/server/lib/settings/settings-files.ts b/packages/web/server/lib/settings/settings-files.ts
 index a0a1e5926..96e2bb98c 100644
---- a/packages/web/server/lib/opencode/settings-files.js
-+++ b/packages/web/server/lib/opencode/settings-files.js
+--- a/packages/web/server/lib/settings/settings-files.ts
++++ b/packages/web/server/lib/settings/settings-files.ts
 @@ -13,6 +13,12 @@ const registry = createRequire(import.meta.url)('./settings-registry.json');
  
  const PREFERENCES_FILE_NAME = 'preferences.json';
@@ -361,10 +361,10 @@ index a0a1e5926..96e2bb98c 100644
    }
    const fields = {};
    for (const [key, entry] of Object.entries(parsed.fields)) {
-diff --git a/packages/web/server/lib/opencode/settings-helpers.js b/packages/web/server/lib/opencode/settings-helpers.js
+diff --git a/packages/web/server/lib/settings/settings-helpers.ts b/packages/web/server/lib/settings/settings-helpers.ts
 index 255ab5948..341743f15 100644
---- a/packages/web/server/lib/opencode/settings-helpers.js
-+++ b/packages/web/server/lib/opencode/settings-helpers.js
+--- a/packages/web/server/lib/settings/settings-helpers.ts
++++ b/packages/web/server/lib/settings/settings-helpers.ts
 @@ -218,6 +218,18 @@ export const createSettingsHelpers = (dependencies) => {
    const MOBILE_KEYBOARD_MODE_VALUES = new Set(['native', 'resize-content']);
    const UI_FONT_WEIGHT_VALUES = new Set(['regular', 'balanced', 'strong']);
@@ -396,10 +396,10 @@ index 255ab5948..341743f15 100644
      }
      // Legacy: older clients still write the boolean; the UI reads it as chatWidth.
      if (typeof candidate.wideChatLayoutEnabled === 'boolean') {
-diff --git a/packages/web/server/lib/opencode/settings-helpers.test.js b/packages/web/server/lib/opencode/settings-helpers.test.js
+diff --git a/packages/web/server/lib/settings/settings-helpers.test.js b/packages/web/server/lib/settings/settings-helpers.test.js
 index 07e743f6c..a635b2536 100644
---- a/packages/web/server/lib/opencode/settings-helpers.test.js
-+++ b/packages/web/server/lib/opencode/settings-helpers.test.js
+--- a/packages/web/server/lib/settings/settings-helpers.test.js
++++ b/packages/web/server/lib/settings/settings-helpers.test.js
 @@ -294,7 +294,19 @@ describe('settings helpers', () => {
      expect(helpers.sanitizeSettingsUpdate({ wideChatLayoutEnabled: false })).toEqual({ wideChatLayoutEnabled: false });
      expect(helpers.sanitizeSettingsUpdate({ wideChatLayoutEnabled: 'true' })).toEqual({});
@@ -421,10 +421,10 @@ index 07e743f6c..a635b2536 100644
    });
  
    it('accepts only booleans for collapsible user messages', () => {
-diff --git a/packages/web/server/lib/opencode/settings-runtime.test.js b/packages/web/server/lib/opencode/settings-runtime.test.js
+diff --git a/packages/web/server/lib/settings/settings-runtime.test.js b/packages/web/server/lib/settings/settings-runtime.test.js
 index 8d366d54f..7967954ff 100644
---- a/packages/web/server/lib/opencode/settings-runtime.test.js
-+++ b/packages/web/server/lib/opencode/settings-runtime.test.js
+--- a/packages/web/server/lib/settings/settings-runtime.test.js
++++ b/packages/web/server/lib/settings/settings-runtime.test.js
 @@ -752,6 +752,30 @@ describe('settings runtime: preferences.json split', () => {
        await cleanup();
      }

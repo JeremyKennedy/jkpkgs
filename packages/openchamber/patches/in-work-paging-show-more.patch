@@ -1413,10 +1413,10 @@ index 94335a6be..aad310065 100644
  - Two files (`settings-files.js`): `settings.json` holds instance facts and any legacy or unknown keys; `preferences.json` beside it holds every key the generated registry snapshot (`settings-registry.json`) marks `profile`, as `{ version: 1, fields: { key: { value, updatedAt, surfaces? } } }`. A version-2 file in the same shape, which an earlier local build wrote, is read too and saved back as version 1; its old chat width names map to today's levels in `sanitizeSettingsUpdate`. Keys the snapshot marks `perSurface` are stored per surface kind: `GET`/`PUT /api/config/settings` read the client's kind from the `surface` query parameter (`settingsSurfaceOf`; the legacy `x-openchamber-surface` header is still honoured, but a header forces a CORS preflight that cross-origin shells and older instances refuse, so clients must not send one) (`web`, `desktop`, `vscode`, `mobile`; anything else means base), `persistSettings(changes, { surface })` writes a changed per-surface key under `surfaces[surface]` and never touches its base, and `readSettingsFromDisk({ surface })` resolves that kind's value first, the base otherwise. A write only clears a per-surface key its own view held: a key set from one kind alone has no base, so another kind's write or a base write never sees it and must keep it (`buildPreferencesFields`); dropping it there once wiped a fresh setting on every unrelated save. Callers without a surface (migrations, the seed, server-side feature writers) read and write the base. `readSettingsFromDisk()` returns the merged document and seeds `preferences.json` once from an existing `settings.json` (which it leaves intact). An existing `preferences.json` that fails to parse is a failure, not an empty profile: it is never seeded or overwritten, the merged read serves the instance part, and `persistSettings` drops profile keys with a warning until the file is fixed or removed. `writeSettingsToDisk(document)` splits by scope and writes `settings.json` as the instance part plus a copy of the profile's base values (`legacySettingsDocumentOf`): a build from before the split reads only that file, so a rollback keeps the user's preferences, while current builds ignore the copy because `preferences.json` wins in the merge; device keys are dropped from writes. Modules that read one profile key off the disk on a hot path use `readMergedSettingsSync`.
  
  ## Public exports (settings-files.js)
-diff --git a/packages/web/server/lib/opencode/settings-helpers.js b/packages/web/server/lib/opencode/settings-helpers.js
+diff --git a/packages/web/server/lib/settings/settings-helpers.ts b/packages/web/server/lib/settings/settings-helpers.ts
 index edf0f00f8..35c345ab1 100644
---- a/packages/web/server/lib/opencode/settings-helpers.js
-+++ b/packages/web/server/lib/opencode/settings-helpers.js
+--- a/packages/web/server/lib/settings/settings-helpers.ts
++++ b/packages/web/server/lib/settings/settings-helpers.ts
 @@ -128,6 +128,10 @@ const SECRET_SETTINGS_KEYS = Object.freeze(
      .map(([key]) => key),
  );
@@ -1443,10 +1443,10 @@ index edf0f00f8..35c345ab1 100644
      if (candidate.sidebarShowPinnedSection === true || candidate.sidebarShowPinnedSection === false) {
        result.sidebarShowPinnedSection = candidate.sidebarShowPinnedSection;
      }
-diff --git a/packages/web/server/lib/opencode/settings-helpers.test.js b/packages/web/server/lib/opencode/settings-helpers.test.js
+diff --git a/packages/web/server/lib/settings/settings-helpers.test.js b/packages/web/server/lib/settings/settings-helpers.test.js
 index 4bff29785..790ce7b5d 100644
---- a/packages/web/server/lib/opencode/settings-helpers.test.js
-+++ b/packages/web/server/lib/opencode/settings-helpers.test.js
+--- a/packages/web/server/lib/settings/settings-helpers.test.js
++++ b/packages/web/server/lib/settings/settings-helpers.test.js
 @@ -975,7 +975,7 @@ describe('settings registry gate', () => {
      lastDirectory: '/home/testuser/project', homeDirectory: '/home/testuser', opencodeBinary: '/usr/local/bin/opencode',
      projects: [{ id: 'p', path: '/home/testuser/project' }], activeProjectId: 'p',
@@ -1475,10 +1475,10 @@ index 4bff29785..790ce7b5d 100644
    it('drops keys the registry does not list, computed flags, and desktop-shell-owned keys', () => {
      const helpers = createTestHelpers();
      expect(helpers.sanitizeSettingsUpdate({
-diff --git a/packages/web/server/lib/opencode/settings-registry.json b/packages/web/server/lib/opencode/settings-registry.json
+diff --git a/packages/web/server/lib/settings/settings-registry.json b/packages/web/server/lib/settings/settings-registry.json
 index 2e08d59f3..8157e4a55 100644
---- a/packages/web/server/lib/opencode/settings-registry.json
-+++ b/packages/web/server/lib/opencode/settings-registry.json
+--- a/packages/web/server/lib/settings/settings-registry.json
++++ b/packages/web/server/lib/settings/settings-registry.json
 @@ -371,6 +371,14 @@
        "scope": "profile",
        "perSurface": true
