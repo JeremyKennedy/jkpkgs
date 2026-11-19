@@ -54,7 +54,6 @@ let
     src = openchamberSource;
     patches = [
       ./patches/commandcode-quota.patch
-      ./patches/codex-credits-balance.patch
       # Behaviour first: the node-based request resolver and the readiness
       # gate. It renders with upstream's own marks, so the bug fix is
       # reviewable without the feature it shares files with.
@@ -63,8 +62,6 @@ let
       # It builds only on top of the resolver above.
       ./patches/question-indicator.patch
       ./patches/reply-start-scroll.patch
-      ./patches/dictation-thread-count.patch
-      ./patches/dictation-sherpa-platform.patch
       # The rest of the local queue, rebased onto v2.7.2. Upstream absorbed
       # the chat width, notification-dismiss, guest-extension and
       # send-past-open-question patches (maintainer and contributor work, not
