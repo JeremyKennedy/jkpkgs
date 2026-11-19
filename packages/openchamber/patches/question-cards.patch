@@ -548,7 +548,7 @@ index ded3cf7b3..836d0f8f1 100644
      type QuestionAnswerEntry,
      type QuestionCardState,
  } from '../lib/questionEntries';
-@@ -20,14 +23,17 @@ import { useQuestionOpen, writeQuestionOpen } from '../lib/questionExpandedState
+@@ -20,19 +23,22 @@ import { useQuestionOpen, writeQuestionOpen } from '../lib/questionExpandedState
  import { FormDockModeContext } from '../formsInChat';
  import { stickyHeaderBackground } from './stickyHeaderBackground';
  import { USER_BUBBLE_TEXT_LINK_CLASS } from '../message/body/userBubbleLinkStyle';
@@ -557,17 +557,22 @@ index ded3cf7b3..836d0f8f1 100644
  const RAIL_STYLE: React.CSSProperties = { borderColor: 'var(--status-question)' };
  
  // Match the prompt bubble's shape and subtle border without its body-sized
- // text or full-column footprint. The faint purple fill identifies questions.
+ // text or full-column footprint. The faint purple fill identifies questions,
+ // and it is painted on the canvas rather than left at the tint's own alpha:
+ // at 55% of a 12.5% tint it was near-clear, so the transcript read through
+ // the card and through the bar that covers the chat while the card is open.
+ const QUESTION_TINT = 'color-mix(in srgb, var(--status-question-background) 55%, transparent)';
 +// The tail corner is the inline end of the block end in either direction, so
 +// it stays the far corner in Arabic.
  const CARD_STYLE: React.CSSProperties = {
      borderRadius: 'var(--radius-xl)',
 -    borderBottomRightRadius: 'var(--radius-sm)',
 +    borderEndEndRadius: 'var(--radius-sm)',
-     backgroundColor: 'color-mix(in srgb, var(--status-question-background) 55%, transparent)',
+     backgroundColor: 'var(--surface-background)',
+     backgroundImage: `linear-gradient(${QUESTION_TINT}, ${QUESTION_TINT})`,
  };
  
-@@ -40,21 +46,16 @@ const MORE_LINE_PX = 24;
+@@ -45,21 +51,16 @@ const MORE_LINE_PX = 24;
  /** The bar takes over once less than this much of a scrolled-away card is in view. */
  const BAR_HANDOVER_PX = 40;
  
@@ -595,7 +600,7 @@ index ded3cf7b3..836d0f8f1 100644
  }
  
  /**
-@@ -111,6 +112,11 @@ const useCollapsedRows = (listRef: React.RefObject<HTMLDivElement | null>, enabl
+@@ -116,6 +117,11 @@ const useCollapsedRows = (listRef: React.RefObject<HTMLDivElement | null>, enabl
   * Whether a pinned batch card has scrolled away far enough for its bar. The
   * list moves the pinned row off its place by `STICKY_ROW_OFFSET`; the card
   * draws itself back there, so it scrolls away with the transcript.
@@ -607,7 +612,7 @@ index ded3cf7b3..836d0f8f1 100644
   */
  const useBarHandover = (enabled: boolean) => {
      const flowRef = React.useRef<HTMLDivElement>(null);
-@@ -122,16 +128,13 @@ const useBarHandover = (enabled: boolean) => {
+@@ -127,16 +133,13 @@ const useBarHandover = (enabled: boolean) => {
              setCovered(false);
              return;
          }
@@ -626,7 +631,7 @@ index ded3cf7b3..836d0f8f1 100644
          chat.addEventListener(STICKY_ROW_OFFSET_EVENT, onOffset);
          return () => chat.removeEventListener(STICKY_ROW_OFFSET_EVENT, onOffset);
      }, [enabled]);
-@@ -140,14 +143,11 @@ const useBarHandover = (enabled: boolean) => {
+@@ -145,14 +148,11 @@ const useBarHandover = (enabled: boolean) => {
  
  interface QuestionCardProps {
      answered: readonly AnsweredEntry[];
@@ -643,7 +648,7 @@ index ded3cf7b3..836d0f8f1 100644
  }
  
  /**
-@@ -157,7 +157,7 @@ interface QuestionCardProps {
+@@ -162,7 +162,7 @@ interface QuestionCardProps {
   * question with its answer, and Show options then opens every option.
   */
  const QuestionCard: React.FC<QuestionCardProps> = ({
@@ -652,7 +657,7 @@ index ded3cf7b3..836d0f8f1 100644
  }) => {
      const { t } = useI18n();
      const batch = answered.length > 1;
-@@ -170,144 +170,115 @@ const QuestionCard: React.FC<QuestionCardProps> = ({
+@@ -175,144 +175,115 @@ const QuestionCard: React.FC<QuestionCardProps> = ({
          onToggle();
      };
  
@@ -874,7 +879,7 @@ index ded3cf7b3..836d0f8f1 100644
                  </div>
              </div>
          </div>
-@@ -321,20 +292,20 @@ const QuestionCard: React.FC<QuestionCardProps> = ({
+@@ -326,20 +297,20 @@ const QuestionCard: React.FC<QuestionCardProps> = ({
   * header on, an answered card sticks like a prompt until the next prompt or
   * answered question pushes it up. A batch of questions scrolls away instead
   * and leaves a one-line bar of its answers, which opens the card where it is.
@@ -900,7 +905,7 @@ index ded3cf7b3..836d0f8f1 100644
      const { isMobile } = useDeviceInfo();
      const { t } = useI18n();
      const autoExpandAnsweredQuestions = useUIStore((state) => state.autoExpandAnsweredQuestions);
-@@ -352,11 +323,15 @@ export const QuestionTurnHeader: React.FC<{
+@@ -357,11 +328,15 @@ export const QuestionTurnHeader: React.FC<{
      const sticks = useUIStore((state) => state.stickyUserHeader);
      const formsInChat = React.useContext(FormDockModeContext) === 'in-chat';
      const entries = React.useMemo(() => questionEntriesForPart(part, messageId), [part, messageId]);
@@ -919,7 +924,7 @@ index ded3cf7b3..836d0f8f1 100644
      const pinned = pinnable && sticks && cardState === 'answered';
      const barred = pinned && answered.length > 1;
      const { flowRef, covered } = useBarHandover(barred);
-@@ -366,26 +341,19 @@ export const QuestionTurnHeader: React.FC<{
+@@ -371,26 +346,19 @@ export const QuestionTurnHeader: React.FC<{
      }, [covered]);
  
      if (answered.length === 0 || cardState === null) return null;
@@ -951,7 +956,7 @@ index ded3cf7b3..836d0f8f1 100644
                  {card}
              </div>
          );
-@@ -399,34 +367,32 @@ export const QuestionTurnHeader: React.FC<{
+@@ -404,34 +372,32 @@ export const QuestionTurnHeader: React.FC<{
              </div>
              {covered ? (
                  // What covers the top of the chat, so it is the sticky header
