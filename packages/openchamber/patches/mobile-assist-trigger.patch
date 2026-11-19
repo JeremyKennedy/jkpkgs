@@ -1,6 +1,6 @@
 diff --git a/packages/mobile/android/DOCUMENTATION.md b/packages/mobile/android/DOCUMENTATION.md
 new file mode 100644
-index 0000000..76f9b96
+index 000000000..76f9b96bb
 --- /dev/null
 +++ b/packages/mobile/android/DOCUMENTATION.md
 @@ -0,0 +1,21 @@
@@ -26,7 +26,7 @@ index 0000000..76f9b96
 +
 +Deferring would need the shell to hold the intent and replay it from a keyguard callback, and then the draft would open minutes after the gesture with recording already stale. Dropping it costs one keyguard check and leaves the app exactly as the user left it.
 diff --git a/packages/mobile/android/app/src/main/AndroidManifest.xml b/packages/mobile/android/app/src/main/AndroidManifest.xml
-index e27ec4b..645d829 100644
+index e27ec4b5b..645d82941 100644
 --- a/packages/mobile/android/app/src/main/AndroidManifest.xml
 +++ b/packages/mobile/android/app/src/main/AndroidManifest.xml
 @@ -21,6 +21,13 @@
@@ -44,7 +44,7 @@ index e27ec4b..645d829 100644
  
          <provider
 diff --git a/packages/mobile/android/app/src/main/java/com/openchamber/app/MainActivity.java b/packages/mobile/android/app/src/main/java/com/openchamber/app/MainActivity.java
-index 3ede134..dd8697e 100644
+index 361e44951..19e4dc92d 100644
 --- a/packages/mobile/android/app/src/main/java/com/openchamber/app/MainActivity.java
 +++ b/packages/mobile/android/app/src/main/java/com/openchamber/app/MainActivity.java
 @@ -1,9 +1,21 @@
@@ -75,10 +75,10 @@ index 3ede134..dd8697e 100644
          registerPlugin(WidgetBridgePlugin.class);
 +        // The bridge reads the launch intent while starting, so rewrite it first.
 +        setIntent(assistDeepLinkIntent(getIntent()));
+         registerPlugin(MobileDevTunnelPlugin.class);
          super.onCreate(savedInstanceState);
      }
- 
-@@ -25,4 +39,22 @@ public class MainActivity extends BridgeActivity {
+@@ -26,4 +40,22 @@ public class MainActivity extends BridgeActivity {
          setContentView(R.layout.activity_main);
          super.load();
      }

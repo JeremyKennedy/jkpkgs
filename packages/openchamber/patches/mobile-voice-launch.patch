@@ -1,5 +1,5 @@
 diff --git a/packages/mobile/android/app/src/main/AndroidManifest.xml b/packages/mobile/android/app/src/main/AndroidManifest.xml
-index 645d829..2d15d9b 100644
+index 645d82941..2d15d9b27 100644
 --- a/packages/mobile/android/app/src/main/AndroidManifest.xml
 +++ b/packages/mobile/android/app/src/main/AndroidManifest.xml
 @@ -28,6 +28,15 @@
@@ -19,7 +19,7 @@ index 645d829..2d15d9b 100644
  
          <provider
 diff --git a/packages/ui/src/apps/deepLinkNavigation.ts b/packages/ui/src/apps/deepLinkNavigation.ts
-index f0a36e2..6009e1f 100644
+index 3fb89e0d0..e6de84ba5 100644
 --- a/packages/ui/src/apps/deepLinkNavigation.ts
 +++ b/packages/ui/src/apps/deepLinkNavigation.ts
 @@ -7,7 +7,7 @@ import { useProjectsStore } from '@/stores/useProjectsStore';
@@ -31,7 +31,7 @@ index f0a36e2..6009e1f 100644
  import { openSession } from '@/lib/router/openSessionFromRoute';
  
  import { parseDeepLink, type DeepLinkIntent, type SessionsFilter, type ViewTarget } from './deepLinks';
-@@ -85,13 +85,21 @@ const execute = (intent: NavigationIntent): boolean => {
+@@ -56,13 +56,21 @@ const execute = (intent: NavigationIntent): boolean => {
  
      case 'new-session': {
        const store = useSessionUIStore.getState();
@@ -61,7 +61,7 @@ index f0a36e2..6009e1f 100644
        return true;
      }
 diff --git a/packages/ui/src/apps/deepLinks.test.ts b/packages/ui/src/apps/deepLinks.test.ts
-index ce46d14..cd263ca 100644
+index ce46d14f1..cd263caba 100644
 --- a/packages/ui/src/apps/deepLinks.test.ts
 +++ b/packages/ui/src/apps/deepLinks.test.ts
 @@ -29,3 +29,34 @@ describe('Usage provider deep-links for Android home widgets', () => {
@@ -100,11 +100,11 @@ index ce46d14..cd263ca 100644
 +  });
 +});
 diff --git a/packages/ui/src/apps/deepLinks.ts b/packages/ui/src/apps/deepLinks.ts
-index a86c2ae..d1e3739 100644
+index d18741fbf..025c5bc88 100644
 --- a/packages/ui/src/apps/deepLinks.ts
 +++ b/packages/ui/src/apps/deepLinks.ts
-@@ -24,7 +24,17 @@ export type ViewTarget = 'files' | 'mcp' | 'instances' | 'update';
-  */
+@@ -8,7 +8,17 @@ export type ViewTarget = 'files' | 'mcp' | 'instances' | 'update';
+ 
  export type DeepLinkIntent =
    | { type: 'session'; sessionId: string; directory?: string; messageId?: string }
 -  | { type: 'new-session'; directory?: string; projectId?: string; agent?: string; model?: string }
@@ -122,7 +122,7 @@ index a86c2ae..d1e3739 100644
    | { type: 'sessions'; filter?: SessionsFilter }
    | { type: 'status' }
    | { type: 'settings'; section?: string; providerId?: string }
-@@ -87,14 +97,24 @@ export function parseDeepLink(raw: string | null | undefined): DeepLinkIntent |
+@@ -62,14 +72,24 @@ export function parseDeepLink(raw: string | null | undefined): DeepLinkIntent |
      }
  
      case 'new':
@@ -150,42 +150,44 @@ index a86c2ae..d1e3739 100644
      case 'sessions': {
        const filter = query.get('filter');
 diff --git a/packages/ui/src/components/chat/ChatInput.tsx b/packages/ui/src/components/chat/ChatInput.tsx
-index efca17d..c959b6a 100644
+index 842b32f81..f05ad5cc8 100644
 --- a/packages/ui/src/components/chat/ChatInput.tsx
 +++ b/packages/ui/src/components/chat/ChatInput.tsx
-@@ -726,6 +726,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
-     const pendingBtwComposerRequest = useInputStore((s) => s.pendingBtwComposerRequest);
-     const pendingPresetSubmit = useInputStore((s) => s.pendingPresetSubmit);
-     const pendingDraftSubmit = useInputStore((s) => s.pendingDraftSubmit);
-+    const pendingDraftDictation = useInputStore((s) => s.pendingDraftDictation);
-     const setPendingInputText = useInputStore((s) => s.setPendingInputText);
-     const pendingGuestIssue = useInputStore((s) => s.pendingGuestIssue);
-     const consumePendingGuestIssue = useInputStore((s) => s.consumePendingGuestIssue);
-@@ -5069,6 +5070,19 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
-         }));
-     }, []);
- 
+@@ -12,6 +12,7 @@ import { useComposerAutocompleteState } from './composer/input/useComposerAutoco
+ import { useComposerColumn } from './composer/input/useComposerColumn';
+ import { useComposerCompletions } from './composer/input/useComposerCompletions';
+ import { useComposerControls } from './composer/input/useComposerControls';
++import { useInputStore } from '@/sync/input-store';
+ import { useComposerDictation } from './composer/input/useComposerDictation';
+ import { useComposerDictationState } from './composer/input/useComposerDictationState';
+ import { useComposerDraftHistory } from './composer/input/useComposerDraftHistory';
+@@ -176,6 +177,21 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+         editorState, mobilePanels, draftText, i18n, preferences, expansion, permissionSettings,
+         sessionScope, mobileShell, runtime, draftHistory,
+     });
 +    // A deep link (openchamber://new-session?dictate=1) starts dictation once
 +    // this draft's composer is mounted. The request is bound to the draft id,
 +    // so a composer showing another draft drops it instead of recording there.
++    const pendingDraftDictation = useInputStore((state) => state.pendingDraftDictation);
 +    React.useEffect(() => {
-+        if (pendingDraftDictation == null || columnPinned) return;
++        if (pendingDraftDictation == null || column.columnPinned) return;
 +        // The request is set in the same turn the draft opens, so this
 +        // composer can still be showing the previous draft (or none). Wait
 +        // for the draft id to match instead of dropping the request.
-+        if (draftSubmitDraftId !== pendingDraftDictation.draftId) return;
-+        if (!useInputStore.getState().consumePendingDraftDictation(draftSubmitDraftId)) return;
-+        toggleDictation();
-+    }, [columnPinned, draftSubmitDraftId, pendingDraftDictation, toggleDictation]);
++        const draftId = sessionScope.newSessionDraftOpen ? sessionScope.newSessionDraft.draftId : null;
++        if (draftId !== pendingDraftDictation.draftId) return;
++        if (!useInputStore.getState().consumePendingDraftDictation(draftId)) return;
++        controls.toggleDictation();
++    }, [column.columnPinned, controls.toggleDictation, pendingDraftDictation, sessionScope.newSessionDraft, sessionScope.newSessionDraftOpen]);
 +
-     const openMobileAttachSheet = React.useCallback(() => {
-         // Same order as handleOpenMobilePanel: mark the sheet open BEFORE the
-         // blur so the collapse watcher sees an overlay when the keyboard-close
+     const keyHandler = createComposerKeyHandler({
+         largePasteState, editorState, draftText, autocompleteState, preferences, expansion,
+         mobileActions, sessionScope, sessionLifecycle, editorActions, queueState, queueActions: sending,
 diff --git a/packages/ui/src/sync/input-store.test.ts b/packages/ui/src/sync/input-store.test.ts
-index 869e16e..518a452 100644
+index d7d71cf3b..0456b7086 100644
 --- a/packages/ui/src/sync/input-store.test.ts
 +++ b/packages/ui/src/sync/input-store.test.ts
-@@ -742,3 +742,26 @@ describe("input-store draft submit", () => {
+@@ -758,3 +758,26 @@ describe("input-store draft submit", () => {
      expect(useInputStore.getState().pendingDraftSubmit).toBeNull()
    })
  })
@@ -213,12 +215,12 @@ index 869e16e..518a452 100644
 +  })
 +})
 diff --git a/packages/ui/src/sync/input-store.ts b/packages/ui/src/sync/input-store.ts
-index d91f37f..58587df 100644
+index 1cfa9135d..d12819a5c 100644
 --- a/packages/ui/src/sync/input-store.ts
 +++ b/packages/ui/src/sync/input-store.ts
-@@ -269,6 +269,12 @@ export type InputState = {
-    * finds a different draft open drops it.
-    */
+@@ -218,6 +218,13 @@ export type InputState = {
+   pinnedSyntheticParts: Map<string, SyntheticContextPart[]>
+   pendingPresetSubmit: { text: string; type: "command" | "skill" } | null
    pendingDraftSubmit: { draftId: number; text: string } | null
 +  /**
 +   * A dictation a deep link asked for on a new-session draft. Bound to the
@@ -226,12 +228,13 @@ index d91f37f..58587df 100644
 +   * composer that finds a different draft open drops it.
 +   */
 +  pendingDraftDictation: { draftId: number } | null
-   /** Guest rail/dialog attach. ChatInput consumes this into the composer chip. */
++  /** Guest rail/dialog attach. ChatInput consumes this into the composer chip. */
    pendingGuestIssue: AttachIssueRequest | null
    pendingBtwComposerRequest: PendingBtwComposerRequest | null
-@@ -297,6 +303,9 @@ export type InputState = {
+   attachedFiles: AttachedFile[]
+@@ -236,6 +243,9 @@ export type InputState = {
+   consumePendingPresetSubmit: () => { text: string; type: "command" | "skill" } | null
    requestDraftSubmit: (draftId: number, text: string) => void
-   /** Takes the pending text when it belongs to this draft; any other pending request is dropped. */
    consumePendingDraftSubmit: (draftId: number | null) => string | null
 +  requestDraftDictation: (draftId: number) => void
 +  /** True when the request belonged to this draft; any other pending request is dropped. */
@@ -239,7 +242,7 @@ index d91f37f..58587df 100644
    setPendingGuestIssue: (issue: AttachIssueRequest | null) => void
    consumePendingGuestIssue: () => AttachIssueRequest | null
    requestBtwComposer: (request: PendingBtwComposerRequest) => void
-@@ -344,6 +353,7 @@ export const useInputStore = create<InputState>()((set, get) => ({
+@@ -281,6 +291,7 @@ export const useInputStore = create<InputState>()((set, get) => ({
    pinnedSyntheticParts: new Map(),
    pendingPresetSubmit: null,
    pendingDraftSubmit: null,
@@ -247,7 +250,7 @@ index d91f37f..58587df 100644
    pendingGuestIssue: null,
    pendingBtwComposerRequest: null,
    attachedFiles: [],
-@@ -419,6 +429,15 @@ export const useInputStore = create<InputState>()((set, get) => ({
+@@ -355,6 +366,15 @@ export const useInputStore = create<InputState>()((set, get) => ({
      return pendingDraftSubmit.draftId === draftId ? pendingDraftSubmit.text : null
    },
  

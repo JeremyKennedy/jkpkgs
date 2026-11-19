@@ -28,9 +28,14 @@ let
     pkgs."electron_${electronMajor}"
       or (throw "openchamber ${source.version} pins electron ${electronSpec}, but this nixpkgs has no electron_${electronMajor}");
 
-  opencodeCliVersion =
-    (lib.importJSON "${source.upstream}/packages/electron/package.json").opencodeCli.version;
-  cliPinCheck = ''*"v${opencodeCliVersion}"*) ;;'';
+  # Older bases pinned the bundled CLI in packages/electron/package.json and
+  # gui.nix refused to build unless it matched; that pin is gone, so the
+  # override below only applies where it still exists.
+  electronManifest = lib.importJSON "${source.upstream}/packages/electron/package.json";
+  cliPinCheck =
+    if electronManifest ? opencodeCli
+    then ''*"v${electronManifest.opencodeCli.version}"*) ;;''
+    else null;
 
   package = callPackage "${source.upstream}/nix/gui.nix" {
     inherit (source) bun version src;
@@ -43,7 +48,7 @@ let
     opencodeCli = opencode;
   };
 in
-package.overrideAttrs (previousAttrs: {
+if cliPinCheck == null then package else package.overrideAttrs (previousAttrs: {
   # gui.nix fails the build unless the bundled CLI is exactly the version
   # packages/electron pins. jkpkgs' opencode tracks its own releases, so
   # accept any version rather than coupling the two packages' bumps.

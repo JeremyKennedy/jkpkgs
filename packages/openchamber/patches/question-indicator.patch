@@ -11,7 +11,7 @@ index 4808ee8db..688a09028 100644
  | `markdown` | `link`, `linkHover`, `inlineCode`, `inlineCodeBackground`, `blockquote`, `blockquoteBorder`, `listMarker`, `bold`, `italic`, `strikethrough`, `hr` |
  | `tools` | `border`, `icon`, `title`, `description`; `edit` accepts `addedBackground`, `removedBackground`, `modifiedBackground`, `lineNumber` |
 diff --git a/packages/ui/src/apps/MobileSessionStateBadges.tsx b/packages/ui/src/apps/MobileSessionStateBadges.tsx
-index 4a97ebd4a..1ac90acc3 100644
+index b1ef20947..38643046c 100644
 --- a/packages/ui/src/apps/MobileSessionStateBadges.tsx
 +++ b/packages/ui/src/apps/MobileSessionStateBadges.tsx
 @@ -5,7 +5,6 @@ import { useI18n } from '@/lib/i18n';
@@ -20,14 +20,13 @@ index 4a97ebd4a..1ac90acc3 100644
  import { sessionGoalMarkLabelKey, sessionGoalStatusColor } from '@/lib/sessionGoalPresentation';
 -import type { PendingRequests } from './usePendingRequests';
  
- /** The goal glyph the desktop sidebar shows, tinted by the goal's status. */
  export const MobileSessionGoalGlyph: React.FC<{ session: Session }> = ({ session }) => {
-@@ -22,29 +21,3 @@ export const MobileSessionGoalGlyph: React.FC<{ session: Session }> = ({ session
+   const { t } = useI18n();
+@@ -21,28 +20,3 @@ export const MobileSessionGoalGlyph: React.FC<{ session: Session }> = ({ session
      />
    );
  };
 -
--/** The permission and question badges the desktop sidebar shows. */
 -export const MobileSessionPendingBadges: React.FC<PendingRequests> = ({ hasPermission, hasForm }) => {
 -  const { t } = useI18n();
 -  if (!hasPermission && !hasForm) return null;
@@ -53,7 +52,7 @@ index 4a97ebd4a..1ac90acc3 100644
 -  );
 -};
 diff --git a/packages/ui/src/apps/MobileSessionSwitcher.tsx b/packages/ui/src/apps/MobileSessionSwitcher.tsx
-index e02706384..c57c32a8f 100644
+index 945fb2e16..ceaf5ba6a 100644
 --- a/packages/ui/src/apps/MobileSessionSwitcher.tsx
 +++ b/packages/ui/src/apps/MobileSessionSwitcher.tsx
 @@ -2,6 +2,7 @@ import React from 'react';
@@ -64,11 +63,12 @@ index e02706384..c57c32a8f 100644
  import type { Session } from '@/lib/opencode/model';
  import type { SessionNode } from '@/components/session/sidebar/types';
  
-@@ -70,7 +71,11 @@ const SwitcherRow: React.FC<{
+@@ -65,7 +66,12 @@ const SwitcherRow: React.FC<{
+           <span className="block truncate typography-micro text-muted-foreground">{meta}</span>
          ) : null}
        </span>
-       {/* Activity sits on the right, before the time — no reserved left gutter. */}
 -      {isStreaming || showUnreadDot ? (
++      {/* Activity sits on the right, before the time — no reserved left gutter. */}
 +      {waitingOnUser ? (
 +        <span className="flex flex-shrink-0 items-center gap-1">
 +          <SessionPendingMarks hasPermission={hasPendingPermission} hasForm={hasPendingForm} />
@@ -78,27 +78,20 @@ index e02706384..c57c32a8f 100644
            state={turnActivity ?? 'unread'}
          />
 diff --git a/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx b/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx
-index bf7e177a9..25203b5d1 100644
+index 1a9985e6d..53f248ba6 100644
 --- a/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx
 +++ b/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx
-@@ -2,6 +2,7 @@ import React from 'react';
- import { Icon } from '@/components/icon/Icon';
- import { SessionActivityDuration } from '@/components/session/SessionActivityDuration';
- import { SessionActivityIndicator } from '@/components/session/SessionActivityIndicator';
-+import { SessionPendingMarks } from '@/components/session/SessionPendingMarks';
- import { SessionReadMenuItem } from '@/components/session/SessionReadMenuItem';
- import { ContextMenuItem, ContextMenuSeparator } from '@/components/ui/context-menu';
- import { toast } from '@/components/ui';
-@@ -37,7 +38,7 @@ import { useSessionMarkedUnread, useSessionUnread } from '@/sync/session-unread'
+@@ -39,7 +39,8 @@ import { useSessionMarkedUnread, useSessionUnread } from '@/sync/session-unread'
  import { getSessionDirectory } from '../mobileSessionFields';
  import { MobileProjectIcon } from '../MobileProjectIcon';
  import { MobileSessionRenameForm } from '../MobileSessionRenameForm';
 -import { MobileSessionGoalGlyph, MobileSessionPendingBadges } from '../MobileSessionStateBadges';
 +import { MobileSessionGoalGlyph } from '../MobileSessionStateBadges';
++import { SessionPendingMarks } from '@/components/session/SessionPendingMarks';
  import { MobileSessionRowActions, MobileSwipeActionsRow, ROW_ACTION_SLOT_WIDTH, ROW_ACTIONS_WIDTH } from '../MobileSessionSwipe';
  import { mobileSessionTitleClass } from '../mobileSessionTitle';
  import { usePendingRequests } from '../usePendingRequests';
-@@ -243,7 +244,7 @@ export const MobileSessionRow: React.FC<{
+@@ -228,7 +229,7 @@ export const MobileSessionRow: React.FC<{
              <MobileSessionGoalGlyph session={session} />
              {refMark(true)}
              {marks}
@@ -107,21 +100,21 @@ index bf7e177a9..25203b5d1 100644
            </span>
          </> : null}
        />
-@@ -271,7 +272,7 @@ export const MobileSessionRow: React.FC<{
+@@ -252,7 +253,7 @@ export const MobileSessionRow: React.FC<{
            <MobileSessionGoalGlyph session={session} />
            {refMark(false)}
            {marks}
 -          <MobileSessionPendingBadges {...pendingRequests} />
 +          <SessionPendingMarks {...pendingRequests} />
            {pinMarker}
-           {doneHint}
            {liveState}
+           {timeSlot}
 diff --git a/packages/ui/src/components/multirun/LaneStatusIcon.tsx b/packages/ui/src/components/multirun/LaneStatusIcon.tsx
-index 9cd1322b1..d10c782e6 100644
+index a4e4b605e..ce18807d3 100644
 --- a/packages/ui/src/components/multirun/LaneStatusIcon.tsx
 +++ b/packages/ui/src/components/multirun/LaneStatusIcon.tsx
-@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils';
- // grey: it only means the turn ended, not that the work is good.
+@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
+ 
  const STATUS_ICON = {
    permission: { name: 'shield', className: 'text-destructive' },
 -  question: { name: 'question', className: 'text-status-info' },
@@ -130,10 +123,10 @@ index 9cd1322b1..d10c782e6 100644
    failed: { name: 'error-warning', className: 'text-[var(--status-error)]' },
    stopped: { name: 'stop', className: 'text-muted-foreground' },
 diff --git a/packages/ui/src/components/overview/OverviewView.tsx b/packages/ui/src/components/overview/OverviewView.tsx
-index 87c727bda..57ff3b2d0 100644
+index 046f1d4dd..901c26587 100644
 --- a/packages/ui/src/components/overview/OverviewView.tsx
 +++ b/packages/ui/src/components/overview/OverviewView.tsx
-@@ -49,7 +49,7 @@ type Mark = { icon: IconName; color: string; tint?: boolean };
+@@ -45,7 +45,7 @@ type Mark = { icon: IconName; color: string; tint?: boolean };
  
  const WAITING_MARK = {
    permission: { icon: 'shield', color: 'var(--status-error)', tint: true },
@@ -318,7 +311,7 @@ index 000000000..4c46d11f4
 +  );
 +};
 diff --git a/packages/ui/src/components/session/SessionSwitcherDropdown.tsx b/packages/ui/src/components/session/SessionSwitcherDropdown.tsx
-index b3f7b11b2..7c5c1a773 100644
+index 4880e077d..1d4be0451 100644
 --- a/packages/ui/src/components/session/SessionSwitcherDropdown.tsx
 +++ b/packages/ui/src/components/session/SessionSwitcherDropdown.tsx
 @@ -11,6 +11,8 @@ import {
@@ -330,7 +323,7 @@ index b3f7b11b2..7c5c1a773 100644
  import { useWaitingBlink } from '@/hooks/useDurationTicker';
  import { useSessionUIStore } from '@/sync/session-ui-store';
  import { useSessionMarkedUnread, useSessionUnread } from '@/sync/session-unread';
-@@ -204,7 +206,10 @@ type SwitcherNodeProps = {
+@@ -195,7 +197,10 @@ type SwitcherNodeProps = {
  function SwitcherNode({ item, depth, variant, expandedParents, toggleParent, closeDropdown }: SwitcherNodeProps): React.ReactElement {
    const { node, secondaryMeta } = item;
    const session = node.session;
@@ -342,7 +335,7 @@ index b3f7b11b2..7c5c1a773 100644
    const isExpanded = expandedParents.has(session.id);
    // A folded row stands for its subsessions too: their waiting requests count
    // here, exactly as the sidebar's collapsed rows count them.
-@@ -228,7 +233,7 @@ function SwitcherNode({ item, depth, variant, expandedParents, toggleParent, clo
+@@ -219,7 +224,7 @@ function SwitcherNode({ item, depth, variant, expandedParents, toggleParent, clo
          closeDropdown={closeDropdown}
        />
        {hasChildren && isExpanded
@@ -351,7 +344,7 @@ index b3f7b11b2..7c5c1a773 100644
              <SwitcherNode
                key={childNode.session.id}
                item={{ node: childNode, projectId: item.projectId, groupDirectory: item.groupDirectory, secondaryMeta }}
-@@ -365,7 +370,11 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
+@@ -356,7 +361,11 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
          ) : null}
        </div>
  
@@ -365,10 +358,10 @@ index b3f7b11b2..7c5c1a773 100644
            <SessionActivityIndicator
              state={turnActivity ?? 'unread'}
 diff --git a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-index 575977103..04b8115f7 100644
+index 933aca0b5..05c6a7416 100644
 --- a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
 +++ b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-@@ -347,7 +347,7 @@ no Shift.
+@@ -350,7 +350,7 @@ no Shift.
  
  ### Why project trees resolve lineage globally
  
@@ -377,7 +370,7 @@ index 575977103..04b8115f7 100644
  
  Bucket-local lineage promoted cross-project subagents to independent rows and left their parent without an expansion control. The missing-parent fallback applies only while both active and archived sources lack the parent, and clears when either parent arrives. The project-section cache tracks each project's visible ancestors and descendants, including their order and record identity, so a lineage or same-ID semantic change rebuilds the affected trees without replacing unrelated project sections.
  
-@@ -376,7 +376,7 @@ bootstrap work. Selection and activity subscriptions stay session-scoped so a
+@@ -379,7 +379,7 @@ bootstrap work. Selection and activity subscriptions stay session-scoped so a
  structural list update does not make every row observe unrelated streaming
  updates.
  
@@ -448,58 +441,11 @@ index dc63d68be..709f49561 100644
  }));
  const aiRename = await import('@/sync/use-session-ai-rename');
  mock.module('@/sync/use-session-ai-rename', () => ({
-diff --git a/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.tsx b/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.tsx
-index 24ab9844e..76e7de0d0 100644
---- a/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.tsx
-+++ b/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.tsx
-@@ -5,6 +5,7 @@ import { getSessionActivityTime } from '@/sync/session-ordering';
- import React from 'react';
- import { TooltipLabelWithShortcut } from '@/components/ui/action-toolbar';
- import { SessionActivityIndicator } from '@/components/session/SessionActivityIndicator';
-+import { SessionPendingMarks } from '@/components/session/SessionPendingMarks';
- import type { Session } from '@/lib/opencode/model';
- import { ContextMenu } from '@base-ui/react/context-menu';
- import { ContextMenu as ContextMenuRoot, ContextMenuContent } from '@/components/ui/context-menu';
-@@ -742,7 +743,6 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode
-     );
-   }
- 
--  const pendingFormLabel = t('sessions.sidebar.session.status.questionPending');
-   const showUnreadStatus = !isSessionActionPending && !isStreaming && needsAttention && (!isActive || markedUnread);
-   const showStatusMarker = isStreaming || showUnreadStatus;
-   // Running indicators are static by default; the local appearance preference
-@@ -1078,24 +1078,8 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode
-       </span>
-     </RowMarkTooltip>
-   ) : null);
--  const permissionLabel = t('sessions.sidebar.session.status.permissionRequired');
--  const rowBadges = (hasPendingPermission || hasPendingForm) ? (
--    <>
--      {hasPendingPermission ? (
--        <RowMarkTooltip label={permissionLabel}>
--          <span className="inline-flex flex-shrink-0 items-center text-status-warning" aria-label={permissionLabel}>
--            <Icon name="shield" className="h-3 w-3" />
--          </span>
--        </RowMarkTooltip>
--      ) : null}
--      {hasPendingForm ? (
--        <RowMarkTooltip label={pendingFormLabel}>
--          <span className="inline-flex flex-shrink-0 items-center text-status-warning" aria-label={pendingFormLabel}>
--            <Icon name="question" className="h-3 w-3" />
--          </span>
--        </RowMarkTooltip>
--      ) : null}
--    </>
-+  const rowBadges = waitingOnUser ? (
-+    <SessionPendingMarks hasPermission={hasPendingPermission} hasForm={hasPendingForm} tooltip />
-   ) : null;
- 
-   // The PR (or issue) badge carries its own tooltip (status text) and opens
 diff --git a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.tsx b/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.tsx
-index 83752e671..af32c52a7 100644
+index f9a4882ae..af32c52a7 100644
 --- a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.tsx
 +++ b/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.tsx
-@@ -1,17 +1,14 @@
+@@ -1,12 +1,14 @@
  import React from 'react';
  import { SessionActivityIndicator } from '@/components/session/SessionActivityIndicator';
 -import { cn } from '@/lib/utils';
@@ -510,17 +456,15 @@ index 83752e671..af32c52a7 100644
  import { useCollapsedSessionActivityState, type CollapsedActivityState } from './collapsedActivityState';
 -import { RowMarkTooltip } from './RowMarkTooltip';
  
- // Aggregate rows carry no counters: the elapsed counter is per session and
- // has no meaning for a collapsed group that may hold several running turns,
- // and a request count would need the same per-session breakdown. The blocked
--// states reuse the session row's own badge glyphs and colors so the group
--// header reads the same way as the row it hides.
++// Aggregate rows carry no counters: the elapsed counter is per session and
++// has no meaning for a collapsed group that may hold several running turns,
++// and a request count would need the same per-session breakdown. The blocked
 +// states reuse the session row's own badges so the group header reads the same
 +// way as the row it hides.
  export function CollapsedActivityIndicator({
    state,
    className,
-@@ -19,20 +16,17 @@ export function CollapsedActivityIndicator({
+@@ -14,20 +16,17 @@ export function CollapsedActivityIndicator({
    state: Exclude<CollapsedActivityState, null>;
    className?: string;
  }): React.ReactNode {
@@ -550,6 +494,45 @@ index 83752e671..af32c52a7 100644
      );
    }
    return <SessionActivityIndicator state={state === 'active' ? 'running' : 'unread'} className={className} tooltip />;
+diff --git a/packages/ui/src/components/session/sidebar/sessions/sessionRowMarks.tsx b/packages/ui/src/components/session/sidebar/sessions/sessionRowMarks.tsx
+index 56ba8b877..a5e7c9839 100644
+--- a/packages/ui/src/components/session/sidebar/sessions/sessionRowMarks.tsx
++++ b/packages/ui/src/components/session/sidebar/sessions/sessionRowMarks.tsx
+@@ -5,6 +5,7 @@ import type { SessionGoalPayload } from '@/lib/sessionGoalMetadata';
+ import { sessionGoalMarkLabelKey, sessionGoalStatusColor } from '@/lib/sessionGoalPresentation';
+ import { cn } from '@/lib/utils';
+ import { RowMarkTooltip } from './RowMarkTooltip';
++import { SessionPendingMarks } from '@/components/session/SessionPendingMarks';
+ 
+ export function SessionGoalMark({ goal }: { goal: SessionGoalPayload }): React.ReactNode {
+   const { t } = useI18n();
+@@ -54,25 +55,5 @@ export function DoneHintMark({ className }: { className?: string }): React.React
+ }
+ 
+ export function PendingRequestBadges({ hasPermission, hasForm }: { hasPermission: boolean; hasForm: boolean }): React.ReactNode {
+-  const { t } = useI18n();
+-  const pendingFormLabel = t('sessions.sidebar.session.status.questionPending');
+-  const permissionLabel = t('sessions.sidebar.session.status.permissionRequired');
+-  return (
+-    <>
+-      {hasPermission ? (
+-        <RowMarkTooltip label={permissionLabel}>
+-          <span className="inline-flex flex-shrink-0 items-center text-status-warning" aria-label={permissionLabel}>
+-            <Icon name="shield" className="h-3 w-3" />
+-          </span>
+-        </RowMarkTooltip>
+-      ) : null}
+-      {hasForm ? (
+-        <RowMarkTooltip label={pendingFormLabel}>
+-          <span className="inline-flex flex-shrink-0 items-center text-status-warning" aria-label={pendingFormLabel}>
+-            <Icon name="question" className="h-3 w-3" />
+-          </span>
+-        </RowMarkTooltip>
+-      ) : null}
+-    </>
+-  );
++  return <SessionPendingMarks hasPermission={hasPermission} hasForm={hasForm} tooltip />;
+ }
 diff --git a/packages/ui/src/components/session/sidebar/shell/useSwitcherItems.test.ts b/packages/ui/src/components/session/sidebar/shell/useSwitcherItems.test.ts
 index ea7227a8a..79568d74c 100644
 --- a/packages/ui/src/components/session/sidebar/shell/useSwitcherItems.test.ts
@@ -615,7 +598,7 @@ index ea7227a8a..79568d74c 100644
 +  });
 +});
 diff --git a/packages/ui/src/components/session/sidebar/shell/useSwitcherItems.ts b/packages/ui/src/components/session/sidebar/shell/useSwitcherItems.ts
-index c9f19b372..f4df1c5b5 100644
+index c18279c1f..721b3b8d2 100644
 --- a/packages/ui/src/components/session/sidebar/shell/useSwitcherItems.ts
 +++ b/packages/ui/src/components/session/sidebar/shell/useSwitcherItems.ts
 @@ -3,7 +3,6 @@ import type { Session } from '@/lib/opencode/model';
@@ -626,7 +609,7 @@ index c9f19b372..f4df1c5b5 100644
  import { useProjectsStore } from '@/stores/useProjectsStore';
  import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
  import { useGitAllBranches } from '@/stores/useGitStore';
-@@ -110,6 +109,44 @@ export const selectSwitcherParents = (
+@@ -108,6 +107,44 @@ export const selectSwitcherParents = (
    return parents.slice(0, maxParents);
  };
  
@@ -671,7 +654,7 @@ index c9f19b372..f4df1c5b5 100644
  export const useSwitcherItems = (enabled: boolean, options: SwitcherItemsOptions = {}): SwitcherItem[] => {
    const { scopeProjectId = null, currentSessionId = null, maxParents = MAX_PARENT_SESSIONS, ignorePins = false } = options;
    const activeSessions = useGlobalSessionsStore((state) => state.activeSessions);
-@@ -158,24 +195,16 @@ export const useSwitcherItems = (enabled: boolean, options: SwitcherItemsOptions
+@@ -149,23 +186,16 @@ export const useSwitcherItems = (enabled: boolean, options: SwitcherItemsOptions
    const items = React.useMemo<SwitcherItem[]>(() => {
      if (!enabled) return [];
  
@@ -681,7 +664,6 @@ index c9f19b372..f4df1c5b5 100644
 -      const parentId = (session as Session & { parentID?: string | null }).parentID;
 -      if (!parentId) continue;
 -      if (session.time?.archived) continue;
--      // A workflow run can start a hundred agents; its card lists them.
 -      if (isWorkflowAgentSession(session)) continue;
 -      const bucket = childrenByParent.get(parentId);
 -      if (bucket) {
@@ -706,7 +688,7 @@ index c9f19b372..f4df1c5b5 100644
  
      const parents = selectSwitcherParents(
        activeSessions,
-@@ -190,15 +219,6 @@ export const useSwitcherItems = (enabled: boolean, options: SwitcherItemsOptions
+@@ -179,15 +209,6 @@ export const useSwitcherItems = (enabled: boolean, options: SwitcherItemsOptions
          || !isSessionDirectoryAdmitted(resolveGlobalSessionDirectory(session), projects, availableWorktreesByProject),
      );
  
@@ -722,7 +704,7 @@ index c9f19b372..f4df1c5b5 100644
      return parents.map((session) => {
        const directory = resolveGlobalSessionDirectory(session);
        const matchedProject = findProjectForDirectory(directory);
-@@ -209,7 +229,7 @@ export const useSwitcherItems = (enabled: boolean, options: SwitcherItemsOptions
+@@ -196,7 +217,7 @@ export const useSwitcherItems = (enabled: boolean, options: SwitcherItemsOptions
        const liveBranch = directory ? branchesByDirectory.get(directory) : undefined;
        const branchLabel = liveBranch ?? worktreeHit?.meta.branch?.trim() ?? null;
        return {
@@ -732,7 +714,7 @@ index c9f19b372..f4df1c5b5 100644
          groupDirectory: directory,
          secondaryMeta: {
 diff --git a/packages/ui/src/lib/theme/DOCUMENTATION.md b/packages/ui/src/lib/theme/DOCUMENTATION.md
-index 1dec20d58..a03b27018 100644
+index 3315123c4..b2801fcc3 100644
 --- a/packages/ui/src/lib/theme/DOCUMENTATION.md
 +++ b/packages/ui/src/lib/theme/DOCUMENTATION.md
 @@ -59,6 +59,8 @@ the exception. User-message backgrounds take on the primary's hue at their own
@@ -745,7 +727,7 @@ index 1dec20d58..a03b27018 100644
  contrast levels. Body text sits at about 15.4:1 on the canvas in dark palettes
  and 13:1 in light ones, the level T3 Code's default chat text reaches (its
 diff --git a/packages/ui/src/lib/theme/cssGenerator.ts b/packages/ui/src/lib/theme/cssGenerator.ts
-index a9f6361c0..8078e6449 100644
+index bf5e22168..112515c88 100644
 --- a/packages/ui/src/lib/theme/cssGenerator.ts
 +++ b/packages/ui/src/lib/theme/cssGenerator.ts
 @@ -46,6 +46,7 @@ export class CSSVariableGenerator {
@@ -810,10 +792,10 @@ index 8d7797ec3..683324a23 100644
      for (const theme of themes) {
        const css = new CSSVariableGenerator().generate(theme);
 diff --git a/packages/ui/src/lib/theme/definition.ts b/packages/ui/src/lib/theme/definition.ts
-index ad1d29fc7..e7d3aedc2 100644
+index 2827e575d..176c58f70 100644
 --- a/packages/ui/src/lib/theme/definition.ts
 +++ b/packages/ui/src/lib/theme/definition.ts
-@@ -32,6 +32,7 @@ const definition = z.object({
+@@ -28,6 +28,7 @@ const definition = z.object({
    colors: z.object({
      primary, surface, interactive, status, syntax,
      pr: z.object({ open: color.optional(), draft: color.optional(), blocked: color.optional(), merged: color.optional(), closed: color.optional() }).optional(),
@@ -821,7 +803,7 @@ index ad1d29fc7..e7d3aedc2 100644
      chat: optionalColors(['background', 'userMessageBackground', 'divider']).optional(),
      markdown: optionalColors(['link', 'linkHover', 'inlineCode', 'inlineCodeBackground', 'blockquote', 'blockquoteBorder', 'listMarker', 'bold', 'italic', 'strikethrough', 'hr']).optional(),
      tools: z.object({ border: color.optional(), icon: color.optional(), title: color.optional(), description: color.optional(), edit: optionalColors(['addedBackground', 'removedBackground', 'modifiedBackground', 'lineNumber']).optional() }).optional(),
-@@ -49,13 +50,24 @@ function resolveTheme(source: z.output<typeof definition>): Theme {
+@@ -44,13 +45,24 @@ function resolveTheme(source: z.output<typeof definition>): Theme {
    const s = { ...c.surface, elevatedForeground: c.surface.elevatedForeground ?? c.surface.foreground, overlay: c.surface.overlay ?? withOpacity('#000000', 0.6), subtle: c.surface.subtle ?? c.surface.muted };
    const selection = c.interactive.selection ?? withOpacity(s.foreground, 0.16);
    const base = { ...c.syntax.base, background: c.syntax.base.background ?? s.background, foreground: c.syntax.base.foreground ?? s.foreground };
@@ -851,7 +833,7 @@ index ad1d29fc7..e7d3aedc2 100644
    const diffAdded = c.syntax.highlights?.diffAdded ?? success.base;
    const diffRemoved = c.syntax.highlights?.diffRemoved ?? error.base;
    const diffModified = c.syntax.highlights?.diffModified ?? info.base;
-@@ -84,6 +96,7 @@ function resolveTheme(source: z.output<typeof definition>): Theme {
+@@ -79,6 +91,7 @@ function resolveTheme(source: z.output<typeof definition>): Theme {
          info: info.base, infoForeground: info.foreground, infoBackground: info.background, infoBorder: info.border,
        },
        pr: { open: success.base, draft: s.mutedForeground, blocked: warning.base, merged: metadata.variant === 'dark' ? '#8957e5' : '#8250df', closed: error.base, ...c.pr },
@@ -859,7 +841,7 @@ index ad1d29fc7..e7d3aedc2 100644
        syntax: resolvedSyntax,
        chat: c.chat,
        markdown: c.markdown,
-@@ -141,5 +154,9 @@ export function compactTheme(value: ThemeDefinition): ThemeDefinition {
+@@ -134,5 +147,9 @@ export function compactTheme(value: ThemeDefinition): ThemeDefinition {
      const inherited = requireTheme({ ...source, colors: { ...c, pr: undefined } });
      c.pr = prune(c.pr, { ...inherited.colors.pr });
    }

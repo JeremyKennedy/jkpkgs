@@ -1,98 +1,62 @@
 diff --git a/packages/ui/src/components/chat/ChatInput.tsx b/packages/ui/src/components/chat/ChatInput.tsx
-index c959b6a..e42deaa 100644
+index f05ad5cc8..1a80da377 100644
 --- a/packages/ui/src/components/chat/ChatInput.tsx
 +++ b/packages/ui/src/components/chat/ChatInput.tsx
-@@ -44,6 +44,7 @@ import {
-     readChatDraft,
-     readChatDraftClaimingFolderDraft,
-     workDraftComposerKey,
-+    workDraftIdOfComposerKey,
-     getChatDraftIdentityKey,
-     clearChatDraft,
-     type ChatDraftIdentity,
-@@ -1615,6 +1616,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
-         handoffDraft,
-         restoreDraft,
-         migrateDraft,
-+        forgetDraft,
-     } = useComposerDraft({
-         text: composerText,
-         setMessage,
-@@ -2980,11 +2982,51 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
-         submitPresetPrompt(starter.submitText, starter.ref.type);
-     }, [submitPresetPrompt]);
- 
+@@ -12,7 +12,6 @@ import { useComposerAutocompleteState } from './composer/input/useComposerAutoco
+ import { useComposerColumn } from './composer/input/useComposerColumn';
+ import { useComposerCompletions } from './composer/input/useComposerCompletions';
+ import { useComposerControls } from './composer/input/useComposerControls';
+-import { useInputStore } from '@/sync/input-store';
+ import { useComposerDictation } from './composer/input/useComposerDictation';
+ import { useComposerDictationState } from './composer/input/useComposerDictationState';
+ import { useComposerDraftHistory } from './composer/input/useComposerDraftHistory';
+@@ -129,8 +128,18 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+         inlineContext, sendAvailability, sendHandlers: sending, sessionScope, sessionLifecycle,
+         queueState, queueActions: sending, editorState, draftText,
+     });
 +    // The composer a dictation belongs to, stable across a project or worktree
 +    // switch of the same open draft: the project is where that draft will run,
 +    // not a different conversation, and typed text follows the move.
 +    const dictationOriginKey = React.useCallback((): string | null => {
-+        if (isBtwActive) return btwComposerSessionId ? `btw:${btwComposerSessionId}` : null;
-+        if (columnPinned) return currentSessionId ? `pinned:${currentSessionId}` : null;
-+        if (currentSessionId) return `session:${currentSessionId}`;
-+        if (newSessionDraftOpen) return `draft:${newSessionDraft.draftId}`;
++        if (sessionScope.isBtwActive) return sessionScope.btwComposerSessionId ? `btw:${sessionScope.btwComposerSessionId}` : null;
++        if (column.columnPinned) return sessionScope.currentSessionId ? `pinned:${sessionScope.currentSessionId}` : null;
++        if (sessionScope.currentSessionId) return `session:${sessionScope.currentSessionId}`;
++        if (sessionScope.newSessionDraftOpen) return `draft:${sessionScope.newSessionDraft.draftId}`;
 +        return null;
-+    }, [btwComposerSessionId, columnPinned, currentSessionId, isBtwActive, newSessionDraft.draftId, newSessionDraftOpen]);
-+
-     const { markDictationStart, keepTranscriptForOrigin } = useDictationOrigin({
-+        originKey: dictationOriginKey,
-         identityRef: currentChatDraftIdentityRef,
-         restoreDraft,
--        onKeptForOrigin: () => {
--            toast.info(t('chat.chatInput.toast.dictationKeptForOriginalSession'));
-+        onKeptForOrigin: ({ identity, text }) => {
-+            // Name the chat instead of saying "the session where you started
-+            // it": that sentence is no help when the user cannot tell which
-+            // chat that was. A new-session draft has no chat to switch to, so
-+            // there the only offer is to put the text here.
-+            const originSessionId = identity.sessionId && !workDraftIdOfComposerKey(identity.sessionId)
-+                ? identity.sessionId
-+                : null;
-+            const originTitle = originSessionId
-+                ? useGlobalSessionsStore.getState().entityById.get(originSessionId)?.title?.trim() || null
-+                : null;
-+            const insertHere = () => {
-+                restoreDraft(currentChatDraftIdentityRef.current, text, new Set());
-+                // The text now lives in this composer; the origin draft must
-+                // not hand a second copy back when its chat is opened.
-+                forgetDraft(identity);
-+                setTimeout(() => composerRef.current?.focus(), 0);
-+            };
-+            toast.info(t('chat.chatInput.toast.dictationKeptForOriginalSession'), {
-+                description: originTitle ?? undefined,
-+                action: originSessionId
-+                    ? {
-+                        label: t('sessions.scheduledTasks.dialog.actions.openSession'),
-+                        onClick: () => {
-+                            useSessionUIStore.getState().setCurrentSession(originSessionId, identity.directory);
-+                        },
-+                    }
-+                    : { label: t('chat.dictation.insert'), onClick: insertHere },
-+                cancel: originSessionId ? { label: t('chat.dictation.insert'), onClick: insertHere } : undefined,
-+            });
-         },
++    }, [column.columnPinned, sessionScope.btwComposerSessionId, sessionScope.currentSessionId, sessionScope.isBtwActive, sessionScope.newSessionDraft.draftId, sessionScope.newSessionDraftOpen]);
+     const dictation = useComposerDictation({
+-        draftText, i18n, dictationState, editorState, draftHistory, sendHandlers: sending,
++        draftText, i18n, dictationState, editorState, draftHistory, sendHandlers: sending, originKey: dictationOriginKey,
      });
- 
-@@ -5079,9 +5121,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
-         // composer can still be showing the previous draft (or none). Wait
-         // for the draft id to match instead of dropping the request.
-         if (draftSubmitDraftId !== pendingDraftDictation.draftId) return;
-+        // The store opens the draft at once, but the column keeps rendering
-+        // the session it was showing for a commit (useShownSessionSelection).
-+        // Starting then records the dictation against that session, and the
-+        // finished transcript lands in its draft instead of this one.
-+        if (currentSessionId) return;
-         if (!useInputStore.getState().consumePendingDraftDictation(draftSubmitDraftId)) return;
-         toggleDictation();
--    }, [columnPinned, draftSubmitDraftId, pendingDraftDictation, toggleDictation]);
-+    }, [columnPinned, currentSessionId, draftSubmitDraftId, pendingDraftDictation, toggleDictation]);
- 
-     const openMobileAttachSheet = React.useCallback(() => {
-         // Same order as handleOpenMobilePanel: mark the sheet open BEFORE the
+     useComposerExternalSubmits({ draftText, column, sendHandlers: sending, sendAvailability, sessionScope, submission: sending, sendActions, selection });
+     const editorActions = useComposerEditorActions({
+@@ -177,21 +186,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+         editorState, mobilePanels, draftText, i18n, preferences, expansion, permissionSettings,
+         sessionScope, mobileShell, runtime, draftHistory,
+     });
+-    // A deep link (openchamber://new-session?dictate=1) starts dictation once
+-    // this draft's composer is mounted. The request is bound to the draft id,
+-    // so a composer showing another draft drops it instead of recording there.
+-    const pendingDraftDictation = useInputStore((state) => state.pendingDraftDictation);
+-    React.useEffect(() => {
+-        if (pendingDraftDictation == null || column.columnPinned) return;
+-        // The request is set in the same turn the draft opens, so this
+-        // composer can still be showing the previous draft (or none). Wait
+-        // for the draft id to match instead of dropping the request.
+-        const draftId = sessionScope.newSessionDraftOpen ? sessionScope.newSessionDraft.draftId : null;
+-        if (draftId !== pendingDraftDictation.draftId) return;
+-        if (!useInputStore.getState().consumePendingDraftDictation(draftId)) return;
+-        controls.toggleDictation();
+-    }, [column.columnPinned, controls.toggleDictation, pendingDraftDictation, sessionScope.newSessionDraft, sessionScope.newSessionDraftOpen]);
+-
+     const keyHandler = createComposerKeyHandler({
+         largePasteState, editorState, draftText, autocompleteState, preferences, expansion,
+         mobileActions, sessionScope, sessionLifecycle, editorActions, queueState, queueActions: sending,
 diff --git a/packages/ui/src/components/chat/composer/DOCUMENTATION.md b/packages/ui/src/components/chat/composer/DOCUMENTATION.md
-index e1279a7..e6bdbe3 100644
+index 7a95434ec..a049c57fd 100644
 --- a/packages/ui/src/components/chat/composer/DOCUMENTATION.md
 +++ b/packages/ui/src/components/chat/composer/DOCUMENTATION.md
-@@ -1015,6 +1015,11 @@ command can leave the queue untouched and delivery can take only part of it.
+@@ -1329,6 +1329,11 @@ command can leave the queue untouched and delivery can take only part of it.
    origin is no longer the rendered draft is appended to the origin's draft
    through `restoreDraft`. It is not inserted or sent in the visible session,
    including for **Insert and send**, and a toast says where it went.
@@ -104,8 +68,33 @@ index e1279a7..e6bdbe3 100644
    The dictation shortcut starts in the focused composer's form, falling back
    to the main chat when no form has focus. Mobile mic triggers explicitly
    address their own form. One mounted dictation engine owns capture and
+diff --git a/packages/ui/src/components/chat/composer/input/useComposerDictation.ts b/packages/ui/src/components/chat/composer/input/useComposerDictation.ts
+index 6bcdcfccf..4b1eab0e9 100644
+--- a/packages/ui/src/components/chat/composer/input/useComposerDictation.ts
++++ b/packages/ui/src/components/chat/composer/input/useComposerDictation.ts
+@@ -16,10 +16,11 @@ type Dependencies = {
+     editorState: Pick<ReturnType<typeof useComposerEditorState>, 'composerRef'>;
+     draftHistory: Pick<ReturnType<typeof useComposerDraftHistory>, 'restoreDraft'>;
+     sendHandlers: Pick<ComposerSendHandlers, 'handleSubmitRef'>;
++    originKey: () => string | null;
+ };
+ 
+ export function useComposerDictation({
+-    draftText, i18n, dictationState, editorState, draftHistory, sendHandlers,
++    draftText, i18n, dictationState, editorState, draftHistory, sendHandlers, originKey,
+ }: Dependencies) {
+     const { currentChatDraftIdentityRef, setMessage, composerText } = draftText;
+     const { t } = i18n;
+@@ -29,6 +30,7 @@ export function useComposerDictation({
+     const { handleSubmitRef } = sendHandlers;
+ 
+     const { markDictationStart, keepTranscriptForOrigin } = useDictationOrigin({
++        originKey,
+         identityRef: currentChatDraftIdentityRef,
+         restoreDraft,
+         onKeptForOrigin: () => {
 diff --git a/packages/ui/src/components/chat/composer/state/__tests__/useDictationOrigin.test.ts b/packages/ui/src/components/chat/composer/state/__tests__/useDictationOrigin.test.ts
-index 97d24c9..1a1887d 100644
+index 97d24c9b6..1a1887d47 100644
 --- a/packages/ui/src/components/chat/composer/state/__tests__/useDictationOrigin.test.ts
 +++ b/packages/ui/src/components/chat/composer/state/__tests__/useDictationOrigin.test.ts
 @@ -3,7 +3,7 @@ import React, { act } from 'react';
@@ -254,10 +243,10 @@ index 97d24c9..1a1887d 100644
  
              composer.result.dictation?.markDictationStart();
 diff --git a/packages/ui/src/components/chat/composer/state/useComposerDraft.ts b/packages/ui/src/components/chat/composer/state/useComposerDraft.ts
-index 3dcb442..8b5a7c7 100644
+index ff391c039..2efea4f42 100644
 --- a/packages/ui/src/components/chat/composer/state/useComposerDraft.ts
 +++ b/packages/ui/src/components/chat/composer/state/useComposerDraft.ts
-@@ -22,6 +22,7 @@ import { useLinkedReferenceDrafts } from '../linkedReferenceDrafts';
+@@ -8,6 +8,7 @@ import { useLinkedReferenceDrafts } from '../linkedReferenceDrafts';
  import { useComposerTextEffect, type ComposerText } from './composerText';
  
  import {
@@ -265,9 +254,9 @@ index 3dcb442..8b5a7c7 100644
      getChatDraftIdentityKey,
      isNewSessionDraftIdentity,
      readChatDraft,
-@@ -89,6 +90,12 @@ export interface ComposerDraftControls {
+@@ -41,6 +42,12 @@ export interface ComposerDraftControls {
+     handoffDraft: (identity: ChatDraftIdentity | null, draft: string | null) => void;
      restoreDraft: (identity: ChatDraftIdentity | null, draft: string, confirmedMentions: Set<string>) => void;
-     /** Move an in-memory draft to an identity materialized during an async flow. */
      migrateDraft: (from: ChatDraftIdentity | null, to: ChatDraftIdentity | null) => void;
 +    /**
 +     * Drop a draft whose text now lives in another composer (a kept dictation
@@ -278,7 +267,7 @@ index 3dcb442..8b5a7c7 100644
  }
  
  export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftControls {
-@@ -387,5 +394,22 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
+@@ -309,5 +316,22 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
          }
      }, [clearPending, confirmedMentionsRef, setMessage, text]);
  
@@ -303,20 +292,17 @@ index 3dcb442..8b5a7c7 100644
 +    return { persistNow, handoffDraft, restoreDraft, migrateDraft, forgetDraft };
  }
 diff --git a/packages/ui/src/components/chat/composer/state/useDictationOrigin.ts b/packages/ui/src/components/chat/composer/state/useDictationOrigin.ts
-index 780ffc9..2ac05c9 100644
+index 244d01fda..2ac05c95f 100644
 --- a/packages/ui/src/components/chat/composer/state/useDictationOrigin.ts
 +++ b/packages/ui/src/components/chat/composer/state/useDictationOrigin.ts
-@@ -1,12 +1,19 @@
- /**
-- * Keeps a dictation transcript with the draft it was started in.
+@@ -1,3 +1,20 @@
++/**
 + * Keeps a dictation transcript with the composer it was started in.
-  *
-  * One composer stays mounted across session switches, and a transcript only
-  * arrives after the recording is confirmed and transcribed. A switch inside
-  * that window used to insert — or send — the transcript in whichever session
-  * was on screen when it landed. The origin is recorded when recording starts;
-- * a transcript whose origin is no longer the rendered draft is appended to the
-- * origin's draft instead and never reaches the visible composer.
++ *
++ * One composer stays mounted across session switches, and a transcript only
++ * arrives after the recording is confirmed and transcribed. A switch inside
++ * that window used to insert — or send — the transcript in whichever session
++ * was on screen when it landed. The origin is recorded when recording starts;
 + * a transcript whose origin is no longer the rendered composer is appended to
 + * the origin's draft instead and never reaches the visible composer.
 + *
@@ -326,14 +312,14 @@ index 780ffc9..2ac05c9 100644
 + * origin is therefore keyed by the composer's stable key (its session, or the
 + * open draft's id), and only the draft identity is used as the place to store
 + * a transcript that genuinely belongs elsewhere.
-  */
++ */
  
  import React from 'react';
-@@ -15,46 +22,70 @@ import { getChatDraftIdentityKey, type ChatDraftIdentity } from '@/lib/chatDraft
+ 
+@@ -5,38 +22,70 @@ import { getChatDraftIdentityKey, type ChatDraftIdentity } from '@/lib/chatDraft
  import type { ComposerDraftControls } from './useComposerDraft';
  
  export interface DictationOriginOptions {
--    /** The draft identity of the rendered composer. */
 +    /**
 +     * Stable key of the composer the user is dictating into: the session id,
 +     * the open new-session draft's id, or the pinned/btw composer. It must not
@@ -343,7 +329,6 @@ index 780ffc9..2ac05c9 100644
 +    /** The draft identity of the rendered composer, where a kept transcript is stored. */
      identityRef: React.RefObject<ChatDraftIdentity | null>;
      restoreDraft: ComposerDraftControls['restoreDraft'];
--    /** Called after a transcript was kept for a draft that is not on screen. */
 -    onKeptForOrigin?: () => void;
 +    /**
 +     * Called with the identity and text after a transcript was kept for a
@@ -354,15 +339,13 @@ index 780ffc9..2ac05c9 100644
  }
  
  export interface DictationOriginControls {
--    /** Record the draft a dictation belongs to. Call when recording starts. */
 +    /** Record the composer a dictation belongs to. Call when recording starts. */
      markDictationStart: () => void;
-     /**
-      * Returns true when the transcript was stored in the originating draft
-      * because the composer moved on; the caller must then neither insert nor
--     * send it. Returns false when the origin is still the rendered draft.
++    /**
++     * Returns true when the transcript was stored in the originating draft
++     * because the composer moved on; the caller must then neither insert nor
 +     * send it. Returns false when the origin is still the rendered composer.
-      */
++     */
      keepTranscriptForOrigin: (text: string) => boolean;
  }
  
@@ -416,7 +399,7 @@ index 780ffc9..2ac05c9 100644
      return { markDictationStart, keepTranscriptForOrigin };
  }
 diff --git a/packages/ui/src/components/dictation/ComposerDictation.test.tsx b/packages/ui/src/components/dictation/ComposerDictation.test.tsx
-index 4671974..ca14758 100644
+index 46719740e..ca1475879 100644
 --- a/packages/ui/src/components/dictation/ComposerDictation.test.tsx
 +++ b/packages/ui/src/components/dictation/ComposerDictation.test.tsx
 @@ -10,6 +10,8 @@ const completions: Array<() => void> = [];
@@ -429,10 +412,10 @@ index 4671974..ca14758 100644
          const [id] = React.useState(() => nextEngine++);
          const [status, setStatus] = React.useState<DictationStatus>('idle');
 diff --git a/packages/ui/src/components/dictation/ComposerDictation.tsx b/packages/ui/src/components/dictation/ComposerDictation.tsx
-index 9c7170c..a3041e0 100644
+index bd144e963..c7410e0cb 100644
 --- a/packages/ui/src/components/dictation/ComposerDictation.tsx
 +++ b/packages/ui/src/components/dictation/ComposerDictation.tsx
-@@ -18,7 +18,7 @@ import { useI18n } from '@/lib/i18n';
+@@ -5,7 +5,7 @@ import { useI18n } from '@/lib/i18n';
  import { useThemeSystem } from '@/contexts/useThemeSystem';
  import { cn } from '@/lib/utils';
  import { runtimeFetch } from '@/lib/runtime-fetch';
@@ -441,7 +424,7 @@ index 9c7170c..a3041e0 100644
  import { useWaitingBlink } from '@/hooks/useDurationTicker';
  import { DictationWaveform } from '@/components/dictation/DictationWaveform';
  import { isDictationCaptureSupported } from '@/lib/dictation/use-dictation-audio-source';
-@@ -603,16 +603,21 @@ export const ComposerDictation: React.FC<ComposerDictationProps> = ({
+@@ -504,16 +504,21 @@ export const ComposerDictation: React.FC<ComposerDictationProps> = ({
                                      >
                                          <Icon name="close" className={iconSizeClass} />
                                      </button>
@@ -474,14 +457,16 @@ index 9c7170c..a3041e0 100644
                                          <button
                                              type="button"
 diff --git a/packages/ui/src/components/ui/sonner.tsx b/packages/ui/src/components/ui/sonner.tsx
-index d3df49e..7696d2f 100644
+index 9cffd1457..6f73859e1 100644
 --- a/packages/ui/src/components/ui/sonner.tsx
 +++ b/packages/ui/src/components/ui/sonner.tsx
-@@ -148,10 +148,17 @@ const BANNER_CLASS_NAMES = {
-   // Rows start at the top: the title's first line is padded to the close
-   // target's height (size-9), and the icon fills that same band, so the two
-   // share a centre whether the title wraps or not. The close and action
--  // buttons centre on the whole toast.
+@@ -106,9 +106,20 @@ const CORNER_CLASS_NAMES = {
+ const BANNER_CLASS_NAMES = {
+   closeButton:
+     "order-last !static -me-1 flex size-9 shrink-0 !transform-none items-center justify-center self-center rounded-full !border-0 !bg-transparent p-0 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none",
++  // Rows start at the top: the title's first line is padded to the close
++  // target's height (size-9), and the icon fills that same band, so the two
++  // share a centre whether the title wraps or not. The close and action
 +  // buttons centre on the whole toast. A toast with two actions wraps: the
 +  // message keeps the row beside the icon and close cross, and both buttons
 +  // move to a row of their own below it (see `content`), as the corner
@@ -500,7 +485,7 @@ index d3df49e..7696d2f 100644
  }
 diff --git a/packages/ui/src/hooks/useDictation.empty-result.test.tsx b/packages/ui/src/hooks/useDictation.empty-result.test.tsx
 new file mode 100644
-index 0000000..8315fbb
+index 000000000..8315fbb87
 --- /dev/null
 +++ b/packages/ui/src/hooks/useDictation.empty-result.test.tsx
 @@ -0,0 +1,185 @@
@@ -690,22 +675,30 @@ index 0000000..8315fbb
 +    });
 +});
 diff --git a/packages/ui/src/hooks/useDictation.ts b/packages/ui/src/hooks/useDictation.ts
-index 273a39f..a2898a8 100644
+index 730df9fce..583a9a7f5 100644
 --- a/packages/ui/src/hooks/useDictation.ts
 +++ b/packages/ui/src/hooks/useDictation.ts
-@@ -8,6 +8,11 @@
-  * transcribed so far and exists only so a failed dictation can be salvaged
-  * instead of losing minutes of speech. Failed dictations also retain their
-  * audio segments so retry can replay them.
+@@ -1,3 +1,19 @@
++/**
++ * Streaming dictation state machine.
++ *
++ * Status flow: idle -> recording -> uploading -> idle | failed.
++ * While recording, mic PCM chunks stream to the server, which transcribes them
++ * segment by segment; confirm finalizes and resolves the full text. Nothing is
++ * shown while recording — `partialTranscript` holds whatever the server has
++ * transcribed so far and exists only so a failed dictation can be salvaged
++ * instead of losing minutes of speech. Failed dictations also retain their
++ * audio segments so retry can replay them.
 + *
 + * A finish that yields no text is a failure, not a silent return to idle: an
 + * empty final (nothing heard) or a finish with no audio keeps the overlay up
 + * with the reason, and the audio stays until the user dismisses it. Dropping
 + * that case back to idle is how a dictation could disappear with no message.
-  */
++ */
  
  import { useCallback, useEffect, useRef, useState } from 'react';
-@@ -19,6 +24,33 @@ import { useConfigStore } from '@/stores/useConfigStore';
+ 
+@@ -8,6 +24,33 @@ import { useConfigStore } from '@/stores/useConfigStore';
  
  export type DictationStatus = 'idle' | 'recording' | 'uploading' | 'failed';
  
@@ -739,7 +732,7 @@ index 273a39f..a2898a8 100644
  export interface UseDictationOptions {
      onTranscript?: (text: string) => void;
      onError?: (error: Error) => void;
-@@ -182,28 +214,74 @@ export function useDictation(options: UseDictationOptions = {}): UseDictationRes
+@@ -166,28 +209,74 @@ export function useDictation(options: UseDictationOptions = {}): UseDictationRes
          audioStopRef.current = audio.stop;
      }, [audio.stop]);
  
@@ -823,7 +816,7 @@ index 273a39f..a2898a8 100644
              reportError(failure);
          },
          [reportError],
-@@ -247,9 +325,14 @@ export function useDictation(options: UseDictationOptions = {}): UseDictationRes
+@@ -224,9 +313,14 @@ export function useDictation(options: UseDictationOptions = {}): UseDictationRes
          } catch (err) {
              await audio.stop().catch(() => undefined);
              stopDurationTracking();
@@ -840,7 +833,7 @@ index 273a39f..a2898a8 100644
          } finally {
              gate.starting = false;
          }
-@@ -309,7 +392,7 @@ export function useDictation(options: UseDictationOptions = {}): UseDictationRes
+@@ -283,7 +377,7 @@ export function useDictation(options: UseDictationOptions = {}): UseDictationRes
  
              const finalSeq = senderRef.current?.getFinalSeq() ?? -1;
              if (finalSeq < 0) {
@@ -849,7 +842,7 @@ index 273a39f..a2898a8 100644
              }
  
              const result = await senderRef.current!.finish(finalSeq);
-@@ -320,7 +403,7 @@ export function useDictation(options: UseDictationOptions = {}): UseDictationRes
+@@ -294,7 +388,7 @@ export function useDictation(options: UseDictationOptions = {}): UseDictationRes
          } finally {
              gate.confirming = false;
          }

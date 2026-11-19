@@ -1,8 +1,8 @@
 diff --git a/packages/ui/src/components/views/DOCUMENTATION.md b/packages/ui/src/components/views/DOCUMENTATION.md
-index 4db086a8d..8de28a3da 100644
+index b32303400..ceb3ec587 100644
 --- a/packages/ui/src/components/views/DOCUMENTATION.md
 +++ b/packages/ui/src/components/views/DOCUMENTATION.md
-@@ -371,15 +371,18 @@ current state the view shows loading; a failed read keeps its error and retry.
+@@ -629,15 +629,18 @@ current state the view shows loading; a failed read keeps its error and retry.
  A file that is there is expanded and scrolled to, on every click, since the
  chip's absolute path only matches the relative list through this request.
  A file that is not there opens Changed instead, in the repository holding the
@@ -31,18 +31,61 @@ index 4db086a8d..8de28a3da 100644
  ### Why the click is a one-shot request and not derived from the tab
  
 diff --git a/packages/ui/src/components/views/DiffView.tsx b/packages/ui/src/components/views/DiffView.tsx
-index 6d809769a..697b2c666 100644
+index 765157c5b..037c07c37 100644
 --- a/packages/ui/src/components/views/DiffView.tsx
 +++ b/packages/ui/src/components/views/DiffView.tsx
-@@ -1718,6 +1718,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
+@@ -119,6 +119,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
      const setDiffHideWhitespace = useUIStore((state) => state.setDiffHideWhitespace);
      const diffFileListMode = useUIStore((state) => state.diffFileListMode);
      const setDiffFileListMode = useUIStore((state) => state.setDiffFileListMode);
 +    const openContextFile = useUIStore((state) => state.openContextFile);
      const openContextFileAtLine = useUIStore((state) => state.openContextFileAtLine);
-     // Another project's PR has nothing to do with the session on screen.
      const panelSessionId = useSessionUIStore((state) => state.currentSessionId);
-@@ -2430,8 +2431,24 @@ export const DiffView: React.FC<DiffViewProps> = ({
+     const currentSessionId = foreign ? null : panelSessionId;
+@@ -195,7 +196,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
+         pendingTurnDiffFile, diffScope, currentSessionId, setPendingTurnDiffFile, turnDiffSettled, rootDirectory,
+         lastTurnDiffs, onDiffScopeChange,
+         effectiveDirectory, repositoriesKnown, rootIsGitRepo, repositoryOptions, selectNestedRepo, fetchStatus, git,
+-        changedFiles,
++        changedFiles, files,
+     });
+     React.useEffect(() => {
+         if (!displayFile) {
+diff --git a/packages/ui/src/components/views/diffView/useDiffViewTurnNavigation.ts b/packages/ui/src/components/views/diffView/useDiffViewTurnNavigation.ts
+index eaa677ece..2827df9c9 100644
+--- a/packages/ui/src/components/views/diffView/useDiffViewTurnNavigation.ts
++++ b/packages/ui/src/components/views/diffView/useDiffViewTurnNavigation.ts
+@@ -1,8 +1,9 @@
+ import React from 'react';
+ import { findRepoFile, toAbsoluteFilePath } from '@/lib/path-utils';
+ import { findFileRepository } from '@/lib/nestedRepositories';
+-import type { GitAPI } from '@/lib/api/types';
+-import type { useUIStore } from '@/stores/useUIStore';
++import type { GitAPI, RuntimeAPIs } from '@/lib/api/types';
++import { useUIStore } from '@/stores/useUIStore';
++import { toastContextFileOpenFailure, validateContextFileOpen } from '@/lib/contextFileOpenGuard';
+ import type { useGitStore } from '@/stores/useGitStore';
+ import type { TurnSnapshotDiff } from '../turnSnapshotDiff';
+ import type { DiffScope, DiffViewProps, FileEntry } from './types';
+@@ -33,14 +34,16 @@ interface DiffViewTurnNavigationOptions {
+     fetchStatus: ReturnType<typeof useGitStore.getState>['fetchStatus'];
+     git: GitAPI;
+     changedFiles: FileEntry[];
++    files: RuntimeAPIs['files'];
+ }
+ 
+ export function useDiffViewTurnNavigation({
+     visible, activeDiffScope, setActiveDiffScope, setDisplayFile, setDisplayFileStaged, shouldPinAfterAlignRef,
+     pendingScrollTargetRef, expandStackedFile, setScrollRequestNonce, pendingTurnDiffFile, diffScope, currentSessionId,
+     setPendingTurnDiffFile, turnDiffSettled, rootDirectory, lastTurnDiffs, onDiffScopeChange, effectiveDirectory,
+-    repositoriesKnown, rootIsGitRepo, repositoryOptions, selectNestedRepo, fetchStatus, git, changedFiles,
++    repositoriesKnown, rootIsGitRepo, repositoryOptions, selectNestedRepo, fetchStatus, git, changedFiles, files,
+ }: DiffViewTurnNavigationOptions) {
++    const openContextFile = useUIStore((state) => state.openContextFile);
+     const [changedFallback, setChangedFallback] = React.useState<{ file: string; picked: boolean; statusReadFor: string | null } | null>(null);
+     const fallbackStatusRequestRef = React.useRef<string | null>(null);
+     const revealListedFile = React.useCallback((path: string) => {
+@@ -102,6 +105,22 @@ export function useDiffViewTurnNavigation({
          }
          setChangedFallback(null);
          const listed = findRepoFile(changedFallback.file, effectiveDirectory, changedFiles.map((file) => file.path));
@@ -66,6 +109,4 @@ index 6d809769a..697b2c666 100644
 +            openContextFile(rootDirectory, changedFallback.file);
 +        })();
 +    }, [activeDiffScope, changedFallback, changedFiles, effectiveDirectory, fetchStatus, files, git, openContextFile, repositoriesKnown, repositoryOptions, revealListedFile, rootDirectory, rootIsGitRepo, selectNestedRepo, visible]);
- 
-     React.useEffect(() => {
-         if (!displayFile) {
+ }

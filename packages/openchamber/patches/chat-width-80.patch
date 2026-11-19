@@ -1,18 +1,8 @@
-diff --git a/packages/ui/src/components/chat/MessageList.tsx b/packages/ui/src/components/chat/MessageList.tsx
-index 28e8bb2f8..702fde2d8 100644
---- a/packages/ui/src/components/chat/MessageList.tsx
-+++ b/packages/ui/src/components/chat/MessageList.tsx
-@@ -749,7 +749,8 @@ const renderTimelineItem = ({ item }: { item: RenderRow }) => <TimelineRow row={
- // Where message text wraps: the chat column's content box. Read from a
- // column in the list when there is one, else from the column's own rule
- // (`.chat-message-column` in typography.css: 48rem, 64rem at the wider chat
--// width, the whole chat at full, about 1 to 1.5rem of padding on each side).
-+// width, 80rem at the Extra wide level, the whole chat at full, about 1 to
-+// 1.5rem of padding on each side).
- const readColumnWidth = (scroller: HTMLElement | null): number => {
-     const column = scroller?.querySelector<HTMLElement>('.chat-message-column');
-     if (column && column.clientWidth > 0) {
-@@ -758,7 +759,7 @@ const readColumnWidth = (scroller: HTMLElement | null): number => {
+diff --git a/packages/ui/src/components/chat/timeline/timelineMetrics.ts b/packages/ui/src/components/chat/timeline/timelineMetrics.ts
+index ac1465c02..1181ceb39 100644
+--- a/packages/ui/src/components/chat/timeline/timelineMetrics.ts
++++ b/packages/ui/src/components/chat/timeline/timelineMetrics.ts
+@@ -6,7 +6,7 @@ export const readColumnWidth = (scroller: HTMLElement | null): number => {
      }
      const width = scroller?.clientWidth || window.innerWidth;
      const chatWidth = scroller?.closest('[data-chat-width]')?.getAttribute('data-chat-width');
@@ -22,7 +12,7 @@ index 28e8bb2f8..702fde2d8 100644
  };
  
 diff --git a/packages/ui/src/components/sections/openchamber/ChatSettings.tsx b/packages/ui/src/components/sections/openchamber/ChatSettings.tsx
-index dafc202c6..cc286a602 100644
+index 450178351..cb0932f3a 100644
 --- a/packages/ui/src/components/sections/openchamber/ChatSettings.tsx
 +++ b/packages/ui/src/components/sections/openchamber/ChatSettings.tsx
 @@ -64,6 +64,7 @@ const DIFF_LAYOUT_OPTIONS: ChipOption<'dynamic' | 'inline' | 'side-by-side'>[] =
@@ -33,53 +23,11 @@ index dafc202c6..cc286a602 100644
    { id: 'full', labelKey: 'settings.openchamber.visual.option.chatWidth.full.label' },
  ];
  
-diff --git a/packages/ui/src/hooks/useChatWidthAttribute.test.tsx b/packages/ui/src/hooks/useChatWidthAttribute.test.tsx
-index dda3605d7..9a22ba9c7 100644
---- a/packages/ui/src/hooks/useChatWidthAttribute.test.tsx
-+++ b/packages/ui/src/hooks/useChatWidthAttribute.test.tsx
-@@ -49,10 +49,10 @@ describe('useChatWidthAttribute', () => {
-   const cases: Array<[stored: string, attribute: string | null]> = [
-     ['default', null],
-     ['wider', 'wider'],
-+    ['wide', 'wide'],
-     ['full', 'full'],
-     ['compact', null],
-     ['standard', 'wider'],
--    ['wide', 'wider'],
-     ['full-width', 'full'],
-     ['huge', null],
-   ];
-diff --git a/packages/ui/src/lib/chatWidth.ts b/packages/ui/src/lib/chatWidth.ts
-index bd87493cb..19c684759 100644
---- a/packages/ui/src/lib/chatWidth.ts
-+++ b/packages/ui/src/lib/chatWidth.ts
-@@ -1,16 +1,17 @@
- import type { ChatWidth } from '@/stores/useUIStore';
- 
--const CHAT_WIDTHS: ReadonlySet<string> = new Set<ChatWidth>(['default', 'wider', 'full']);
-+const CHAT_WIDTHS: ReadonlySet<string> = new Set<ChatWidth>(['default', 'wider', 'wide', 'full']);
- 
- /**
-  * Levels an earlier local build stored, each mapped to the nearest level here:
-- * Compact (48rem) is the reading column, Standard (64rem) and Wide (80rem) the
-- * wider column, and Full Width (the transcript across the chat) is Full.
-+ * Compact (48rem) is the reading column, Standard (64rem) the wider column, and
-+ * Full Width (the transcript across the chat) is Full. Wide is not a legacy
-+ * name: it is a level of its own at 80rem, so it maps to itself and is
-+ * deliberately absent here.
-  */
- const LEGACY_CHAT_WIDTHS: Readonly<Record<string, ChatWidth>> = {
-   compact: 'default',
-   standard: 'wider',
--  wide: 'wider',
-   'full-width': 'full',
- };
- 
 diff --git a/packages/ui/src/lib/i18n/messages/ar.settings.ts b/packages/ui/src/lib/i18n/messages/ar.settings.ts
-index a9f292fc8..5fcd4db80 100644
+index dda0b6378..fc24d71b3 100644
 --- a/packages/ui/src/lib/i18n/messages/ar.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/ar.settings.ts
-@@ -2475,9 +2475,10 @@ export const settingsDict = {
+@@ -2481,9 +2481,10 @@ export const settingsDict = {
    'settings.openchamber.visual.field.autoSaveEnabled': 'الحفظ التلقائي للملفات',
    'settings.openchamber.visual.field.autoSaveEnabledInfo': 'حفظ تعديلات الملفات تلقائيًا بعد التوقف عن الكتابة. عطّله ليصبح الحفظ يدويًا.',
    'settings.openchamber.visual.field.chatWidth': 'عرض المحادثة',
@@ -92,10 +40,10 @@ index a9f292fc8..5fcd4db80 100644
    'settings.openchamber.visual.field.codeBlockLineWrapAria': 'التفاف أسطر كتل الشيفرة',
    'settings.openchamber.visual.field.codeBlockLineWrap': 'التفاف أسطر كتل الشيفرة',
 diff --git a/packages/ui/src/lib/i18n/messages/de.settings.ts b/packages/ui/src/lib/i18n/messages/de.settings.ts
-index 9bbb7cf92..6bc0b0b23 100644
+index 4e98d17ff..d0c1d133d 100644
 --- a/packages/ui/src/lib/i18n/messages/de.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/de.settings.ts
-@@ -2413,9 +2413,10 @@ export const settingsDict = {
+@@ -2419,9 +2419,10 @@ export const settingsDict = {
    'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'Prompt-Navigator',
    'settings.openchamber.visual.field.promptNavigatorEnabled': 'Prompt-Navigator',
    'settings.openchamber.visual.field.chatWidth': 'Chatbreite',
@@ -108,10 +56,10 @@ index 9bbb7cf92..6bc0b0b23 100644
    'settings.openchamber.visual.field.codeBlockLineWrapAria': 'Codeblock-Zeilen umbrechen',
    'settings.openchamber.visual.field.codeBlockLineWrap': 'Codeblock-Zeilen umbrechen',
 diff --git a/packages/ui/src/lib/i18n/messages/en.settings.ts b/packages/ui/src/lib/i18n/messages/en.settings.ts
-index 4233d6df8..b0e8f11aa 100644
+index bb808905d..7863a3b72 100644
 --- a/packages/ui/src/lib/i18n/messages/en.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/en.settings.ts
-@@ -2518,9 +2518,10 @@ export const settingsDict = {
+@@ -2524,9 +2524,10 @@ export const settingsDict = {
    'settings.openchamber.visual.option.fileTreeSide.left': 'Left',
    'settings.openchamber.visual.option.fileTreeSide.right': 'Right',
    'settings.openchamber.visual.field.chatWidth': 'Chat width',
@@ -124,10 +72,10 @@ index 4233d6df8..b0e8f11aa 100644
    'settings.openchamber.visual.field.codeBlockLineWrapAria': 'Wrap code block lines',
    'settings.openchamber.visual.field.codeBlockLineWrap': 'Wrap code block lines',
 diff --git a/packages/ui/src/lib/i18n/messages/es.settings.ts b/packages/ui/src/lib/i18n/messages/es.settings.ts
-index 2af178639..43aae80a1 100644
+index 6b733eb04..f0bfa9acb 100644
 --- a/packages/ui/src/lib/i18n/messages/es.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/es.settings.ts
-@@ -2468,9 +2468,10 @@ export const settingsDict = {
+@@ -2474,9 +2474,10 @@ export const settingsDict = {
    "settings.openchamber.visual.option.fileTreeSide.left": "Izquierda",
    "settings.openchamber.visual.option.fileTreeSide.right": "Derecha",
    "settings.openchamber.visual.field.chatWidth": "Ancho del chat",
@@ -140,10 +88,10 @@ index 2af178639..43aae80a1 100644
    "settings.openchamber.visual.field.showSplitAssistantMessageActionsAria": "Acciones en línea del asistente",
    "settings.openchamber.visual.field.showSplitAssistantMessageActions": "Acciones en línea del asistente",
 diff --git a/packages/ui/src/lib/i18n/messages/fr.settings.ts b/packages/ui/src/lib/i18n/messages/fr.settings.ts
-index 2a600e88c..004a0bd10 100644
+index cc9dd42c5..a5085b795 100644
 --- a/packages/ui/src/lib/i18n/messages/fr.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/fr.settings.ts
-@@ -2358,9 +2358,10 @@ export const settingsDict = {
+@@ -2363,9 +2363,10 @@ export const settingsDict = {
    'settings.openchamber.visual.option.fileTreeSide.left': 'Gauche',
    'settings.openchamber.visual.option.fileTreeSide.right': 'Droite',
    'settings.openchamber.visual.field.chatWidth': 'Largeur du chat',
@@ -156,10 +104,10 @@ index 2a600e88c..004a0bd10 100644
    'settings.openchamber.visual.field.showSplitAssistantMessageActionsAria': 'Actions intégrées de l\'assistant',
    'settings.openchamber.visual.field.showSplitAssistantMessageActions': 'Actions intégrées de l\'assistant',
 diff --git a/packages/ui/src/lib/i18n/messages/he.settings.ts b/packages/ui/src/lib/i18n/messages/he.settings.ts
-index 56fa82142..5848f083c 100644
+index bc63711c9..5d21f647d 100644
 --- a/packages/ui/src/lib/i18n/messages/he.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/he.settings.ts
-@@ -2475,9 +2475,10 @@ export const settingsDict = {
+@@ -2481,9 +2481,10 @@ export const settingsDict = {
    'settings.openchamber.visual.field.autoSaveEnabled': 'שמירה אוטומטית של קבצים',
    'settings.openchamber.visual.field.autoSaveEnabledInfo': 'שמירה אוטומטית של עריכות בקבצים אחרי שמפסיקים להקליד. כשהאפשרות כבויה, צריך לשמור ידנית.',
    'settings.openchamber.visual.field.chatWidth': 'רוחב הצ\'אט',
@@ -172,10 +120,10 @@ index 56fa82142..5848f083c 100644
    'settings.openchamber.visual.field.codeBlockLineWrapAria': 'גלישת שורות בבלוקי קוד',
    'settings.openchamber.visual.field.codeBlockLineWrap': 'גלישת שורות בבלוקי קוד',
 diff --git a/packages/ui/src/lib/i18n/messages/ja.settings.ts b/packages/ui/src/lib/i18n/messages/ja.settings.ts
-index 633717628..7aea8862a 100644
+index 4d0b686ac..33679a7ff 100644
 --- a/packages/ui/src/lib/i18n/messages/ja.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/ja.settings.ts
-@@ -2501,9 +2501,10 @@ export const settingsDict = {
+@@ -2507,9 +2507,10 @@ export const settingsDict = {
    'settings.openchamber.visual.option.fileTreeSide.left': '左',
    'settings.openchamber.visual.option.fileTreeSide.right': '右',
    'settings.openchamber.visual.field.chatWidth': 'チャットの幅',
@@ -188,10 +136,10 @@ index 633717628..7aea8862a 100644
    'settings.openchamber.visual.field.showSplitAssistantMessageActionsAria': 'インラインアシスタントアクション',
    'settings.openchamber.visual.field.showSplitAssistantMessageActions': 'インラインアシスタントアクション',
 diff --git a/packages/ui/src/lib/i18n/messages/ko.settings.ts b/packages/ui/src/lib/i18n/messages/ko.settings.ts
-index c75db25ed..c30e4e7f1 100644
+index c9bf2b84c..ea7497904 100644
 --- a/packages/ui/src/lib/i18n/messages/ko.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/ko.settings.ts
-@@ -2468,9 +2468,10 @@ export const settingsDict = {
+@@ -2474,9 +2474,10 @@ export const settingsDict = {
    'settings.openchamber.visual.option.fileTreeSide.left': '왼쪽',
    'settings.openchamber.visual.option.fileTreeSide.right': '오른쪽',
    'settings.openchamber.visual.field.chatWidth': '채팅 너비',
@@ -204,10 +152,10 @@ index c75db25ed..c30e4e7f1 100644
    'settings.openchamber.visual.field.showSplitAssistantMessageActionsAria': '인라인 어시스턴트 작업',
    'settings.openchamber.visual.field.showSplitAssistantMessageActions': '인라인 어시스턴트 작업',
 diff --git a/packages/ui/src/lib/i18n/messages/nl.settings.ts b/packages/ui/src/lib/i18n/messages/nl.settings.ts
-index f9e211722..29e586cb6 100644
+index 294106610..1d3986017 100644
 --- a/packages/ui/src/lib/i18n/messages/nl.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/nl.settings.ts
-@@ -2491,9 +2491,10 @@ export const settingsDict = {
+@@ -2497,9 +2497,10 @@ export const settingsDict = {
    'settings.openchamber.visual.option.fileTreeSide.left': 'Links',
    'settings.openchamber.visual.option.fileTreeSide.right': 'Rechts',
    'settings.openchamber.visual.field.chatWidth': 'Chatbreedte',
@@ -220,10 +168,10 @@ index f9e211722..29e586cb6 100644
    'settings.openchamber.visual.field.codeBlockLineWrapAria': 'Regels in codeblokken afbreken',
    'settings.openchamber.visual.field.codeBlockLineWrap': 'Regels in codeblokken afbreken',
 diff --git a/packages/ui/src/lib/i18n/messages/pl.settings.ts b/packages/ui/src/lib/i18n/messages/pl.settings.ts
-index f900fbd92..aaa5d9c90 100644
+index 7dc964460..6b9ea095f 100644
 --- a/packages/ui/src/lib/i18n/messages/pl.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/pl.settings.ts
-@@ -1440,9 +1440,10 @@ export const settingsDict = {
+@@ -1442,9 +1442,10 @@ export const settingsDict = {
    'settings.openchamber.visual.field.userMessageRenderingAria': 'Renderowanie wiadomości użytkownika: {option}',
    'settings.openchamber.visual.field.weekStartsOn': 'Początek tygodnia',
    'settings.openchamber.visual.field.chatWidth': 'Szerokość czatu',
@@ -236,10 +184,10 @@ index f900fbd92..aaa5d9c90 100644
    'settings.openchamber.visual.option.activityRenderMode.collapsed.description': 'Domyślnie utrzymuj aktywność zwiniętą.',
    'settings.openchamber.visual.option.activityRenderMode.collapsed.label': 'Zwinięta',
 diff --git a/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts b/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
-index d7a637707..9c3a63a58 100644
+index ad538ba9a..221a82dd9 100644
 --- a/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
-@@ -2468,9 +2468,10 @@ export const settingsDict = {
+@@ -2474,9 +2474,10 @@ export const settingsDict = {
    "settings.openchamber.visual.option.fileTreeSide.left": "Esquerda",
    "settings.openchamber.visual.option.fileTreeSide.right": "Direita",
    "settings.openchamber.visual.field.chatWidth": "Largura do chat",
@@ -252,10 +200,10 @@ index d7a637707..9c3a63a58 100644
    "settings.openchamber.visual.field.showSplitAssistantMessageActionsAria": "Ações inline do assistente",
    "settings.openchamber.visual.field.showSplitAssistantMessageActions": "Ações inline do assistente",
 diff --git a/packages/ui/src/lib/i18n/messages/tr.settings.ts b/packages/ui/src/lib/i18n/messages/tr.settings.ts
-index c8c73af3d..2bd4ebb4d 100644
+index 0ae645367..e2ad0ece8 100644
 --- a/packages/ui/src/lib/i18n/messages/tr.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/tr.settings.ts
-@@ -2356,9 +2356,10 @@ export const settingsDict = {
+@@ -2362,9 +2362,10 @@ export const settingsDict = {
    'settings.openchamber.visual.option.fileTreeSide.left': 'Sol',
    'settings.openchamber.visual.option.fileTreeSide.right': 'Sağ',
    'settings.openchamber.visual.field.chatWidth': 'Sohbet genişliği',
@@ -268,10 +216,10 @@ index c8c73af3d..2bd4ebb4d 100644
    'settings.openchamber.visual.field.codeBlockLineWrapAria': 'Kod bloğu satırlarını kaydır',
    'settings.openchamber.visual.field.codeBlockLineWrap': 'Kod Bloğu Satırlarını Kaydır',
 diff --git a/packages/ui/src/lib/i18n/messages/uk.settings.ts b/packages/ui/src/lib/i18n/messages/uk.settings.ts
-index 13fdb6649..f36c1129e 100644
+index 3e87ac904..8a519b662 100644
 --- a/packages/ui/src/lib/i18n/messages/uk.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/uk.settings.ts
-@@ -2468,9 +2468,10 @@ export const settingsDict = {
+@@ -2474,9 +2474,10 @@ export const settingsDict = {
    "settings.openchamber.visual.option.fileTreeSide.left": "Ліворуч",
    "settings.openchamber.visual.option.fileTreeSide.right": "Праворуч",
    "settings.openchamber.visual.field.chatWidth": "Ширина чату",
@@ -284,10 +232,10 @@ index 13fdb6649..f36c1129e 100644
    "settings.openchamber.visual.field.showSplitAssistantMessageActionsAria": "Вбудовані дії асистента",
    "settings.openchamber.visual.field.showSplitAssistantMessageActions": "Вбудовані дії асистента",
 diff --git a/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts b/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
-index 698cd9cb8..95a41abe8 100644
+index 22695e8c4..a64199dea 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
-@@ -2468,9 +2468,10 @@ export const settingsDict = {
+@@ -2474,9 +2474,10 @@ export const settingsDict = {
    'settings.openchamber.visual.option.fileTreeSide.left': '左侧',
    'settings.openchamber.visual.option.fileTreeSide.right': '右侧',
    'settings.openchamber.visual.field.chatWidth': '聊天宽度',
@@ -300,10 +248,10 @@ index 698cd9cb8..95a41abe8 100644
    'settings.openchamber.visual.field.showSplitAssistantMessageActionsAria': '内联助手操作',
    'settings.openchamber.visual.field.showSplitAssistantMessageActions': '内联助手操作',
 diff --git a/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts b/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
-index d1a8d6c47..338427390 100644
+index d21bd63b0..5da797960 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
-@@ -2346,9 +2346,10 @@ export const settingsDict = {
+@@ -2352,9 +2352,10 @@ export const settingsDict = {
    'settings.openchamber.visual.option.fileTreeSide.left': '左側',
    'settings.openchamber.visual.option.fileTreeSide.right': '右側',
    'settings.openchamber.visual.field.chatWidth': '聊天寬度',
@@ -316,70 +264,66 @@ index d1a8d6c47..338427390 100644
    'settings.openchamber.visual.field.showSplitAssistantMessageActionsAria': '行內助理操作',
    'settings.openchamber.visual.field.showSplitAssistantMessageActions': '行內助理操作',
 diff --git a/packages/ui/src/lib/settings/parsers.ts b/packages/ui/src/lib/settings/parsers.ts
-index dc6d5418c..2f47952d1 100644
+index b95c9a955..e7403b14f 100644
 --- a/packages/ui/src/lib/settings/parsers.ts
 +++ b/packages/ui/src/lib/settings/parsers.ts
-@@ -433,7 +433,7 @@ export const parseFollowUpBehavior: SettingsParser<'steer' | 'queue'> = (value,
-  * Full. A level from the earlier local five-level setting maps to its nearest
-  * level (`lib/chatWidth.ts`); an unknown one is dropped.
-  */
+@@ -397,11 +397,26 @@ export const parseFollowUpBehavior: SettingsParser<'steer' | 'queue'> = (value,
+   return legacy.data ? 'queue' : 'steer';
+ };
+ 
+-const chatWidthSchema = z.enum(['default', 'wider', 'full']);
++const chatWidthSchema = z.enum(['default', 'wider', 'wide', 'full']);
++
++/**
++ * Levels an earlier local build stored, each mapped to the nearest level here:
++ * Compact (48rem) is the reading column, Standard (64rem) the wider column, and
++ * Full Width (the transcript across the chat) is Full. Wide is not a legacy
++ * name: it is a level of its own at 80rem, so it maps to itself and is
++ * deliberately absent here.
++ */
++const LEGACY_CHAT_WIDTHS: Readonly<Record<string, 'default' | 'wider' | 'full'>> = {
++  compact: 'default',
++  standard: 'wider',
++  'full-width': 'full',
++};
+ 
 -export const parseChatWidth: SettingsParser<'default' | 'wider' | 'full'> = (value, raw) => {
 +export const parseChatWidth: SettingsParser<'default' | 'wider' | 'wide' | 'full'> = (value, raw) => {
-   const direct = readChatWidth(value);
-   if (direct) return direct;
+   const direct = chatWidthSchema.safeParse(value);
+   if (direct.success) return direct.data;
++  const legacyName = typeof value === 'string' ? LEGACY_CHAT_WIDTHS[value] : undefined;
++  if (legacyName) return legacyName;
    const legacy = z.boolean().safeParse(raw.wideChatLayoutEnabled);
+   if (!legacy.success) return undefined;
+   return legacy.data ? 'full' : 'default';
 diff --git a/packages/ui/src/lib/settings/registry.test.ts b/packages/ui/src/lib/settings/registry.test.ts
-index 014071c0f..58ef38443 100644
+index 25589f3b3..e06e92ee4 100644
 --- a/packages/ui/src/lib/settings/registry.test.ts
 +++ b/packages/ui/src/lib/settings/registry.test.ts
-@@ -328,7 +328,9 @@ describe('settings registry', () => {
-   test('reads a level from the earlier local five-level chat width as its nearest level', () => {
-     expect(parseSettingsDocument({ chatWidth: 'compact' })).toEqual({ chatWidth: 'default' });
-     expect(parseSettingsDocument({ chatWidth: 'standard' })).toEqual({ chatWidth: 'wider' });
--    expect(parseSettingsDocument({ chatWidth: 'wide' })).toEqual({ chatWidth: 'wider' });
-+    // The earlier local "Wide" was 80rem for messages and composer, which is
-+    // this level, so it keeps its layout instead of being pulled to Wider.
+@@ -323,7 +323,7 @@ describe('settings registry', () => {
+       .toEqual({ wideChatLayoutEnabled: false, chatWidth: 'default' });
+     expect(parseSettingsDocument({ wideChatLayoutEnabled: true, chatWidth: 'wider' }))
+       .toEqual({ wideChatLayoutEnabled: true, chatWidth: 'wider' });
+-    expect(parseSettingsDocument({ chatWidth: 'wide' })).toEqual({});
 +    expect(parseSettingsDocument({ chatWidth: 'wide' })).toEqual({ chatWidth: 'wide' });
-     expect(parseSettingsDocument({ chatWidth: 'full-width' })).toEqual({ chatWidth: 'full' });
-     expect(parseSettingsDocument({ chatWidth: 'full' })).toEqual({ chatWidth: 'full' });
-     // A level wins over the legacy switch in the same document.
-diff --git a/packages/ui/src/stores/useUIStore.chatWidth.test.ts b/packages/ui/src/stores/useUIStore.chatWidth.test.ts
-index 929e35034..0a7241481 100644
---- a/packages/ui/src/stores/useUIStore.chatWidth.test.ts
-+++ b/packages/ui/src/stores/useUIStore.chatWidth.test.ts
-@@ -42,6 +42,8 @@ describe('chat width migration', () => {
- });
+   });
  
- // An earlier local build stored five levels under the same store version 30.
-+// `wide` is a level of this build too (80rem), so it reads as itself instead of
-+// through the legacy map.
- type LegacyStoredUIState = Omit<StoredUIState, 'chatWidth'> & { chatWidth?: string };
- const hydrateLegacy = (version: number, chatWidth: string) =>
-   // SAFETY: the stored document deliberately carries a level the type does not allow.
-@@ -51,7 +53,7 @@ describe('legacy local chat width levels', () => {
-   const cases: Array<[stored: string, level: string]> = [
-     ['compact', 'default'],
-     ['standard', 'wider'],
--    ['wide', 'wider'],
-+    ['wide', 'wide'],
-     ['full-width', 'full'],
-     ['full', 'full'],
-   ];
-diff --git a/packages/ui/src/stores/useUIStore.ts b/packages/ui/src/stores/useUIStore.ts
-index 3f4b1cff7..6d17fd682 100644
---- a/packages/ui/src/stores/useUIStore.ts
-+++ b/packages/ui/src/stores/useUIStore.ts
-@@ -74,7 +74,7 @@ type DesktopWindowControlsStyle = 'classic' | 'traffic-lights';
- export type FileEditorKeymap = 'default' | 'vim';
+   test('applies only the fields a snapshot carries and leaves the rest alone', () => {
+diff --git a/packages/ui/src/stores/ui/types.ts b/packages/ui/src/stores/ui/types.ts
+index a0538d82b..11e6bf5c9 100644
+--- a/packages/ui/src/stores/ui/types.ts
++++ b/packages/ui/src/stores/ui/types.ts
+@@ -37,7 +37,7 @@ export type FileEditorKeymap = 'default' | 'vim';
+ 
  export type LargeTextPasteBehavior = 'ask' | 'attach' | 'inline' | 'inline-double-paste';
- /** Chat column width: a reading column, a wider capped column, or the whole chat for the transcript. */
+ 
 -export type ChatWidth = 'default' | 'wider' | 'full';
 +export type ChatWidth = 'default' | 'wider' | 'wide' | 'full';
+ 
  export type SessionGoalChecker = 'classifier' | 'small-model';
  
- const DEFAULT_LARGE_TEXT_PASTE_BEHAVIOR: LargeTextPasteBehavior = 'ask';
 diff --git a/packages/ui/src/styles/typography.css b/packages/ui/src/styles/typography.css
-index 63db8e88b..daf5988b3 100644
+index 45f4999ca..004399fc4 100644
 --- a/packages/ui/src/styles/typography.css
 +++ b/packages/ui/src/styles/typography.css
 @@ -106,13 +106,29 @@
@@ -435,40 +379,38 @@ index 63db8e88b..daf5988b3 100644
  [data-chat-width="full"] .chat-message-column {
    width: 100%;
  }
-diff --git a/packages/web/server/lib/opencode/settings-helpers.js b/packages/web/server/lib/opencode/settings-helpers.js
-index 341743f15..edf0f00f8 100644
---- a/packages/web/server/lib/opencode/settings-helpers.js
-+++ b/packages/web/server/lib/opencode/settings-helpers.js
-@@ -218,16 +218,16 @@ export const createSettingsHelpers = (dependencies) => {
-   const MOBILE_KEYBOARD_MODE_VALUES = new Set(['native', 'resize-content']);
-   const UI_FONT_WEIGHT_VALUES = new Set(['regular', 'balanced', 'strong']);
-   const TERMINAL_SHELL_VALUES = new Set(['auto', 'bash', 'zsh', 'sh', 'fish', 'pwsh', 'powershell', 'cmd', 'dash', 'ksh', 'nu']);
--  // Each stored chat width name to a level the UI styles: the three levels
-+  // Each stored chat width name to a level the UI styles: the four levels
-   // themselves, and the levels an earlier local build stored mapped to the
-   // nearest one, as `packages/ui/src/lib/chatWidth.ts` maps them.
-   const CHAT_WIDTH_LEVELS = new Map([
-     ['default', 'default'],
-     ['wider', 'wider'],
-+    ['wide', 'wide'],
-     ['full', 'full'],
-     ['compact', 'default'],
-     ['standard', 'wider'],
--    ['wide', 'wider'],
-     ['full-width', 'full'],
-   ]);
-   const SIDEBAR_PROJECT_DISPLAY_MODE_VALUES = new Set(['all', 'single']);
-diff --git a/packages/web/server/lib/opencode/settings-helpers.test.js b/packages/web/server/lib/opencode/settings-helpers.test.js
-index a635b2536..4bff29785 100644
---- a/packages/web/server/lib/opencode/settings-helpers.test.js
-+++ b/packages/web/server/lib/opencode/settings-helpers.test.js
-@@ -303,7 +303,8 @@ describe('settings helpers', () => {
-     expect(helpers.sanitizeSettingsUpdate({ chatWidth: 'full' })).toEqual({ chatWidth: 'full' });
-     expect(helpers.sanitizeSettingsUpdate({ chatWidth: 'compact' })).toEqual({ chatWidth: 'default' });
-     expect(helpers.sanitizeSettingsUpdate({ chatWidth: 'standard' })).toEqual({ chatWidth: 'wider' });
--    expect(helpers.sanitizeSettingsUpdate({ chatWidth: 'wide' })).toEqual({ chatWidth: 'wider' });
-+    // The earlier local "Wide" was 80rem for messages and composer, which is this level.
+diff --git a/packages/web/server/lib/settings/settings-helpers.test.js b/packages/web/server/lib/settings/settings-helpers.test.js
+index 5c358bff1..5a4928aab 100644
+--- a/packages/web/server/lib/settings/settings-helpers.test.js
++++ b/packages/web/server/lib/settings/settings-helpers.test.js
+@@ -317,7 +317,7 @@ describe('settings helpers', () => {
+     expect(helpers.sanitizeSettingsUpdate({ wideChatLayoutEnabled: false })).toEqual({ wideChatLayoutEnabled: false });
+     expect(helpers.sanitizeSettingsUpdate({ wideChatLayoutEnabled: 'true' })).toEqual({});
+     expect(helpers.sanitizeSettingsUpdate({ chatWidth: 'wider' })).toEqual({ chatWidth: 'wider' });
+-    expect(helpers.sanitizeSettingsUpdate({ chatWidth: 'wide' })).toEqual({});
 +    expect(helpers.sanitizeSettingsUpdate({ chatWidth: 'wide' })).toEqual({ chatWidth: 'wide' });
-     expect(helpers.sanitizeSettingsUpdate({ chatWidth: 'full-width' })).toEqual({ chatWidth: 'full' });
-     expect(helpers.sanitizeSettingsUpdate({ chatWidth: 'huge' })).toEqual({});
-     expect(helpers.sanitizeSettingsUpdate({ chatWidth: 2 })).toEqual({});
+   });
+ 
+   it('accepts only booleans for collapsible user messages', () => {
+diff --git a/packages/web/server/lib/settings/settings-helpers.ts b/packages/web/server/lib/settings/settings-helpers.ts
+index 0bbe10d69..cea1645ca 100644
+--- a/packages/web/server/lib/settings/settings-helpers.ts
++++ b/packages/web/server/lib/settings/settings-helpers.ts
+@@ -319,7 +319,7 @@ export type SanitizedSettings = Partial<Record<BooleanSettingsKey, boolean>>
+     activityRenderMode?: 'collapsed' | 'summary';
+     mermaidRenderingMode?: 'svg' | 'ascii';
+     userMessageRenderingMode?: 'markdown' | 'plain';
+-    chatWidth?: 'default' | 'wider' | 'full';
++    chatWidth?: 'default' | 'wider' | 'wide' | 'full';
+     shortcutOverrides?: Record<string, string>;
+     favoriteModels?: NonNullable<ReturnType<Normalization['sanitizeModelRefs']>>;
+     recentModels?: NonNullable<ReturnType<Normalization['sanitizeModelRefs']>>;
+@@ -1184,7 +1184,7 @@ export const createSettingsHelpers = (dependencies: SettingsHelpersDependencies)
+     if (isBoolean(candidate.promptNavigatorEnabled)) {
+       result.promptNavigatorEnabled = candidate.promptNavigatorEnabled;
+     }
+-    if (candidate.chatWidth === 'default' || candidate.chatWidth === 'wider' || candidate.chatWidth === 'full') {
++    if (candidate.chatWidth === 'default' || candidate.chatWidth === 'wider' || candidate.chatWidth === 'wide' || candidate.chatWidth === 'full') {
+       result.chatWidth = candidate.chatWidth;
+     }
+     if (isBoolean(candidate.wideChatLayoutEnabled)) {
