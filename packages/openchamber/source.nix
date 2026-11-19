@@ -93,10 +93,8 @@ let
       # (upstream main's #6960 defers instead; reconcile on upgrade), and
       # viewing a session clears its subagents' phone banners on top of
       # upstream's server-side clearing.
-      ./patches/send-past-open-question.patch
       # The composer half above steers into the waiting turn; this is the
       # release half, where the queue delivered a held send into the ask.
-      ./patches/queue-holds-pending-question.patch
       # The phone removes its own delivered banners when the session is opened
       # or marked seen; the server's clearing push alone leaves a banner whose
       # push was missed.
@@ -104,7 +102,6 @@ let
       ./patches/notification-family-clear.patch
       # Chat width levels the retired chat-width patch stored (and its
       # version-2 preferences.json) read as v2.7.2's levels.
-      ./patches/chat-width-remap.patch
       # An 80rem level between Wider and Full, for messages and composer. It
       # edits the same level maps as the remap above, so it must follow it.
       ./patches/chat-width-80.patch
