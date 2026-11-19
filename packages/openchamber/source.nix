@@ -84,9 +84,6 @@ let
       # reader typed. Read the answers the call recorded instead, and keep the
       # text parse for a call that carries none.
       ./patches/question-recorded-answers.patch
-      # The app's own interrupt stores an "unknown" error type, which the
-      # question classifier read as a dismissal rather than turn death.
-      ./patches/question-interrupt-state.patch
       # Only the attention ranking of In work: v2.7.2's
       # `sidebarSessionBatchSize` already pages the block.
       ./patches/in-work-paging.patch
