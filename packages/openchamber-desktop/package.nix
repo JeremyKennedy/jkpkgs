@@ -48,11 +48,47 @@ let
     opencodeCli = opencode;
   };
 in
-if cliPinCheck == null then package else package.overrideAttrs (previousAttrs: {
-  # gui.nix fails the build unless the bundled CLI is exactly the version
-  # packages/electron pins. jkpkgs' opencode tracks its own releases, so
-  # accept any version rather than coupling the two packages' bumps.
-  installPhase =
-    assert lib.hasInfix cliPinCheck previousAttrs.installPhase;
-    lib.replaceStrings [ cliPinCheck ] [ "*) ;;" ] previousAttrs.installPhase;
-})
+package.overrideAttrs (
+  finalAttrs: previousAttrs:
+  lib.optionalAttrs (cliPinCheck != null) {
+    # gui.nix fails the build unless the bundled CLI is exactly the version
+    # packages/electron pins. jkpkgs' opencode tracks its own releases, so
+    # accept any version rather than coupling the two packages' bumps.
+    installPhase =
+      assert lib.hasInfix cliPinCheck previousAttrs.installPhase;
+      lib.replaceStrings [ cliPinCheck ] [ "*) ;;" ] previousAttrs.installPhase;
+  }
+  // {
+    passthru = previousAttrs.passthru // {
+      tests = previousAttrs.passthru.tests or { } // {
+        # The desktop's main process imports @openchamber/web/server/*,
+        # which this base's package exports map to build/server/*. A core
+        # tree without build/ builds fine and then crashes Electron at
+        # startup with ERR_MODULE_NOT_FOUND, so resolve every such
+        # specifier against the packaged app here.
+        desktopEntryModules = pkgs.testers.runCommand {
+          name = "openchamber-desktop-entry-modules-test";
+          nativeBuildInputs = [
+            pkgs.nodejs
+            pkgs.gnugrep
+          ];
+          script = ''
+            app=${finalAttrs.finalPackage}/share/openchamber/resources/app
+            specs="$(grep -ohE '"@openchamber/web/[^"]+"' "$app"/dist-bundle/*.mjs | tr -d '"' | sort -u)"
+            [ -n "$specs" ] || {
+              echo "no @openchamber/web imports found in dist-bundle"
+              exit 1
+            }
+            while IFS= read -r spec; do
+              ( cd "$app" && node -e 'require.resolve(process.argv[1])' "$spec" ) || {
+                echo "unresolved import: $spec"
+                exit 1
+              }
+            done <<< "$specs"
+            touch "$out"
+          '';
+        };
+      };
+    };
+  }
+)
