@@ -132,6 +132,9 @@ let
       cp packages/web/package.json "$appRoot/packages/web/package.json"
       cp -a packages/web/bin "$appRoot/packages/web/bin"
       cp -a packages/web/server "$appRoot/packages/web/server"
+      # The desktop entry imports @openchamber/web/server/*, which the
+      # package exports resolve to build/server/* on this base.
+      cp -a packages/web/build "$appRoot/packages/web/build"
       cp -a packages/web/dist "$appRoot/packages/web/dist"
       cp packages/sdk/package.json "$appRoot/packages/sdk/package.json"
       cp -a packages/sdk/dist "$appRoot/packages/sdk/dist"
