@@ -125,7 +125,7 @@ index d93b0b8e2..60c0c3e49 100644
        writeMobileKeyboardVar('--oc-kb-layout', null);
        writeMobileKeyboardVar('--oc-kb-surface', null);
 diff --git a/packages/ui/src/components/chat/message/ToolOutputDialog.tsx b/packages/ui/src/components/chat/message/ToolOutputDialog.tsx
-index 5b9f8fce2..d114ec493 100644
+index 5b9f8fce2..fb2581b3c 100644
 --- a/packages/ui/src/components/chat/message/ToolOutputDialog.tsx
 +++ b/packages/ui/src/components/chat/message/ToolOutputDialog.tsx
 @@ -28,12 +28,22 @@ import { useDefaultDiffViewMode } from './useDefaultDiffViewMode';
@@ -179,7 +179,17 @@ index 5b9f8fce2..d114ec493 100644
  /** The saved file's name: the image's own, given the extension of its format when it has none. */
  const savedImageName = (filename: string | undefined, blob: Blob): string => {
      const name = filename?.split(/[\\/]/).pop()?.trim() || 'image';
-@@ -313,6 +344,31 @@ const ImagePreviewDialog: React.FC<{
+@@ -285,8 +316,7 @@ const savedImageName = (filename: string | undefined, blob: Blob): string => {
+ const ImagePreviewDialog: React.FC<{
+     popup: ToolPopupContent;
+     onOpenChange: (open: boolean) => void;
+-    isMobile: boolean;
+-}> = ({ popup, onOpenChange, isMobile }) => {
++}> = ({ popup, onOpenChange }) => {
+     const { t, direction } = useI18n();
+     const gallery = React.useMemo(() => {
+         const baseImage = popup.image;
+@@ -313,6 +343,31 @@ const ImagePreviewDialog: React.FC<{
      const { isRendered, isVisible, isTransitioning } = usePreviewOverlayState(popup.open);
      const viewport = usePreviewViewport(popup.open);
  
@@ -211,7 +221,7 @@ index 5b9f8fce2..d114ec493 100644
      React.useEffect(() => {
          if (!popup.open || gallery.length === 0) {
              return;
-@@ -387,6 +443,13 @@ const ImagePreviewDialog: React.FC<{
+@@ -387,6 +442,13 @@ const ImagePreviewDialog: React.FC<{
          };
      }, [direction, hasMultipleImages, onOpenChange, popup.open, showNext, showPrevious]);
  
@@ -225,10 +235,27 @@ index 5b9f8fce2..d114ec493 100644
      // The measured size belongs to one URL. Resetting it in an effect on URL
      // change raced the load event of an already-cached image, which left the
      // viewer stuck at its maximum box with wide dead margins around the image.
-@@ -416,12 +479,337 @@ const ImagePreviewDialog: React.FC<{
-         };
-     }, [currentNaturalSize, isMobile, viewport.height, viewport.width]);
+@@ -395,9 +457,11 @@ const ImagePreviewDialog: React.FC<{
+         ? imageNaturalSize
+         : null;
  
++    // Fit fills the viewer: the picture opens edge to edge, as a gallery shows
++    // one, instead of inside a frame with a margin on every side.
+     const imageDisplaySize = React.useMemo(() => {
+-        const maxWidth = Math.max(160, viewport.width * (isMobile ? 0.86 : 0.75));
+-        const maxHeight = Math.max(160, viewport.height * (isMobile ? 0.72 : 0.75));
++        const maxWidth = Math.max(160, viewport.width);
++        const maxHeight = Math.max(160, viewport.height);
+ 
+         if (!currentNaturalSize) {
+             return {
+@@ -414,14 +478,339 @@ const ImagePreviewDialog: React.FC<{
+             width: Math.max(1, Math.round(currentNaturalSize.width * scale)),
+             height: Math.max(1, Math.round(currentNaturalSize.height * scale)),
+         };
+-    }, [currentNaturalSize, isMobile, viewport.height, viewport.width]);
++    }, [currentNaturalSize, viewport.height, viewport.width]);
++
 +    // The picture's own pixels per drawn pixel at fit: the drawn width over its
 +    // natural width. It is the unit the zoom buttons step, so a percentage reads
 +    // the same here as in the files preview.
@@ -541,7 +568,7 @@ index 5b9f8fce2..d114ec493 100644
 +        dragRef.current = null;
 +        setDragging(false);
 +    };
-+
+ 
      if (!isRendered || !currentImage || typeof document === 'undefined') {
          return null;
      }
@@ -564,7 +591,7 @@ index 5b9f8fce2..d114ec493 100644
              <div
                  aria-hidden="true"
                  className={cn(
-@@ -431,7 +819,7 @@ const ImagePreviewDialog: React.FC<{
+@@ -431,7 +820,7 @@ const ImagePreviewDialog: React.FC<{
                      isTransitioning && 'transition-opacity duration-150 ease-out',
                      isVisible ? 'opacity-100' : 'opacity-0'
                  )}
@@ -573,7 +600,7 @@ index 5b9f8fce2..d114ec493 100644
              />
  
              {hasMultipleImages && (
-@@ -442,7 +830,10 @@ const ImagePreviewDialog: React.FC<{
+@@ -442,7 +831,10 @@ const ImagePreviewDialog: React.FC<{
                                  type="button"
                                  onMouseDown={(event) => event.stopPropagation()}
                                  onClick={showPrevious}
@@ -585,7 +612,7 @@ index 5b9f8fce2..d114ec493 100644
                                  aria-label={t('chat.toolOutputDialog.image.previousAria')}
                              >
                                  <Icon name="arrow-left-s" className="h-6 w-6" />
-@@ -456,7 +847,10 @@ const ImagePreviewDialog: React.FC<{
+@@ -456,7 +848,10 @@ const ImagePreviewDialog: React.FC<{
                                  type="button"
                                  onMouseDown={(event) => event.stopPropagation()}
                                  onClick={showNext}
@@ -597,7 +624,7 @@ index 5b9f8fce2..d114ec493 100644
                                  aria-label={t('chat.toolOutputDialog.image.nextAria')}
                              >
                                  <Icon name="arrow-right-s" className="h-6 w-6" />
-@@ -467,42 +861,79 @@ const ImagePreviewDialog: React.FC<{
+@@ -467,42 +862,74 @@ const ImagePreviewDialog: React.FC<{
                  </>
              )}
  
@@ -609,13 +636,14 @@ index 5b9f8fce2..d114ec493 100644
 +                ref={headerRef}
                  className={cn(
 -                    'absolute inset-0 flex items-center justify-center pointer-events-none',
+-                    isMobile ? 'p-2.5' : 'p-4'
 +                    'absolute inset-x-0 top-0 z-20 flex items-center gap-2 border-b border-edge-muted bg-surface-elevated px-3 pb-2',
 +                    'pt-[calc(var(--safe-area-inset-top,env(safe-area-inset-top,0px))+8px)]',
 +                    'transition-opacity duration-150 ease-out',
 +                    isVisible && chromeVisible ? 'opacity-100' : 'opacity-0',
 +                    !chromeVisible && 'pointer-events-none'
-+                )}
-+            >
+                 )}
+             >
 +                <div className="min-w-0 flex-1 text-surface-elevated-foreground typography-ui-header font-semibold truncate" title={imageTitle}>
 +                    {imageTitle}
 +                </div>
@@ -643,12 +671,7 @@ index 5b9f8fce2..d114ec493 100644
 +                </div>
 +            </div>
 +
-+            <div
-+                className={cn(
-+                    'absolute inset-0 flex items-center justify-center pointer-events-none overflow-hidden',
-                     isMobile ? 'p-2.5' : 'p-4'
-                 )}
-             >
++            <div className="absolute inset-0 flex items-center justify-center pointer-events-none overflow-hidden">
                  <div
 +                    ref={frameRef}
                      className={cn(
@@ -697,6 +720,15 @@ index 5b9f8fce2..d114ec493 100644
                          lazy
                          onLoad={(element) => {
                              const width = element.naturalWidth;
+@@ -1010,7 +1437,7 @@ const ToolOutputDialog: React.FC<ToolOutputDialogProps> = ({ popup, onOpenChange
+     }, [defaultDiffViewMode, popup.open, popup.title]);
+ 
+     if (popup.image) {
+-        return <ImagePreviewDialog popup={popup} onOpenChange={onOpenChange} isMobile={isMobile} />;
++        return <ImagePreviewDialog popup={popup} onOpenChange={onOpenChange} />;
+     }
+ 
+     if (popup.mermaid) {
 diff --git a/packages/ui/src/components/chat/message/imageViewerZoom.test.ts b/packages/ui/src/components/chat/message/imageViewerZoom.test.ts
 new file mode 100644
 index 000000000..ea53febe9
@@ -925,10 +957,10 @@ index 000000000..bb422390a
 +    };
 +};
 diff --git a/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md b/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
-index 18af7405a..67806bfa0 100644
+index 18af7405a..b7e4907d2 100644
 --- a/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
 +++ b/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
-@@ -701,7 +701,22 @@ update, with the `shellID`, when the command starts.
+@@ -701,7 +701,24 @@ update, with the `shellID`, when the command starts.
    fetched page cannot learn when the user read the message. Documents and
    references retain their explicit inline-image policy. A click on loaded
    assistant media opens the shared attachment preview overlay
@@ -948,7 +980,9 @@ index 18af7405a..67806bfa0 100644
 +  trackpad pinch in Safari, a two-finger pinch, or a double-click zooms the
 +  picture under the pointer; a picture drawn larger than its box pans by
 +  dragging and stays inside the viewer, a smaller one sits centred, and a new
-+  picture opens at fit. The viewer's download
++  picture opens at fit. Fit fills the viewer, so a picture opens edge to edge
++  with no frame around it, and a tap on the picture hides the bar over its top.
++  The viewer's download
    saves an image's own file: each gallery item may carry `load`, which for a
    message's local image reads the whole file through its grant with
    `runtimeFetch` (`loadMessageImageBlob`), never by fetching the asset URL;
