@@ -1,8 +1,8 @@
 diff --git a/packages/ui/src/components/chat/message/ToolOutputDialog.tsx b/packages/ui/src/components/chat/message/ToolOutputDialog.tsx
-index 5b9f8fce2..7ae30be8c 100644
+index 5b9f8fce2..0085eb7bf 100644
 --- a/packages/ui/src/components/chat/message/ToolOutputDialog.tsx
 +++ b/packages/ui/src/components/chat/message/ToolOutputDialog.tsx
-@@ -28,6 +28,14 @@ import { useDefaultDiffViewMode } from './useDefaultDiffViewMode';
+@@ -28,12 +28,21 @@ import { useDefaultDiffViewMode } from './useDefaultDiffViewMode';
  import { VirtualizedCodeBlock, type CodeLine } from './parts/VirtualizedCodeBlock';
  import { JsonTreeView } from '@/components/ui/JsonTreeView';
  import { StatusImage } from '@/components/ui/status-image';
@@ -17,7 +17,14 @@ index 5b9f8fce2..7ae30be8c 100644
  import { Icon } from "@/components/icon/Icon";
  import { getToolIcon } from './parts/toolPresentation';
  import { useGuestToolPresentation } from '@/lib/guests/tool-presentation';
-@@ -275,6 +283,23 @@ const imageLoader = (image: GalleryItem | undefined): (() => Promise<Blob>) | nu
+ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+ import { useI18n, type I18nKey, type I18nParams } from '@/lib/i18n';
+ import { runtimeFetch } from '@/lib/runtime-fetch';
++import { registerBackLayer } from '@/lib/mobileBackLayers';
+ import { isVSCodeRuntime } from '@/lib/desktop';
+ import { toast } from '@/components/ui';
+ import { saveFile } from './parts/saveFile';
+@@ -275,6 +284,23 @@ const imageLoader = (image: GalleryItem | undefined): (() => Promise<Blob>) | nu
  
  const EXTENSION_BY_IMAGE_MIME = new Map([['image/png', 'png'], ['image/jpeg', 'jpg'], ['image/gif', 'gif'], ['image/webp', 'webp'], ['image/svg+xml', 'svg']]);
  
@@ -41,7 +48,7 @@ index 5b9f8fce2..7ae30be8c 100644
  /** The saved file's name: the image's own, given the extension of its format when it has none. */
  const savedImageName = (filename: string | undefined, blob: Blob): string => {
      const name = filename?.split(/[\\/]/).pop()?.trim() || 'image';
-@@ -313,6 +338,16 @@ const ImagePreviewDialog: React.FC<{
+@@ -313,6 +339,16 @@ const ImagePreviewDialog: React.FC<{
      const { isRendered, isVisible, isTransitioning } = usePreviewOverlayState(popup.open);
      const viewport = usePreviewViewport(popup.open);
  
@@ -58,7 +65,21 @@ index 5b9f8fce2..7ae30be8c 100644
      React.useEffect(() => {
          if (!popup.open || gallery.length === 0) {
              return;
-@@ -416,12 +451,250 @@ const ImagePreviewDialog: React.FC<{
+@@ -387,6 +423,13 @@ const ImagePreviewDialog: React.FC<{
+         };
+     }, [direction, hasMultipleImages, onOpenChange, popup.open, showNext, showPrevious]);
+ 
++    // The Android and mobile-web Back button closes the viewer first, as it
++    // closes every other layer on top of the app.
++    React.useEffect(() => {
++        if (!popup.open) return;
++        return registerBackLayer(() => onOpenChange(false));
++    }, [onOpenChange, popup.open]);
++
+     // The measured size belongs to one URL. Resetting it in an effect on URL
+     // change raced the load event of an already-cached image, which left the
+     // viewer stuck at its maximum box with wide dead margins around the image.
+@@ -416,12 +459,250 @@ const ImagePreviewDialog: React.FC<{
          };
      }, [currentNaturalSize, isMobile, viewport.height, viewport.width]);
  
@@ -310,7 +331,7 @@ index 5b9f8fce2..7ae30be8c 100644
              <div
                  aria-hidden="true"
                  className={cn(
-@@ -431,7 +704,7 @@ const ImagePreviewDialog: React.FC<{
+@@ -431,7 +712,7 @@ const ImagePreviewDialog: React.FC<{
                      isTransitioning && 'transition-opacity duration-150 ease-out',
                      isVisible ? 'opacity-100' : 'opacity-0'
                  )}
@@ -319,126 +340,113 @@ index 5b9f8fce2..7ae30be8c 100644
              />
  
              {hasMultipleImages && (
-@@ -469,23 +742,37 @@ const ImagePreviewDialog: React.FC<{
+@@ -467,42 +748,76 @@ const ImagePreviewDialog: React.FC<{
+                 </>
+             )}
  
++            {/* The controls stay on the viewport's top edge, on their own
++                surface: a zoomed picture draws under them, so on its own the
++                line would vanish over a pale one. */}
              <div
                  className={cn(
 -                    'absolute inset-0 flex items-center justify-center pointer-events-none',
++                    'absolute inset-x-0 top-0 z-20 flex items-center gap-2 border-b border-edge-muted bg-surface-elevated px-3 pb-2',
++                    'pt-[calc(var(--safe-area-inset-top,env(safe-area-inset-top,0px))+8px)]',
++                    isTransitioning && 'transition-opacity duration-150 ease-out',
++                    isVisible ? 'opacity-100' : 'opacity-0'
++                )}
++            >
++                <div className="min-w-0 flex-1 text-surface-elevated-foreground typography-ui-header font-semibold truncate" title={imageTitle}>
++                    {imageTitle}
++                </div>
++                <div className="flex shrink-0 items-center gap-0.5">
++                    <ImageZoomControls
++                        percent={shownZoom.scale * 100}
++                        atFit={zoom === null}
++                        disabled={!currentNaturalSize}
++                        onZoomOut={() => zoomToCenter(stepImageScale(shownZoom.scale, -1))}
++                        onZoomIn={() => zoomToCenter(stepImageScale(shownZoom.scale, 1))}
++                        onActualSize={() => zoomToCenter(1)}
++                        onFit={() => {
++                            zoomRef.current = null;
++                            setZoom(null);
++                        }}
++                    />
++                    {loadCurrentImage ? (
++                        <ToolbarTooltipButton label={t('chat.image.download')} icon="download" onClick={() => { void handleDownload(); }} />
++                    ) : null}
++                    <ToolbarTooltipButton
++                        label={t('chat.toolOutputDialog.image.closeAria')}
++                        icon="close"
++                        onClick={() => onOpenChange(false)}
++                    />
++                </div>
++            </div>
++
++            <div
++                className={cn(
 +                    'absolute inset-0 flex items-center justify-center pointer-events-none overflow-hidden',
                      isMobile ? 'p-2.5' : 'p-4'
                  )}
              >
                  <div
++                    ref={frameRef}
                      className={cn(
 -                        'pointer-events-auto flex flex-col gap-2',
-+                        'pointer-events-auto flex flex-col items-center gap-2',
++                        'pointer-events-auto relative select-none',
                          isTransitioning && 'transition-opacity duration-150 ease-out',
-                         isVisible ? 'opacity-100' : 'opacity-0'
+-                        isVisible ? 'opacity-100' : 'opacity-0'
++                        isVisible ? 'opacity-100' : 'opacity-0',
++                        drawnScale > 1 && (dragging ? 'cursor-grabbing' : 'cursor-grab')
                      )}
 -                    style={{ width: `${imageDisplaySize.width}px` }}
-+                    // A tall picture draws a narrow box; the line above it keeps
-+                    // room for its own controls instead of inheriting that width.
-+                    style={{ width: `${imageDisplaySize.width}px`, minWidth: 'min(100%, 17rem)' }}
++                    style={{
++                        width: `${imageDisplaySize.width}px`,
++                        height: `${imageDisplaySize.height}px`,
++                    }}
++                    onPointerDown={handlePointerDown}
++                    onPointerMove={handlePointerMove}
++                    onPointerUp={handlePointerEnd}
++                    onPointerCancel={handlePointerEnd}
                  >
 -                    <div className="flex items-center justify-between gap-2">
-+                    <div className="relative z-10 flex w-full items-center justify-between gap-2">
-                         <div className="min-w-0 flex-1 text-foreground typography-ui-header font-semibold truncate" title={imageTitle}>
-                             {imageTitle}
-                         </div>
-                         <div className="flex shrink-0 items-center gap-0.5">
-+                            <ImageZoomControls
-+                                percent={shownZoom.scale * 100}
-+                                atFit={zoom === null}
-+                                disabled={!currentNaturalSize}
-+                                onZoomOut={() => zoomToCenter(stepImageScale(shownZoom.scale, -1))}
-+                                onZoomIn={() => zoomToCenter(stepImageScale(shownZoom.scale, 1))}
-+                                onActualSize={() => zoomToCenter(1)}
-+                                onFit={() => {
-+                                    zoomRef.current = null;
-+                                    setZoom(null);
-+                                }}
-+                            />
-                             {loadCurrentImage ? (
-                                 <ToolbarTooltipButton label={t('chat.image.download')} icon="download" onClick={() => { void handleDownload(); }} />
-                             ) : null}
-@@ -497,27 +784,46 @@ const ImagePreviewDialog: React.FC<{
-                         </div>
-                     </div>
- 
--                    <StatusImage
--                        src={currentImage.url}
--                        alt={imageTitle}
--                        variant="large"
--                        style={{ width: `${imageDisplaySize.width}px`, height: `${imageDisplaySize.height}px` }}
--                        imgClassName="block h-full w-full object-contain"
--                        lazy
--                        onLoad={(element) => {
--                            const width = element.naturalWidth;
--                            const height = element.naturalHeight;
--                            const url = element.getAttribute('src') ?? '';
--                            if (width > 0 && height > 0) {
--                                setImageNaturalSize((previous) => {
--                                    if (previous && previous.url === url && previous.width === width && previous.height === height) {
--                                        return previous;
--                                    }
--                                    return { url, width, height };
--                                });
--                            }
-+                    <div
-+                        ref={frameRef}
-+                        className={cn(
-+                            'relative select-none',
-+                            drawnScale > 1 && (dragging ? 'cursor-grabbing' : 'cursor-grab')
-+                        )}
-+                        style={{
-+                            width: `${imageDisplaySize.width}px`,
-+                            height: `${imageDisplaySize.height}px`,
-                         }}
--                    />
-+                        onPointerDown={handlePointerDown}
-+                        onPointerMove={handlePointerMove}
-+                        onPointerUp={handlePointerEnd}
-+                        onPointerCancel={handlePointerEnd}
-+                    >
-+                        <StatusImage
-+                            src={currentImage.url}
-+                            alt={imageTitle}
-+                            variant="large"
-+                            style={{ width: `${imageDisplaySize.width}px`, height: `${imageDisplaySize.height}px` }}
-+                            imgClassName="block h-full w-full object-contain"
-+                            imgStyle={drawnScale !== 1 || shownZoom.x !== 0 || shownZoom.y !== 0
-+                                ? { transform: `translate(${shownZoom.x}px, ${shownZoom.y}px) scale(${drawnScale})` }
-+                                : undefined}
-+                            lazy
-+                            onLoad={(element) => {
-+                                const width = element.naturalWidth;
-+                                const height = element.naturalHeight;
-+                                const url = element.getAttribute('src') ?? '';
-+                                if (width > 0 && height > 0) {
-+                                    setImageNaturalSize((previous) => {
-+                                        if (previous && previous.url === url && previous.width === width && previous.height === height) {
-+                                            return previous;
-+                                        }
-+                                        return { url, width, height };
-+                                    });
-+                                }
-+                            }}
-+                        />
-+                    </div>
-                 </div>
-             </div>
-         </div>
+-                        <div className="min-w-0 flex-1 text-foreground typography-ui-header font-semibold truncate" title={imageTitle}>
+-                            {imageTitle}
+-                        </div>
+-                        <div className="flex shrink-0 items-center gap-0.5">
+-                            {loadCurrentImage ? (
+-                                <ToolbarTooltipButton label={t('chat.image.download')} icon="download" onClick={() => { void handleDownload(); }} />
+-                            ) : null}
+-                            <ToolbarTooltipButton
+-                                label={t('chat.toolOutputDialog.image.closeAria')}
+-                                icon="close"
+-                                onClick={() => onOpenChange(false)}
+-                            />
+-                        </div>
+-                    </div>
+-
+                     <StatusImage
+                         src={currentImage.url}
+                         alt={imageTitle}
+                         variant="large"
+                         style={{ width: `${imageDisplaySize.width}px`, height: `${imageDisplaySize.height}px` }}
+                         imgClassName="block h-full w-full object-contain"
++                        imgStyle={drawnScale !== 1 || shownZoom.x !== 0 || shownZoom.y !== 0
++                            ? { transform: `translate(${shownZoom.x}px, ${shownZoom.y}px) scale(${drawnScale})` }
++                            : undefined}
+                         lazy
+                         onLoad={(element) => {
+                             const width = element.naturalWidth;
 diff --git a/packages/ui/src/components/chat/message/imageViewerZoom.test.ts b/packages/ui/src/components/chat/message/imageViewerZoom.test.ts
 new file mode 100644
-index 000000000..bfaecbbc9
+index 000000000..bc5d0cca8
 --- /dev/null
 +++ b/packages/ui/src/components/chat/message/imageViewerZoom.test.ts
-@@ -0,0 +1,98 @@
+@@ -0,0 +1,97 @@
 +import { describe, expect, test } from 'bun:test';
 +
 +import {
 +    IMAGE_ZOOM_MAX_SCALE,
-+    IMAGE_ZOOM_MIN_SCALE,
 +    clampImageZoomOffset,
 +    clampImageZoomScale,
 +    zoomImageAt,
@@ -446,7 +454,7 @@ index 000000000..bfaecbbc9
 +
 +describe('clampImageZoomScale', () => {
 +    test('a zoom stays inside the files preview range', () => {
-+        expect(clampImageZoomScale(0.04, 0.48)).toBe(IMAGE_ZOOM_MIN_SCALE);
++        expect(clampImageZoomScale(0.04, 0.48)).toBe(0.48);
 +        expect(clampImageZoomScale(3, 0.48)).toBe(3);
 +        expect(clampImageZoomScale(40, 0.48)).toBe(IMAGE_ZOOM_MAX_SCALE);
 +    });
@@ -534,10 +542,10 @@ index 000000000..bfaecbbc9
 +});
 diff --git a/packages/ui/src/components/chat/message/imageViewerZoom.ts b/packages/ui/src/components/chat/message/imageViewerZoom.ts
 new file mode 100644
-index 000000000..97bd4b843
+index 000000000..6c02a0bff
 --- /dev/null
 +++ b/packages/ui/src/components/chat/message/imageViewerZoom.ts
-@@ -0,0 +1,73 @@
+@@ -0,0 +1,72 @@
 +/**
 + * A zoom the chat image viewer applies to the picture it shows. `scale` is in
 + * the picture's own pixels, the files preview's unit: 1 draws one image pixel
@@ -549,18 +557,17 @@ index 000000000..97bd4b843
 +type ImageZoomSize = { width: number; height: number };
 +export type ImageZoomPoint = { x: number; y: number };
 +
-+/** The files preview's range: a tenth of the picture's own pixels to sixteen times it. */
-+export const IMAGE_ZOOM_MIN_SCALE = 0.1;
++/** The files preview's ceiling: sixteen times the picture's own pixels. */
 +export const IMAGE_ZOOM_MAX_SCALE = 16;
 +
 +/**
-+ * Keeps a zoom inside the files preview's range. Fit is always drawable: a
-+ * picture smaller than its box fits above 100%, so the ceiling follows it, and
-+ * one whose fit already sits under the floor stops at fit instead of shrinking
-+ * past the box it fills.
++ * Keeps a zoom inside the files preview's range. Fit is the floor: a picture
++ * smaller than its box fits above 100%, so the ceiling follows it, and one
++ * whose fit already sits under 100% stops at fit instead of shrinking past the
++ * box it fills.
 + */
 +export const clampImageZoomScale = (scale: number, fitScale: number): number => (
-+    Math.min(Math.max(IMAGE_ZOOM_MAX_SCALE, fitScale), Math.max(Math.min(IMAGE_ZOOM_MIN_SCALE, fitScale), scale))
++    Math.min(Math.max(IMAGE_ZOOM_MAX_SCALE, fitScale), Math.max(fitScale, scale))
 +);
 +
 +/**
@@ -612,37 +619,47 @@ index 000000000..97bd4b843
 +    };
 +};
 diff --git a/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md b/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
-index f16f7aecb..a281e110c 100644
+index 18af7405a..56ab3a040 100644
 --- a/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
 +++ b/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
-@@ -715,7 +715,15 @@ update, with the `shellID`, when the command starts.
+@@ -701,7 +701,18 @@ update, with the `shellID`, when the command starts.
    fetched page cannot learn when the user read the message. Documents and
    references retain their explicit inline-image policy. A click on loaded
    assistant media opens the shared attachment preview overlay
 -  with every drawn image of the message as its gallery. The viewer's download
-+  with every drawn image of the message as its gallery. The line above the
-+  picture carries the files preview's zoom controls (`ImageZoomControls`): −,
-+  the percentage in the picture's own pixels, + and Fit, over the preview's
-+  range from 10% to 1600%. A picture smaller than its box fits above 100%, and
-+  one that fits under 10% stops at fit, so a percentage reads the same in both
-+  viewers. Ctrl/⌘ + wheel, a trackpad pinch in Safari, a two-finger pinch, or a
-+  double-click zooms the picture under the pointer; a picture drawn larger than
-+  its box pans by dragging and stays inside the viewer, a smaller one sits
-+  centred, and a new picture opens at fit. The viewer's download
++  with every drawn image of the message as its gallery. A bar at the viewer's
++  top edge carries the title, the files preview's zoom controls
++  (`ImageZoomControls`): −, the percentage in the picture's own pixels, + and
++  Fit, over the preview's range from fit to 1600%, and the download and close
++  buttons, on their own surface so a zoomed picture cannot hide them. A picture
++  smaller than its box fits above 100%, and zooming out stops at fit, so a
++  percentage reads the same in both viewers. Android and mobile-web Back close
++  the viewer first, like every other layer on top of the app. Ctrl/⌘ + wheel, a
++  trackpad pinch in Safari, a two-finger pinch, or a double-click zooms the
++  picture under the pointer; a picture drawn larger than its box pans by
++  dragging and stays inside the viewer, a smaller one sits centred, and a new
++  picture opens at fit. The viewer's download
    saves an image's own file: each gallery item may carry `load`, which for a
    message's local image reads the whole file through its grant with
    `runtimeFetch` (`loadMessageImageBlob`), never by fetching the asset URL;
 diff --git a/packages/ui/src/components/views/files/DOCUMENTATION.md b/packages/ui/src/components/views/files/DOCUMENTATION.md
-index 16f6afcfd..a76b44d8e 100644
+index 16f6afcfd..b8dc806d6 100644
 --- a/packages/ui/src/components/views/files/DOCUMENTATION.md
 +++ b/packages/ui/src/components/views/files/DOCUMENTATION.md
-@@ -222,9 +222,11 @@ folders.
+@@ -218,13 +218,16 @@ folders.
+ ## Artifact previews
+ 
+ `previews/` holds what the viewer shows instead of text: `ImageArtifact`
+-(natural dimensions; fit, which never upscales, or a zoom from 10% to 1600%
++(natural dimensions; fit, which never upscales, or a zoom from fit to 1600%
  through −/+ steps, Ctrl/⌘ + wheel or trackpad pinch, Safari gesture events,
  a two-finger touch pinch, and double-click between fit and 1:1, anchored at
- the pointer; a zoomed image larger than the viewer pans by mouse drag;
+-the pointer; a zoomed image larger than the viewer pans by mouse drag;
 -`imageZoom.ts` holds the scale math; round arrows fixed to the viewer's
 -edges, and the arrow keys while the image is at fit, show the previous and
 -next image of the same folder, see below),
++the pointer; zooming out stops at fit; a zoomed image larger than the viewer
++pans by mouse drag;
 +`imageZoom.ts` holds the scale math; the −, percentage, + and Fit cluster is
 +`ImageZoomControls`, which the chat's image viewer renders too, converting its
 +fit-relative scale into the picture's own pixels; round arrows fixed to the
@@ -817,10 +834,30 @@ index 000000000..3cd1f59cc
 +  );
 +};
 diff --git a/packages/ui/src/components/views/files/previews/imageZoom.test.ts b/packages/ui/src/components/views/files/previews/imageZoom.test.ts
-index 0780a30d1..5602c9889 100644
+index 0780a30d1..78768f380 100644
 --- a/packages/ui/src/components/views/files/previews/imageZoom.test.ts
 +++ b/packages/ui/src/components/views/files/previews/imageZoom.test.ts
-@@ -42,6 +42,12 @@ describe('stepImageScale', () => {
+@@ -19,12 +19,17 @@ describe('fitImageScale', () => {
+ describe('clampImageScale', () => {
+   test('keeps zoom within its range', () => {
+     expect(clampImageScale(100, 0.5)).toBe(16);
+-    expect(clampImageScale(0.01, 0.5)).toBe(0.1);
++    expect(clampImageScale(0.01, 0.5)).toBe(0.5);
+   });
+ 
+-  test('lets a huge image zoom out as far as its fit', () => {
++  test('stops zooming out at fit', () => {
+     expect(clampImageScale(0.01, 0.04)).toBe(0.04);
+   });
++
++  test('a picture drawn above 100% at fit never shrinks below it', () => {
++    expect(clampImageScale(0.5, 42)).toBe(42);
++    expect(clampImageScale(100, 42)).toBe(42);
++  });
+ });
+ 
+ describe('stepImageScale', () => {
+@@ -42,6 +47,12 @@ describe('stepImageScale', () => {
      expect(stepImageScale(16, 1)).toBe(16);
      expect(stepImageScale(0.1, -1)).toBe(0.1);
    });
@@ -834,11 +871,26 @@ index 0780a30d1..5602c9889 100644
  
  describe('wheelZoomFactor', () => {
 diff --git a/packages/ui/src/components/views/files/previews/imageZoom.ts b/packages/ui/src/components/views/files/previews/imageZoom.ts
-index ac231a628..115e15778 100644
+index ac231a628..09b7480a2 100644
 --- a/packages/ui/src/components/views/files/previews/imageZoom.ts
 +++ b/packages/ui/src/components/views/files/previews/imageZoom.ts
-@@ -22,12 +22,16 @@ export const clampImageScale = (scale: number, fitScale: number): number => (
-   Math.min(MAX_ZOOM_SCALE, Math.max(Math.min(MIN_ZOOM_SCALE, fitScale), scale))
+@@ -1,7 +1,6 @@
+ /** Space the image keeps from the viewer's edges, in CSS pixels (Tailwind `p-3`). */
+ export const IMAGE_VIEWPORT_PADDING = 12;
+ 
+-const MIN_ZOOM_SCALE = 0.1;
+ const MAX_ZOOM_SCALE = 16;
+ const ZOOM_STEPS = [0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8, 12, 16];
+ const WHEEL_LINE_PIXELS = 16;
+@@ -17,17 +16,21 @@ export const fitImageScale = (natural: Size, viewport: Size): number => {
+   return Math.min(1, width / natural.width, height / natural.height);
+ };
+ 
+-/** Keeps a zoom inside its range; a huge image may go below the floor as far as its fit. */
++/** Keeps a zoom inside its range. Fit is the floor: below it the picture only shrinks inside the box fit already fills. */
+ export const clampImageScale = (scale: number, fitScale: number): number => (
+-  Math.min(MAX_ZOOM_SCALE, Math.max(Math.min(MIN_ZOOM_SCALE, fitScale), scale))
++  Math.min(Math.max(MAX_ZOOM_SCALE, fitScale), Math.max(fitScale, scale))
  );
  
 -/** The next preset level from the current scale, the way the − and + buttons step. */
