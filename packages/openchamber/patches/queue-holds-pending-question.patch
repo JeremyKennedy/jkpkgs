@@ -1,0 +1,97 @@
+diff --git a/packages/web/server/index.js b/packages/web/server/index.js
+--- a/packages/web/server/index.js
++++ b/packages/web/server/index.js
+@@ -1403,7 +1403,10 @@
+   resolveAutoSelection: (send) => routingRuntime.resolveAutoSelection(send),
+   persistSessionGoal: (sessionID, directory, goal) =>
+     persistSessionMetadataPatch(sessionID, { openchamber: { goal } }, { directory }),
+-  isDeliveryHeld: (sessionId) => autoReviewRuntime.holdsDelivery(sessionId),
++  // An auto-review run and a question the agent is waiting on both keep a
++  // queued send out of the session: released into either, it lands mid-ask or
++  // mid-review. See the message queue's held delivery.
++  isDeliveryHeld: (sessionId) => autoReviewRuntime.holdsDelivery(sessionId) || notificationTriggerRuntime.hasPendingQuestion(sessionId),
+   deliveryHoldReady: autoReviewRuntime.startupLoad,
+   beforeScheduledTaskSend: (...args) => scheduledTasksRuntime.beforeScheduledTaskSend(...args),
+   validateScheduledTaskTarget: (...args) => scheduledTasksRuntime.validateTarget(...args),
+diff --git a/packages/web/server/lib/notifications/runtime.js b/packages/web/server/lib/notifications/runtime.js
+--- a/packages/web/server/lib/notifications/runtime.js
++++ b/packages/web/server/lib/notifications/runtime.js
+@@ -135,6 +135,13 @@
+   const OPEN_PUSH_TAGS_LIMIT = 500;
+   const RECENTLY_CLEARED_TAGS_LIMIT = 20;
+   const openPushTags = new Map();
++
++  // Question and page forms the agent is still waiting on, by session and ask
++  // id. The message queue holds a session's delivery while this is non-empty:
++  // a queued send released into the turn a form waits on kills the ask. It
++  // tracks the ask itself, so it is independent of whether a push was sent,
++  // suppressed by settings, or cleared by viewing the session.
++  const pendingQuestionForms = new Map();
+   // tag -> what the phones are told to remove: `tag@nid`, or the bare tag.
+   const recentlyClearedTags = new Map();
+   // The entry a claim replaced, to put back when the claim is released.
+@@ -784,6 +791,13 @@
+         : undefined;
+     if (settledAskId !== undefined && sessionId) {
+       const cause = settledAskId || null;
++      // A settle names the form it ends; a view clears the session's asks.
++      const asked = pendingQuestionForms.get(sessionId);
++      if (asked) {
++        if (cause === null) asked.clear();
++        else asked.delete(cause);
++        if (asked.size === 0) pendingQuestionForms.delete(sessionId);
++      }
+       const pending = pushQuestionDebounceTimers.get(sessionId);
+       if (pending && (cause === null || pending.cause === null || pending.cause === cause)) {
+         clearTimeout(pending.timer);
+@@ -1067,6 +1081,11 @@
+       : payload.type === 'openchamber:page-waiting' ? readPageAsk(payload)
+         : null;
+     if (ask && sessionId) {
++      // Counted before the debounce: a suppressed or superseded push still
++      // leaves the agent waiting on the user.
++      const asked = pendingQuestionForms.get(sessionId) ?? new Set();
++      asked.add(ask.id ?? '');
++      pendingQuestionForms.set(sessionId, asked);
+       const askedAt = Date.now();
+       const existingTimer = pushQuestionDebounceTimers.get(sessionId);
+       if (existingTimer) {
+@@ -1496,6 +1515,7 @@
+   };
+ 
+   return {
++    hasPendingQuestion: (sessionId) => (pendingQuestionForms.get(sessionId)?.size ?? 0) > 0,
+     notifyShareAnswer,
+     maybeSendPushForTrigger,
+     setAutoAcceptSession,
+diff --git a/packages/web/server/lib/notifications/trigger-runtime.test.js b/packages/web/server/lib/notifications/trigger-runtime.test.js
+--- a/packages/web/server/lib/notifications/trigger-runtime.test.js
++++ b/packages/web/server/lib/notifications/trigger-runtime.test.js
+@@ -818,6 +818,27 @@
+     vi.unstubAllGlobals();
+   });
+ 
++  it('knows a session is waiting on a question until its form settles', async () => {
++    const { runtime } = makeClearRuntime()
++    expect(runtime.hasPendingQuestion('ses_1')).toBe(false)
++    await runtime.maybeSendPushForTrigger(formCreated('q1'))
++    expect(runtime.hasPendingQuestion('ses_1')).toBe(true)
++    // A second form in the same session keeps it pending on its own.
++    await runtime.maybeSendPushForTrigger(formCreated('q2'))
++    await runtime.maybeSendPushForTrigger({ type: 'form.settled', properties: { sessionID: 'ses_1', formID: 'q1' } })
++    expect(runtime.hasPendingQuestion('ses_1')).toBe(true)
++    await runtime.maybeSendPushForTrigger({ type: 'form.settled', properties: { sessionID: 'ses_1', formID: 'q2' } })
++    expect(runtime.hasPendingQuestion('ses_1')).toBe(false)
++  })
++
++  it('counts a waiting page as a pending question too', async () => {
++    const { runtime } = makeClearRuntime()
++    await runtime.maybeSendPushForTrigger({ type: 'openchamber:page-waiting', properties: { sessionID: 'ses_1', page: { id: 'p1', title: 'Pick' } } })
++    expect(runtime.hasPendingQuestion('ses_1')).toBe(true)
++    await runtime.maybeSendPushForTrigger({ type: 'openchamber:page-settled', properties: { sessionID: 'ses_1', pageID: 'p1' } })
++    expect(runtime.hasPendingQuestion('ses_1')).toBe(false)
++  })
++
+   it('tags each phone push so a clearing push can find it', async () => {
+     const { runtime, sendApnsToAllUiSessions } = makeClearRuntime();
+     await readyFor(runtime, 'ses_1');
