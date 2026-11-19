@@ -74,8 +74,6 @@ let
       ./patches/mobile-voice-launch.patch
       ./patches/dictation-recovery.patch
       ./patches/instance-attention.patch
-      ./patches/question-rows.patch
-      ./patches/question-cards.patch
       # The question tool writes a reply's quotes into its text without
       # escaping them, so the text parser cut an answer at the first quote the
       # reader typed. Read the answers the call recorded instead, and keep the
@@ -87,7 +85,6 @@ let
       ./patches/hide-empty-worktrees.patch
       # Gitea/Forgejo across-repository listing; upstream still gates
       # `referencesAcross` off for Gitea (#6345 is closed).
-      ./patches/gitea-references-across.patch
       # Restored after the v2.7.2 port retired them on a wrong "upstream has
       # it" reading: a send with an open question steers into its turn
       # (upstream main's #6960 defers instead; reconcile on upgrade), and
@@ -112,6 +109,9 @@ let
       # not a git repository, or a file outside the repository) opens the file
       # in the editor instead of an empty Changed list.
       ./patches/changed-file-chip-opens-file-outside-git.patch
+      ./patches/question-rows.patch
+      ./patches/question-cards.patch
+      ./patches/gitea-references-across.patch
     ];
   };
 in

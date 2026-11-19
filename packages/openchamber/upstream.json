@@ -3,110 +3,112 @@
   "patches": {
     "commandcode-quota": {
       "relationship": "none",
-      "intent": "declined",
-      "note": "Declined upstream repeatedly; local only.",
-      "since": "2026-11-16"
+      "intent": "feature",
+      "note": "Local-only provider. Upstream removed Command Code quota in 1.21.0 (its official API exposes no usage data) and declined to restore it; this reads the web app's own billing routes with a browser session token. Ported onto main's TypeScript provider module.",
+      "since": "2026-11-19"
     },
     "question-indicator": {
       "relationship": "pending",
       "intent": "feature",
       "issue": 6809,
-      "note": "Feature awaiting acceptance; builds only on top of stale-pending-badge.",
+      "note": "Feature awaiting acceptance. Draws the permission shield and question mark through one shared component with its own question colour role, and builds only on top of stale-pending-badge.",
       "since": "2026-11-16"
     },
     "stale-pending-badge": {
       "relationship": "pending",
       "intent": "bugfix",
       "pr": 6804,
-      "note": "Behaviour only. Draft PR #6804; posts on Jeremy's word.",
+      "note": "Behaviour only: a session row's badge answers from the directory store once it has read its own requests, and from the cross-directory index before that, so a lost settlement stops showing and a never-opened folder still shows what waits. Ported onto main's split sync modules and timeline hook. Draft PR #6804; posts on Jeremy's word.",
       "since": "2026-11-16"
     },
     "reply-start-scroll": {
       "relationship": "pending",
       "intent": "feature",
       "issue": 6808,
-      "note": "Feature request open; branch matches the patch.",
+      "note": "Feature request open. The pill's up arrow walks back to the nearest reply whose prose starts above the viewport, past the tool rows that led to it. Ported onto main's timeline handle: useNavigationSettle gained a measurement re-arm and a through-list scroll, and TimelineList/useMessageListHandle own the new handle methods.",
       "since": "2026-11-16"
     },
     "draft-heading-project-picker": {
       "relationship": "none",
       "intent": "personal",
-      "note": "Local only; no upstream request yet.",
+      "note": "The project's name in a new-session heading is a second way into the composer's project picker. Local only; no upstream request. Ported onto main's ComposerDraftTitle and DraftWelcome: the request travels through a store because the welcome renders the heading in another component.",
       "since": "2026-11-16"
     },
     "recap-full-note": {
       "relationship": "none",
       "intent": "personal",
-      "since": "2026-11-16",
-      "note": "A UI preference: the recap keeps its whole note. Stays local."
+      "note": "A UI preference: the recap ends the transcript instead of lying over the gap above the composer, so the whole note stays readable. Stays local. Ported onto main's ChatViewport listFooter.",
+      "since": "2026-11-16"
     },
     "image-viewer-zoom": {
-      "relationship": "none",
+      "relationship": "pending",
       "intent": "feature",
-      "since": "2026-11-16",
-      "note": "Local only; no upstream request yet. Also carries the shared `ImageZoomControls` cluster and the files preview edit, so both viewers read and step one zoom bar."
+      "pr": 321,
+      "note": "Pinch, double-tap and wheel zoom with pan for the image viewer, on top of upstream's fit levels. Ported onto main's imageZoom module and ToolOutputDialog.",
+      "since": "2026-11-17"
     },
     "mobile-assist-trigger": {
       "relationship": "none",
       "intent": "feature",
-      "since": "2026-11-16",
-      "note": "Registers the power-button assistant role for dictation. Wants a few more days of use first."
+      "note": "Android assist and deep-link launch: the launch intent is rewritten before the bridge reads it, and an assist tap opens a new draft. Local: no upstream request.",
+      "since": "2026-11-17"
     },
     "mobile-voice-launch": {
       "relationship": "none",
       "intent": "feature",
-      "since": "2026-11-16",
-      "note": "Android deep link into dictation. Wants a few more days of use first."
+      "note": "openchamber://new-session?dictate=1 starts dictation in the draft it names, bound to the draft's id so it never records in another. Ported onto main's composer hooks: the request is consumed in ChatInput, not in the old monolith.",
+      "since": "2026-11-17"
     },
     "dictation-recovery": {
-      "relationship": "pending",
+      "relationship": "none",
       "intent": "bugfix",
-      "issue": 6927,
-      "note": "The dictate deep-link origin half has a bug report open.",
-      "since": "2026-11-16"
+      "note": "A dictation transcript stays with the composer it was started in: a session or draft switch while it is being transcribed no longer inserts it into whatever is on screen. Origin is keyed by the composer's stable key; the transcript is stored in the origin's draft. Local.",
+      "since": "2026-11-17"
     },
     "instance-attention": {
       "relationship": "none",
       "intent": "feature",
-      "since": "2026-11-16",
-      "note": "Local only; cross-instance attention across saved instances and the app's own server."
+      "note": "Cross-instance attention: desktop and mobile poll the saved hosts and the app's own server and show one merged, ordered list of sessions that need the user. 69 files, mostly new modules; local only.",
+      "since": "2026-11-17"
     },
     "question-rows": {
-      "relationship": "none",
+      "relationship": "pending",
       "intent": "feature",
-      "since": "2026-11-16",
-      "note": "Question turns as timeline rows. Still under test."
+      "issue": 7108,
+      "note": "A question call becomes its own row in the transcript instead of a tool row: answered ones stick under their prompt and end its sticky span, waiting ones read as a card. Ported onto main's timeline: the row is cut in timelineRows.ts, the sticky rules live in stickyPrompt.ts, and the card is the row's body so the turn footer and a stopped turn's failure text stay.",
+      "since": "2026-11-18"
     },
     "question-cards": {
-      "relationship": "none",
+      "relationship": "pending",
       "intent": "feature",
-      "since": "2026-11-16",
-      "note": "The question card and sticky header. Still under test; carries the wording."
+      "issue": 7108,
+      "note": "The card itself: every option with the chosen one marked, a typed answer as one more row, a pinned batch collapsing to a one-line bar of answers, and a working turn's fold preview drawing the card in step order. Ported onto main's body modules (useAssistantRenderedParts) and TurnRow.",
+      "since": "2026-11-18"
     },
     "in-work-paging": {
       "relationship": "none",
       "intent": "feature",
-      "since": "2026-11-16",
-      "note": "Attention ranking for the In work section. A maintainer rejection is recalled but not found in the tracker, so unconfirmed."
+      "note": "In work ranks its rows by what needs the user (a waiting answer, then a running turn, then unread or looks-done) from the live turn and request indexes only, so a recency update does not re-run it. Local.",
+      "since": "2026-11-18"
     },
     "hide-empty-worktrees": {
       "relationship": "none",
       "intent": "feature",
-      "since": "2026-11-16",
-      "note": "Worktree rows with nothing in them leave the lists."
+      "note": "A worktree nobody has used yet (no session, no draft, no pin, no archived session) can be left out of the sidebar. A search still finds it. Local: the setting is ours.",
+      "since": "2026-11-18"
     },
     "gitea-references-across": {
       "relationship": "pending",
       "intent": "feature",
-      "pr": 6345,
-      "note": "PR closed unmerged; upstream still gates referencesAcross off for Gitea. Branch held so the PR can reopen.",
-      "since": "2026-11-16"
+      "issue": 6343,
+      "note": "The reference picker's search across a folder's repositories for Gitea and Forgejo, which have no API that names a set of repositories: a page is read per folder and merged by activity. 48 files. Ported onto main's provider-resource contract (referencesAcross in the descriptor, provider and routes) and its TypeScript settings/client modules.",
+      "since": "2026-11-18"
     },
     "android-notification-dismiss": {
       "relationship": "pending",
       "intent": "bugfix",
       "pr": 6805,
-      "note": "Draft PR holding the local banner clear that upstream's push-based clearing does not cover.",
+      "note": "Opening a session removes its own delivered phone banners, and the subagent banners under it. Merged locally after the v2.7.2 port retired it on a wrong \"upstream has it\" reading; still open upstream.",
       "since": "2026-11-16"
     },
     "notification-family-clear": {
@@ -114,43 +116,43 @@
       "intent": "bugfix",
       "issue": 7229,
       "pr": 7232,
-      "note": "The family clear the server never had: a subagent banner never clears because upstream walks no parents. The parent walk is proven on a built server; the PR states plainly that no APNs push was fired. The queue also carries the wiring fix that dropped the view options.",
-      "since": "2026-11-18"
+      "note": "The parent walk is proven on a built server: viewing a session clears its subagents' push notifications. Ported onto main's TypeScript notifications runtime, including the route's withSubagents forward that the v2.7.2 build dropped.",
+      "since": "2026-11-16"
     },
     "chat-width-80": {
-      "relationship": "alternative",
-      "intent": "feature",
-      "note": "The extra 80rem level on top of upstream's ladder, with the composer matched. Local addition pending its own upstream request.",
-      "since": "2026-11-16"
+      "relationship": "none",
+      "intent": "personal",
+      "note": "A fourth chat width, Extra wide (80rem), between Wider and Full. Upstream owns the setting now (default/wider/full, migrated in v29); this re-expresses the 80rem level on top of it rather than porting our old ladder.",
+      "since": "2026-11-17"
     },
     "in-work-paging-show-more": {
       "relationship": "none",
       "intent": "feature",
-      "note": "Restored after the 2.7.2 port dropped it; depends on in-work-paging.",
-      "since": "2026-11-16"
+      "note": "In work opens with its own page size (a stored per-surface number) and Show more adds the same number again, separate from the sidebar's session batch size. Local.",
+      "since": "2026-11-18"
     },
     "mobile-guest-catalog-failure": {
       "relationship": "pending",
       "intent": "bugfix",
       "issue": 7228,
       "pr": 7231,
-      "note": "A failed catalog read on the phone reads as no extensions. Reproduced on v2.7.2 with a corrupt extensions.json; draft PR open.",
+      "note": "Reproduced on v2.7.2 with a corrupt extensions.json: the phone now says the extension catalog could not be read instead of showing an empty list. Ported onto main's guests store.",
       "since": "2026-11-18"
     },
     "changed-file-chip-opens-file-outside-git": {
       "relationship": "pending",
       "intent": "bugfix",
+      "note": "A changed-file chip naming a file no repository lists opens the file itself instead of an empty diff list; a deleted file opens the editor's not-found state. Ported onto main's diffView turn-navigation hook.",
+      "since": "2026-11-18",
       "pr": 7098,
-      "issue": 7097,
-      "note": "A changed-file chip whose file no repository lists opens the file, instead of leaving an empty Changed list. PR is open and reviewed; its only red check is main's 1 ms flake in useGlobalSessionsPolling.",
-      "since": "2026-11-18"
+      "issue": 7097
     },
     "question-recorded-answers": {
       "relationship": "pending",
       "intent": "feature",
       "issue": 7108,
       "pr": 7109,
-      "note": "Rides with the question-rows/question-cards stack rather than a separate request; upstream has a PR for the quote case (an expanded row cutting an answer at its first double quote). questionEntries.ts is ours, not upstream's. If #7109 merges, ours leaves the queue at the next bump.",
+      "note": "The expanded tool row reads the answers the question call recorded, including a multi-select pick that carries the recommendation marker. Upstream has a PR for the quote case (an expanded row cutting an answer at its first double quote); questionEntries.ts is ours. If #7109 merges, ours leaves the queue at the next bump.",
       "since": "2026-11-18"
     }
   },

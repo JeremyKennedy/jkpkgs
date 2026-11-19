@@ -325,10 +325,10 @@ index 000000000..88acb8610
 +  });
 +});
 diff --git a/packages/ui/src/components/sections/openchamber/SessionWorkSettings.tsx b/packages/ui/src/components/sections/openchamber/SessionWorkSettings.tsx
-index 97054f986..a5af3c157 100644
+index 84ccdc84d..a5af3c157 100644
 --- a/packages/ui/src/components/sections/openchamber/SessionWorkSettings.tsx
 +++ b/packages/ui/src/components/sections/openchamber/SessionWorkSettings.tsx
-@@ -1,16 +1,29 @@
+@@ -1,17 +1,38 @@
  import React from 'react';
 -import { SettingsCheckboxRow, SettingsSection, SETTINGS_OPTION_STACK_CLASS } from '@/components/sections/shared/SettingsSection';
 +import { Button } from '@/components/ui/button';
@@ -351,18 +351,15 @@ index 97054f986..a5af3c157 100644
  import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
  import { useUIStore } from '@/stores/useUIStore';
  
- /**
-  * What the sidebar lists: the Chats section and "In work" (the sidebar block,
-- * the Track / Done actions, and sessions going in on a sent message). Jev
-- * decides nothing here (it only hints that work looks done, which the info
-- * explains), so no Jev access note.
++/**
++ * What the sidebar lists: the Chats section and "In work" (the sidebar block,
 + * the Track / Done actions, and sessions going in on a sent message) with the
 + * number of works the block opens with. Jev decides nothing here (it only
 + * hints that work looks done, which the info explains), so no Jev access note.
-  */
++ */
  export const SessionWorkSettings: React.FC = () => {
    const { t } = useI18n();
-@@ -18,6 +31,8 @@ export const SessionWorkSettings: React.FC = () => {
+   const enabled = useUIStore((state) => state.sessionWorkEnabled);
    const setEnabled = useUIStore((state) => state.setSessionWorkEnabled);
    const showChatsSection = useSessionDisplayStore((state) => state.showChatsSection);
    const setShowChatsSection = useSessionDisplayStore((state) => state.setShowChatsSection);
@@ -371,7 +368,7 @@ index 97054f986..a5af3c157 100644
  
    return (
      <SettingsSection
-@@ -45,6 +60,43 @@ export const SessionWorkSettings: React.FC = () => {
+@@ -39,6 +60,43 @@ export const SessionWorkSettings: React.FC = () => {
          ariaLabel={t('settings.openchamber.sessionWork.field.enabled')}
          info={t('settings.openchamber.sessionWork.info')}
        />
@@ -416,10 +413,10 @@ index 97054f986..a5af3c157 100644
    );
  };
 diff --git a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-index c73218d76..0cef756d5 100644
+index cd0fbba94..5e3001112 100644
 --- a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
 +++ b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-@@ -661,7 +661,8 @@ the same Mark all as read.
+@@ -710,7 +710,8 @@ the same Mark all as read.
    with a reveal of 3 and 7 more per Show more; pinned chats are always shown
    and never spend that limit. Pinned sessions under a project do spend its
    limit, so a project or worktree list never opens with more than its batch.
@@ -429,7 +426,7 @@ index c73218d76..0cef756d5 100644
  - Zone collapse state lives in `useSessionProjectViewState` next to project
    collapse and is saved in local storage (`oc.sessions.activityCollapse`). The
    display menu's Collapse all / Expand all set every project and the zones
-@@ -748,12 +749,19 @@ per surface, on by default) shows it. The block ranks what needs the user
+@@ -797,12 +798,19 @@ per surface, on by default) shows it. The block ranks what needs the user
  first: a work waiting on a permission, a question or a page
  (`orderInWorkWorksByAttention` in `works/sidebarWorks.ts`), then one whose
  turn runs, then one whose finished turn is unread or that Jev says looks done,
@@ -455,7 +452,7 @@ index c73218d76..0cef756d5 100644
  A session work is in work when its root
  or a nested non-subagent session is (`metadata.openchamber.work.state ===
  'open'`, see `packages/web/server/lib/session-work/DOCUMENTATION.md`); a
-@@ -1413,13 +1421,12 @@ rest it is as quiet as the button was.
+@@ -1514,13 +1522,12 @@ rest it is as quiet as the button was.
    `sidebarSessionBatchSize`, 3 to 50, set in the sections manager; the phone
    has no control and follows it). Unset, a project shows 7, 10 in VS Code,
    and VS Code's single-project flat mode 20. A run or a worktree spends one
@@ -476,10 +473,10 @@ index c73218d76..0cef756d5 100644
    Show more carries the collapsed-header activity indicator after its label,
    covering only the sessions it hides, including runs and worktree contents.
 diff --git a/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx b/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx
-index 43517f41d..2000ccc18 100644
+index 6692b0e81..b0e1f81ed 100644
 --- a/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx
 +++ b/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx
-@@ -188,7 +188,13 @@ type SessionProjectCollectionProps = {
+@@ -177,7 +177,13 @@ type SessionProjectCollectionProps = {
    };
  };
  
@@ -494,7 +491,7 @@ index 43517f41d..2000ccc18 100644
    const { t } = useI18n();
    const { alwaysShowActions, projectViewActions, rowActions, ...scrollerActions } = actions;
    const foldersMap = useSessionFoldersStore((state) => state.foldersMap);
-@@ -489,13 +495,18 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+@@ -455,13 +461,18 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
    const [heldProjectOrder, setHeldProjectOrder] = React.useState<readonly string[] | null>(null);
    const shownProjectOrderRef = React.useRef<readonly string[]>([]);
    const holdsProjectOrder = view.projectSortOrder === 'recent';
@@ -519,8 +516,8 @@ index 43517f41d..2000ccc18 100644
    React.useEffect(() => {
      if (!holdsProjectOrder) setHeldProjectOrder(null);
    }, [holdsProjectOrder]);
-@@ -514,6 +525,20 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
-   // any of its sessions is. Sections hand works out from the top down (`sections/sectionMembership.ts`).
+@@ -474,6 +485,20 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+   }, [orderedSectionsForRender]);
    const sessionWorkEnabled = useUIStore((state) => state.sessionWorkEnabled);
    const showWorkSection = useSessionDisplayStore((state) => state.showWorkSection);
 +  const workPageSize = useSessionDisplayStore((state) => state.workPageSize);
@@ -540,7 +537,7 @@ index 43517f41d..2000ccc18 100644
    const showPinnedSection = useSessionDisplayStore((state) => state.showPinnedSection);
    const keepPinnedInPlace = useSessionDisplayStore((state) => state.keepPinnedInPlace);
    const detailedZoneRows = useSessionDisplayStore((state) => state.detailedZoneRows);
-@@ -1372,6 +1397,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+@@ -1252,6 +1277,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
      movedSessionIds,
      movedGroupKeys,
      detailedZoneRows,
@@ -548,7 +545,7 @@ index 43517f41d..2000ccc18 100644
      foldersMap,
      contentSearchResults: conversationResults,
      revealedSearchSections,
-@@ -1404,7 +1430,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+@@ -1284,7 +1310,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
      sessionBatchSize,
      runIndex,
      blocks: sidebarBlocks,
@@ -557,7 +554,7 @@ index 43517f41d..2000ccc18 100644
    React.useEffect(() => {
      onSearchMatchCountChange(searchTotalCount);
    }, [searchTotalCount, onSearchMatchCountChange]);
-@@ -1536,20 +1562,30 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+@@ -1413,20 +1439,30 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
          className="contents"
          onPointerEnter={(event) => {
            if (event.pointerType !== 'mouse') return;
@@ -592,7 +589,7 @@ index 43517f41d..2000ccc18 100644
          }}
        >
          {view.renderList
-@@ -1570,5 +1606,14 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+@@ -1441,5 +1477,14 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
  export const SessionProjectCollection: React.FC<SessionProjectCollectionProps> = (props) => {
    const [shown, setShown] = React.useState(props.view.isVisible);
    if (props.view.isVisible && !shown) setShown(true);
@@ -701,7 +698,7 @@ index d7c90628e..df66082c5 100644
    });
  
 diff --git a/packages/ui/src/components/session/sidebar/sessionSidebarRowModel.ts b/packages/ui/src/components/session/sidebar/sessionSidebarRowModel.ts
-index b66e7025d..b072d4278 100644
+index 3574f7088..e55b46976 100644
 --- a/packages/ui/src/components/session/sidebar/sessionSidebarRowModel.ts
 +++ b/packages/ui/src/components/session/sidebar/sessionSidebarRowModel.ts
 @@ -18,6 +18,7 @@ import type { ConversationResult } from '@/hooks/useConversationSearch';
@@ -712,9 +709,9 @@ index b66e7025d..b072d4278 100644
  
  export type SessionSidebarActivityItem = {
    node: SessionNode;
-@@ -209,6 +210,12 @@ export type SessionSidebarRowModelArgs = {
-    * worktrees. What nests inside a work stays one line.
-    */
+@@ -131,6 +132,12 @@ export type SessionSidebarRowModelArgs = {
+   movedSessionIds?: ReadonlySet<string>;
+   movedGroupKeys?: ReadonlySet<string>;
    detailedZoneRows?: boolean;
 +  /**
 +   * Works the In work block opens with, and how many Show more adds again: a
@@ -723,40 +720,49 @@ index b66e7025d..b072d4278 100644
 +   */
 +  workPageSize?: number;
    foldersMap: SessionFoldersMap;
-   /** A search's matches, best first. Search mode lists them flat: active ones, then archived ones under a caption. */
    contentSearchResults?: readonly ConversationResult[];
-@@ -263,8 +270,8 @@ export type SessionSidebarRowModelArgs = {
-   /**
-    * How many works a list shows before Show more, and how many more each
-    * Show more adds: in projects, worktrees, Pinned and the user's sections.
--   * Unset, a project shows 7 (10 in VS Code); Chats, In work and the list by
--   * time keep their own reveal.
+   revealedSearchSections?: ReadonlySet<SearchResultSection>;
+@@ -169,6 +176,12 @@ export type SessionSidebarRowModelArgs = {
+   hideDirectoryControls: boolean;
+   projectsCaption?: boolean;
+   projectsCaptionAtTop?: boolean;
++  /**
++   * How many works a list shows before Show more, and how many more each
++   * Show more adds: in projects, worktrees, Pinned and the user's sections.
 +   * Unset, a project shows 7 (10 in VS Code); Chats, In work (`workPageSize`)
 +   * and the list by time keep their own reveal.
-    */
++   */
    sessionBatchSize?: number;
-   /** Active multi-runs; their member sessions collapse into one run row per container. */
-@@ -1154,8 +1161,8 @@ export const buildSessionSidebarRowModel = (args: SessionSidebarRowModelArgs): S
-    * The works a zone shows before Show more. A run spends one slot whatever
-    * its lane count (its members already sit together), and so does a worktree.
-    */
+   runIndex?: MultiRunIndex;
+   blocks?: readonly SessionSidebarBlock[];
+@@ -923,8 +936,12 @@ export const buildSessionSidebarRowModel = (args: SessionSidebarRowModelArgs): S
+   };
+ 
+   const zoneBatchSize = args.sessionBatchSize ?? (args.hideDirectoryControls ? 10 : SESSIONS_INITIAL_LIMIT);
 -  const limitZoneEntries = (entries: readonly SessionSidebarWorkEntry[], containerKey: string) => {
 -    const requested = Math.max(zoneBatchSize, args.visibleCountByContainer.get(containerKey) ?? zoneBatchSize);
++  /**
++   * The works a zone shows before Show more. A run spends one slot whatever
++   * its lane count (its members already sit together), and so does a worktree.
++   */
 +  const limitZoneEntries = (entries: readonly SessionSidebarWorkEntry[], containerKey: string, batchSize: number) => {
 +    const requested = Math.max(batchSize, args.visibleCountByContainer.get(containerKey) ?? batchSize);
      let slots = 0;
      let lastRunKey: string | undefined;
      let cut = entries.length;
-@@ -1177,12 +1184,15 @@ export const buildSessionSidebarRowModel = (args: SessionSidebarRowModelArgs): S
-    * Works in a zone, in order. Consecutive session works go through one call,
-    * so the lanes of a multi-run among them still collapse into one run row; a
-    * worktree work is its group row with its sessions under it, naming its
--   * project and kept out of the drag sort.
+@@ -942,10 +959,19 @@ export const buildSessionSidebarRowModel = (args: SessionSidebarRowModelArgs): S
+     return { shown: entries.slice(0, cut), hidden: entries.slice(cut), requested, shownCount: slots };
+   };
+ 
+-  const appendWorkEntries = (allEntries: readonly SessionSidebarWorkEntry[], containerKey: string, zoneScopeKey: string | undefined, limited = false): void => {
++  /**
++   * Works in a zone, in order. Consecutive session works go through one call,
++   * so the lanes of a multi-run among them still collapse into one run row; a
++   * worktree work is its group row with its sessions under it, naming its
 +   * project and kept out of the drag sort. `batchSize` gives the zone a first
 +   * page, one slot per work, run or draft, and Show more adds the same number
 +   * again; without it, or during a search, every work is listed.
-    */
--  const appendWorkEntries = (allEntries: readonly SessionSidebarWorkEntry[], containerKey: string, zoneScopeKey: string | undefined, limited = false): void => {
++   */
 +  const appendWorkEntries = (allEntries: readonly SessionSidebarWorkEntry[], containerKey: string, zoneScopeKey: string | undefined, batchSize?: number): void => {
      const gathered = gatherRunMembers(allEntries);
 +    const limited = batchSize !== undefined;
@@ -766,7 +772,7 @@ index b66e7025d..b072d4278 100644
        : { shown: gathered, hidden: EMPTY_WORK_ENTRIES, requested: 0, shownCount: 0 };
      let pending: SessionSidebarActivityItem[] = [];
      const flush = (): void => {
-@@ -1208,7 +1218,7 @@ export const buildSessionSidebarRowModel = (args: SessionSidebarRowModelArgs): S
+@@ -971,7 +997,7 @@ export const buildSessionSidebarRowModel = (args: SessionSidebarRowModelArgs): S
      flush();
      if (!limited || search) return;
      const more = hidden.length > 0;
@@ -775,7 +781,7 @@ index b66e7025d..b072d4278 100644
      if (!more && !fewer) return;
      const hiddenNodes = hidden.flatMap((entry) => (
        entry.kind === 'session' ? [entry.item.node]
-@@ -1223,7 +1233,7 @@ export const buildSessionSidebarRowModel = (args: SessionSidebarRowModelArgs): S
+@@ -984,7 +1010,7 @@ export const buildSessionSidebarRowModel = (args: SessionSidebarRowModelArgs): S
        selectionDescendantIds.push(...indexed.preorderIds);
        appendFoldedSelection(hiddenNodes, indexed, selectionPoolOffset, zoneScopeKey, false);
      }
@@ -783,10 +789,10 @@ index b66e7025d..b072d4278 100644
 +    push({ kind: 'show-control', key: `${containerKey}:show`, estimateSize: STATUS_ESTIMATE, more, fewer, hiddenNodes, containerKey, currentCount: shownCount, requestedCount: requested, increment: batchSize, depth: 0, flat: false, detailed: args.detailedZoneRows === true });
    };
  
-   // The app's pages, which are not works: they take no part in selection,
-@@ -1249,13 +1259,15 @@ export const buildSessionSidebarRowModel = (args: SessionSidebarRowModelArgs): S
+   let pageRowCount = 0;
+@@ -1007,13 +1033,15 @@ export const buildSessionSidebarRowModel = (args: SessionSidebarRowModelArgs): S
+     const collapsed = appendActivityHeader('pinned');
      if (collapsed) return;
-     // Pinned sessions, then pinned worktrees, under one reveal limit.
      const entries: readonly SessionSidebarWorkEntry[] = [...pinnedItems.map((item) => ({ kind: 'session' as const, item })), ...pinnedWorktrees];
 -    appendWorkEntries(entries, PINNED_ZONE_KEY, PINNED_ZONE_KEY, true);
 +    appendWorkEntries(entries, PINNED_ZONE_KEY, PINNED_ZONE_KEY, zoneBatchSize);
@@ -800,9 +806,9 @@ index b66e7025d..b072d4278 100644
 -    if (!collapsed) appendWorkEntries(workEntries, 'activity:work', 'activity:work');
 +    if (!collapsed) appendWorkEntries(workEntries, 'activity:work', 'activity:work', args.workPageSize ?? DEFAULT_WORK_PAGE_SIZE);
    };
-   // One of the user's sections listed by time. Empty, it shows only when the
-   // user asked to keep it.
-@@ -1269,7 +1281,7 @@ export const buildSessionSidebarRowModel = (args: SessionSidebarRowModelArgs): S
+   const appendCustom = (block: Extract<SessionSidebarBlock, { kind: 'custom' }>): void => {
+     const entries = block.entries;
+@@ -1025,7 +1053,7 @@ export const buildSessionSidebarRowModel = (args: SessionSidebarRowModelArgs): S
        push({ kind: 'empty', key: `activity:${activityKey}:empty`, estimateSize: STATUS_ESTIMATE, emptyKind: 'section' });
        return;
      }
@@ -812,10 +818,10 @@ index b66e7025d..b072d4278 100644
  
    const selectedSection = args.singleProjectMode
 diff --git a/packages/ui/src/lib/i18n/messages/ar.settings.ts b/packages/ui/src/lib/i18n/messages/ar.settings.ts
-index 5fcd4db80..e2d0f40fc 100644
+index fc24d71b3..67fcc4031 100644
 --- a/packages/ui/src/lib/i18n/messages/ar.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/ar.settings.ts
-@@ -1137,6 +1137,10 @@ export const settingsDict = {
+@@ -1147,6 +1147,10 @@ export const settingsDict = {
    'settings.openchamber.sessionWork.title': 'الجلسات قيد العمل',
    'settings.openchamber.sessionWork.info': 'قسم في الشريط الجانبي أسفل المحادثات للجلسات التي تعمل عليها. تظهر الجلسة هنا عند إرسال رسالة فيها. افتراضيًا، تظهر في هذا القسم فقط. لعرضها في مشروعها كذلك، افتح «تخصيص الأقسام…» من قائمة الشريط الجانبي وفعّل «في المشاريع أيضاً» في صف «قيد العمل». على الهاتف، فعّل «إظهار العمل الجاري تحت المشاريع أيضًا» من قائمة الشريط الجانبي. في VS Code تظهر الجلسات دائمًا ضمن مشاريعها. علّم الجلسة كمنتهية باستخدام علامة الصح أو قائمة الجلسة. عندما تبدو الجولة نهايةً للعمل، تتحول علامة الصح إلى الرمادي كتلميح.',
    'settings.openchamber.sessionWork.field.enabled': 'إظهار الجلسات قيد العمل',
@@ -827,10 +833,10 @@ index 5fcd4db80..e2d0f40fc 100644
    'settings.openchamber.sessionRetention.tooltip': 'يؤرشف الجلسات غير المؤرشفة أو يحذفها بناءً على آخر نشاط. يحتفظ بآخر 5 جلسات، والجلسة المفتوحة، والجلسات قيد التشغيل، والجلسات المثبّتة. تبقى أيضًا الجلسات في قسم «قيد العمل» ما لم تُضمّنها. تُحفظ الجلسات المؤرشفة. يُحتفظ بالجلسة الأم إذا كان حذفها سيحذف أيضًا جلسة فرعية محمية.',
    'settings.openchamber.sessionRetention.field.enableAutoCleanupAria': 'تفعيل التنظيف التلقائي',
 diff --git a/packages/ui/src/lib/i18n/messages/de.settings.ts b/packages/ui/src/lib/i18n/messages/de.settings.ts
-index 6bc0b0b23..339ff5105 100644
+index d0c1d133d..a915e8025 100644
 --- a/packages/ui/src/lib/i18n/messages/de.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/de.settings.ts
-@@ -1096,6 +1096,10 @@ export const settingsDict = {
+@@ -1106,6 +1106,10 @@ export const settingsDict = {
    'settings.openchamber.sessionWork.title': 'Sitzungen in Arbeit',
    'settings.openchamber.sessionWork.info': 'Ein Bereich in der Seitenleiste unter den Chats für die Sitzungen, an denen Sie arbeiten. Eine Sitzung erscheint dort, sobald Sie eine Nachricht senden. Standardmäßig wird sie nur in diesem Bereich angezeigt. Damit sie auch in ihrem Projekt erscheint, öffnen Sie im Seitenleistenmenü „Abschnitte anpassen…“ und aktivieren Sie bei „In Arbeit“ die Option „Auch in Projekten“. Auf dem Telefon aktivieren Sie im Seitenleistenmenü „In Arbeit auch unter Projekten zeigen“. In VS Code werden Sitzungen immer in ihren Projekten angezeigt. Markieren Sie eine Sitzung über den Haken oder das Sitzungsmenü als erledigt. Sieht ein Durchgang nach dem Ende der Arbeit aus, wird der Haken als Hinweis grau.',
    'settings.openchamber.sessionWork.field.enabled': 'Sitzungen in Arbeit anzeigen',
@@ -842,10 +848,10 @@ index 6bc0b0b23..339ff5105 100644
    'settings.openchamber.sessionRetention.tooltip': 'Archiviert oder löscht nicht archivierte Sitzungen anhand ihrer letzten Aktivität. Behält die 5 neuesten Sitzungen, die geöffnete Sitzung sowie laufende und angeheftete Sitzungen. Sitzungen im Bereich „In Arbeit“ bleiben ebenfalls erhalten, sofern Sie sie nicht einbeziehen. Archivierte Sitzungen bleiben erhalten. Eine übergeordnete Sitzung bleibt erhalten, wenn ihre Löschung auch eine geschützte untergeordnete Sitzung löschen würde.',
    'settings.openchamber.sessionRetention.field.enableAutoCleanupAria': 'Automatische Bereinigung aktivieren',
 diff --git a/packages/ui/src/lib/i18n/messages/en.settings.ts b/packages/ui/src/lib/i18n/messages/en.settings.ts
-index b0e8f11aa..aa834a839 100644
+index 7863a3b72..cc3975f00 100644
 --- a/packages/ui/src/lib/i18n/messages/en.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/en.settings.ts
-@@ -1137,6 +1137,10 @@ export const settingsDict = {
+@@ -1147,6 +1147,10 @@ export const settingsDict = {
    'settings.openchamber.sessionWork.title': 'Sessions in work',
    'settings.openchamber.sessionWork.info': 'A block in the sidebar, under Chats, for the sessions you\'re working in. A session goes there when you send a message in it. By default, it appears only in this block; to keep it in its project too, open "Customize sections…" in the sidebar menu and turn on "Also in projects" on In work. On a phone, turn on "Also show in work under projects" in the sidebar menu. VS Code always shows sessions in their projects. Mark a session done with the check or the session menu. When a turn looks like the end of the work, the check turns grey as a hint.',
    'settings.openchamber.sessionWork.field.enabled': 'Show sessions in work',
@@ -857,10 +863,10 @@ index b0e8f11aa..aa834a839 100644
    'settings.openchamber.sessionRetention.tooltip': 'Archives or deletes unarchived sessions based on last activity. Keeps the 5 most recent sessions, the open session, running sessions and pinned sessions. Sessions in the In work block are kept too unless you include them. Archived sessions are kept. A parent is kept if deleting it would also delete a protected child.',
    'settings.openchamber.sessionRetention.field.enableAutoCleanupAria': 'Enable auto-cleanup',
 diff --git a/packages/ui/src/lib/i18n/messages/es.settings.ts b/packages/ui/src/lib/i18n/messages/es.settings.ts
-index 43aae80a1..21f80c2ac 100644
+index f0bfa9acb..a6f0dc258 100644
 --- a/packages/ui/src/lib/i18n/messages/es.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/es.settings.ts
-@@ -1105,6 +1105,10 @@ export const settingsDict = {
+@@ -1115,6 +1115,10 @@ export const settingsDict = {
    "settings.openchamber.sessionWork.title": "Sesiones en curso",
    "settings.openchamber.sessionWork.info": "Un bloque en la barra lateral, debajo de los chats, para las sesiones en las que estás trabajando. La sesión aparece ahí cuando envías un mensaje. De forma predeterminada, solo aparece en este bloque. Para mantenerla también en su proyecto, abre «Personalizar secciones…» en el menú de la barra lateral y activa «También en proyectos» en «En curso». En un teléfono, activa «Mostrar también lo que está en curso bajo los proyectos» en el menú de la barra lateral. En VS Code, las sesiones siempre se muestran en sus proyectos. Márcala como terminada con la marca o el menú de la sesión. Cuando un turno parece el final del trabajo, la marca se vuelve gris como pista.",
    "settings.openchamber.sessionWork.field.enabled": "Mostrar sesiones en curso",
@@ -872,10 +878,10 @@ index 43aae80a1..21f80c2ac 100644
    "settings.openchamber.sessionRetention.tooltip": "Archiva o elimina sesiones no archivadas según su última actividad. Conserva las 5 sesiones más recientes, la sesión abierta, las sesiones en ejecución y las ancladas. Las sesiones del bloque «En curso» también se conservan, salvo que las incluyas. Las sesiones archivadas se conservan. Una sesión principal se conserva si eliminarla también eliminaría una sesión secundaria protegida.",
    "settings.openchamber.sessionRetention.field.enableAutoCleanupAria": "Habilitar limpieza automática",
 diff --git a/packages/ui/src/lib/i18n/messages/fr.settings.ts b/packages/ui/src/lib/i18n/messages/fr.settings.ts
-index 004a0bd10..7e0506118 100644
+index a5085b795..3bee643bc 100644
 --- a/packages/ui/src/lib/i18n/messages/fr.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/fr.settings.ts
-@@ -1009,6 +1009,10 @@ export const settingsDict = {
+@@ -1018,6 +1018,10 @@ export const settingsDict = {
    'settings.openchamber.sessionWork.title': 'Sessions en cours',
    'settings.openchamber.sessionWork.info': 'Un bloc dans la barre latérale, sous les discussions, pour les sessions sur lesquelles vous travaillez. Une session y apparaît dès que vous lui envoyez un message. Par défaut, elle apparaît uniquement dans ce bloc. Pour la garder aussi dans son projet, ouvrez « Personnaliser les sections… » dans le menu de la barre latérale et activez « Aussi dans les projets » sur la ligne « En cours ». Sur un téléphone, activez « Afficher aussi le travail en cours sous les projets » dans le menu de la barre latérale. Dans VS Code, les sessions restent toujours dans leur projet. Marquez une session comme terminée avec la coche ou son menu. Quand un tour ressemble à la fin du travail, la coche devient grise en guise d’indice.',
    'settings.openchamber.sessionWork.field.enabled': 'Afficher les sessions en cours',
@@ -887,10 +893,10 @@ index 004a0bd10..7e0506118 100644
    'settings.openchamber.sessionRetention.tooltip': 'Archive ou supprime les sessions non archivées selon leur dernière activité. Conserve les 5 sessions les plus récentes, la session ouverte, les sessions en cours d’exécution et les sessions épinglées. Les sessions du bloc « En cours » sont aussi conservées, sauf si vous les incluez. Les sessions archivées sont conservées. Une session parente est conservée si sa suppression supprimerait aussi une session enfant protégée.',
    'settings.openchamber.sessionRetention.field.enableAutoCleanupAria': 'Activer le nettoyage automatique',
 diff --git a/packages/ui/src/lib/i18n/messages/he.settings.ts b/packages/ui/src/lib/i18n/messages/he.settings.ts
-index 5848f083c..76cf2a174 100644
+index 5d21f647d..49c99fc50 100644
 --- a/packages/ui/src/lib/i18n/messages/he.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/he.settings.ts
-@@ -1137,6 +1137,10 @@ export const settingsDict = {
+@@ -1147,6 +1147,10 @@ export const settingsDict = {
    'settings.openchamber.sessionWork.title': 'הפעלות בעבודה',
    'settings.openchamber.sessionWork.info': 'אזור בסרגל הצד, מתחת לצ\'אטים, להפעלות שבהן עובדים. הפעלה מופיעה כאן כששולחים בה הודעה. כברירת מחדל היא מופיעה באזור הזה בלבד. כדי להציג אותה גם בפרויקט שלה, פתחו בתפריט סרגל הצד את „התאמת מקטעים…” והפעילו את „גם בפרויקטים” בשורה „בעבודה”. בטלפון, הפעילו בתפריט סרגל הצד את „להציג עבודה פעילה גם תחת הפרויקטים”. ב-VS Code ההפעלות מופיעות תמיד בפרויקטים שלהן. סמנו הפעלה כהושלמה באמצעות סימן הווי או תפריט ההפעלה. כשנראה שתור מסיים את העבודה, סימן הווי הופך לאפור כרמז.',
    'settings.openchamber.sessionWork.field.enabled': 'הצג הפעלות בעבודה',
@@ -902,10 +908,10 @@ index 5848f083c..76cf2a174 100644
    'settings.openchamber.sessionRetention.tooltip': 'מעביר לארכיון או מוחק הפעלות שלא בארכיון לפי הפעילות האחרונה. שומר את 5 ההפעלות האחרונות, את ההפעלה הפתוחה, הפעלות שרצות והפעלות מוצמדות. גם הפעלות באזור „בעבודה” נשמרות, אלא אם כוללים אותן. הפעלות בארכיון נשמרות. הפעלת אב נשמרת אם מחיקתה תמחק גם הפעלת צאצא מוגנת.',
    'settings.openchamber.sessionRetention.field.enableAutoCleanupAria': 'הפעל ניקוי אוטומטי',
 diff --git a/packages/ui/src/lib/i18n/messages/ja.settings.ts b/packages/ui/src/lib/i18n/messages/ja.settings.ts
-index 7aea8862a..01165a6a9 100644
+index 33679a7ff..27c1080e2 100644
 --- a/packages/ui/src/lib/i18n/messages/ja.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/ja.settings.ts
-@@ -1138,6 +1138,10 @@ export const settingsDict = {
+@@ -1148,6 +1148,10 @@ export const settingsDict = {
    'settings.openchamber.sessionWork.title': '作業中のセッション',
    'settings.openchamber.sessionWork.info': '作業中のセッションを、サイドバーのチャットの下にまとめるブロックです。セッションでメッセージを送るとここに表示されます。既定ではこのブロックだけに表示されます。プロジェクトにも残すには、サイドバーのメニューで「セクションをカスタマイズ…」を開き、「作業中」の「プロジェクトにも」を有効にしてください。スマートフォンでは、サイドバーのメニューで「作業中の項目もプロジェクトの下に表示」を有効にしてください。VS Code では常にプロジェクト内にも表示されます。チェックまたはセッションメニューから完了にできます。ターンが作業の終わりに見えると、ヒントとしてチェックが灰色になります。',
    'settings.openchamber.sessionWork.field.enabled': '作業中のセッションを表示',
@@ -917,10 +923,10 @@ index 7aea8862a..01165a6a9 100644
    'settings.openchamber.sessionRetention.tooltip': '最終アクティビティに基づいて未アーカイブのセッションをアーカイブまたは削除します。最新5件、開いているセッション、実行中のセッション、ピン留めしたセッションは保持されます。「作業中」ブロックのセッションも、含める設定にしない限り保持されます。アーカイブ済みのセッションも保持されます。保護された子セッションまで削除される場合、親セッションは削除されません。',
    'settings.openchamber.sessionRetention.field.enableAutoCleanupAria': '自動クリーンアップを有効化',
 diff --git a/packages/ui/src/lib/i18n/messages/ko.settings.ts b/packages/ui/src/lib/i18n/messages/ko.settings.ts
-index c30e4e7f1..81776efc9 100644
+index ea7497904..0a09e2368 100644
 --- a/packages/ui/src/lib/i18n/messages/ko.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/ko.settings.ts
-@@ -1105,6 +1105,10 @@ export const settingsDict = {
+@@ -1115,6 +1115,10 @@ export const settingsDict = {
    'settings.openchamber.sessionWork.title': '작업 중인 세션',
    'settings.openchamber.sessionWork.info': '작업 중인 세션을 사이드바의 채팅 아래에 모아 두는 영역입니다. 세션에서 메시지를 보내면 이곳에 표시됩니다. 기본적으로 이 영역에만 표시됩니다. 프로젝트에도 표시하려면 사이드바 메뉴에서 "섹션 사용자 지정…"을 열고 "작업 중"의 "프로젝트에도"를 켜세요. 휴대폰에서는 사이드바 메뉴에서 "진행 중인 작업을 프로젝트 아래에도 표시"를 켜세요. VS Code에서는 항상 프로젝트에도 표시됩니다. 체크 표시나 세션 메뉴에서 완료로 표시할 수 있습니다. 턴이 작업의 끝처럼 보이면 힌트로 체크가 회색으로 바뀝니다.',
    'settings.openchamber.sessionWork.field.enabled': '작업 중인 세션 표시',
@@ -932,10 +938,10 @@ index c30e4e7f1..81776efc9 100644
    'settings.openchamber.sessionRetention.tooltip': '마지막 활동을 기준으로 보관되지 않은 세션을 보관하거나 삭제합니다. 최근 세션 5개, 열려 있는 세션, 실행 중인 세션과 고정된 세션은 유지됩니다. "작업 중" 영역의 세션도 포함하도록 설정하지 않으면 유지됩니다. 보관된 세션도 유지됩니다. 상위 세션을 삭제하면 보호된 하위 세션도 삭제되는 경우 상위 세션을 유지합니다.',
    'settings.openchamber.sessionRetention.field.enableAutoCleanupAria': '자동 정리 활성화',
 diff --git a/packages/ui/src/lib/i18n/messages/nl.settings.ts b/packages/ui/src/lib/i18n/messages/nl.settings.ts
-index 29e586cb6..5d2a98986 100644
+index 1d3986017..303b149d0 100644
 --- a/packages/ui/src/lib/i18n/messages/nl.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/nl.settings.ts
-@@ -1138,6 +1138,10 @@ export const settingsDict = {
+@@ -1148,6 +1148,10 @@ export const settingsDict = {
    'settings.openchamber.sessionWork.title': 'Sessies in uitvoering',
    'settings.openchamber.sessionWork.info': 'Een blok in de zijbalk, onder Chats, voor de sessies waaraan u werkt. Een sessie verschijnt daar zodra u een bericht stuurt. Standaard staat ze alleen in dit blok. Om haar ook in haar project te tonen, opent u "Secties aanpassen…" in het zijbalkmenu en schakelt u bij "In bewerking" "Ook in projecten" in. Op een telefoon schakelt u "Werk in uitvoering ook onder projecten tonen" in via het zijbalkmenu. In VS Code verschijnen sessies altijd in hun projecten. Markeer een sessie als afgerond met het vinkje of via het sessiemenu. Als een beurt op het einde van het werk lijkt, wordt het vinkje grijs als hint.',
    'settings.openchamber.sessionWork.field.enabled': 'Sessies in uitvoering tonen',
@@ -947,10 +953,10 @@ index 29e586cb6..5d2a98986 100644
    'settings.openchamber.sessionRetention.tooltip': 'Archiveert of verwijdert niet-gearchiveerde sessies op basis van de laatste activiteit. Behoudt de 5 meest recente sessies, de geopende sessie, lopende sessies en vastgezette sessies. Sessies in het blok "In bewerking" blijven ook bewaard, tenzij u ze meeneemt. Gearchiveerde sessies blijven behouden. Een bovenliggende sessie blijft behouden als verwijderen daarvan ook een beschermde subsessie zou verwijderen.',
    'settings.openchamber.sessionRetention.field.enableAutoCleanupAria': 'Automatisch opschonen aanzetten',
 diff --git a/packages/ui/src/lib/i18n/messages/pl.settings.ts b/packages/ui/src/lib/i18n/messages/pl.settings.ts
-index aaa5d9c90..acbdca7c7 100644
+index 6b9ea095f..1126a8c6b 100644
 --- a/packages/ui/src/lib/i18n/messages/pl.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/pl.settings.ts
-@@ -1146,6 +1146,10 @@ export const settingsDict = {
+@@ -1154,6 +1154,10 @@ export const settingsDict = {
    'settings.openchamber.sessionWork.title': 'Sesje w toku',
    'settings.openchamber.sessionWork.info': 'Blok na pasku bocznym pod czatami, przeznaczony dla sesji, nad którymi pracujesz. Sesja pojawia się tam po wysłaniu wiadomości. Domyślnie jest widoczna tylko w tym bloku. Aby była widoczna również w swoim projekcie, otwórz „Dostosuj sekcje…” w menu paska bocznego i włącz „Także w projektach” przy „W toku”. Na telefonie włącz „Pokazuj też prace w toku pod projektami” w menu paska bocznego. W VS Code sesje są zawsze widoczne w projektach. Oznacz sesję jako gotową znacznikiem lub w jej menu. Gdy tura wygląda na koniec pracy, znacznik szarzeje jako podpowiedź.',
    'settings.openchamber.sessionWork.field.enabled': 'Pokazuj sesje w toku',
@@ -962,10 +968,10 @@ index aaa5d9c90..acbdca7c7 100644
    'settings.openchamber.sessionRetention.toast.archivedCount': 'Zarchiwizowano {count} sesji',
    'settings.openchamber.sessionRetention.toast.deletedCount': 'Usunięto {count} sesji',
 diff --git a/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts b/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
-index 9c3a63a58..26722fd5f 100644
+index 221a82dd9..894ac31d4 100644
 --- a/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
-@@ -1105,6 +1105,10 @@ export const settingsDict = {
+@@ -1115,6 +1115,10 @@ export const settingsDict = {
    "settings.openchamber.sessionWork.title": "Sessões em andamento",
    "settings.openchamber.sessionWork.info": "Um bloco na barra lateral, abaixo das conversas, para as sessões em que você está trabalhando. A sessão aparece ali assim que você envia uma mensagem. Por padrão, ela aparece somente nesse bloco. Para mantê-la também no projeto, abra 'Personalizar seções…' no menu da barra lateral e ative 'Também nos projetos' em 'Em andamento'. No celular, ative 'Mostrar também o que está em andamento nos projetos' no menu da barra lateral. No VS Code, as sessões sempre aparecem nos projetos. Marque uma sessão como concluída pelo check ou pelo menu. Quando um turno parece o fim do trabalho, o check fica cinza como dica.",
    "settings.openchamber.sessionWork.field.enabled": "Mostrar sessões em andamento",
@@ -977,10 +983,10 @@ index 9c3a63a58..26722fd5f 100644
    "settings.openchamber.sessionRetention.tooltip": "Arquiva ou exclui sessões não arquivadas com base na última atividade. Mantém as 5 sessões mais recentes, a sessão aberta, as sessões em execução e as fixadas. As sessões do bloco 'Em andamento' também ficam, a menos que você as inclua. As sessões arquivadas são mantidas. Uma sessão principal é mantida se sua exclusão também excluir uma sessão filha protegida.",
    "settings.openchamber.sessionRetention.field.enableAutoCleanupAria": "Ativar limpeza automática",
 diff --git a/packages/ui/src/lib/i18n/messages/tr.settings.ts b/packages/ui/src/lib/i18n/messages/tr.settings.ts
-index 2bd4ebb4d..d2094bbd1 100644
+index e2ad0ece8..c9dca5025 100644
 --- a/packages/ui/src/lib/i18n/messages/tr.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/tr.settings.ts
-@@ -1110,6 +1110,10 @@ export const settingsDict = {
+@@ -1120,6 +1120,10 @@ export const settingsDict = {
    'settings.openchamber.sessionWork.title': 'Devam eden oturumlar',
    'settings.openchamber.sessionWork.info': 'Üzerinde çalıştığınız oturumlar için kenar çubuğunda sohbetlerin altındaki bölüm. Bir oturum, mesaj gönderdiğinizde burada görünür. Varsayılan olarak yalnızca bu bölümde görünür. Projesinde de görünmesi için kenar çubuğu menüsünden "Bölümleri özelleştir…" penceresini açın ve "Devam eden" satırında "Projelerde de" seçeneğini açın. Telefonda kenar çubuğu menüsünden "Devam eden işleri projelerin altında da göster" seçeneğini açın. VS Code oturumları her zaman projelerinde gösterir. Onay işaretiyle veya oturum menüsünden tamamlandı olarak işaretleyin. Bir tur işin sonu gibi göründüğünde onay işareti ipucu olarak griye döner.',
    'settings.openchamber.sessionWork.field.enabled': 'Devam eden oturumları göster',
@@ -992,10 +998,10 @@ index 2bd4ebb4d..d2094bbd1 100644
    'settings.openchamber.sessionRetention.tooltip': 'Arşivlenmemiş oturumları son etkinliğe göre arşivler veya siler. En yeni 5 oturumu, açık oturumu, çalışan ve sabitlenen oturumları korur. "Devam eden" bölümündeki oturumlar da dahil etmediğiniz sürece korunur. Arşivlenmiş oturumlar korunur. Bir üst oturumun silinmesi korunan bir alt oturumu da silecekse üst oturum korunur.',
    'settings.openchamber.sessionRetention.field.enableAutoCleanupAria': 'Otomatik temizlemeyi etkinleştir',
 diff --git a/packages/ui/src/lib/i18n/messages/uk.settings.ts b/packages/ui/src/lib/i18n/messages/uk.settings.ts
-index f36c1129e..72d2586fa 100644
+index 8a519b662..5e75c56a6 100644
 --- a/packages/ui/src/lib/i18n/messages/uk.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/uk.settings.ts
-@@ -1105,6 +1105,10 @@ export const settingsDict = {
+@@ -1115,6 +1115,10 @@ export const settingsDict = {
    "settings.openchamber.sessionWork.title": "Сесії в роботі",
    "settings.openchamber.sessionWork.info": "Блок у сайдбарі під «Чатами» для сесій, у яких ви працюєте. Сесія з’являється там, щойно ви надсилаєте повідомлення. За замовчуванням вона відображається лише в цьому блоці. Щоб вона відображалася і у своєму проєкті, відкрийте «Налаштувати секції…» в меню сайдбара й увімкніть «Також у проєктах» у рядку «В роботі». На телефоні увімкніть «Також показувати роботу в проєктах» у меню сайдбара. У VS Code сесії завжди показуються у своїх проєктах. Позначте сесію як готову галочкою або в її меню. Коли хід схожий на завершення роботи, галочка сіріє як підказка.",
    "settings.openchamber.sessionWork.field.enabled": "Показувати сесії в роботі",
@@ -1007,10 +1013,10 @@ index f36c1129e..72d2586fa 100644
    "settings.openchamber.sessionRetention.tooltip": "Архівує або видаляє неархівовані сесії за часом останньої активності. Зберігає 5 найновіших сесій, відкриту сесію, сесії, що виконуються, і закріплені сесії. Сесії в блоці «В роботі» теж зберігаються, якщо ви їх не включили. Архівні сесії зберігаються. Батьківська сесія залишається, якщо її видалення зачепить захищену дочірню.",
    "settings.openchamber.sessionRetention.field.enableAutoCleanupAria": "Увімкнути автоматичне очищення",
 diff --git a/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts b/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
-index 95a41abe8..af457a6dd 100644
+index a64199dea..cfaeeeedd 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
-@@ -1105,6 +1105,10 @@ export const settingsDict = {
+@@ -1115,6 +1115,10 @@ export const settingsDict = {
    'settings.openchamber.sessionWork.title': '进行中的会话',
    'settings.openchamber.sessionWork.info': '侧边栏中位于聊天下方的区块，用于显示正在处理的会话。发送消息后，会话就会显示在这里。默认情况下，会话只显示在此区块中。若要同时在所属项目下显示，请在侧边栏菜单中打开“自定义分区…”，并在“进行中”一行开启“也在项目中”。在手机上，请在侧边栏菜单中开启“在项目下也显示进行中的工作”。VS Code 始终会在项目下显示会话。点击对勾或使用会话菜单可将会话标记为完成。当某一轮看起来像工作的结尾时，对勾会变灰作为提示。',
    'settings.openchamber.sessionWork.field.enabled': '显示进行中的会话',
@@ -1022,10 +1028,10 @@ index 95a41abe8..af457a6dd 100644
    'settings.openchamber.sessionRetention.tooltip': '根据最后活动时间归档或删除未归档的会话。保留最近 5 个会话、当前打开的会话、运行中的会话和已置顶的会话。“进行中”区块里的会话也会保留，除非你选择包含它们。已归档的会话会保留。如果删除父会话会同时删除受保护的子会话，则保留父会话。',
    'settings.openchamber.sessionRetention.field.enableAutoCleanupAria': '启用自动清理',
 diff --git a/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts b/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
-index 338427390..005a69e94 100644
+index 5da797960..92a810352 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
-@@ -1102,6 +1102,10 @@ export const settingsDict = {
+@@ -1112,6 +1112,10 @@ export const settingsDict = {
    'settings.openchamber.sessionWork.title': '進行中的工作階段',
    'settings.openchamber.sessionWork.info': '側邊欄中位於聊天下方的區塊，用來顯示正在處理的工作階段。傳送訊息後，工作階段就會顯示在這裡。預設只會顯示在此區塊。若要同時顯示在所屬專案下，請在側邊欄選單中開啟「自訂區段…」，並在「進行中」一列開啟「也在專案中」。在手機上，請在側邊欄選單中開啟「在專案下也顯示進行中的工作」。VS Code 一律會在專案下顯示工作階段。點選勾號或使用工作階段選單即可將其標記為完成。當某一輪看起來像工作的結尾時，勾號會變灰作為提示。',
    'settings.openchamber.sessionWork.field.enabled': '顯示進行中的工作階段',
@@ -1037,7 +1043,7 @@ index 338427390..005a69e94 100644
    'settings.openchamber.sessionRetention.tooltip': '根據最後活動時間封存或刪除未封存的工作階段。保留最近 5 個工作階段、目前開啟的工作階段、執行中的工作階段及已釘選的工作階段。「進行中」區塊裡的工作階段也會保留，除非你選擇包含它們。已封存的工作階段會保留。如果刪除父工作階段會同時刪除受保護的子工作階段，則保留父工作階段。',
    'settings.openchamber.sessionRetention.field.enableAutoCleanupAria': '啟用自動清理',
 diff --git a/packages/ui/src/lib/settings/DOCUMENTATION.md b/packages/ui/src/lib/settings/DOCUMENTATION.md
-index 574179b4a..19fbae1fa 100644
+index dcaa57be4..4590a8a4b 100644
 --- a/packages/ui/src/lib/settings/DOCUMENTATION.md
 +++ b/packages/ui/src/lib/settings/DOCUMENTATION.md
 @@ -17,8 +17,8 @@
@@ -1050,29 +1056,54 @@ index 574179b4a..19fbae1fa 100644
 +- **Missing is not default.** `applySettingsToStores` writes only the fields the snapshot carries; an omitted field leaves the store as it is. Defaults live in the stores' initial state, not in the registry. `sidebarWorkPageSize`'s default and range live once in `lib/workPageSize.ts` (`DEFAULT_WORK_PAGE_SIZE`, `WORK_PAGE_SIZE_MIN`, `WORK_PAGE_SIZE_MAX`), which the store's initial state, the Settings row and the row model's fallback all read.
  - Project request paths use `lib/pathNormalization.ts` at the parser boundary, matching project stores and the SDK adapter. Parsing and serializing a Windows drive root preserves `C:/`; comparison or ID formatting must not turn it into a drive-relative request path.
  - Project parsing preserves `labelSource` (`auto` or `manual`) only beside a non-empty label. Unknown sources are dropped without rejecting the project. Save echoes and subsequent reads must retain manual provenance so the store's legacy auto-label migration cannot change a user's rename.
- - **Writes carry intent.** Fields with `ui.autoSave` are watched by `lib/appearanceAutoSave.ts`; changes made while `isApplyingServerSettings()` is true (a sync copying server values in) are a new baseline, not a write. The model-preference fields are watched by `lib/modelPrefsAutoSave.ts`, which delegates to the shared settings debounce, and are therefore `autoSave: false` here.
-@@ -33,7 +33,7 @@
+ - **Writes carry intent.** Fields with `ui.autoSave` are watched by `lib/appearanceAutoSave.ts`; changes made while `isApplyingServerSettings()` is true (a sync copying server values in) are a new baseline, not a write. The model-preference fields are watched by `lib/modelPrefsAutoSave.ts`, which delegates to the shared settings debounce, and are therefore `autoSave: false` here. Fields whose store setters already write through `updateDesktopSettings` (the config store), write several keys at once (`draftStarters` with its markers), or are owned by a dedicated auto-save are `autoSave: false` too.
+@@ -42,7 +42,7 @@
  
  1. Add one entry to `SETTINGS_REGISTRY` with `scope`, a parser from `parsers.ts`, and a `ui` binding when a store holds the live value. Use an existing setter so its side effects run.
  2. Run `bun run settings-registry:generate` and commit both JSON snapshots.
--3. If the server must validate the value beyond the registry gate, add its branch to `sanitizeSettingsUpdate` in `packages/web/server/lib/opencode/settings-helpers.js`; the drift test in `settings-helpers.test.js` needs a valid sample value for the new key.
+-3. If the server must validate the value beyond the registry gate, add its branch to `sanitizeSettingsUpdate` in `packages/web/server/lib/settings/settings-helpers.js`; the drift test in `settings-helpers.test.js` needs a valid sample value for the new key.
 +3. If the server must validate the value beyond the registry gate, add its branch to `sanitizeSettingsUpdate` in `packages/web/server/lib/opencode/settings-helpers.js`; the drift test in `settings-helpers.test.js` needs a valid sample value for the new key. A range the server clamps is not restated there: declare `bounds: { min, max }` on the registry field and the generated snapshot carries it to the server.
  4. Add the Settings control and search entry per `.agents/skills/settings-ui-patterns`.
  5. The "new" badges follow from the anchor. The shared rows (`SettingsSection`, `SettingsControlGroup`, `SettingsStackedField`, `SettingsFieldRow`, `SettingsCheckboxRow`) render `SettingsNewBadge` for their own `settingsItem`; a control built without them puts `<SettingsNewBadge items={['<anchorId>']} />` next to its label, or the page badge points at a row that says nothing. A new control the page hides until something is opened carries its badge on that opener: the Chat and project tabs badge the anchors their tab maps hold, the notification switch badges the event rows, a tool's switch badges the options it reveals (`reveals`). Page badges count only available controls. Opening a visible page acknowledges its available anchors; hidden anchors remain pending. Row badges stay for the rest of the load. On mobile the title badge appears only on the navigation stage and counts visible pages. A fresh install seeds every build anchor and starts without badges.
  
-@@ -58,3 +58,7 @@ Page badges count every new anchor, so a row badge each control had to opt into
- ### Why the first baseline comes from the build and not from a list of announcements
+@@ -68,30 +68,6 @@ Page badges count every new anchor, so a row badge each control had to opt into
  
  A client with no baseline seeds every anchor the build has, so a fresh install sees nothing new. The alternative, listing the anchors this release announces, cannot tell a fresh install from an upgrade that predates the feature, and it lights up a new install that has nothing to compare against. The cost is that controls shipped in the same release as the badge are never announced. The seed runs when the client first renders Settings, which keeps the search table out of the startup path; a client whose first render comes after an update therefore seeds past that update's anchors too.
-+
+ 
+-### Why the new-badge state is resolved once per load
 +### Why a bounded range travels in the generated snapshot
-+
+ 
+-Deciding what is new walks the whole search table, and the answer changes only when the user acknowledges a page; reading it again on every row render would repeat that walk for nothing. The load-time `newAnchors` keeps the page just opened showing which of its controls are new, while the next load reads the moved baseline and shows none of them.
+-
+-### Why settings UI bindings use method syntax
+-
+-Method syntax keeps `SettingsFieldSpec<T>` assignable to `SettingsFieldSpec<unknown>`, which is what the generic loops iterate. Property-function syntax does not make that assignment.
+-
+-### Why the config store is reached through the window global
+-
+-`useConfigStore` imports the shared write path, so a direct import here would be a load-order cycle. The store registers itself on `window.__zustand_config_store__`, which is absent outside a browser.
+-
+-### Why built-in draft starters are re-added only when a marker says they were never offered
+-
+-Removing a built-in starter must stay a durable choice, so the list is patched with the built-ins only when the corresponding marker says they were never offered. The markers travel with the user's edit, which is why the write consults them from the parsed snapshot.
+-
+-### Why `getSettingsNavIcon` lives in `metadata.ts`
+-
+-Light consumers such as the command palette can render settings entries without statically importing the whole settings surface into the eager startup graph.
+-
+-### Why parsers are plain functions over `unknown` and not schemas
+-
+-The registry can hold hand-written and schema-derived parsers alike, and its shape can be evaluated for the generated JSON snapshot without a browser.
+-
+-### Why legacy values collapse onto their closest current value
+-
+-The removed Sorted chat mode showed only the answers with the work folded away, and Collapsed is its closest match, so `chatRenderMode: 'sorted'` wins over a stored mode until the user picks one (which retires the key). The old wide layout is today's Full. `queueModeEnabled` is the old follow-up switch, and `'immediate'` is steer. The legacy `server` speech-to-text provider is the OpenAI-compatible endpoint, and `browser`/`wasm` are the local one. The legacy window-controls `auto` never read OS chrome configuration and behaves as `right`.
 +`sidebarWorkPageSize` is clamped by the UI parser and again by the server's `sanitizeSettingsUpdate`. A server-side copy of the range, tested against itself, would let a change to the registry bound move only one of them. The field's `bounds` rides in the generated snapshot and the server clamps the number the UI parser actually uses; `registry.test.ts` already fails when the snapshot and `registry.ts` disagree, and the server test reads the snapshot's bounds instead of restating them.
 diff --git a/packages/ui/src/lib/settings/registry.ts b/packages/ui/src/lib/settings/registry.ts
-index f75a881e7..c61dbf5b0 100644
+index 5e6411093..8c96ac33d 100644
 --- a/packages/ui/src/lib/settings/registry.ts
 +++ b/packages/ui/src/lib/settings/registry.ts
-@@ -36,6 +36,7 @@ import { useMessageQueueStore } from '@/stores/messageQueueStore';
+@@ -16,6 +16,7 @@ import { useMessageQueueStore } from '@/stores/messageQueueStore';
  import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
  import { useUIStore, type FileEditorKeymap, type LargeTextPasteBehavior } from '@/stores/useUIStore';
  import { isSessionGoalMaxAutoTurns } from '@/lib/sessionGoalTurnLimit';
@@ -1080,9 +1111,9 @@ index f75a881e7..c61dbf5b0 100644
  import { hiddenSidebarSectionsSchema, SIDEBAR_SESSION_BATCH_MAX, SIDEBAR_SESSION_BATCH_MIN, sidebarPinListsSchema, sidebarSectionsSchema } from '@/lib/sidebarSections';
  import { z } from 'zod';
  import {
-@@ -130,6 +131,12 @@ type SettingsFieldSpec<T> = {
+@@ -93,6 +94,12 @@ type SettingsFieldSpec<T> = {
+   derived?: true;
    secret?: true;
-   /** Emitted by the server for this build/process; never accepted on a write, never persisted. */
    computed?: true;
 +  /**
 +   * The range a bounded integer field clamps to. It is carried into the
@@ -1093,7 +1124,7 @@ index f75a881e7..c61dbf5b0 100644
  };
  
  const field = <T>(spec: SettingsFieldSpec<T>): SettingsFieldSpec<T> => spec;
-@@ -410,6 +417,20 @@ export const SETTINGS_REGISTRY = {
+@@ -325,6 +332,20 @@ export const SETTINGS_REGISTRY = {
    sidebarProjectSortOrder: field({ scope: 'profile', parse: parseOneOf(['manual', 'a-z', 'z-a', 'date-added', 'recent']), ui: sessionDisplayField('projectSortOrder') }),
    sidebarShowChatsSection: field({ scope: 'profile', perSurface: true, parse: parseBoolean, ui: sessionDisplayField('showChatsSection') }),
    sidebarShowWorkSection: field({ scope: 'profile', perSurface: true, parse: parseBoolean, ui: sessionDisplayField('showWorkSection') }),
@@ -1114,16 +1145,16 @@ index f75a881e7..c61dbf5b0 100644
    sidebarShowPinnedSection: field({ scope: 'profile', perSurface: true, parse: parseBoolean, ui: sessionDisplayField('showPinnedSection') }),
    sidebarDetailedZoneRows: field({ scope: 'profile', perSurface: true, parse: parseBoolean, ui: sessionDisplayField('detailedZoneRows') }),
    sidebarWorktreeNameByBranch: field({ scope: 'profile', parse: parseBoolean, ui: sessionDisplayField('worktreeNameByBranch') }),
-@@ -871,6 +892,8 @@ type SettingsRegistrySnapshotField = {
+@@ -724,6 +745,8 @@ type SettingsRegistrySnapshotField = {
+   computed?: true;
    local?: true;
-   /** Written by the desktop shell straight into the file; never by a client. */
    owner?: 'desktop-shell';
 +  /** The range a bounded integer field clamps to, for the server's sanitizer. */
 +  bounds?: { min: number; max: number };
  };
  
  type SettingsRegistrySnapshot = {
-@@ -889,6 +912,7 @@ export const buildSettingsRegistrySnapshot = (): SettingsRegistrySnapshot => {
+@@ -742,6 +765,7 @@ export const buildSettingsRegistrySnapshot = (): SettingsRegistrySnapshot => {
      if (spec.derived) entry.derived = true;
      if (spec.secret) entry.secret = true;
      if (spec.computed) entry.computed = true;
@@ -1150,10 +1181,10 @@ index 9cf9b0182..e4923e910 100644
      const initial = useConfigStore.getState();
      try {
 diff --git a/packages/ui/src/lib/settings/search.ts b/packages/ui/src/lib/settings/search.ts
-index 03866d4f5..a3e057fb9 100644
+index 24a477890..e8f4160b7 100644
 --- a/packages/ui/src/lib/settings/search.ts
 +++ b/packages/ui/src/lib/settings/search.ts
-@@ -729,6 +729,15 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
+@@ -710,6 +710,15 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
      titleKey: 'settings.openchamber.sessionWork.field.enabled',
      keywords: ['in work', 'in progress', 'track', 'done', 'sidebar'],
    },
@@ -1197,10 +1228,10 @@ index 000000000..e07ffabbf
 +    : DEFAULT_WORK_PAGE_SIZE
 +);
 diff --git a/packages/ui/src/stores/DOCUMENTATION.md b/packages/ui/src/stores/DOCUMENTATION.md
-index bcb5187bc..dd8aee333 100644
+index 4fde05caf..7fa6f5144 100644
 --- a/packages/ui/src/stores/DOCUMENTATION.md
 +++ b/packages/ui/src/stores/DOCUMENTATION.md
-@@ -743,7 +743,7 @@ Settings reads retain overlapping local mutations until the read settles, includ
+@@ -791,7 +791,7 @@ Settings reads retain overlapping local mutations until the read settles, includ
  
  Project ordering defaults to manual. Session display persistence v3 migrates the previously shipped `recent` project order to `manual` while preserving every other explicit sort mode.
  
@@ -1270,7 +1301,7 @@ index bc666b46f..a4d2ae3ee 100644
 +  });
  });
 diff --git a/packages/ui/src/stores/useSessionDisplayStore.ts b/packages/ui/src/stores/useSessionDisplayStore.ts
-index 255624fc4..c22c70b94 100644
+index b3f0d73b3..a53b54f75 100644
 --- a/packages/ui/src/stores/useSessionDisplayStore.ts
 +++ b/packages/ui/src/stores/useSessionDisplayStore.ts
 @@ -2,6 +2,7 @@ import { create } from 'zustand';
@@ -1281,9 +1312,9 @@ index 255624fc4..c22c70b94 100644
  import type { SettingsSurface } from '@/lib/settings/registry';
  import {
    clampSessionBatchSize,
-@@ -64,6 +65,18 @@ type SessionDisplayStore = {
+@@ -40,6 +41,19 @@ type SessionDisplayStore = {
+   setAnimatedActivityIndicators: (enabled: boolean) => void;
    showChatsSection: boolean;
-   /** The In work block; hidden, its sessions stay in their projects. */
    showWorkSection: boolean;
 +  /**
 +   * Works the In work block opens with, Show more revealing the same number
@@ -1297,10 +1328,11 @@ index 255624fc4..c22c70b94 100644
 +   * sections, and the next instance must not inherit that number.
 +   */
 +  workPageSizeOwner: string | null;
-   /** The Pinned block above In work; off by default. Hidden, pinned sessions stay in their projects. */
++  /** The Pinned block above In work; off by default. Hidden, pinned sessions stay in their projects. */
    showPinnedSection: boolean;
-   /**
-@@ -108,6 +121,7 @@ type SessionDisplayStore = {
+   detailedZoneRows: boolean;
+   worktreeNameByBranch: boolean;
+@@ -64,6 +78,7 @@ type SessionDisplayStore = {
    projectSortOrder: ProjectSortOrder;
    setShowChatsSection: (show: boolean) => void;
    setShowWorkSection: (show: boolean) => void;
@@ -1308,16 +1340,18 @@ index 255624fc4..c22c70b94 100644
    setShowPinnedSection: (show: boolean) => void;
    setDetailedZoneRows: (detailed: boolean) => void;
    setWorktreeNameByBranch: (byBranch: boolean) => void;
-@@ -202,6 +216,8 @@ export const useSessionDisplayStore = create<SessionDisplayStore>()(
+@@ -140,6 +155,10 @@ export const useSessionDisplayStore = create<SessionDisplayStore>()(
        setSessionBatchSize: (size) => set({ sessionBatchSize: clampSessionBatchSize(size) }),
        showChatsSection: true,
        showWorkSection: true,
 +      workPageSize: DEFAULT_WORK_PAGE_SIZE,
 +      workPageSizeOwner: null,
-       // On for new installs: pinned work gets its own block on top. Stored
-       // state keeps an earlier choice.
++      // On for new installs: pinned work gets its own block on top. Stored
++      // state keeps an earlier choice.
        showPinnedSection: true,
-@@ -223,6 +239,7 @@ export const useSessionDisplayStore = create<SessionDisplayStore>()(
+       detailedZoneRows: getSettingsSurface() === 'mobile',
+       worktreeNameByBranch: false,
+@@ -155,6 +174,7 @@ export const useSessionDisplayStore = create<SessionDisplayStore>()(
        projectSortOrder: 'manual',
        setShowChatsSection: (show) => set({ showChatsSection: show }),
        setShowWorkSection: (show) => set({ showWorkSection: show }),
@@ -1325,11 +1359,11 @@ index 255624fc4..c22c70b94 100644
        setShowPinnedSection: (show) => set({ showPinnedSection: show }),
        setDetailedZoneRows: (detailed) => set({ detailedZoneRows: detailed }),
        setWorktreeNameByBranch: (byBranch) => set({ worktreeNameByBranch: byBranch }),
-@@ -246,12 +263,18 @@ export const useSessionDisplayStore = create<SessionDisplayStore>()(
-       // v11→v12 turns two-line rows on for a phone that was on List.
+@@ -167,11 +187,19 @@ export const useSessionDisplayStore = create<SessionDisplayStore>()(
+       name: 'session-display-mode',
+       version: 12,
        migrate: migrateSessionDisplayState,
-       // Sections cached by another build (an older one before a filter field
--      // existed) are read through the same rules as the stored setting.
++      // Sections cached by another build (an older one before a filter field
 +      // existed) are read through the same rules as the stored setting, and
 +      // the page size goes through the store's own clamp.
        merge: (persisted, current) => {
@@ -1346,12 +1380,12 @@ index 255624fc4..c22c70b94 100644
        },
      },
    ),
-@@ -263,12 +286,30 @@ export type {
+@@ -181,10 +209,32 @@ export type {
+   ProjectSortOrder
+ };
  
- // The user's sections, pin lists and hidden sections are another instance's
- // once the client switches: back to the built-in sections until the new
--// instance's settings arrive (an instance without any keeps them).
--/** Drops the user's sections when they came from another instance than `runtimeKey`. */
++// The user's sections, pin lists and hidden sections are another instance's
++// once the client switches: back to the built-in sections until the new
 +// instance's settings arrive (an instance without any keeps them). The In work
 +// page size travels with them: it is that instance's stored preference, and an
 +// instance that never stored one must open on the default, not on the number
@@ -1380,12 +1414,12 @@ index 255624fc4..c22c70b94 100644
 +  });
  };
  subscribeRuntimeEndpointWillChange(({ runtimeKey }) => dropSectionsOfOtherInstance(runtimeKey));
- // The stored copy may be another instance's when the app starts on a different
+ queueMicrotask(() => dropSectionsOfOtherInstance(getRuntimeKey()));
 diff --git a/packages/vscode/src/settings-registry.json b/packages/vscode/src/settings-registry.json
-index 2e08d59f3..8157e4a55 100644
+index 481e71ddc..289636940 100644
 --- a/packages/vscode/src/settings-registry.json
 +++ b/packages/vscode/src/settings-registry.json
-@@ -371,6 +371,14 @@
+@@ -377,6 +377,14 @@
        "scope": "profile",
        "perSurface": true
      },
@@ -1401,50 +1435,81 @@ index 2e08d59f3..8157e4a55 100644
        "scope": "profile",
        "perSurface": true
 diff --git a/packages/web/server/lib/opencode/DOCUMENTATION.md b/packages/web/server/lib/opencode/DOCUMENTATION.md
-index 94335a6be..aad310065 100644
+index dba45cb6f..33ba8d071 100644
 --- a/packages/web/server/lib/opencode/DOCUMENTATION.md
 +++ b/packages/web/server/lib/opencode/DOCUMENTATION.md
-@@ -540,7 +540,7 @@ ConPTY or Console Window Host behavior.
-     atomic write. Trust checking belongs to the session destination route.
- - Persistent per-session permission modes are stored under `permissionAutoAccept`, and the mode for new sessions under `permissionDefaultMode`; execution ownership lives in `lib/permission-auto-accept/`.
- - Queued follow-up messages live in `<data-dir>/message-queue.json`, not in settings; execution ownership lives in `lib/message-queue/`.
--- Shared sidebar preferences are stored as validated top-level fields: `sidebarProjectDisplayMode`, `sidebarSessionGroupingMode`, `sidebarListSessionGrouping`, `sidebarProjectSortOrder`, `sidebarShowChatsSection`, `sidebarShowWorkSection`, `sidebarShowPinnedSection`, `sidebarDetailedZoneRows`, and `sidebarWorktreeNameByBranch`. Device-local picker selection and sticky-header state do not enter either settings file.
+@@ -618,6 +618,69 @@ null means a completed probe with no snapshot and suppresses another probe.
+   - `ensureOpenCodeApiPrefix()`
+   - `scheduleOpenCodeApiDetection()`
+ 
++## Public exports (settings-runtime.js)
++- `createSettingsRuntime(dependencies)`: creates settings lifecycle runtime for read/migrate/persist concerns.
++- Returned API:
++  - `readSettingsFromDisk()`
++  - `readSettingsFromDiskMigrated()`
++  - `writeSettingsToDisk(settings)`
++  - `persistSettings(changes)`
++  - `registerSessionProject(resolveProject)`: resolves one project against the
++    latest registry inside the settings write queue and appends only if absent.
++    It preserves unrelated keys and navigation pointers, writes only the instance
++    document, rejects malformed input settings and reports success after the
++    atomic write. Trust checking belongs to the session destination route.
++- Persistent per-session permission modes are stored under `permissionAutoAccept`, and the mode for new sessions under `permissionDefaultMode`; execution ownership lives in `lib/permission-auto-accept/`.
++- Queued follow-up messages live in `<data-dir>/message-queue.json`, not in settings; execution ownership lives in `lib/message-queue/`.
 +- Shared sidebar preferences are stored as validated top-level fields: `sidebarProjectDisplayMode`, `sidebarSessionGroupingMode`, `sidebarListSessionGrouping`, `sidebarProjectSortOrder`, `sidebarShowChatsSection`, `sidebarShowWorkSection`, `sidebarShowPinnedSection`, `sidebarDetailedZoneRows`, `sidebarWorkPageSize`, and `sidebarWorktreeNameByBranch`. `sidebarWorkPageSize` is clamped to the `bounds` the generated registry snapshot records for it, never to a second copy of the range kept here. Device-local picker selection and sticky-header state do not enter either settings file.
- - Two files (`settings-files.js`): `settings.json` holds instance facts and any legacy or unknown keys; `preferences.json` beside it holds every key the generated registry snapshot (`settings-registry.json`) marks `profile`, as `{ version: 1, fields: { key: { value, updatedAt, surfaces? } } }`. A version-2 file in the same shape, which an earlier local build wrote, is read too and saved back as version 1; its old chat width names map to today's levels in `sanitizeSettingsUpdate`. Keys the snapshot marks `perSurface` are stored per surface kind: `GET`/`PUT /api/config/settings` read the client's kind from the `surface` query parameter (`settingsSurfaceOf`; the legacy `x-openchamber-surface` header is still honoured, but a header forces a CORS preflight that cross-origin shells and older instances refuse, so clients must not send one) (`web`, `desktop`, `vscode`, `mobile`; anything else means base), `persistSettings(changes, { surface })` writes a changed per-surface key under `surfaces[surface]` and never touches its base, and `readSettingsFromDisk({ surface })` resolves that kind's value first, the base otherwise. A write only clears a per-surface key its own view held: a key set from one kind alone has no base, so another kind's write or a base write never sees it and must keep it (`buildPreferencesFields`); dropping it there once wiped a fresh setting on every unrelated save. Callers without a surface (migrations, the seed, server-side feature writers) read and write the base. `readSettingsFromDisk()` returns the merged document and seeds `preferences.json` once from an existing `settings.json` (which it leaves intact). An existing `preferences.json` that fails to parse is a failure, not an empty profile: it is never seeded or overwritten, the merged read serves the instance part, and `persistSettings` drops profile keys with a warning until the file is fixed or removed. `writeSettingsToDisk(document)` splits by scope and writes `settings.json` as the instance part plus a copy of the profile's base values (`legacySettingsDocumentOf`): a build from before the split reads only that file, so a rollback keeps the user's preferences, while current builds ignore the copy because `preferences.json` wins in the merge; device keys are dropped from writes. Modules that read one profile key off the disk on a hot path use `readMergedSettingsSync`.
- 
- ## Public exports (settings-files.js)
-diff --git a/packages/web/server/lib/settings/settings-helpers.ts b/packages/web/server/lib/settings/settings-helpers.ts
-index edf0f00f8..35c345ab1 100644
---- a/packages/web/server/lib/settings/settings-helpers.ts
-+++ b/packages/web/server/lib/settings/settings-helpers.ts
-@@ -128,6 +128,10 @@ const SECRET_SETTINGS_KEYS = Object.freeze(
-     .map(([key]) => key),
- );
- 
-+// The In work page's range is the registry field's own `bounds`, carried into
-+// the generated snapshot, so the clamp cannot drift from the UI parser.
-+const WORK_PAGE_SIZE_BOUNDS = settingsRegistry.fields.sidebarWorkPageSize?.bounds;
++- Two files (`settings-files.js`): `settings.json` holds instance facts and any legacy or unknown keys; `preferences.json` beside it holds every key the generated registry snapshot (`settings-registry.json`) marks `profile`, as `{ version: 1, fields: { key: { value, updatedAt, surfaces? } } }`. A version-2 file in the same shape, which an earlier local build wrote, is read too and saved back as version 1; its old chat width names map to today's levels in `sanitizeSettingsUpdate`. Keys the snapshot marks `perSurface` are stored per surface kind: `GET`/`PUT /api/config/settings` read the client's kind from the `surface` query parameter (`settingsSurfaceOf`; the legacy `x-openchamber-surface` header is still honoured, but a header forces a CORS preflight that cross-origin shells and older instances refuse, so clients must not send one) (`web`, `desktop`, `vscode`, `mobile`; anything else means base), `persistSettings(changes, { surface })` writes a changed per-surface key under `surfaces[surface]` and never touches its base, and `readSettingsFromDisk({ surface })` resolves that kind's value first, the base otherwise. A write only clears a per-surface key its own view held: a key set from one kind alone has no base, so another kind's write or a base write never sees it and must keep it (`buildPreferencesFields`); dropping it there once wiped a fresh setting on every unrelated save. Callers without a surface (migrations, the seed, server-side feature writers) read and write the base. `readSettingsFromDisk()` returns the merged document and seeds `preferences.json` once from an existing `settings.json` (which it leaves intact). An existing `preferences.json` that fails to parse is a failure, not an empty profile: it is never seeded or overwritten, the merged read serves the instance part, and `persistSettings` drops profile keys with a warning until the file is fixed or removed. `writeSettingsToDisk(document)` splits by scope and writes `settings.json` as the instance part plus a copy of the profile's base values (`legacySettingsDocumentOf`): a build from before the split reads only that file, so a rollback keeps the user's preferences, while current builds ignore the copy because `preferences.json` wins in the merge; device keys are dropped from writes. Modules that read one profile key off the disk on a hot path use `readMergedSettingsSync`.
 +
- import {
-   DEFAULT_INPUT_HISTORY_LIMIT,
-   DEFAULT_INPUT_HISTORY_SCOPE,
-@@ -546,6 +550,14 @@ export const createSettingsHelpers = (dependencies) => {
-     if (typeof candidate.sidebarShowWorkSection === 'boolean') {
-       result.sidebarShowWorkSection = candidate.sidebarShowWorkSection;
-     }
-+    if (WORK_PAGE_SIZE_BOUNDS && Number.isFinite(candidate.sidebarWorkPageSize)) {
-+      // Same rule as the registry parser: an integer page, clamped to the
-+      // range the registry snapshot records.
-+      result.sidebarWorkPageSize = Math.min(
-+        WORK_PAGE_SIZE_BOUNDS.max,
-+        Math.max(WORK_PAGE_SIZE_BOUNDS.min, Math.round(candidate.sidebarWorkPageSize)),
-+      );
-+    }
-     if (candidate.sidebarShowPinnedSection === true || candidate.sidebarShowPinnedSection === false) {
-       result.sidebarShowPinnedSection = candidate.sidebarShowPinnedSection;
-     }
++## Public exports (settings-files.js)
++- `parsePreferencesDocument(raw)`, `serializePreferencesDocument(fields)`, `flattenPreferences(fields)`, `buildPreferencesFields(previousFields, document, now)`, `instancePartOf(document)`, `seedPreferencesFrom(document, now)`, `readMergedSettingsSync({ fs, path, settingsFilePath })`, `getSettingsScope(key)`, `isProfileSettingsKey(key)`, `isDeviceSettingsKey(key)`, `preferencesFilePathFor(settingsFilePath, path)`.
++- The VS Code extension host writes the same two files with the same shape (`packages/vscode/src/settings-files.ts`); format changes go to both.
++
++## Public exports (settings-helpers.js)
++- `createSettingsHelpers(dependencies)`: creates settings helper runtime for settings request/response shaping.
++- Returned API:
++  - `normalizePwaAppName(value, fallback?)`
++  - `sanitizeSettingsUpdate(payload)`
++  - `mergePersistedSettings(current, changes)`
++  - `formatSettingsResponse(settings)`
++
++## Public exports (settings-normalization-runtime.js)
++- `createSettingsNormalizationRuntime(dependencies)`: creates normalization/sanitization runtime for shared settings and tunnel helper logic.
++- Returned API:
++  - `normalizeDirectoryPath(value)`
++  - `normalizePathForPersistence(value)`
++  - `normalizeSettingsPaths(input)`
++  - `normalizeTunnelBootstrapTtlMs(value)`
++  - `normalizeTunnelSessionTtlMs(value)`
++  - `normalizeManagedRemoteTunnelHostname(value)`
++  - `normalizeManagedRemoteTunnelPresets(value)`
++  - `normalizeManagedRemoteTunnelPresetTokens(value)`
++  - `isUnsafeSkillRelativePath(value)`
++  - `sanitizeTypographySizesPartial(input)`
++  - `normalizeStringArray(input)`
++  - `sanitizeModelRefs(input, limit)`
++  - `sanitizeSkillCatalogs(input)`
++  - `sanitizeProjects(input)`
++
++Persistence path normalization (`normalizePathForPersistence` / `normalizeSettingsPaths` / `sanitizeProjects`, reached via the `readSettingsFromDiskMigrated` migration and `persistSettings`) resolves symlinks with `realpathSync` and, on case-insensitive filesystems (`win32`, `darwin`), also recovers the on-disk casing of each path component via `readdirSync` (exact-name match preferred so case-sensitive volumes are never rewritten). `realpathSync` alone does not report on-disk casing on these volumes, so without the readdir step a project stored with the wrong case would never match the real-case `directory` opencode reports for its sessions (issue #1913). A corrected path is flagged `changed` and written back to `settings.json`. A path `realpathSync` cannot resolve (missing, no permission) is kept exactly as stored, so case recovery can never swap in a different existing sibling. On macOS only `/` separates components; a backslash is a legal name character. Every settings read runs `sanitizeProjects` three times, so one pass over the project list reads each directory at most once: projects share their ancestors, and reading `/`, `/Users` and the rest again per project made a 71-project settings read about 1,280 synchronous readdirs (#6084). The listings live only for that one synchronous pass, so a later read always sees the disk as it is; a longer-lived cache would need invalidation on a case rename and was not needed once a pass reads each folder once.
++
++## Public exports (theme-runtime.js)
++- `createThemeRuntime(dependencies)`: creates custom theme runtime for on-disk theme discovery and JSON normalization/validation.
++- Returned API:
++  - `normalizeThemeJson(raw)`
++  - `readCustomThemesFromDisk()`
++
++## Public exports (project-directory-runtime.js)
++- `createProjectDirectoryRuntime(dependencies)`: creates runtime for request/project directory candidate normalization and validation. `dependencies.refuseDirectory(candidate)` answers the reason a resolved directory may not be used on this host, or null; `validateDirectoryPath` asks it before it looks at the disk, so a refused directory is never touched and never falls back to another one. The isolated-spaces host refuses `/spaces/...` through it while its switch is on.
++- Returned API:
++  - `resolveDirectoryCandidate(value)`
++  - `validateDirectoryPath(candidate)`
++  - `resolveProjectDirectory(req)`
++  - `resolveOptionalProjectDirectory(req)`
++
+ ## Entity routes (v2 shapes)
+ 
+ Everything OpenChamber persists into OpenCode config now speaks OpenCode 2.
 diff --git a/packages/web/server/lib/settings/settings-helpers.test.js b/packages/web/server/lib/settings/settings-helpers.test.js
-index 4bff29785..790ce7b5d 100644
+index 5a4928aab..116141ebb 100644
 --- a/packages/web/server/lib/settings/settings-helpers.test.js
 +++ b/packages/web/server/lib/settings/settings-helpers.test.js
 @@ -975,7 +975,7 @@ describe('settings registry gate', () => {
@@ -1455,7 +1520,7 @@ index 4bff29785..790ce7b5d 100644
 +    desktopLanAccessEnabled: true, desktopKeepAwakeEnabled: true, desktopMinimizeToTrayEnabled: true, desktopUpdateChannel: 'canary', serverUpdateChannel: 'canary', desktopMacMenuBarEnabled: true, desktopLinuxNativeFrame: true, sidebarShowChatsSection: false, sidebarShowWorkSection: false, sidebarWorkPageSize: 15, sidebarShowPinnedSection: true, sidebarDetailedZoneRows: true, sidebarWorktreeNameByBranch: true, sidebarHideEmptyWorktrees: true,
      desktopUiPassword: 'secret', githubClientId: 'client', githubScopes: 'repo', gitlabClientId: 'gitlab-client', skillCatalogs: [{ id: 'c', label: 'C', source: 'https://x' }],
      defaultGitIdentityId: 'global', permissionAutoAccept: { sessions: { s: true }, revision: 1 }, permissionDefaultMode: 'safety', messageSearchEnabled: true, messageSearchReasoningEnabled: true,
-     agentControlToolEnabled: true, agentScheduleToolEnabled: true, agentWebToolEnabled: true, browserProvider: 'builtin', agentMemoryToolEnabled: true, agentMemoryDreamingEnabled: true, agentMemoryDreamingModel: 'openai/gpt-mini', agentMemoryDreamingVariant: 'low', agentKnowledgeToolEnabled: true, agentNotifyToolEnabled: true, agentRenderToolEnabled: true, agentImageToolEnabled: true, agentSecretToolEnabled: true, agentUsageToolEnabled: true, agentImageModel: 'openrouter/openai/gpt-image-2', agentWorkflowToolEnabled: true, isolatedSpacesEnabled: true, isolatedSpacesIdleStop: { enabled: true, hours: 4 }, isolatedSpacesSshHost: 'me@box.local:2222', openCodeUpdateToastDismissedVersion: '1.0.0',
+     agentControlToolEnabled: true, agentScheduleToolEnabled: true, agentWebToolEnabled: true, browserProvider: 'builtin', agentMemoryToolEnabled: true, agentMemoryDreamingEnabled: true, agentMemoryDreamingModel: 'openai/gpt-mini', agentMemoryDreamingVariant: 'low', agentKnowledgeToolEnabled: true, agentNotifyToolEnabled: true, agentRenderToolEnabled: true, agentImageToolEnabled: true, agentSecretToolEnabled: true, agentUsageToolEnabled: true, agentTerminalToolEnabled: true, agentImageModel: 'openrouter/openai/gpt-image-2', agentWorkflowToolEnabled: true, agentWorkflowAutoApprove: true, isolatedSpacesEnabled: true, isolatedSpacesIdleStop: { enabled: true, hours: 4 }, isolatedSpacesSshHost: 'me@box.local:2222', openCodeUpdateToastDismissedVersion: '1.0.0',
 @@ -1050,6 +1050,18 @@ describe('settings registry gate', () => {
      expect(rejected).toEqual([]);
    });
@@ -1475,11 +1540,58 @@ index 4bff29785..790ce7b5d 100644
    it('drops keys the registry does not list, computed flags, and desktop-shell-owned keys', () => {
      const helpers = createTestHelpers();
      expect(helpers.sanitizeSettingsUpdate({
+diff --git a/packages/web/server/lib/settings/settings-helpers.ts b/packages/web/server/lib/settings/settings-helpers.ts
+index 7aea5e5b2..fc31d5607 100644
+--- a/packages/web/server/lib/settings/settings-helpers.ts
++++ b/packages/web/server/lib/settings/settings-helpers.ts
+@@ -45,6 +45,7 @@ interface RegistryField {
+   local?: boolean;
+   owner?: string;
+   secret?: boolean;
++  bounds?: { min: number; max: number };
+ }
+ const settingsRegistry: { fields: Record<string, RegistryField> } = createRequire(import.meta.url)('./settings-registry.json');
+ 
+@@ -159,6 +160,10 @@ const SECRET_SETTINGS_KEYS = Object.freeze(
+     .map(([key]) => key),
+ );
+ 
++// The In work page's range is the registry field's own `bounds`, carried into
++// the generated snapshot, so the clamp cannot drift from the UI parser.
++const WORK_PAGE_SIZE_BOUNDS = settingsRegistry.fields.sidebarWorkPageSize?.bounds;
++
+ import {
+   DEFAULT_INPUT_HISTORY_LIMIT,
+   DEFAULT_INPUT_HISTORY_SCOPE,
+@@ -258,6 +263,7 @@ type NumberSettingsKey =
+   | 'inputHistoryLimit' | 'sidebarSessionBatchSize' | 'liveBrowserTabLimit' | 'sessionGoalMaxAutoTurns'
+   | 'sessionGoalDefaultBudget' | 'summaryThreshold' | 'summaryLength' | 'maxLastMessageLength' | 'autoDeleteAfterDays'
+   | 'tunnelSessionTtlMs' | 'tunnelHttpsPort' | 'fontSize' | 'chatFontSize' | 'terminalFontSize' | 'editorFontSize'
++  | 'sidebarWorkPageSize'
+   | 'padding' | 'cornerRadius' | 'inputBarOffset';
+ 
+ type StringArraySettingsKey =
+@@ -671,6 +677,15 @@ export const createSettingsHelpers = (dependencies: SettingsHelpersDependencies)
+     if (isBoolean(candidate.sidebarShowWorkSection)) {
+       result.sidebarShowWorkSection = candidate.sidebarShowWorkSection;
+     }
++    const workPageSize = candidate.sidebarWorkPageSize;
++    if (WORK_PAGE_SIZE_BOUNDS && typeof workPageSize === 'number' && Number.isFinite(workPageSize)) {
++      // Same rule as the registry parser: an integer page, clamped to the
++      // range the registry snapshot records.
++      result.sidebarWorkPageSize = Math.min(
++        WORK_PAGE_SIZE_BOUNDS.max,
++        Math.max(WORK_PAGE_SIZE_BOUNDS.min, Math.round(workPageSize)),
++      );
++    }
+     if (candidate.sidebarShowPinnedSection === true || candidate.sidebarShowPinnedSection === false) {
+       result.sidebarShowPinnedSection = candidate.sidebarShowPinnedSection;
+     }
 diff --git a/packages/web/server/lib/settings/settings-registry.json b/packages/web/server/lib/settings/settings-registry.json
-index 2e08d59f3..8157e4a55 100644
+index 481e71ddc..289636940 100644
 --- a/packages/web/server/lib/settings/settings-registry.json
 +++ b/packages/web/server/lib/settings/settings-registry.json
-@@ -371,6 +371,14 @@
+@@ -377,6 +377,14 @@
        "scope": "profile",
        "perSurface": true
      },

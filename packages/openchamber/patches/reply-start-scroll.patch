@@ -1,29 +1,21 @@
 diff --git a/packages/ui/src/components/chat/ChatContainer.tsx b/packages/ui/src/components/chat/ChatContainer.tsx
-index f525fbc..6f0ca9d 100644
+index 7d26e5031..3251639ae 100644
 --- a/packages/ui/src/components/chat/ChatContainer.tsx
 +++ b/packages/ui/src/components/chat/ChatContainer.tsx
-@@ -61,7 +61,7 @@ import {
-     withdrawComposerInsets,
- } from '@/components/chat/composer/state/composerInsetReaders';
- import { SessionErrorNotice } from '@/components/chat/SessionErrorNotice';
--import ScrollToBottomButton from './components/ScrollToBottomButton';
-+import ScrollToBottomButton, { ScrollToReplyStartAction } from './components/ScrollToBottomButton';
- import { PromptNavigatorRail } from './components/PromptNavigatorRail';
- import { useAuthSessionStore } from '@/lib/runtime-auth-expiry';
- import { useScrollShadow } from '@/components/ui/useScrollShadow';
-@@ -72,6 +72,8 @@ import { useChatTurnNavigation } from './hooks/useChatTurnNavigation';
- import { ChatQuoteHighlightContext, useChatQuoteHighlightStore } from './hooks/chatQuoteHighlightStore';
- import { ChatQuoteHighlightLayer } from './message/ChatQuoteHighlightLayer';
- import { TextSelectionMenu } from './message/TextSelectionMenu';
+@@ -39,6 +39,9 @@ import { useColumnTurnNavigation } from './column/useColumnTurnNavigation';
+ import { useComposerPresentation } from './column/useComposerPresentation';
+ import { useStatusOverlayHeight } from './column/useStatusOverlayHeight';
+ import { useWorkStatusPlacement } from './column/useWorkStatusPlacement';
++import { ScrollToReplyStartAction } from './components/ScrollToBottomButton';
 +import { deriveMessageRole } from './message/messageRole';
 +import { isEmptyTextPart } from './message/partUtils';
- import { loadQuoteSource as loadQuoteSourceMessage, scrollToQuoteSource as scrollToQuoteSourceMessage } from './quoteNavigation';
- import { useChatSurfaceMode } from './useChatSurfaceMode';
- import { useMessageTTS } from '@/hooks/useMessageTTS';
-@@ -1543,6 +1545,68 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
-         });
-     }, [checkLinkedMessage, controllerLoadHistoryUntilMessage, currentSessionKey, handleLinkedMessageMissing, onManualNavigation]);
-     const scrollToTimelineMessage = timelineController.scrollToMessage;
+ 
+ type ChatContainerProps = {
+     active?: boolean;
+@@ -244,6 +247,102 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
+         timelineController,
+         scrollRef,
+     });
 +    // Replies in the rendered window: the pill's up arrow walks back to the
 +    // nearest one whose prose start sits above the viewport. Steps that only
 +    // ran tools are not replies a reader wants to land on.
@@ -86,13 +78,6 @@ index f525fbc..6f0ca9d 100644
 +        },
 +        [onListMetricsChange],
 +    );
-     const scrollToQuoteSource = React.useCallback(async (
-         messageId: string,
-         options?: { behavior?: ScrollBehavior },
-@@ -1561,6 +1625,39 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
-     const scrollToUiPageRow = React.useCallback((messageId: string) => (
-         messageListRef.current?.scrollToUiPageRow(messageId) ?? false
-     ), []);
 +    const scrollToPreviousReplyStart = React.useCallback(() => {
 +        // Resolved here, not read from state: the cached id is measured on a
 +        // frame the list may have moved since (it replaces row estimates as
@@ -126,10 +111,11 @@ index f525fbc..6f0ca9d 100644
 +            ? <ScrollToReplyStartAction onClick={scrollToPreviousReplyStart} />
 +            : undefined
 +    ), [replyStartInChip, scrollToPreviousReplyStart]);
- 
-     const navigation = useChatTurnNavigation({
-         sessionId: currentSessionId,
-@@ -1941,7 +2038,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
++
+     const { authSessionExpired, spaceStopped, isSessionHydrating, retrySessionLoad } = useColumnSessionLoad({
+         active,
+         currentSessionId,
+@@ -320,7 +419,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
              registerList={registerList}
              captureOutgoingPosition={captureOutgoingPosition}
              onIsAtEndChange={onIsAtEndChange}
@@ -138,33 +124,18 @@ index f525fbc..6f0ca9d 100644
              onTimelineDataChange={onTimelineDataChange}
              messageListRef={messageListRef}
              renderedMessages={timelineController.renderedMessages}
-@@ -2045,8 +2142,14 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
-                        when the slot resizes (see mobileComposerMorph). */
-                     <div className="oc-composer-riders absolute bottom-full inset-x-0" data-composer-riders="true">
-                         <ScrollToBottomButton
-+                            // The pill only ever draws while it is away from the
-+                            // live edge: at the edge the chip carries the arrow,
-+                            // and an arrow there painted over the transcript
-+                            // whenever a dock raised the composer band.
-                             visible={timelineController.showScrollToBottom}
-+                            awayFromLiveEdge={timelineController.showScrollToBottom}
-                             working={sessionIsWorking}
-+                            onScrollToReplyStart={replyStartInPill ? scrollToPreviousReplyStart : undefined}
-                             onClick={navigation.resumeToLatest}
-                         />
-                         {/* Same anchor and column as the pill, so the status
-@@ -2071,7 +2174,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
-                                         userOwnsScroll ? 'pointer-events-none' : 'pointer-events-auto',
-                                     )}
-                                 >
--                                    <StatusRowContainer />
-+                                    <StatusRowContainer leadingAction={replyStartAction} />
-                                 </div>
-                             </div>
-                         </div>
+@@ -409,6 +508,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
+                         onResumeToLatest={navigation.resumeToLatest}
+                         userOwnsScroll={userOwnsScroll}
+                         onStatusOverlayNode={onStatusOverlayNode}
++                        onScrollToReplyStart={replyStartInPill ? scrollToPreviousReplyStart : undefined}
++                        replyStartAction={replyStartAction}
+                         promptReadOnly={promptReadOnly}
+                         messageSelectionActive={messageSelectionActive}
+                         currentSessionId={currentSessionId}
 diff --git a/packages/ui/src/components/chat/MessageList.replyStart.test.tsx b/packages/ui/src/components/chat/MessageList.replyStart.test.tsx
 new file mode 100644
-index 0000000..1c09341
+index 000000000..1c09341c1
 --- /dev/null
 +++ b/packages/ui/src/components/chat/MessageList.replyStart.test.tsx
 @@ -0,0 +1,214 @@
@@ -382,28 +353,673 @@ index 0000000..1c09341
 +        await done();
 +    }
 +});
-diff --git a/packages/ui/src/components/chat/MessageList.tsx b/packages/ui/src/components/chat/MessageList.tsx
-index b4cce17..e92ab3b 100644
---- a/packages/ui/src/components/chat/MessageList.tsx
-+++ b/packages/ui/src/components/chat/MessageList.tsx
-@@ -14,6 +14,7 @@ import { TurnFold, TurnPagesRow } from './components/LiveTurnActivity';
- import { useTurnFoldContexts } from './components/useTurnFold';
- import { LiveFinalActivityContext, LiveTurnHoistedPagesContext } from './components/liveActivityContext';
- import { MessageSliceContext } from './message/messageSliceContext';
-+import { findReplyProseElement } from './message/replyProse';
- import { PendingWorkflowApprovals } from './workflows/PendingWorkflowApprovals';
- import { getTurnsWithLaterAssistant, uiPageMessageId } from './lib/turns/liveActivity';
- import type { ChatMessageEntry, TurnRecord, TurnGroupingContext } from './lib/turns/types';
-@@ -37,6 +38,8 @@ import { resolveTimelineIsAtEnd } from './lib/scroll/timelineScrollAnchoring';
- import { estimateTimelineRowSize, type RowSizeMetrics } from './lib/turns/rowSizeEstimate';
- import { onNavigationRelease } from './lib/scroll/timelineScrollIntent';
- import { useSelectionRowHold } from './lib/scroll/selectionRowHold';
-+import { readStuckHeaderHeight, replyTopInset } from './lib/scroll/replyTopInset';
-+import { MESSAGE_JUMP_GAP_PX } from './lib/scroll/scrollGaps';
- import { isReasoningRevealTarget } from './search/reasoningReveal';
- import {
-     ANCHOR_HOLD_MAX_FRAMES,
-@@ -146,6 +149,14 @@ export interface MessageListHandle {
+diff --git a/packages/ui/src/components/chat/StatusRow.tsx b/packages/ui/src/components/chat/StatusRow.tsx
+index 53123dce6..304dc226a 100644
+--- a/packages/ui/src/components/chat/StatusRow.tsx
++++ b/packages/ui/src/components/chat/StatusRow.tsx
+@@ -1,4 +1,5 @@
+ import React from "react";
++import { cn } from "@/lib/utils";
+ import { useChatSessionSelection } from './chatColumnSession';
+ import { WorkingPlaceholder } from "./message/parts/WorkingPlaceholder";
+ import { BackgroundWorkButton } from "./components/BackgroundWorkButton";
+@@ -18,6 +19,9 @@ interface StatusRowProps {
+   modelName?: string | null;
+   providerId?: string | null;
+   onBackground?: () => void;
++  /** Drawn inside the chip ahead of the status, for an action the chip takes
++      over while it is the floating control at the live edge. */
++  leadingAction?: React.ReactNode;
+ }
+ 
+ export const StatusRow: React.FC<StatusRowProps> = ({
+@@ -31,6 +35,7 @@ export const StatusRow: React.FC<StatusRowProps> = ({
+   modelName,
+   providerId,
+   onBackground,
++  leadingAction,
+ }) => {
+   const currentSessionId = useChatSessionSelection().sessionId;
+ 
+@@ -45,7 +50,31 @@ export const StatusRow: React.FC<StatusRowProps> = ({
+     <div
+       style={STATUS_ROW_CONTAINER_STYLE}
+     >
+-      <div className="oc-surface-floating inline-flex w-max max-w-full items-center gap-2 h-7 whitespace-nowrap rounded-full [corner-shape:round] ps-1.5 pe-2">
++      {/* 28px, the toolbar control height, shared with the scroll-to-bottom
++          pill that takes over this label away from the live edge. min-h, not
++          h: on a phone the touch-target floor grows the arrow inside it to
++          36px, and the chip must grow with the arrow the way the pill does. */}
++      {/* The chip lives here, not on the container: the root above is
++          an inline-size query container, whose width ignores its children —
++          a shrink-to-fit wrapper around it always collapsed to zero. */}
++      {/* Same start inset the arrow slot gives the icon: 1px border + 6px.
++          The logo box is 16px like the arrow icon, its mark normalized in
++          WorkingPlaceholder, so the visible marks land on the same line.
++          pe-2 evens out the far side: text glyph to edge lands ~10px, the
++          same optical gap as the start. */}
++      <div
++        className={cn(
++          "oc-surface-floating inline-flex w-max max-w-full items-center gap-2 min-h-7 whitespace-nowrap rounded-full [corner-shape:round] pe-2",
++          // The arrow slot sits at the chip's edge the way it does in the
++          // scroll pill, so the icon lands on the same line in both.
++          leadingAction ? "ps-0" : "ps-1.5",
++        )}
++      >
++        {leadingAction}
++        {/* overflow-x-clip: hiding one axis turns the other into `auto`, and a
++            sub-pixel overshoot of the label (zoom, font metrics) gave the chip
++            its own scrollbar. Clipping both axes cut descenders off at the
++            label's 16px line box, so only the width is clipped. */}
+         <div className="flex items-center min-w-0 gap-2 overflow-x-clip">
+           {shouldRenderPlaceholder ? (
+             <WorkingPlaceholder
+diff --git a/packages/ui/src/components/chat/StatusRowContainer.tsx b/packages/ui/src/components/chat/StatusRowContainer.tsx
+index 6bd643317..f3a7afcbe 100644
+--- a/packages/ui/src/components/chat/StatusRowContainer.tsx
++++ b/packages/ui/src/components/chat/StatusRowContainer.tsx
+@@ -7,7 +7,12 @@ import { useConfigStore } from '@/stores/useConfigStore';
+ import { getProviderModelDisplayName } from '@/lib/modelDisplay';
+ import { StatusRow } from './StatusRow';
+ 
+-export const StatusRowContainer: React.FC = React.memo(() => {
++/**
++ * Status row wrapper.
++ * Uses the dedicated assistant status hook so the row keeps accurate live activity
++ * labels while still limiting subscriptions to the active assistant message.
++ */
++export const StatusRowContainer: React.FC<{ leadingAction?: React.ReactNode }> = React.memo(({ leadingAction }) => {
+     const { activeModel, working } = useAssistantStatus();
+     const currentAgentName = useConfigStore((state) => state.currentAgentName);
+     const providers = useConfigStore((state) => state.providers);
+@@ -40,6 +45,7 @@ export const StatusRowContainer: React.FC = React.memo(() => {
+             modelName={modelDisplayName}
+             providerId={activeModel?.providerId ?? null}
+             onBackground={working.canBackground ? backgroundWork : undefined}
++            leadingAction={leadingAction}
+         />
+     );
+ });
+diff --git a/packages/ui/src/components/chat/__tests__/issue-2903-subagent-status-line-only.test.tsx b/packages/ui/src/components/chat/__tests__/issue-2903-subagent-status-line-only.test.tsx
+index c3be5d8f2..e067f019d 100644
+--- a/packages/ui/src/components/chat/__tests__/issue-2903-subagent-status-line-only.test.tsx
++++ b/packages/ui/src/components/chat/__tests__/issue-2903-subagent-status-line-only.test.tsx
+@@ -256,7 +256,7 @@ describe('issue #2903 busy subagent status-line-only', () => {
+     // longer lives here: the draft surface owns it since the draft transition
+     // animation landed.
+     expect(sessionPlaceholderSource).toContain('if (messageCount === 0 && !sessionIsWorking)');
+-    expect(composerSlotSource).toContain('<StatusRowContainer />');
++    expect(composerSlotSource).toContain('<StatusRowContainer leadingAction={replyStartAction} />');
+ 
+     const emptyIdleGuard = 'if (messageCount === 0 && !sessionIsWorking)';
+     const emptyIdleReturn = sessionPlaceholderSource.indexOf(emptyIdleGuard);
+diff --git a/packages/ui/src/components/chat/column/ComposerSlot.tsx b/packages/ui/src/components/chat/column/ComposerSlot.tsx
+index 7a8173d2a..a91242567 100644
+--- a/packages/ui/src/components/chat/column/ComposerSlot.tsx
++++ b/packages/ui/src/components/chat/column/ComposerSlot.tsx
+@@ -24,11 +24,18 @@ const ComposerRiders: React.FC<{
+     onResumeToLatest: () => void;
+     userOwnsScroll: boolean;
+     onStatusOverlayNode: (node: HTMLDivElement | null) => void;
+-}> = ({ showScrollToBottom, sessionIsWorking, onResumeToLatest, userOwnsScroll, onStatusOverlayNode }) => (
++    onScrollToReplyStart?: () => void;
++    replyStartAction?: React.ReactNode;
++}> = ({ showScrollToBottom, sessionIsWorking, onResumeToLatest, userOwnsScroll, onStatusOverlayNode, onScrollToReplyStart, replyStartAction }) => (
+     <div className="oc-composer-riders absolute bottom-full inset-x-0" data-composer-riders="true">
+         <ScrollToBottomButton
+             visible={showScrollToBottom}
++            // The pill only ever draws while it is away from the live edge: at
++            // the edge the chip carries the arrow, and an arrow there painted
++            // over the transcript whenever a dock raised the composer band.
++            awayFromLiveEdge={showScrollToBottom}
+             working={sessionIsWorking}
++            onScrollToReplyStart={onScrollToReplyStart}
+             onClick={onResumeToLatest}
+         />
+         <div
+@@ -47,7 +54,7 @@ const ComposerRiders: React.FC<{
+                         userOwnsScroll ? 'pointer-events-none' : 'pointer-events-auto',
+                     )}
+                 >
+-                    <StatusRowContainer />
++                    <StatusRowContainer leadingAction={replyStartAction} />
+                 </div>
+             </div>
+         </div>
+@@ -112,6 +119,8 @@ export const ComposerSlot: React.FC<{
+     onResumeToLatest: () => void;
+     userOwnsScroll: boolean;
+     onStatusOverlayNode: (node: HTMLDivElement | null) => void;
++    onScrollToReplyStart?: () => void;
++    replyStartAction?: React.ReactNode;
+     promptReadOnly: boolean;
+     messageSelectionActive: boolean;
+     currentSessionId: string | null;
+@@ -136,6 +145,8 @@ export const ComposerSlot: React.FC<{
+     onResumeToLatest,
+     userOwnsScroll,
+     onStatusOverlayNode,
++    onScrollToReplyStart,
++    replyStartAction,
+     promptReadOnly,
+     messageSelectionActive,
+     currentSessionId,
+@@ -168,6 +179,8 @@ export const ComposerSlot: React.FC<{
+                 showScrollToBottom={showScrollToBottom}
+                 sessionIsWorking={sessionIsWorking}
+                 onResumeToLatest={onResumeToLatest}
++                onScrollToReplyStart={onScrollToReplyStart}
++                replyStartAction={replyStartAction}
+                 userOwnsScroll={userOwnsScroll}
+                 onStatusOverlayNode={onStatusOverlayNode}
+             />
+diff --git a/packages/ui/src/components/chat/components/ScrollToBottomButton.tsx b/packages/ui/src/components/chat/components/ScrollToBottomButton.tsx
+index 1e1cf68b1..a5b3002b6 100644
+--- a/packages/ui/src/components/chat/components/ScrollToBottomButton.tsx
++++ b/packages/ui/src/components/chat/components/ScrollToBottomButton.tsx
+@@ -34,6 +34,30 @@ const ScrollAction: React.FC<{ onClick: () => void; children?: React.ReactNode }
+     );
+ };
+ 
++/**
++ * The pill's other end: back to the start of the previous reply, for a reader
++ * who scrolled past it. Sits beside the down arrow in the same surface so both
++ * jumps stay one floating control.
++ */
++export const ScrollToReplyStartAction: React.FC<{ onClick: () => void }> = ({ onClick }) => {
++    const { t } = useI18n();
++    return (
++        <Tooltip>
++            <TooltipTrigger asChild>
++                <button
++                    type="button"
++                    onClick={onClick}
++                    aria-label={t('chat.scrollToReplyStart.aria')}
++                    className="inline-flex h-[calc(1.75rem-2px)] w-7 shrink-0 items-center justify-center rounded-full [corner-shape:round] text-muted-foreground"
++                >
++                    <Icon name="arrow-up" className="h-4 w-4" />
++                </button>
++            </TooltipTrigger>
++            <TooltipContent side="top" sideOffset={6}>{t('chat.scrollToReplyStart.aria')}</TooltipContent>
++        </Tooltip>
++    );
++};
++
+ const WorkingPillBody: React.FC<{ onClick: () => void }> = ({ onClick }) => {
+     const { activeModel, working } = useAssistantStatus();
+     const providers = useConfigStore((state) => state.providers);
+@@ -61,12 +85,30 @@ const WorkingPillBody: React.FC<{ onClick: () => void }> = ({ onClick }) => {
+ };
+ 
+ interface ScrollToBottomButtonProps {
++    /** The reader left the live edge, so the pill is on screen. At the live
++        edge it stays out of the way: the floating status row carries the way
++        back there while the session works, and nothing when it is idle. */
+     visible: boolean;
++    /** The reader left the live edge, so the down arrow and its status label
++        apply. At the live edge the floating status row still carries them. */
++    awayFromLiveEdge: boolean;
++    /** The session is still streaming: the pill carries the status label
++        while the floating status row is hidden away from the live edge. */
+     working?: boolean;
++    /** Absent when no reply start sits above the viewport, or while the status
++        chip carries the same arrow at the live edge: the arrow always moves
++        up, landing on the reply the reader has already scrolled past. */
++    onScrollToReplyStart?: () => void;
+     onClick: () => void;
+ }
+ 
+-const ScrollToBottomButton: React.FC<ScrollToBottomButtonProps> = ({ visible, working = false, onClick }) => {
++const ScrollToBottomButton: React.FC<ScrollToBottomButtonProps> = ({
++    visible,
++    awayFromLiveEdge,
++    working = false,
++    onScrollToReplyStart,
++    onClick,
++}) => {
+     return (
+         <div
+             ref={registerFloatingPanelClearanceReader}
+@@ -85,7 +127,10 @@ const ScrollToBottomButton: React.FC<ScrollToBottomButtonProps> = ({ visible, wo
+                         visible ? 'pointer-events-auto' : 'pointer-events-none',
+                     )}
+                 >
+-                    {working && visible ? <WorkingPillBody onClick={onClick} /> : <ScrollAction onClick={onClick} />}
++                    {onScrollToReplyStart ? <ScrollToReplyStartAction onClick={onScrollToReplyStart} /> : null}
++                    {awayFromLiveEdge
++                        ? (working ? <WorkingPillBody onClick={onClick} /> : <ScrollAction onClick={onClick} />)
++                        : null}
+                 </div>
+                 </div>
+             </div>
+diff --git a/packages/ui/src/components/chat/hooks/useChatTimelineController.test.ts b/packages/ui/src/components/chat/hooks/useChatTimelineController.test.ts
+index aab71c919..cf0b294e1 100644
+--- a/packages/ui/src/components/chat/hooks/useChatTimelineController.test.ts
++++ b/packages/ui/src/components/chat/hooks/useChatTimelineController.test.ts
+@@ -223,6 +223,8 @@ describe('useChatTimelineController identity lifecycle', () => {
+             captureViewportAnchor: () => null, restoreViewportAnchor: () => false, alignViewportAnchor: () => 'missing',
+             hasMessageRow: () => false,
+             isHistoryVirtualized: () => false, scrollToTurnId: () => false, scrollToMessageId: () => false,
++            scrollToReplyStart: () => false,
++            findPreviousReplyStart: () => null,
+             holdViewportAnchor: () => {}, scrollToBottom: () => {},
+         };
+         const Harness = () => {
+diff --git a/packages/ui/src/components/chat/lib/scroll/DOCUMENTATION.md b/packages/ui/src/components/chat/lib/scroll/DOCUMENTATION.md
+index 51e22d4bf..cc7e80cc1 100644
+--- a/packages/ui/src/components/chat/lib/scroll/DOCUMENTATION.md
++++ b/packages/ui/src/components/chat/lib/scroll/DOCUMENTATION.md
+@@ -1,6 +1,6 @@
+ # Chat scroll
+ 
+-The transcript is a LegendList (`@legendapp/list`) owned by `useChatTimelineScroll`. These files hold the scroll logic that list does not do on its own: anchoring, end-keeping, restore and the mobile keyboard glide.
++The transcript is a LegendList (`@legendapp/list`) owned by `useChatTimelineScroll`. These files hold the scroll logic that list does not do on its own: anchoring, end-keeping, restore, reply-start navigation and the mobile keyboard glide.
+ 
+ ## Invariants
+ 
+@@ -103,6 +103,27 @@ The follow used to issue a native smooth `scrollTo` for every landed block. Chro
+ 
+ iOS and iPadOS WebKit keep the native smooth scroll (`native` in `followGlide.ts`, chosen by `-webkit-touch-callout` support): there `scrollTop` moves in whole pixels from the main thread, and a position written every frame steps visibly (`performance-engineering`, `references/ios-webkit.md`). The native glide is left to finish while it still moves toward an unchanged end, because re-issuing it restarts the animation.
+ 
++## Reply-start navigation
++
++The pill (away from the live edge) and the floating status chip (at the live edge while the session works) carry one "scroll to start of reply" arrow. It lands on the nearest reply whose prose starts above the visible content top, which is the reply the reader is inside or has just passed.
++
++- **The target is resolved at click time.** The id cached for drawing the control is measured on an animation frame, and the list replaces row estimates as rows mount, so the viewport the reader sees can belong to a different reply than the cached id. The click asks the list again (`findPreviousReplyStart`) and only falls back to the cached id when the list cannot answer.
++- **The measurement follows layout, not only scroll.** A sticky-header toggle changes the content top, a resize re-wraps rows, and the list measures rows it just placed: none of those necessarily scroll. The target is re-measured on a `ResizeObserver` of the scroll node, on the list's metrics callback (growth), on the sticky-header setting, and on a change of the rendered replies.
++- **The boundary comes from every mounted message row.** The nearest reply is found against the message row at the content top. `data-message-slice` rows name their message as well, so they take part in the scan; the message's own start stays its row without the attribute, which is what gets measured and landed on.
++- **A reply starts at its prose.** A message whose first row draws only tool calls or reasoning has no start to land on and is skipped, so the arrow goes to the next older reply with text rather than to the work that led to it.
++- **A folded reply is opened only when it is missing.** The jump looks for the reply's prose first; the fold is opened only when the row is absent, because opening a live turn's Activity expands it for good.
++- **One write, then a settle.** The jump issues one list offset (no index target from a second navigation path competes with it) and then holds the prose at `replyTopInset` until the list has stopped resizing; a row measured after the first write re-aims the settle instead of leaving the reply hundreds of pixels inside the viewport.
++- **Two gaps, named once.** `MESSAGE_JUMP_GAP_PX` (50 px) is the room above a message a link, quote or the timeline lands on; `REPLY_START_GAP_PX` (16 px) is the room above a reply, whose turn's prompt row is usually already above it. Both live in `scrollGaps.ts` and are read by the follow stops, the message jumps and the reply-start jump alike.
++- **Only one arrow draws at a time.** The chip and the pill are gated on the same flags: while the chip is the floating control at the live edge it carries the arrow and the pill does not; away from the edge the chip fades, draws no arrow (nothing focusable inside a faded chip), and the pill carries both.
++
++### Why the inset falls back to another turn's stuck header
++
++A reply belongs to a turn whose prompt row is its head, and a reply appended to a turn can have that head virtualized out while an older turn's prompt is the header stuck over the viewport. The fallback reads the header actually covering the top edge instead of the 16 px gap, because that header covers the reply exactly as the turn's own would: with no header counted, the prose would land underneath it. The alternative, always using the plain gap, is right only when nothing sticks.
++
++### Why the arrow is not drawn at the live edge
++
++The floating band above the composer is reserved for the composer's own overlays, and a dock (a question or permission card) raises it into the transcript. At the live edge the status chip already sits in that band and carries the arrow while the session works; with the session idle the arrow waits until the reader scrolls away and the pill takes over. Drawing it at the live edge painted it over the reader's own text on a phone, where the visible transcript above a raised dock is a few lines.
++
+ ## Connected scroll work
+ 
+ Effect cleanup cancels follow frames and clears their scheduling sentinel, and
+diff --git a/packages/ui/src/components/chat/lib/scroll/replyTopInset.test.ts b/packages/ui/src/components/chat/lib/scroll/replyTopInset.test.ts
+new file mode 100644
+index 000000000..499bc56c8
+--- /dev/null
++++ b/packages/ui/src/components/chat/lib/scroll/replyTopInset.test.ts
+@@ -0,0 +1,113 @@
++import { describe, expect, test } from 'bun:test';
++import { Window } from 'happy-dom';
++
++import { MESSAGE_JUMP_GAP_PX, REPLY_START_GAP_PX } from './scrollGaps';
++import { readStuckHeaderHeight, replyTopInset } from './replyTopInset';
++
++const window = new Window();
++const document = window.document as unknown as Document;
++globalThis.CSS = window.CSS as unknown as typeof CSS;
++
++const rect = (top: number, height: number): DOMRect => ({
++    top,
++    bottom: top + height,
++    height,
++    left: 0,
++    right: 0,
++    width: 0,
++    x: 0,
++    y: top,
++    toJSON: () => ({}),
++}) as DOMRect;
++
++const stubRect = (element: Element, box: DOMRect): void => {
++    Object.defineProperty(element, 'getBoundingClientRect', { value: () => box, configurable: true });
++};
++
++const container = (): HTMLElement => {
++    document.body.innerHTML = '';
++    const root = document.createElement('div');
++    document.body.append(root);
++    stubRect(root, rect(48, 600));
++    return root as unknown as HTMLElement;
++};
++
++const addTurnHead = (root: HTMLElement, turnId: string, headerHeight: number): HTMLElement => {
++    const head = document.createElement('section');
++    head.dataset.turnId = turnId;
++    const header = document.createElement('div');
++    header.dataset.turnStickyHeader = '';
++    head.append(header);
++    stubRect(header, rect(48, headerHeight));
++    root.append(head);
++    return header;
++};
++
++const addReply = (root: HTMLElement, turnId: string, proseTop: number): HTMLElement => {
++    const row = document.createElement('div');
++    row.dataset.turnRow = turnId;
++    const prose = document.createElement('div');
++    prose.textContent = 'Answer';
++    row.append(prose);
++    stubRect(prose, rect(proseTop, 40));
++    root.append(row);
++    return prose;
++};
++
++describe('readStuckHeaderHeight', () => {
++    test('counts only a header pinned at the container top', () => {
++        const root = container();
++        const pinned = addTurnHead(root, 'turn_1', 132);
++        const below = document.createElement('div');
++        below.dataset.turnStickyHeader = '';
++        stubRect(below, rect(500, 160));
++        root.append(below);
++
++        expect(readStuckHeaderHeight(root)).toBe(132);
++        expect(pinned.dataset.turnId).toBeUndefined();
++    });
++
++    test('is zero when no header covers the top', () => {
++        const root = container();
++        const below = document.createElement('div');
++        below.dataset.turnStickyHeader = '';
++        stubRect(below, rect(300, 160));
++        root.append(below);
++
++        expect(readStuckHeaderHeight(root)).toBe(0);
++    });
++});
++
++describe('replyTopInset', () => {
++    test('clears the reply turn own sticky header', () => {
++        const root = container();
++        addTurnHead(root, 'turn_1', 132);
++        const prose = addReply(root, 'turn_1', 400);
++
++        expect(replyTopInset(root, prose)).toBe(132 + REPLY_START_GAP_PX);
++    });
++
++    test('falls back to the header stuck over the viewport when the reply turn head is not mounted', () => {
++        const root = container();
++        addTurnHead(root, 'turn_0', 132);
++        const prose = addReply(root, 'turn_1', 400);
++
++        expect(replyTopInset(root, prose)).toBe(132 + REPLY_START_GAP_PX);
++    });
++
++    test('falls back when the reply turn header has no height yet', () => {
++        const root = container();
++        addTurnHead(root, 'turn_0', 132);
++        addTurnHead(root, 'turn_1', 0);
++        const prose = addReply(root, 'turn_1', 400);
++
++        expect(replyTopInset(root, prose)).toBe(132 + REPLY_START_GAP_PX);
++    });
++
++    test('keeps the plain message gap when nothing sticks', () => {
++        const root = container();
++        const prose = addReply(root, 'turn_1', 400);
++
++        expect(replyTopInset(root, prose)).toBe(MESSAGE_JUMP_GAP_PX);
++    });
++});
+diff --git a/packages/ui/src/components/chat/lib/scroll/replyTopInset.ts b/packages/ui/src/components/chat/lib/scroll/replyTopInset.ts
+new file mode 100644
+index 000000000..0c839d736
+--- /dev/null
++++ b/packages/ui/src/components/chat/lib/scroll/replyTopInset.ts
+@@ -0,0 +1,36 @@
++import { MESSAGE_JUMP_GAP_PX, REPLY_START_GAP_PX } from './scrollGaps';
++
++// The sticky prompt covers the top of the viewport when the setting is on.
++// Every position below it counts as hidden content.
++export const readStuckHeaderHeight = (container: HTMLElement): number => {
++    const containerTop = container.getBoundingClientRect().top;
++    let height = 0;
++    for (const header of container.querySelectorAll<HTMLElement>('[data-turn-sticky-header]')) {
++        const rect = header.getBoundingClientRect();
++        if (rect.top <= containerTop + 1 && rect.bottom > containerTop) {
++            height = Math.max(height, rect.height);
++        }
++    }
++    return height;
++};
++
++// A reply whose turn has a sticky prompt starts below it, not at the raw top
++// edge. The reply can be grouped under a turn whose own head is not mounted
++// (for example an answer appended to a turn whose prompt row is virtualized
++// out): the prompt pinned over the viewport is then a different turn's header,
++// and it still covers the reply. Fall back to the header actually stuck at the
++// top, not the message-jump gap (`scrollGaps.ts`). Without any header the gap
++// stays the message-jump gap.
++export const replyTopInset = (container: HTMLElement, element: HTMLElement): number => {
++    const turnId = element.closest<HTMLElement>('[data-turn-row]')?.dataset.turnRow
++        ?? element.closest<HTMLElement>('[data-turn-id]')?.dataset.turnId;
++    if (turnId) {
++        const header = container.querySelector<HTMLElement>(`[data-turn-id="${CSS.escape(turnId)}"] > [data-turn-sticky-header]`);
++        const headerHeight = header?.getBoundingClientRect().height ?? 0;
++        if (headerHeight > 0) {
++            return headerHeight + REPLY_START_GAP_PX;
++        }
++    }
++    const stuckHeaderHeight = readStuckHeaderHeight(container);
++    return stuckHeaderHeight > 0 ? stuckHeaderHeight + REPLY_START_GAP_PX : MESSAGE_JUMP_GAP_PX;
++};
+diff --git a/packages/ui/src/components/chat/lib/scroll/scrollGaps.ts b/packages/ui/src/components/chat/lib/scroll/scrollGaps.ts
+new file mode 100644
+index 000000000..325ab1946
+--- /dev/null
++++ b/packages/ui/src/components/chat/lib/scroll/scrollGaps.ts
+@@ -0,0 +1,8 @@
++// Room left above a message a link, a quote or the timeline lands on. The
++// chat scroller fades its top edge out, so the message starts below the fade.
++export const MESSAGE_JUMP_GAP_PX = 50;
++
++// Room left above a reply whose start the follow stopped at, and above the
++// reply the "back to the reply start" arrow lands on. Smaller than a message
++// jump because the reply is already under its turn's prompt row.
++export const REPLY_START_GAP_PX = 16;
+diff --git a/packages/ui/src/components/chat/message/body/useAssistantRenderedParts.tsx b/packages/ui/src/components/chat/message/body/useAssistantRenderedParts.tsx
+index dd9e7233b..437ab1bb5 100644
+--- a/packages/ui/src/components/chat/message/body/useAssistantRenderedParts.tsx
++++ b/packages/ui/src/components/chat/message/body/useAssistantRenderedParts.tsx
+@@ -178,6 +178,7 @@ export const useAssistantRenderedParts = ({
+                                 messageId={messageId}
+                                 streamPhase={effectiveStreamPhase}
+                                 onShowPopup={onShowPopup}
++                                reasoning
+                             />
+                         );
+                     } else {
+diff --git a/packages/ui/src/components/chat/message/parts/AssistantTextPart.tsx b/packages/ui/src/components/chat/message/parts/AssistantTextPart.tsx
+index 6da9c355f..55651d754 100644
+--- a/packages/ui/src/components/chat/message/parts/AssistantTextPart.tsx
++++ b/packages/ui/src/components/chat/message/parts/AssistantTextPart.tsx
+@@ -22,6 +22,12 @@ interface AssistantTextPartProps {
+     streamPhase: StreamPhase;
+     onShowPopup?: (content: ToolPopupContent) => void;
+     range?: { start: number; end?: number };
++    /**
++     * A reasoning trace drawn as plain text (`collapsibleThinkingBlocks` off).
++     * It shares this component's markup, so it marks itself to stay out of the
++     * reply-prose anchors that navigation lands on.
++     */
++    reasoning?: boolean;
+ }
+ 
+ const AssistantTextPart: React.FC<AssistantTextPartProps> = ({
+@@ -30,6 +36,7 @@ const AssistantTextPart: React.FC<AssistantTextPartProps> = ({
+     streamPhase,
+     onShowPopup,
+     range,
++    reasoning = false,
+ }) => {
+     const guestLinks = useGuestLinkRules();
+     const partWithText = part as PartWithText;
+@@ -81,6 +88,7 @@ const AssistantTextPart: React.FC<AssistantTextPartProps> = ({
+         return (
+             <div
+                 className="group/assistant-text relative my-1 break-words"
++                data-reasoning-inline={reasoning ? 'true' : undefined}
+                 key={part.id || `${messageId}-text`}
+             >
+                 <GeneratedJsonResultCard result={generatedResult} />
+@@ -95,6 +103,7 @@ const AssistantTextPart: React.FC<AssistantTextPartProps> = ({
+                 range?.start ? null : 'mt-1',
+                 range?.end !== undefined ? null : 'mb-1',
+             )}
++            data-reasoning-inline={reasoning ? 'true' : undefined}
+             data-answer-continues={range?.start ? '' : undefined}
+             data-answer-part={range ? `${messageId}:${part.id}` : undefined}
+             key={part.id || `${messageId}-text`}
+diff --git a/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md b/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
+index 1f88a10b8..08741e7af 100644
+--- a/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
++++ b/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
+@@ -24,6 +24,7 @@ Use this doc when you ask an agent to change tool/header/description behavior.
+   - The entry of expandable tool rows (shell/edit/write/question/subagent + fallback). It only composes: it picks the row for the call (`BackgroundShellToolPartContent`, `SubagentToolPartContent`, `ShellToolPartContent` or `ToolPartContent`) and wraps it in `ToolPartErrorBoundary`.
+   - The pieces live in `toolRow/`: `ToolPartContent.tsx` is the row (header title/description/diff stats/timer, with `useToolRowTiming` and `useToolRowOpenActions`), `ToolExpandedContent.tsx` is the expanded body, `toolDescriptions.ts` builds the row's text, and the output views (`ToolScrollableTextOutput`, `JsonToolOutput`, `CommandOutput`, `DiffPreview`, ...) are one file each.
+   - If you want to change expandable tool layout, edit in `toolRow/`.
++  - A question call's expanded body reads the answers the tool recorded in its result metadata (`answers`, one entry per asked question) before the reply text, and the text parse stays the fallback for a call that carries none. The tool writes each answer between quotes without escaping a quote the reader typed, so the reply alone cannot say where an answer ends: the parse reads an unescaped quote up to the next pair, and still ends early when an answer itself contains `", "`.
+   - A subagent call is an ordinary tool row, rendered through `SubagentToolPartContent`: shine and a live duration while it runs, the final duration (red on failure) once settled, and an open action that shows the child session. Expanded, it shows the prompt and the result. The row never reads the child session's messages; the child's own chat is where its work is shown.
+   - While the child runs, foreground or background, the row has a stop action. OpenCode 2.0.23 has no route that cancels a subagent job; interrupting the child ends the job as cancelled, which the agent reads as a failed subagent and tends to restart. `opencodeClient.stopSubagent` therefore first admits a non-resuming synthetic note (`subagentCancellationNote` in `@/lib/opencode/subagent-run`) that explains the cancellation as the user's stop without forbidding the work, and interrupts the child only once the note is in. A foreground call the note names reads `stopped` instead of failed (`toStoppedSubagentPart`). Drop the note once OpenCode reports a user cancel itself.
+ 
+@@ -654,6 +655,20 @@ preceding rendered elements, so adding a reasoning element whose child returns
+ `null` would leave a divider above a direct answer. Visible reasoning and tool
+ rows keep their divider.
+ 
++### Why inline reasoning marks itself with `data-reasoning-inline`
++
++The assistant answer's text markers are DOM contracts other modules read:
++`data-message-text-export-source` on the wrapper around a text part (copy, image
++export and the reply-start prose lookup in `message/replyProse.ts`),
++`data-answer-part` and `data-answer-continues` on the rows of a cut answer
++(`lib/scroll/DOCUMENTATION.md`, "A turn is several rows"), and
++`data-streaming-reply` on the reply being written. With
++`collapsibleThinkingBlocks` off, reasoning draws through `AssistantTextPart`
++instead of `ReasoningPart`: it has no `data-reasoning-block-id` and no export
++wrapper, so that row carries `data-reasoning-inline` and consumers that look for
++answer text skip it. The styling group `group/assistant-text` is not a contract
++and no module matches it.
++
+ ### Why media reconnects in layout setup
+ 
+ The content owner survives effect disconnection, while requests and document
+diff --git a/packages/ui/src/components/chat/message/replyProse.test.ts b/packages/ui/src/components/chat/message/replyProse.test.ts
+new file mode 100644
+index 000000000..59ad0fb93
+--- /dev/null
++++ b/packages/ui/src/components/chat/message/replyProse.test.ts
+@@ -0,0 +1,58 @@
++import { describe, expect, test } from 'bun:test';
++import { Window } from 'happy-dom';
++
++import { findReplyProseElement } from './replyProse';
++
++const window = new Window();
++const document = window.document;
++
++const build = (html: string): HTMLElement => {
++    document.body.innerHTML = html;
++    return document.body.querySelector('[data-message-id="msg_1"]') as unknown as HTMLElement;
++};
++
++describe('findReplyProseElement', () => {
++    test('skips a reasoning trace drawn as plain text before the answer', () => {
++        const root = build(`
++            <div data-message-id="msg_1">
++                <div class="group/assistant-text relative break-words" data-reasoning-inline="true">Thinking about the answer</div>
++                <div data-message-text-export-source="true">The answer</div>
++            </div>
++        `);
++
++        expect(findReplyProseElement(root)?.textContent).toBe('The answer');
++    });
++
++    test('skips reasoning inside a collapsible block', () => {
++        const root = build(`
++            <div data-message-id="msg_1">
++                <div data-reasoning-block-id="reasoning-1">
++                    <div data-message-text-export-source="true">Thinking about the answer</div>
++                </div>
++                <div data-message-text-export-source="true">The answer</div>
++            </div>
++        `);
++
++        expect(findReplyProseElement(root)?.textContent).toBe('The answer');
++    });
++
++    test('does not read a styling class as prose', () => {
++        const root = build(`
++            <div data-message-id="msg_1">
++                <div class="group/assistant-text relative break-words">The answer</div>
++            </div>
++        `);
++
++        expect(findReplyProseElement(root)).toBeNull();
++    });
++
++    test('returns null when the message only holds reasoning', () => {
++        const root = build(`
++            <div data-message-id="msg_1">
++                <div data-message-text-export-source="true" data-reasoning-inline="true">Thinking</div>
++            </div>
++        `);
++
++        expect(findReplyProseElement(root)).toBeNull();
++    });
++});
+diff --git a/packages/ui/src/components/chat/message/replyProse.ts b/packages/ui/src/components/chat/message/replyProse.ts
+new file mode 100644
+index 000000000..f1fa50472
+--- /dev/null
++++ b/packages/ui/src/components/chat/message/replyProse.ts
+@@ -0,0 +1,26 @@
++/**
++ * The first block of an assistant message's own prose. A step may open with
++ * tool rows (or a reasoning trace) before it says anything, and the pill's
++ * "back to the reply start" jump should land on the text a reader means, not
++ * on the work that led to it.
++ *
++ * Text parts render as `[data-message-text-export-source]`, the same contract
++ * the copy and image export read. A plain answer block has that wrapper too;
++ * `group/assistant-text` is a styling group and not a DOM contract, so a bare
++ * block is never matched. Reasoning blocks reuse the export attribute, so
++ * their descendants are skipped. With `collapsibleThinkingBlocks` off,
++ * reasoning draws through AssistantTextPart as a bare `group/assistant-text`
++ * row, so it marks itself with `data-reasoning-inline` instead of a block id.
++ */
++const REPLY_PROSE_SELECTOR = '[data-message-text-export-source]';
++const REASONING_SELECTOR = '[data-reasoning-block-id], [data-reasoning-inline]';
++
++export function findReplyProseElement(messageElement: HTMLElement): HTMLElement | null {
++    for (const element of messageElement.querySelectorAll<HTMLElement>(REPLY_PROSE_SELECTOR)) {
++        if (element.closest(REASONING_SELECTOR)) {
++            continue;
++        }
++        return element;
++    }
++    return null;
++}
+diff --git a/packages/ui/src/components/chat/quoteNavigation.test.ts b/packages/ui/src/components/chat/quoteNavigation.test.ts
+index ecd8163c0..31b5d98a4 100644
+--- a/packages/ui/src/components/chat/quoteNavigation.test.ts
++++ b/packages/ui/src/components/chat/quoteNavigation.test.ts
+@@ -33,6 +33,8 @@ test('falls back to the rendered message list when the timeline index misses', a
+             scrolls.push(messageId);
+             return true;
+         },
++        scrollToReplyStart: () => false,
++        findPreviousReplyStart: () => null,
+         captureViewportAnchor: () => null,
+         restoreViewportAnchor: () => false,
+         alignViewportAnchor: () => 'missing',
+diff --git a/packages/ui/src/components/chat/timeline/types.ts b/packages/ui/src/components/chat/timeline/types.ts
+index 834cb4b8c..22d3646c2 100644
+--- a/packages/ui/src/components/chat/timeline/types.ts
++++ b/packages/ui/src/components/chat/timeline/types.ts
+@@ -32,6 +32,14 @@ export interface MessageListHandle {
      scrollToUiPageRow: (messageId: string) => boolean;
      scrollToTurnId: (turnId: string, options?: { behavior?: ScrollBehavior }) => boolean;
      scrollToMessageId: (messageId: string, options?: { behavior?: ScrollBehavior }) => boolean;
@@ -417,8 +1033,22 @@ index b4cce17..e92ab3b 100644
 +    findPreviousReplyStart: (candidateMessageIds: readonly string[]) => string | null;
      captureViewportAnchor: () => MessageViewportAnchor | null;
      restoreViewportAnchor: (anchor: MessageViewportAnchor) => boolean;
-     // One step toward showing the anchor at its offset: `moved` when the
-@@ -1293,6 +1304,20 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
+     alignViewportAnchor: (anchor: MessageViewportAnchor) => ViewportAnchorAlignment;
+diff --git a/packages/ui/src/components/chat/timeline/useMessageListHandle.ts b/packages/ui/src/components/chat/timeline/useMessageListHandle.ts
+index 6346c639c..8a44db70d 100644
+--- a/packages/ui/src/components/chat/timeline/useMessageListHandle.ts
++++ b/packages/ui/src/components/chat/timeline/useMessageListHandle.ts
+@@ -12,6 +12,9 @@ import type { useTurnRecords } from '../hooks/useTurnRecords';
+ import type { MessageListHandle } from './types';
+ import type { useTimelineRowIndexes } from './useTimelineRowIndexes';
+ import { useNavigationSettle } from './useNavigationSettle';
++import { readStuckHeaderHeight, replyTopInset } from '../lib/scroll/replyTopInset';
++import { MESSAGE_JUMP_GAP_PX } from '../lib/scroll/scrollGaps';
++import { findReplyProseElement } from '../message/replyProse';
+ 
+ type TurnProjection = ReturnType<typeof useTurnRecords>['projection'];
+ 
+@@ -71,6 +74,20 @@ export const useMessageListHandle = (
          return container.querySelector(`[data-message-id="${messageId}"]:not([data-message-slice])`);
      }, [resolveScrollContainer]);
  
@@ -436,73 +1066,19 @@ index b4cce17..e92ab3b 100644
 +        return findReplyProseElement(messageElement);
 +    }, [findMessageElement]);
 +
-     // A slice that no longer exists (the message is cut elsewhere now: the
-     // reasoning was hidden) falls back to the message's first row, as its index does.
      const findAnchorElement = React.useCallback((anchor: MessageViewportAnchor): HTMLElement | null => (
-@@ -1333,8 +1358,12 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
-     }, [sessionKey]);
-     const settleNavigationTarget = React.useCallback((
-         findElement: () => HTMLElement | null,
--        desiredOffsetTop: number,
-+        desiredOffsetTop: number | (() => number),
-+        options?: { throughList?: boolean; rearmOnMeasurement?: boolean },
-     ) => {
-+        const readDesiredOffset = typeof desiredOffsetTop === 'function'
-+            ? desiredOffsetTop
-+            : () => desiredOffsetTop;
-         cancelNavigationRef.current?.();
+         anchor.slice && rowIndexByKey.has(`step:${anchor.messageId}:${anchor.slice}`)
+             ? resolveScrollContainer()?.querySelector<HTMLElement>(`[data-message-id="${anchor.messageId}"][data-message-slice="${anchor.slice}"]`) ?? null
+@@ -91,7 +108,7 @@ export const useMessageListHandle = (
+         return true;
+     }, [listRef, rows.length]);
+ 
+-    const { cancelNavigationRef, settleNavigationTarget } = useNavigationSettle(sessionKey, resolveScrollContainer);
++    const { cancelNavigationRef, settleNavigationTarget } = useNavigationSettle(sessionKey, resolveScrollContainer, listRef);
+ 
+     const scrollMessageElementIntoView = React.useCallback((messageId: string, behavior: ScrollBehavior = 'auto') => {
          const container = resolveScrollContainer();
-         if (!container || typeof window === 'undefined') {
-@@ -1345,27 +1374,46 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
-         let cancelled = false;
-         let frame: number;
-         let stopReleaseListener: (() => void) | null = null;
-+        let stopMeasurementListener: (() => void) | null = null;
-         const cancelOnUserInput = () => {
-             cancelled = true;
-             window.cancelAnimationFrame(frame);
-             container.removeEventListener('touchstart', cancelOnUserInput);
-             container.removeEventListener('wheel', cancelOnUserInput);
-             stopReleaseListener?.();
-+            stopMeasurementListener?.();
-             if (cancelNavigationRef.current === cancelOnUserInput) cancelNavigationRef.current = null;
-         };
-         cancelNavigationRef.current = cancelOnUserInput;
-         container.addEventListener('touchstart', cancelOnUserInput, { passive: true });
-         container.addEventListener('wheel', cancelOnUserInput, { passive: true });
-         stopReleaseListener = onNavigationRelease(container, cancelOnUserInput);
-+        // A row is placed at an estimate until the list measures it, and the
-+        // measurement lands after the jump has aligned once. Each measurement
-+        // moves the rows below it, so the target is held until the list has
-+        // stopped resizing rather than until the offset first looks stable.
-+        if (options?.rearmOnMeasurement) {
-+            stopMeasurementListener = listRef.current?.getState().listen('totalSize', () => {
-+                stable = 0;
-+            }) ?? null;
-+        }
-         const step = () => {
-             if (cancelled) return;
-             const element = findElement();
-             if (element) {
-                 const delta = element.getBoundingClientRect().top
-                     - container.getBoundingClientRect().top
--                    - desiredOffsetTop;
-+                    - readDesiredOffset();
-                 if (Math.abs(delta) > 0.5) {
--                    container.scrollTop += delta;
-+                    const list = options?.throughList ? listRef.current : null;
-+                    if (list) {
-+                        // A raw scrollTop write leaves the list holding its own
-+                        // pending target and it corrects back; going through the
-+                        // list's offset API hands it this position instead.
-+                        void list.scrollToOffset({ offset: container.scrollTop + delta, animated: false });
-+                    } else {
-+                        container.scrollTop += delta;
-+                    }
-                     stable = 0;
-                 } else {
-                     stable += 1;
-@@ -1393,8 +1441,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
+@@ -105,8 +122,7 @@ export const useMessageListHandle = (
  
          const containerRect = container.getBoundingClientRect();
          const messageRect = messageElement.getBoundingClientRect();
@@ -512,7 +1088,7 @@ index b4cce17..e92ab3b 100644
          container.scrollTo({ top, behavior });
          return true;
      }, [findMessageElement, resolveScrollContainer]);
-@@ -1489,11 +1536,145 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
+@@ -195,11 +211,145 @@ export const useMessageListHandle = (
                  const didScroll = scrollMessageElementIntoView(messageId, behavior)
                      || scrollHistoryIndexIntoView(index);
                  if (didScroll && behavior !== 'smooth') {
@@ -659,609 +1235,106 @@ index b4cce17..e92ab3b 100644
              holdViewportAnchor: (anchor) => {
                  settleNavigationTarget(() => findAnchorElement(anchor), anchor.offsetTop);
              },
-@@ -1539,7 +1720,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
+@@ -241,5 +391,5 @@ export const useMessageListHandle = (
          return () => {
              if (objectRef.current === handle) objectRef.current = null;
          };
--    }, [alignViewportAnchor, findAnchorElement, findMessageElement, messageIndexMap, resolveScrollContainer, revealFoldedMessage, rowIndexByKey, scrollHistoryIndexIntoView, scrollMessageElementIntoView, settleNavigationTarget, turnIndexMap, ref]);
-+    }, [alignViewportAnchor, findAnchorElement, findMessageElement, findReplyStartElement, messageIndexMap, resolveScrollContainer, revealFoldedMessage, rowIndexByKey, scrollHistoryIndexIntoView, scrollMessageElementIntoView, settleNavigationTarget, turnIndexMap, ref]);
- 
-     const rowContext = React.useMemo(() => ({
-         scrollToBottom: stableScrollToBottom,
-diff --git a/packages/ui/src/components/chat/StatusRow.tsx b/packages/ui/src/components/chat/StatusRow.tsx
-index 0b2c0ce..f4eda65 100644
---- a/packages/ui/src/components/chat/StatusRow.tsx
-+++ b/packages/ui/src/components/chat/StatusRow.tsx
-@@ -1,4 +1,5 @@
- import React from "react";
-+import { cn } from "@/lib/utils";
- import { useChatSessionSelection } from './chatColumnSession';
- import { WorkingPlaceholder } from "./message/parts/WorkingPlaceholder";
- import { BackgroundWorkButton } from "./components/BackgroundWorkButton";
-@@ -24,6 +25,9 @@ interface StatusRowProps {
-   providerId?: string | null;
-   /** Set while the turn waits on work OpenCode can move to the background. */
-   onBackground?: () => void;
-+  /** Drawn inside the chip ahead of the status, for an action the chip takes
-+      over while it is the floating control at the live edge. */
-+  leadingAction?: React.ReactNode;
- }
- 
- export const StatusRow: React.FC<StatusRowProps> = ({
-@@ -37,6 +41,7 @@ export const StatusRow: React.FC<StatusRowProps> = ({
-   modelName,
-   providerId,
-   onBackground,
-+  leadingAction,
- }) => {
-   const currentSessionId = useChatSessionSelection().sessionId;
- 
-@@ -55,7 +60,9 @@ export const StatusRow: React.FC<StatusRowProps> = ({
-       style={STATUS_ROW_CONTAINER_STYLE}
-     >
-       {/* 28px, the toolbar control height, shared with the scroll-to-bottom
--          pill that takes over this label away from the live edge. */}
-+          pill that takes over this label away from the live edge. min-h, not
-+          h: on a phone the touch-target floor grows the arrow inside it to
-+          36px, and the chip must grow with the arrow the way the pill does. */}
-       {/* The chip lives here, not on the container: the root above is
-           an inline-size query container, whose width ignores its children —
-           a shrink-to-fit wrapper around it always collapsed to zero. */}
-@@ -64,7 +71,15 @@ export const StatusRow: React.FC<StatusRowProps> = ({
-           WorkingPlaceholder, so the visible marks land on the same line.
-           pe-2 evens out the far side: text glyph to edge lands ~10px, the
-           same optical gap as the start. */}
--      <div className="oc-surface-floating inline-flex w-max max-w-full items-center gap-2 h-7 whitespace-nowrap rounded-full [corner-shape:round] ps-1.5 pe-2">
-+      <div
-+        className={cn(
-+          "oc-surface-floating inline-flex w-max max-w-full items-center gap-2 min-h-7 whitespace-nowrap rounded-full [corner-shape:round] pe-2",
-+          // The arrow slot sits at the chip's edge the way it does in the
-+          // scroll pill, so the icon lands on the same line in both.
-+          leadingAction ? "ps-0" : "ps-1.5",
-+        )}
-+      >
-+        {leadingAction}
-         {/* overflow-x-clip: hiding one axis turns the other into `auto`, and a
-             sub-pixel overshoot of the label (zoom, font metrics) gave the chip
-             its own scrollbar. Clipping both axes cut descenders off at the
-diff --git a/packages/ui/src/components/chat/StatusRowContainer.tsx b/packages/ui/src/components/chat/StatusRowContainer.tsx
-index 4be82b8..e5cb0d4 100644
---- a/packages/ui/src/components/chat/StatusRowContainer.tsx
-+++ b/packages/ui/src/components/chat/StatusRowContainer.tsx
-@@ -12,7 +12,7 @@ import { StatusRow } from './StatusRow';
-  * Uses the dedicated assistant status hook so the row keeps accurate live activity
-  * labels while still limiting subscriptions to the active assistant message.
-  */
--export const StatusRowContainer: React.FC = React.memo(() => {
-+export const StatusRowContainer: React.FC<{ leadingAction?: React.ReactNode }> = React.memo(({ leadingAction }) => {
-     const { activeModel, working } = useAssistantStatus();
-     const currentAgentName = useConfigStore((state) => state.currentAgentName);
-     const providers = useConfigStore((state) => state.providers);
-@@ -47,6 +47,7 @@ export const StatusRowContainer: React.FC = React.memo(() => {
-             modelName={modelDisplayName}
-             providerId={activeModel?.providerId ?? null}
-             onBackground={working.canBackground ? backgroundWork : undefined}
-+            leadingAction={leadingAction}
-         />
-     );
- });
-diff --git a/packages/ui/src/components/chat/__tests__/issue-2903-subagent-status-line-only.test.tsx b/packages/ui/src/components/chat/__tests__/issue-2903-subagent-status-line-only.test.tsx
-index 3b2909a..c2b97a9 100644
---- a/packages/ui/src/components/chat/__tests__/issue-2903-subagent-status-line-only.test.tsx
-+++ b/packages/ui/src/components/chat/__tests__/issue-2903-subagent-status-line-only.test.tsx
-@@ -253,7 +253,7 @@ describe('issue #2903 busy subagent status-line-only', () => {
-     // longer lives here: the draft surface owns it since the draft transition
-     // animation landed.
-     expect(chatContainerSource).toContain('if (sessionMessages.length === 0 && !sessionIsWorking)');
--    expect(chatContainerSource).toContain('<StatusRowContainer />');
-+    expect(chatContainerSource).toContain('<StatusRowContainer leadingAction={replyStartAction} />');
- 
-     const emptyIdleGuard = 'if (sessionMessages.length === 0 && !sessionIsWorking)';
-     const emptyIdleReturn = chatContainerSource.indexOf(emptyIdleGuard);
-@@ -262,6 +262,6 @@ describe('issue #2903 busy subagent status-line-only', () => {
-       emptyIdleReturn,
-       emptyIdleReturn + 1600,
-     );
--    expect(emptyIdleBlock).not.toContain('<StatusRowContainer />');
-+    expect(emptyIdleBlock).not.toContain('<StatusRowContainer');
-   });
- });
-diff --git a/packages/ui/src/components/chat/components/ScrollToBottomButton.tsx b/packages/ui/src/components/chat/components/ScrollToBottomButton.tsx
-index 18dac21..8cb5157 100644
---- a/packages/ui/src/components/chat/components/ScrollToBottomButton.tsx
-+++ b/packages/ui/src/components/chat/components/ScrollToBottomButton.tsx
-@@ -41,6 +41,30 @@ const ScrollAction: React.FC<{ onClick: () => void; children?: React.ReactNode }
-     );
+-    }, [alignViewportAnchor, cancelNavigationRef, findAnchorElement, findMessageElement, listRef, messageIndexMap, resolveScrollContainer, revealFoldedMessage, rowIndexByKey, scrollHistoryIndexIntoView, scrollMessageElementIntoView, settleNavigationTarget, turnIndexMap, ref]);
++    }, [alignViewportAnchor, cancelNavigationRef, findAnchorElement, findMessageElement, findReplyStartElement, listRef, messageIndexMap, resolveScrollContainer, revealFoldedMessage, rowIndexByKey, scrollHistoryIndexIntoView, scrollMessageElementIntoView, settleNavigationTarget, turnIndexMap, ref]);
  };
+diff --git a/packages/ui/src/components/chat/timeline/useNavigationSettle.ts b/packages/ui/src/components/chat/timeline/useNavigationSettle.ts
+index 859d9adb0..6d2b3d1cb 100644
+--- a/packages/ui/src/components/chat/timeline/useNavigationSettle.ts
++++ b/packages/ui/src/components/chat/timeline/useNavigationSettle.ts
+@@ -1,11 +1,14 @@
+ import React from 'react';
  
-+/**
-+ * The pill's other end: back to the start of the previous reply, for a reader
-+ * who scrolled past it. Sits beside the down arrow in the same surface so both
-+ * jumps stay one floating control.
-+ */
-+export const ScrollToReplyStartAction: React.FC<{ onClick: () => void }> = ({ onClick }) => {
-+    const { t } = useI18n();
-+    return (
-+        <Tooltip>
-+            <TooltipTrigger asChild>
-+                <button
-+                    type="button"
-+                    onClick={onClick}
-+                    aria-label={t('chat.scrollToReplyStart.aria')}
-+                    className="inline-flex h-[calc(1.75rem-2px)] w-7 shrink-0 items-center justify-center rounded-full [corner-shape:round] text-muted-foreground"
-+                >
-+                    <Icon name="arrow-up" className="h-4 w-4" />
-+                </button>
-+            </TooltipTrigger>
-+            <TooltipContent side="top" sideOffset={6}>{t('chat.scrollToReplyStart.aria')}</TooltipContent>
-+        </Tooltip>
-+    );
-+};
++import type { LegendListRef } from '@legendapp/list/react';
 +
- /**
-  * Compact one-line mirror of the status row for the pill: same label and
-  * background action, none of the status row's animation machinery (which does
-@@ -76,14 +100,30 @@ const WorkingPillBody: React.FC<{ onClick: () => void }> = ({ onClick }) => {
- };
+ import { onNavigationRelease } from '../lib/scroll/timelineScrollIntent';
+ import { ANCHOR_HOLD_MAX_FRAMES, ANCHOR_HOLD_STABLE_FRAMES } from '../lib/scroll/messageViewportAnchor';
  
- interface ScrollToBottomButtonProps {
-+    /** The reader left the live edge, so the pill is on screen. At the live
-+        edge it stays out of the way: the floating status row carries the way
-+        back there while the session works, and nothing when it is idle. */
-     visible: boolean;
-+    /** The reader left the live edge, so the down arrow and its status label
-+        apply. At the live edge the floating status row still carries them. */
-+    awayFromLiveEdge: boolean;
-     /** The session is still streaming: the pill carries the status label
-         while the floating status row is hidden away from the live edge. */
-     working?: boolean;
-+    /** Absent when no reply start sits above the viewport, or while the status
-+        chip carries the same arrow at the live edge: the arrow always moves
-+        up, landing on the reply the reader has already scrolled past. */
-+    onScrollToReplyStart?: () => void;
-     onClick: () => void;
- }
- 
--const ScrollToBottomButton: React.FC<ScrollToBottomButtonProps> = ({ visible, working = false, onClick }) => {
-+const ScrollToBottomButton: React.FC<ScrollToBottomButtonProps> = ({
-+    visible,
-+    awayFromLiveEdge,
-+    working = false,
-+    onScrollToReplyStart,
-+    onClick,
-+}) => {
-     return (
-         <div
-             ref={registerFloatingPanelClearanceReader}
-@@ -110,7 +150,10 @@ const ScrollToBottomButton: React.FC<ScrollToBottomButtonProps> = ({ visible, wo
-                         visible ? 'pointer-events-auto' : 'pointer-events-none',
-                     )}
-                 >
--                    {working && visible ? <WorkingPillBody onClick={onClick} /> : <ScrollAction onClick={onClick} />}
-+                    {onScrollToReplyStart ? <ScrollToReplyStartAction onClick={onScrollToReplyStart} /> : null}
-+                    {awayFromLiveEdge
-+                        ? (working ? <WorkingPillBody onClick={onClick} /> : <ScrollAction onClick={onClick} />)
-+                        : null}
-                 </div>
-                 </div>
-             </div>
-diff --git a/packages/ui/src/components/chat/hooks/useChatTimelineController.test.ts b/packages/ui/src/components/chat/hooks/useChatTimelineController.test.ts
-index 99f341d..8e39a02 100644
---- a/packages/ui/src/components/chat/hooks/useChatTimelineController.test.ts
-+++ b/packages/ui/src/components/chat/hooks/useChatTimelineController.test.ts
-@@ -223,6 +223,8 @@ describe('useChatTimelineController identity lifecycle', () => {
-             captureViewportAnchor: () => null, restoreViewportAnchor: () => false, alignViewportAnchor: () => 'missing',
-             hasMessageRow: () => false,
-             isHistoryVirtualized: () => false, scrollToTurnId: () => false, scrollToMessageId: () => false,
-+            scrollToReplyStart: () => false,
-+            findPreviousReplyStart: () => null,
-             holdViewportAnchor: () => {}, scrollToBottom: () => {},
+ export const useNavigationSettle = (
+     sessionKey: string,
+     resolveScrollContainer: () => HTMLElement | null,
++    listRef?: React.MutableRefObject<LegendListRef | null>,
+ ) => {
+     const cancelNavigationRef = React.useRef<(() => void) | null>(null);
+     React.useLayoutEffect(() => () => {
+@@ -13,8 +16,12 @@ export const useNavigationSettle = (
+     }, [sessionKey]);
+     const settleNavigationTarget = React.useCallback((
+         findElement: () => HTMLElement | null,
+-        desiredOffsetTop: number,
++        desiredOffsetTop: number | (() => number),
++        options?: { throughList?: boolean; rearmOnMeasurement?: boolean },
+     ) => {
++        const readDesiredOffset = typeof desiredOffsetTop === 'function'
++            ? desiredOffsetTop
++            : () => desiredOffsetTop;
+         cancelNavigationRef.current?.();
+         const container = resolveScrollContainer();
+         if (!container || typeof window === 'undefined') {
+@@ -25,27 +32,46 @@ export const useNavigationSettle = (
+         let cancelled = false;
+         let frame: number;
+         let stopReleaseListener: (() => void) | null = null;
++        let stopMeasurementListener: (() => void) | null = null;
+         const cancelOnUserInput = () => {
+             cancelled = true;
+             window.cancelAnimationFrame(frame);
+             container.removeEventListener('touchstart', cancelOnUserInput);
+             container.removeEventListener('wheel', cancelOnUserInput);
+             stopReleaseListener?.();
++            stopMeasurementListener?.();
+             if (cancelNavigationRef.current === cancelOnUserInput) cancelNavigationRef.current = null;
          };
-         const Harness = () => {
-diff --git a/packages/ui/src/components/chat/lib/scroll/DOCUMENTATION.md b/packages/ui/src/components/chat/lib/scroll/DOCUMENTATION.md
-index 2000327..2142a00 100644
---- a/packages/ui/src/components/chat/lib/scroll/DOCUMENTATION.md
-+++ b/packages/ui/src/components/chat/lib/scroll/DOCUMENTATION.md
-@@ -1,6 +1,6 @@
- # Chat scroll
- 
--The transcript is a LegendList (`@legendapp/list`) owned by `useChatTimelineScroll`. These files hold the scroll logic that list does not do on its own: anchoring, end-keeping, restore and the mobile keyboard glide.
-+The transcript is a LegendList (`@legendapp/list`) owned by `useChatTimelineScroll`. These files hold the scroll logic that list does not do on its own: anchoring, end-keeping, restore, reply-start navigation and the mobile keyboard glide.
- 
- ## Keeping the end
- 
-@@ -54,6 +54,27 @@ The follow used to issue a native smooth `scrollTo` for every landed block. Chro
- 
- iOS and iPadOS WebKit keep the native smooth scroll (`native` in `followGlide.ts`, chosen by `-webkit-touch-callout` support): there `scrollTop` moves in whole pixels from the main thread, and a position written every frame steps visibly (`performance-engineering`, `references/ios-webkit.md`). The native glide is left to finish while it still moves toward an unchanged end, because re-issuing it restarts the animation.
- 
-+## Reply-start navigation
-+
-+The pill (away from the live edge) and the floating status chip (at the live edge while the session works) carry one "scroll to start of reply" arrow. It lands on the nearest reply whose prose starts above the visible content top, which is the reply the reader is inside or has just passed.
-+
-+- **The target is resolved at click time.** The id cached for drawing the control is measured on an animation frame, and the list replaces row estimates as rows mount, so the viewport the reader sees can belong to a different reply than the cached id. The click asks the list again (`findPreviousReplyStart`) and only falls back to the cached id when the list cannot answer.
-+- **The measurement follows layout, not only scroll.** A sticky-header toggle changes the content top, a resize re-wraps rows, and the list measures rows it just placed: none of those necessarily scroll. The target is re-measured on a `ResizeObserver` of the scroll node, on the list's metrics callback (growth), on the sticky-header setting, and on a change of the rendered replies.
-+- **The boundary comes from every mounted message row.** The nearest reply is found against the message row at the content top. `data-message-slice` rows name their message as well, so they take part in the scan; the message's own start stays its row without the attribute, which is what gets measured and landed on.
-+- **A reply starts at its prose.** A message whose first row draws only tool calls or reasoning has no start to land on and is skipped, so the arrow goes to the next older reply with text rather than to the work that led to it.
-+- **A folded reply is opened only when it is missing.** The jump looks for the reply's prose first; the fold is opened only when the row is absent, because opening a live turn's Activity expands it for good.
-+- **One write, then a settle.** The jump issues one list offset (no index target from a second navigation path competes with it) and then holds the prose at `replyTopInset` until the list has stopped resizing; a row measured after the first write re-aims the settle instead of leaving the reply hundreds of pixels inside the viewport.
-+- **Two gaps, named once.** `MESSAGE_JUMP_GAP_PX` (50 px) is the room above a message a link, quote or the timeline lands on; `REPLY_START_GAP_PX` (16 px) is the room above a reply, whose turn's prompt row is usually already above it. Both live in `scrollGaps.ts` and are read by the follow stops, the message jumps and the reply-start jump alike.
-+- **Only one arrow draws at a time.** The chip and the pill are gated on the same flags: while the chip is the floating control at the live edge it carries the arrow and the pill does not; away from the edge the chip fades, draws no arrow (nothing focusable inside a faded chip), and the pill carries both.
-+
-+### Why the inset falls back to another turn's stuck header
-+
-+A reply belongs to a turn whose prompt row is its head, and a reply appended to a turn can have that head virtualized out while an older turn's prompt is the header stuck over the viewport. The fallback reads the header actually covering the top edge instead of the 16 px gap, because that header covers the reply exactly as the turn's own would: with no header counted, the prose would land underneath it. The alternative, always using the plain gap, is right only when nothing sticks.
-+
-+### Why the arrow is not drawn at the live edge
-+
-+The floating band above the composer is reserved for the composer's own overlays, and a dock (a question or permission card) raises it into the transcript. At the live edge the status chip already sits in that band and carries the arrow while the session works; with the session idle the arrow waits until the reader scrolls away and the pill takes over. Drawing it at the live edge painted it over the reader's own text on a phone, where the visible transcript above a raised dock is a few lines.
-+
- ## Connected scroll work
- 
- Effect cleanup cancels follow frames and clears their scheduling sentinel, and
-diff --git a/packages/ui/src/components/chat/lib/scroll/replyTopInset.test.ts b/packages/ui/src/components/chat/lib/scroll/replyTopInset.test.ts
-new file mode 100644
-index 0000000..499bc56
---- /dev/null
-+++ b/packages/ui/src/components/chat/lib/scroll/replyTopInset.test.ts
-@@ -0,0 +1,113 @@
-+import { describe, expect, test } from 'bun:test';
-+import { Window } from 'happy-dom';
-+
-+import { MESSAGE_JUMP_GAP_PX, REPLY_START_GAP_PX } from './scrollGaps';
-+import { readStuckHeaderHeight, replyTopInset } from './replyTopInset';
-+
-+const window = new Window();
-+const document = window.document as unknown as Document;
-+globalThis.CSS = window.CSS as unknown as typeof CSS;
-+
-+const rect = (top: number, height: number): DOMRect => ({
-+    top,
-+    bottom: top + height,
-+    height,
-+    left: 0,
-+    right: 0,
-+    width: 0,
-+    x: 0,
-+    y: top,
-+    toJSON: () => ({}),
-+}) as DOMRect;
-+
-+const stubRect = (element: Element, box: DOMRect): void => {
-+    Object.defineProperty(element, 'getBoundingClientRect', { value: () => box, configurable: true });
-+};
-+
-+const container = (): HTMLElement => {
-+    document.body.innerHTML = '';
-+    const root = document.createElement('div');
-+    document.body.append(root);
-+    stubRect(root, rect(48, 600));
-+    return root as unknown as HTMLElement;
-+};
-+
-+const addTurnHead = (root: HTMLElement, turnId: string, headerHeight: number): HTMLElement => {
-+    const head = document.createElement('section');
-+    head.dataset.turnId = turnId;
-+    const header = document.createElement('div');
-+    header.dataset.turnStickyHeader = '';
-+    head.append(header);
-+    stubRect(header, rect(48, headerHeight));
-+    root.append(head);
-+    return header;
-+};
-+
-+const addReply = (root: HTMLElement, turnId: string, proseTop: number): HTMLElement => {
-+    const row = document.createElement('div');
-+    row.dataset.turnRow = turnId;
-+    const prose = document.createElement('div');
-+    prose.textContent = 'Answer';
-+    row.append(prose);
-+    stubRect(prose, rect(proseTop, 40));
-+    root.append(row);
-+    return prose;
-+};
-+
-+describe('readStuckHeaderHeight', () => {
-+    test('counts only a header pinned at the container top', () => {
-+        const root = container();
-+        const pinned = addTurnHead(root, 'turn_1', 132);
-+        const below = document.createElement('div');
-+        below.dataset.turnStickyHeader = '';
-+        stubRect(below, rect(500, 160));
-+        root.append(below);
-+
-+        expect(readStuckHeaderHeight(root)).toBe(132);
-+        expect(pinned.dataset.turnId).toBeUndefined();
-+    });
-+
-+    test('is zero when no header covers the top', () => {
-+        const root = container();
-+        const below = document.createElement('div');
-+        below.dataset.turnStickyHeader = '';
-+        stubRect(below, rect(300, 160));
-+        root.append(below);
-+
-+        expect(readStuckHeaderHeight(root)).toBe(0);
-+    });
-+});
-+
-+describe('replyTopInset', () => {
-+    test('clears the reply turn own sticky header', () => {
-+        const root = container();
-+        addTurnHead(root, 'turn_1', 132);
-+        const prose = addReply(root, 'turn_1', 400);
-+
-+        expect(replyTopInset(root, prose)).toBe(132 + REPLY_START_GAP_PX);
-+    });
-+
-+    test('falls back to the header stuck over the viewport when the reply turn head is not mounted', () => {
-+        const root = container();
-+        addTurnHead(root, 'turn_0', 132);
-+        const prose = addReply(root, 'turn_1', 400);
-+
-+        expect(replyTopInset(root, prose)).toBe(132 + REPLY_START_GAP_PX);
-+    });
-+
-+    test('falls back when the reply turn header has no height yet', () => {
-+        const root = container();
-+        addTurnHead(root, 'turn_0', 132);
-+        addTurnHead(root, 'turn_1', 0);
-+        const prose = addReply(root, 'turn_1', 400);
-+
-+        expect(replyTopInset(root, prose)).toBe(132 + REPLY_START_GAP_PX);
-+    });
-+
-+    test('keeps the plain message gap when nothing sticks', () => {
-+        const root = container();
-+        const prose = addReply(root, 'turn_1', 400);
-+
-+        expect(replyTopInset(root, prose)).toBe(MESSAGE_JUMP_GAP_PX);
-+    });
-+});
-diff --git a/packages/ui/src/components/chat/lib/scroll/replyTopInset.ts b/packages/ui/src/components/chat/lib/scroll/replyTopInset.ts
-new file mode 100644
-index 0000000..0c839d7
---- /dev/null
-+++ b/packages/ui/src/components/chat/lib/scroll/replyTopInset.ts
-@@ -0,0 +1,36 @@
-+import { MESSAGE_JUMP_GAP_PX, REPLY_START_GAP_PX } from './scrollGaps';
-+
-+// The sticky prompt covers the top of the viewport when the setting is on.
-+// Every position below it counts as hidden content.
-+export const readStuckHeaderHeight = (container: HTMLElement): number => {
-+    const containerTop = container.getBoundingClientRect().top;
-+    let height = 0;
-+    for (const header of container.querySelectorAll<HTMLElement>('[data-turn-sticky-header]')) {
-+        const rect = header.getBoundingClientRect();
-+        if (rect.top <= containerTop + 1 && rect.bottom > containerTop) {
-+            height = Math.max(height, rect.height);
+         cancelNavigationRef.current = cancelOnUserInput;
+         container.addEventListener('touchstart', cancelOnUserInput, { passive: true });
+         container.addEventListener('wheel', cancelOnUserInput, { passive: true });
+         stopReleaseListener = onNavigationRelease(container, cancelOnUserInput);
++        // A row is placed at an estimate until the list measures it, and the
++        // measurement lands after the jump has aligned once. Each measurement
++        // moves the rows below it, so the target is held until the list has
++        // stopped resizing rather than until the offset first looks stable.
++        if (options?.rearmOnMeasurement) {
++            stopMeasurementListener = listRef?.current?.getState().listen('totalSize', () => {
++                stable = 0;
++            }) ?? null;
 +        }
-+    }
-+    return height;
-+};
-+
-+// A reply whose turn has a sticky prompt starts below it, not at the raw top
-+// edge. The reply can be grouped under a turn whose own head is not mounted
-+// (for example an answer appended to a turn whose prompt row is virtualized
-+// out): the prompt pinned over the viewport is then a different turn's header,
-+// and it still covers the reply. Fall back to the header actually stuck at the
-+// top, not the message-jump gap (`scrollGaps.ts`). Without any header the gap
-+// stays the message-jump gap.
-+export const replyTopInset = (container: HTMLElement, element: HTMLElement): number => {
-+    const turnId = element.closest<HTMLElement>('[data-turn-row]')?.dataset.turnRow
-+        ?? element.closest<HTMLElement>('[data-turn-id]')?.dataset.turnId;
-+    if (turnId) {
-+        const header = container.querySelector<HTMLElement>(`[data-turn-id="${CSS.escape(turnId)}"] > [data-turn-sticky-header]`);
-+        const headerHeight = header?.getBoundingClientRect().height ?? 0;
-+        if (headerHeight > 0) {
-+            return headerHeight + REPLY_START_GAP_PX;
-+        }
-+    }
-+    const stuckHeaderHeight = readStuckHeaderHeight(container);
-+    return stuckHeaderHeight > 0 ? stuckHeaderHeight + REPLY_START_GAP_PX : MESSAGE_JUMP_GAP_PX;
-+};
-diff --git a/packages/ui/src/components/chat/lib/scroll/scrollGaps.ts b/packages/ui/src/components/chat/lib/scroll/scrollGaps.ts
-new file mode 100644
-index 0000000..325ab19
---- /dev/null
-+++ b/packages/ui/src/components/chat/lib/scroll/scrollGaps.ts
-@@ -0,0 +1,8 @@
-+// Room left above a message a link, a quote or the timeline lands on. The
-+// chat scroller fades its top edge out, so the message starts below the fade.
-+export const MESSAGE_JUMP_GAP_PX = 50;
-+
-+// Room left above a reply whose start the follow stopped at, and above the
-+// reply the "back to the reply start" arrow lands on. Smaller than a message
-+// jump because the reply is already under its turn's prompt row.
-+export const REPLY_START_GAP_PX = 16;
-diff --git a/packages/ui/src/components/chat/message/MessageBody.tsx b/packages/ui/src/components/chat/message/MessageBody.tsx
-index 822df28..6659ac0 100644
---- a/packages/ui/src/components/chat/message/MessageBody.tsx
-+++ b/packages/ui/src/components/chat/message/MessageBody.tsx
-@@ -1852,6 +1852,7 @@ const AssistantMessageBody = React.memo(({
-                                 messageId={messageId}
-                                 streamPhase={effectiveStreamPhase}
-                                 onShowPopup={onShowPopup}
-+                                reasoning
-                             />
-                         );
-                     } else {
-diff --git a/packages/ui/src/components/chat/message/parts/AssistantTextPart.tsx b/packages/ui/src/components/chat/message/parts/AssistantTextPart.tsx
-index 0ebba15..ac18d89 100644
---- a/packages/ui/src/components/chat/message/parts/AssistantTextPart.tsx
-+++ b/packages/ui/src/components/chat/message/parts/AssistantTextPart.tsx
-@@ -29,6 +29,12 @@ interface AssistantTextPartProps {
-      * several transcript rows (`timelineRows.ts`).
-      */
-     range?: { start: number; end?: number };
-+    /**
-+     * A reasoning trace drawn as plain text (`collapsibleThinkingBlocks` off).
-+     * It shares this component's markup, so it marks itself to stay out of the
-+     * reply-prose anchors that navigation lands on.
-+     */
-+    reasoning?: boolean;
- }
+         const step = () => {
+             if (cancelled) return;
+             const element = findElement();
+             if (element) {
+                 const delta = element.getBoundingClientRect().top
+                     - container.getBoundingClientRect().top
+-                    - desiredOffsetTop;
++                    - readDesiredOffset();
+                 if (Math.abs(delta) > 0.5) {
+-                    container.scrollTop += delta;
++                    const list = options?.throughList ? listRef?.current : null;
++                    if (list) {
++                        // A raw scrollTop write leaves the list holding its own
++                        // pending target and it corrects back; going through the
++                        // list's offset API hands it this position instead.
++                        void list.scrollToOffset({ offset: container.scrollTop + delta, animated: false });
++                    } else {
++                        container.scrollTop += delta;
++                    }
+                     stable = 0;
+                 } else {
+                     stable += 1;
+@@ -59,7 +85,7 @@ export const useNavigationSettle = (
+             frame = window.requestAnimationFrame(step);
+         };
+         frame = window.requestAnimationFrame(step);
+-    }, [resolveScrollContainer]);
++    }, [listRef, resolveScrollContainer]);
  
- const AssistantTextPart: React.FC<AssistantTextPartProps> = ({
-@@ -37,6 +43,7 @@ const AssistantTextPart: React.FC<AssistantTextPartProps> = ({
-     streamPhase,
-     onShowPopup,
-     range,
-+    reasoning = false,
- }) => {
-     // Use part directly from props — parent provides the latest version from the store.
-     // No store subscription here to avoid re-render cascade from unrelated delta events.
-@@ -91,6 +98,7 @@ const AssistantTextPart: React.FC<AssistantTextPartProps> = ({
-         return (
-             <div
-                 className="group/assistant-text relative my-1 break-words"
-+                data-reasoning-inline={reasoning ? 'true' : undefined}
-                 key={part.id || `${messageId}-text`}
-             >
-                 <GeneratedJsonResultCard result={generatedResult} />
-@@ -107,6 +115,7 @@ const AssistantTextPart: React.FC<AssistantTextPartProps> = ({
-                 range?.start ? null : 'mt-1',
-                 range?.end !== undefined ? null : 'mb-1',
-             )}
-+            data-reasoning-inline={reasoning ? 'true' : undefined}
-             data-answer-continues={range?.start ? '' : undefined}
-             // Its rows read as one text when a selection crosses them.
-             data-answer-part={range ? `${messageId}:${part.id}` : undefined}
-diff --git a/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md b/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
-index 18af740..f16f7ae 100644
---- a/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
-+++ b/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
-@@ -609,6 +609,20 @@ preceding rendered elements, so adding a reasoning element whose child returns
- `null` would leave a divider above a direct answer. Visible reasoning and tool
- rows keep their divider.
- 
-+### Why inline reasoning marks itself with `data-reasoning-inline`
-+
-+The assistant answer's text markers are DOM contracts other modules read:
-+`data-message-text-export-source` on the wrapper around a text part (copy, image
-+export and the reply-start prose lookup in `message/replyProse.ts`),
-+`data-answer-part` and `data-answer-continues` on the rows of a cut answer
-+(`lib/scroll/DOCUMENTATION.md`, "A turn is several rows"), and
-+`data-streaming-reply` on the reply being written. With
-+`collapsibleThinkingBlocks` off, reasoning draws through `AssistantTextPart`
-+instead of `ReasoningPart`: it has no `data-reasoning-block-id` and no export
-+wrapper, so that row carries `data-reasoning-inline` and consumers that look for
-+answer text skip it. The styling group `group/assistant-text` is not a contract
-+and no module matches it.
-+
- ### Why media reconnects in layout setup
- 
- The content owner survives effect disconnection, while requests and document
-diff --git a/packages/ui/src/components/chat/message/replyProse.test.ts b/packages/ui/src/components/chat/message/replyProse.test.ts
-new file mode 100644
-index 0000000..59ad0fb
---- /dev/null
-+++ b/packages/ui/src/components/chat/message/replyProse.test.ts
-@@ -0,0 +1,58 @@
-+import { describe, expect, test } from 'bun:test';
-+import { Window } from 'happy-dom';
-+
-+import { findReplyProseElement } from './replyProse';
-+
-+const window = new Window();
-+const document = window.document;
-+
-+const build = (html: string): HTMLElement => {
-+    document.body.innerHTML = html;
-+    return document.body.querySelector('[data-message-id="msg_1"]') as unknown as HTMLElement;
-+};
-+
-+describe('findReplyProseElement', () => {
-+    test('skips a reasoning trace drawn as plain text before the answer', () => {
-+        const root = build(`
-+            <div data-message-id="msg_1">
-+                <div class="group/assistant-text relative break-words" data-reasoning-inline="true">Thinking about the answer</div>
-+                <div data-message-text-export-source="true">The answer</div>
-+            </div>
-+        `);
-+
-+        expect(findReplyProseElement(root)?.textContent).toBe('The answer');
-+    });
-+
-+    test('skips reasoning inside a collapsible block', () => {
-+        const root = build(`
-+            <div data-message-id="msg_1">
-+                <div data-reasoning-block-id="reasoning-1">
-+                    <div data-message-text-export-source="true">Thinking about the answer</div>
-+                </div>
-+                <div data-message-text-export-source="true">The answer</div>
-+            </div>
-+        `);
-+
-+        expect(findReplyProseElement(root)?.textContent).toBe('The answer');
-+    });
-+
-+    test('does not read a styling class as prose', () => {
-+        const root = build(`
-+            <div data-message-id="msg_1">
-+                <div class="group/assistant-text relative break-words">The answer</div>
-+            </div>
-+        `);
-+
-+        expect(findReplyProseElement(root)).toBeNull();
-+    });
-+
-+    test('returns null when the message only holds reasoning', () => {
-+        const root = build(`
-+            <div data-message-id="msg_1">
-+                <div data-message-text-export-source="true" data-reasoning-inline="true">Thinking</div>
-+            </div>
-+        `);
-+
-+        expect(findReplyProseElement(root)).toBeNull();
-+    });
-+});
-diff --git a/packages/ui/src/components/chat/message/replyProse.ts b/packages/ui/src/components/chat/message/replyProse.ts
-new file mode 100644
-index 0000000..f1fa504
---- /dev/null
-+++ b/packages/ui/src/components/chat/message/replyProse.ts
-@@ -0,0 +1,26 @@
-+/**
-+ * The first block of an assistant message's own prose. A step may open with
-+ * tool rows (or a reasoning trace) before it says anything, and the pill's
-+ * "back to the reply start" jump should land on the text a reader means, not
-+ * on the work that led to it.
-+ *
-+ * Text parts render as `[data-message-text-export-source]`, the same contract
-+ * the copy and image export read. A plain answer block has that wrapper too;
-+ * `group/assistant-text` is a styling group and not a DOM contract, so a bare
-+ * block is never matched. Reasoning blocks reuse the export attribute, so
-+ * their descendants are skipped. With `collapsibleThinkingBlocks` off,
-+ * reasoning draws through AssistantTextPart as a bare `group/assistant-text`
-+ * row, so it marks itself with `data-reasoning-inline` instead of a block id.
-+ */
-+const REPLY_PROSE_SELECTOR = '[data-message-text-export-source]';
-+const REASONING_SELECTOR = '[data-reasoning-block-id], [data-reasoning-inline]';
-+
-+export function findReplyProseElement(messageElement: HTMLElement): HTMLElement | null {
-+    for (const element of messageElement.querySelectorAll<HTMLElement>(REPLY_PROSE_SELECTOR)) {
-+        if (element.closest(REASONING_SELECTOR)) {
-+            continue;
-+        }
-+        return element;
-+    }
-+    return null;
-+}
-diff --git a/packages/ui/src/components/chat/quoteNavigation.test.ts b/packages/ui/src/components/chat/quoteNavigation.test.ts
-index ecd8163..31b5d98 100644
---- a/packages/ui/src/components/chat/quoteNavigation.test.ts
-+++ b/packages/ui/src/components/chat/quoteNavigation.test.ts
-@@ -33,6 +33,8 @@ test('falls back to the rendered message list when the timeline index misses', a
-             scrolls.push(messageId);
-             return true;
-         },
-+        scrollToReplyStart: () => false,
-+        findPreviousReplyStart: () => null,
-         captureViewportAnchor: () => null,
-         restoreViewportAnchor: () => false,
-         alignViewportAnchor: () => 'missing',
+     return { cancelNavigationRef, settleNavigationTarget };
+ };
 diff --git a/packages/ui/src/hooks/useChatTimelineScroll.ts b/packages/ui/src/hooks/useChatTimelineScroll.ts
-index 5bd34d3..c11c11c 100644
+index 83de7fcd7..404defefd 100644
 --- a/packages/ui/src/hooks/useChatTimelineScroll.ts
 +++ b/packages/ui/src/hooks/useChatTimelineScroll.ts
 @@ -14,6 +14,7 @@ import {
@@ -1272,20 +1345,19 @@ index 5bd34d3..c11c11c 100644
  import {
      isWaitingPageRevealPending,
      pendingWaitingPageID,
-@@ -189,8 +190,6 @@ const REMEMBERED_POSITION_HISTORY_BATCHES = 3;
+@@ -122,7 +123,6 @@ const REMEMBERED_POSITION_REVEAL_WAIT_MS = 800;
+ const REMEMBERED_POSITION_HISTORY_BATCHES = 3;
  const MESSAGE_LINK_GAP_PX = 12;
- // Matches the animation length in typography.css.
  const MESSAGE_LINK_HIGHLIGHT_MS = 1200;
--// Room left above a reply whose start the follow stopped at.
 -const REPLY_START_GAP_PX = 16;
- // How long after a send growth glides before the session reports working.
  const SEND_GLIDE_WINDOW_MS = 2000;
- // How long after a turn ends its growth still follows with the follow stops.
+ const TURN_END_GLIDE_WINDOW_MS = 1000;
+ const LOAD_OLDER_REACH_VIEWPORTS = 2;
 diff --git a/packages/ui/src/lib/i18n/messages/ar.ts b/packages/ui/src/lib/i18n/messages/ar.ts
-index 02125c8..2324de1 100644
+index a235473b0..3c9a819ac 100644
 --- a/packages/ui/src/lib/i18n/messages/ar.ts
 +++ b/packages/ui/src/lib/i18n/messages/ar.ts
-@@ -2396,6 +2396,7 @@ export const dict = {
+@@ -2392,6 +2392,7 @@ export const dict: Record<I18nKey, string> = {
    'chat.draftStarters.sectionPinned': 'بداياتك',
    'chat.draftStarters.moveToFront': 'نقل إلى البداية',
    'chat.scrollToBottom.aria': 'التمرير إلى الأسفل',
@@ -1294,10 +1366,10 @@ index 02125c8..2324de1 100644
    'chat.promptNavigator.currentPrompt': 'الطلب الحالي',
    'chat.promptNavigator.loadMore': 'تحميل المزيد من الطلبات',
 diff --git a/packages/ui/src/lib/i18n/messages/de.ts b/packages/ui/src/lib/i18n/messages/de.ts
-index a34dabd..8df0e05 100644
+index 1e9b320e2..0b8b4be54 100644
 --- a/packages/ui/src/lib/i18n/messages/de.ts
 +++ b/packages/ui/src/lib/i18n/messages/de.ts
-@@ -2228,6 +2228,7 @@ export const dict = {
+@@ -2227,6 +2227,7 @@ export const dict = {
    'chat.draftStarters.sectionPinned': 'Deine Starter',
    'chat.draftStarters.moveToFront': 'An den Anfang verschieben',
    'chat.scrollToBottom.aria': 'Zum Ende scrollen',
@@ -1306,10 +1378,10 @@ index a34dabd..8df0e05 100644
    'chat.promptNavigator.currentPrompt': 'Aktueller Prompt',
    'chat.promptNavigator.loadMore': 'Weitere Prompts laden',
 diff --git a/packages/ui/src/lib/i18n/messages/en.ts b/packages/ui/src/lib/i18n/messages/en.ts
-index 982c19a..2559a3b 100644
+index 2578948ee..c8981c027 100644
 --- a/packages/ui/src/lib/i18n/messages/en.ts
 +++ b/packages/ui/src/lib/i18n/messages/en.ts
-@@ -2493,6 +2493,7 @@ export const dict = {
+@@ -2491,6 +2491,7 @@ export const dict = {
    'chat.draftStarters.sectionPinned': 'Your starters',
    'chat.draftStarters.moveToFront': 'Move to the front',
    'chat.scrollToBottom.aria': 'Scroll to bottom',
@@ -1318,10 +1390,10 @@ index 982c19a..2559a3b 100644
    'chat.promptNavigator.currentPrompt': 'Current prompt',
    'chat.promptNavigator.loadMore': 'Load more prompts',
 diff --git a/packages/ui/src/lib/i18n/messages/es.ts b/packages/ui/src/lib/i18n/messages/es.ts
-index 5f7841c..38a5abf 100644
+index 0e1a445ed..74f82f954 100644
 --- a/packages/ui/src/lib/i18n/messages/es.ts
 +++ b/packages/ui/src/lib/i18n/messages/es.ts
-@@ -2461,6 +2461,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -2459,6 +2459,7 @@ export const dict: Record<I18nKey, string> = {
    "chat.draftStarters.sectionPinned": "Tus iniciadores",
    "chat.draftStarters.moveToFront": "Mover al principio",
    "chat.scrollToBottom.aria": "Ir al final",
@@ -1330,10 +1402,10 @@ index 5f7841c..38a5abf 100644
    "chat.promptNavigator.currentPrompt": "Prompt actual",
    "chat.promptNavigator.loadMore": "Cargar más prompts",
 diff --git a/packages/ui/src/lib/i18n/messages/fr.ts b/packages/ui/src/lib/i18n/messages/fr.ts
-index aac4703..8b43b3d 100644
+index 647ae2905..c868875a3 100644
 --- a/packages/ui/src/lib/i18n/messages/fr.ts
 +++ b/packages/ui/src/lib/i18n/messages/fr.ts
-@@ -2218,6 +2218,7 @@ export const dict = {
+@@ -2215,6 +2215,7 @@ export const dict = {
    'chat.emptyState.draftTitle': 'Sur quoi travaillons-nous ?',
    'chat.emptyState.draftTitleWithProject': 'Sur quoi travaillons-nous dans {project} ?',
    'chat.scrollToBottom.aria': 'Faire défiler vers le bas',
@@ -1342,10 +1414,10 @@ index aac4703..8b43b3d 100644
    'chat.promptNavigator.currentPrompt': 'Prompt actuel',
    'chat.promptNavigator.loadMore': 'Charger plus de prompts',
 diff --git a/packages/ui/src/lib/i18n/messages/he.ts b/packages/ui/src/lib/i18n/messages/he.ts
-index 53e4ba2..af3fb95 100644
+index 3f41eb7b0..0d35def2e 100644
 --- a/packages/ui/src/lib/i18n/messages/he.ts
 +++ b/packages/ui/src/lib/i18n/messages/he.ts
-@@ -2396,6 +2396,7 @@ export const dict = {
+@@ -2391,6 +2391,7 @@ export const dict = {
    'chat.draftStarters.sectionPinned': 'הפתיחים שלך',
    'chat.draftStarters.moveToFront': 'העבר להתחלה',
    'chat.scrollToBottom.aria': 'גלול לתחתית',
@@ -1354,10 +1426,10 @@ index 53e4ba2..af3fb95 100644
    'chat.promptNavigator.currentPrompt': 'ההנחיה הנוכחית',
    'chat.promptNavigator.loadMore': 'טען הנחיות נוספות',
 diff --git a/packages/ui/src/lib/i18n/messages/ja.ts b/packages/ui/src/lib/i18n/messages/ja.ts
-index 17390b0..3e0bf1e 100644
+index 063a984bb..0a6eac979 100644
 --- a/packages/ui/src/lib/i18n/messages/ja.ts
 +++ b/packages/ui/src/lib/i18n/messages/ja.ts
-@@ -2489,6 +2489,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -2487,6 +2487,7 @@ export const dict: Record<I18nKey, string> = {
    'chat.draftStarters.sectionPinned': 'マイスターター',
    'chat.draftStarters.moveToFront': '先頭に移動',
    'chat.scrollToBottom.aria': '一番下にスクロール',
@@ -1366,10 +1438,10 @@ index 17390b0..3e0bf1e 100644
    'chat.promptNavigator.currentPrompt': '現在のプロンプト',
    'chat.promptNavigator.loadMore': 'さらにプロンプトを読み込む',
 diff --git a/packages/ui/src/lib/i18n/messages/ko.ts b/packages/ui/src/lib/i18n/messages/ko.ts
-index fc8554d..b3bde08 100644
+index fb3affbf6..fcfa6d3b4 100644
 --- a/packages/ui/src/lib/i18n/messages/ko.ts
 +++ b/packages/ui/src/lib/i18n/messages/ko.ts
-@@ -2493,6 +2493,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -2491,6 +2491,7 @@ export const dict: Record<I18nKey, string> = {
    'chat.draftStarters.sectionPinned': '내 스타터',
    'chat.draftStarters.moveToFront': '맨 앞으로 이동',
    'chat.scrollToBottom.aria': '맨 아래로 스크롤',
@@ -1378,10 +1450,10 @@ index fc8554d..b3bde08 100644
    'chat.promptNavigator.currentPrompt': '현재 프롬프트',
    'chat.promptNavigator.loadMore': '더 많은 프롬프트 불러오기',
 diff --git a/packages/ui/src/lib/i18n/messages/nl.ts b/packages/ui/src/lib/i18n/messages/nl.ts
-index ac06a5b..e256f97 100644
+index 2ea9424e3..c557c9981 100644
 --- a/packages/ui/src/lib/i18n/messages/nl.ts
 +++ b/packages/ui/src/lib/i18n/messages/nl.ts
-@@ -2493,6 +2493,7 @@ export const dict = {
+@@ -2491,6 +2491,7 @@ export const dict = {
    'chat.draftStarters.sectionPinned': 'Jouw starters',
    'chat.draftStarters.moveToFront': 'Naar het begin verplaatsen',
    'chat.scrollToBottom.aria': 'Naar beneden scrollen',
@@ -1390,10 +1462,10 @@ index ac06a5b..e256f97 100644
    'chat.promptNavigator.currentPrompt': 'Huidige prompt',
    'chat.promptNavigator.loadMore': 'Meer prompts laden',
 diff --git a/packages/ui/src/lib/i18n/messages/pl.ts b/packages/ui/src/lib/i18n/messages/pl.ts
-index 212730a..b0c9968 100644
+index 78473b06f..e0ca9cd7c 100644
 --- a/packages/ui/src/lib/i18n/messages/pl.ts
 +++ b/packages/ui/src/lib/i18n/messages/pl.ts
-@@ -1046,6 +1046,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -1041,6 +1041,7 @@ export const dict: Record<I18nKey, string> = {
    'chat.draftStarters.sectionPinned': 'Twoje startery',
    'chat.draftStarters.moveToFront': 'Przenieś na początek',
    'chat.scrollToBottom.aria': 'Przewiń na dół',
@@ -1402,10 +1474,10 @@ index 212730a..b0c9968 100644
    'chat.promptNavigator.currentPrompt': 'Bieżący prompt',
    'chat.promptNavigator.loadMore': 'Wczytaj więcej promptów',
 diff --git a/packages/ui/src/lib/i18n/messages/pt-BR.ts b/packages/ui/src/lib/i18n/messages/pt-BR.ts
-index d22353d..2304e43 100644
+index 2d96face5..55c6c5e45 100644
 --- a/packages/ui/src/lib/i18n/messages/pt-BR.ts
 +++ b/packages/ui/src/lib/i18n/messages/pt-BR.ts
-@@ -2461,6 +2461,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -2459,6 +2459,7 @@ export const dict: Record<I18nKey, string> = {
    "chat.draftStarters.sectionPinned": "Seus iniciadores",
    "chat.draftStarters.moveToFront": "Mover para o início",
    "chat.scrollToBottom.aria": "Ir ao final",
@@ -1414,7 +1486,7 @@ index d22353d..2304e43 100644
    "chat.promptNavigator.currentPrompt": "Prompt atual",
    "chat.promptNavigator.loadMore": "Carregar mais prompts",
 diff --git a/packages/ui/src/lib/i18n/messages/tr.ts b/packages/ui/src/lib/i18n/messages/tr.ts
-index 917f350..b6735cf 100644
+index f1868ddaf..0758f9fab 100644
 --- a/packages/ui/src/lib/i18n/messages/tr.ts
 +++ b/packages/ui/src/lib/i18n/messages/tr.ts
 @@ -2351,6 +2351,7 @@ export const dict = {
@@ -1426,10 +1498,10 @@ index 917f350..b6735cf 100644
    'chat.promptNavigator.currentPrompt': 'Mevcut prompt',
    'chat.promptNavigator.loadMore': 'Daha fazla prompt yükle',
 diff --git a/packages/ui/src/lib/i18n/messages/uk.ts b/packages/ui/src/lib/i18n/messages/uk.ts
-index e903cdd..099801b 100644
+index 5be859d74..1a8c6782d 100644
 --- a/packages/ui/src/lib/i18n/messages/uk.ts
 +++ b/packages/ui/src/lib/i18n/messages/uk.ts
-@@ -2461,6 +2461,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -2459,6 +2459,7 @@ export const dict: Record<I18nKey, string> = {
    "chat.draftStarters.sectionPinned": "Ваші стартери",
    "chat.draftStarters.moveToFront": "Перемістити на початок",
    "chat.scrollToBottom.aria": "Прокрутити вниз",
@@ -1438,10 +1510,10 @@ index e903cdd..099801b 100644
    "chat.promptNavigator.currentPrompt": "Поточний промпт",
    "chat.promptNavigator.loadMore": "Завантажити більше промптів",
 diff --git a/packages/ui/src/lib/i18n/messages/zh-CN.ts b/packages/ui/src/lib/i18n/messages/zh-CN.ts
-index 685c01f..00df059 100644
+index 0402556a9..19a08d9ef 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-CN.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-CN.ts
-@@ -2459,6 +2459,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -2457,6 +2457,7 @@ export const dict: Record<I18nKey, string> = {
    'chat.draftStarters.sectionPinned': '我的快捷启动项',
    'chat.draftStarters.moveToFront': '移到最前',
    'chat.scrollToBottom.aria': '滚动到底部',
@@ -1450,10 +1522,10 @@ index 685c01f..00df059 100644
    'chat.promptNavigator.currentPrompt': '当前提示',
    'chat.promptNavigator.loadMore': '加载更多提示',
 diff --git a/packages/ui/src/lib/i18n/messages/zh-TW.ts b/packages/ui/src/lib/i18n/messages/zh-TW.ts
-index e9bbc1d..cd5d494 100644
+index 159110528..f23fc9504 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-TW.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-TW.ts
-@@ -2470,6 +2470,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -2468,6 +2468,7 @@ export const dict: Record<I18nKey, string> = {
    'chat.draftStarters.sectionPinned': '我的快捷啟動項',
    'chat.draftStarters.moveToFront': '移到最前',
    'chat.scrollToBottom.aria': '捲動到底部',

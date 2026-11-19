@@ -1,123 +1,26 @@
 diff --git a/packages/ui/src/components/chat/ChatContainer.tsx b/packages/ui/src/components/chat/ChatContainer.tsx
-index 432ce3f4f..cfc4babfd 100644
+index 3251639ae..df9a89799 100644
 --- a/packages/ui/src/components/chat/ChatContainer.tsx
 +++ b/packages/ui/src/components/chat/ChatContainer.tsx
-@@ -122,6 +122,7 @@ import { useShownSessionSelection } from './useShownSessionSelection';
- import { usePinnedSessionDirectory } from './usePinnedSessionDirectory';
- import { useRightSlotStore } from '@/components/layout/rightSlot';
- import { buildPromptPreviewsByTurnId } from './lib/promptPreviews';
+@@ -42,6 +42,7 @@ import { useWorkStatusPlacement } from './column/useWorkStatusPlacement';
+ import { ScrollToReplyStartAction } from './components/ScrollToBottomButton';
+ import { deriveMessageRole } from './message/messageRole';
+ import { isEmptyTextPart } from './message/partUtils';
 +import { buildQuestionEntriesByTurnId, isPromptSelectorTurn, type QuestionAnswerEntry } from './lib/questionEntries';
- import { resolveChatPromptReadOnly } from './chatPromptReadOnly';
- import { PermissionDock } from './PermissionDock';
- import { FormDock } from './FormDock';
-@@ -278,6 +279,7 @@ type ChatViewportProps = {
-     turnIds: string[];
-     activeTurnId: string | null;
-     onSelectTurn: (turnId: string) => void;
-+    onSelectQuestion: (messageId: string) => void;
-     showPromptNavigator: boolean;
-     canLoadEarlierPrompts: boolean;
-     isLoadingOlderPrompts: boolean;
-@@ -323,6 +325,7 @@ const ChatViewport = React.memo(({
-     turnIds,
-     activeTurnId,
-     onSelectTurn,
-+    onSelectQuestion,
-     showPromptNavigator,
-     canLoadEarlierPrompts,
-     isLoadingOlderPrompts,
-@@ -356,27 +359,53 @@ const ChatViewport = React.memo(({
-         promptPreviewsByTurnIdRef.current = next;
-         return next;
-     }, [renderedMessages]);
--    // Only real (non-synthetic) prompts become rail entries; selection still
--    // targets the same turn anchors as the timeline.
-+    // Keyed by the turn's id, the same keys the previews use, so a question
-+    // shows under the prompt row that asked it. Kept across streamed part
-+    // updates, like the previews above, so the rail's entries memo stays
-+    // stable while a reply streams.
-+    const questionsByTurnIdRef = React.useRef<Map<string, QuestionAnswerEntry[]>>(new Map());
-+    const questionsByTurnId = React.useMemo(() => {
-+        const next = buildQuestionEntriesByTurnId(renderedMessages);
-+        const previous = questionsByTurnIdRef.current;
-+        if (previous.size === next.size) {
-+            let unchanged = true;
-+            for (const [turnId, entries] of next) {
-+                if (previous.get(turnId) !== entries) {
-+                    unchanged = false;
-+                    break;
-+                }
-+            }
-+            if (unchanged) {
-+                return previous;
-+            }
-+        }
-+        questionsByTurnIdRef.current = next;
-+        return next;
-+    }, [renderedMessages]);
-+    // Only real (non-synthetic) prompts become rail entries; a turn whose
-+    // prompt has no readable text still appears when it asked a question.
-+    // Selection still targets the same turn anchors as the timeline.
-     const promptTurnIds = React.useMemo(
--        () => turnIds.filter((id) => promptPreviewsByTurnId.has(id)),
--        [promptPreviewsByTurnId, turnIds],
-+        () => turnIds.filter((id) => isPromptSelectorTurn(id, promptPreviewsByTurnId, questionsByTurnId)),
-+        [promptPreviewsByTurnId, questionsByTurnId, turnIds],
-     );
-     // If the viewport sits in a filtered-out (synthetic) turn, treat the
--    // nearest preceding real prompt as active so the rail doesn't jump.
-+    // nearest preceding listed turn as active so the rail doesn't jump. This
-+    // reads the same membership rule as the list above: a turn listed for its
-+    // question is where the reader is, not the prompt before it.
-     const railActiveTurnId = React.useMemo(() => {
--        if (!activeTurnId || promptPreviewsByTurnId.has(activeTurnId)) {
-+        if (!activeTurnId || isPromptSelectorTurn(activeTurnId, promptPreviewsByTurnId, questionsByTurnId)) {
-             return activeTurnId;
-         }
-         const activeIndex = turnIds.indexOf(activeTurnId);
-         for (let index = activeIndex - 1; index >= 0; index -= 1) {
-             const turnId = turnIds[index];
--            if (promptPreviewsByTurnId.has(turnId)) {
-+            if (isPromptSelectorTurn(turnId, promptPreviewsByTurnId, questionsByTurnId)) {
-                 return turnId;
-             }
-         }
-         return null;
--    }, [activeTurnId, promptPreviewsByTurnId, turnIds]);
-+    }, [activeTurnId, promptPreviewsByTurnId, questionsByTurnId, turnIds]);
-     const focusScrollContainer = React.useCallback((event: React.MouseEvent<HTMLElement>) => {
-         if (event.defaultPrevented || shouldIgnoreChatNavigationTarget(event.target)) {
-             return;
-@@ -621,8 +650,10 @@ const ChatViewport = React.memo(({
-                             directory={directory}
-                             turnIds={promptTurnIds}
-                             previewsByTurnId={promptPreviewsByTurnId}
-+                            questionsByTurnId={questionsByTurnId}
-                             activeTurnId={railActiveTurnId}
-                             onSelectTurn={onSelectTurn}
-+                            onSelectQuestion={onSelectQuestion}
-                             canLoadEarlier={canLoadEarlierPrompts}
-                             isLoadingOlder={isLoadingOlderPrompts}
-                             onLoadEarlier={onLoadEarlierPrompts}
-@@ -661,6 +692,7 @@ const ChatViewport = React.memo(({
-         && prev.turnIds === next.turnIds
-         && prev.activeTurnId === next.activeTurnId
-         && prev.onSelectTurn === next.onSelectTurn
-+        && prev.onSelectQuestion === next.onSelectQuestion
-         && prev.showPromptNavigator === next.showPromptNavigator
-         && prev.canLoadEarlierPrompts === next.canLoadEarlierPrompts
-         && prev.isLoadingOlderPrompts === next.isLoadingOlderPrompts
-@@ -1697,6 +1729,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
-         // wrong message; a teleport always arrives.
-         void navigation.scrollToTurnId(turnId, { behavior: 'auto' });
-     }, [navigation]);
+ 
+ type ChatContainerProps = {
+     active?: boolean;
+@@ -355,6 +356,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
+         hasRenderableSessionSnapshot,
+         loadStatus: sessionMessageLoadState.status,
+     });
 +    const handlePromptNavigatorSelectQuestion = React.useCallback((messageId: string) => {
 +        void timelineController.scrollToMessage(messageId);
 +    }, [timelineController.scrollToMessage]);
-     const canLoadEarlierPrompts = timelineController.historySignals.canLoadEarlier;
-     // The mini chat window is too narrow for the navigator's panel.
-     const showPromptNavigator = !isMobile
-@@ -2078,6 +2113,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
+ 
+     const { attachComposerSlot, draftPresentationExiting, draftLayoutVisible, floatingComposer } = useComposerPresentation({
+         currentSessionId,
+@@ -438,6 +442,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
              turnIds={timelineController.turnIds}
              activeTurnId={timelineController.activeTurnId}
              onSelectTurn={handlePromptNavigatorSelect}
@@ -126,13 +29,13 @@ index 432ce3f4f..cfc4babfd 100644
              canLoadEarlierPrompts={canLoadEarlierPrompts}
              isLoadingOlderPrompts={timelineController.isLoadingOlder}
 diff --git a/packages/ui/src/components/chat/ChatMessage.tsx b/packages/ui/src/components/chat/ChatMessage.tsx
-index 176b1d5a4..98775b7be 100644
+index 00a8d40da..f3e1dd304 100644
 --- a/packages/ui/src/components/chat/ChatMessage.tsx
 +++ b/packages/ui/src/components/chat/ChatMessage.tsx
-@@ -46,26 +46,17 @@ import { getContextObligatoryMessages } from '@/lib/contextObligatoryMessages';
- import { setContextObligatoryMessage } from '@/sync/session-actions';
- import { isVSCodeRuntime } from '@/lib/desktop';
- import { useChatColumnActions } from './chatColumnSession';
+@@ -49,26 +49,17 @@ import { useChatColumnActions } from './chatColumnSession';
+ import { MessageSelectionMark } from './messageSelection/MessageSelectionMark';
+ import { MESSAGE_SELECT_UNIT_ATTRIBUTE } from './messageSelection/useMessageSelectionClicks';
+ import { useMessageSelectionEntry } from './messageSelection/useMessageSelectionEntry';
 +import {
 +    openQuestionSnapshot,
 +    questionIds,
@@ -164,7 +67,7 @@ index 176b1d5a4..98775b7be 100644
  
  function useStickyDisplayValue<T>(value: T | null | undefined): T | null | undefined {
      const [stickyValue, setStickyValue] = React.useState<T | null | undefined>(value);
-@@ -148,20 +139,48 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
+@@ -146,20 +137,48 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
  
      const providers = useConfigStore((state) => state.providers);
      const showReasoningTraces = useUIStore((state) => state.showReasoningTraces);
@@ -216,7 +119,7 @@ index 176b1d5a4..98775b7be 100644
  
  
  
-@@ -556,17 +575,20 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
+@@ -531,17 +550,20 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
      }, [sessionId, message.info.id]);
  
      const handleToggleTool = React.useCallback((toolId: string) => {
@@ -245,169 +148,10 @@ index 176b1d5a4..98775b7be 100644
      const hasEverStreamedRef = React.useRef(false);
  
 diff --git a/packages/ui/src/components/chat/MessageList.tsx b/packages/ui/src/components/chat/MessageList.tsx
-index e92ab3bf6..641b49b18 100644
+index 461b798f1..9af531cd6 100644
 --- a/packages/ui/src/components/chat/MessageList.tsx
 +++ b/packages/ui/src/components/chat/MessageList.tsx
-@@ -9,7 +9,8 @@ import { isSkippedTimelineMessage, isBackgroundReportEntry, isTimelineNoticeRole
- import { earlierAssistantText } from './lib/turns/earlierAssistantText';
- import { areOptionalRenderRelevantMessagesEqual, areRelevantTurnGroupingContextsEqual, areRenderRelevantMessagesEqual } from './message/renderCompare';
- import TurnItem from './components/TurnItem';
--import { turnHeaderCanStick } from './lib/turns/stickyPrompt';
-+import { endsStickySpan, STICKY_ROW_OFFSET, STICKY_ROW_OFFSET_EVENT, stickyRowIndicesOf } from './lib/turns/stickyPrompt';
-+import { QuestionTurnHeader } from './components/QuestionTurnHeader';
- import { TurnFold, TurnPagesRow } from './components/LiveTurnActivity';
- import { useTurnFoldContexts } from './components/useTurnFold';
- import { LiveFinalActivityContext, LiveTurnHoistedPagesContext } from './components/liveActivityContext';
-@@ -36,6 +37,7 @@ import { useSessionPartsForMessages } from '@/sync/sync-context';
- import type { ReviewTransferDirection } from '@/lib/reviewFlow';
- import { resolveTimelineIsAtEnd } from './lib/scroll/timelineScrollAnchoring';
- import { estimateTimelineRowSize, type RowSizeMetrics } from './lib/turns/rowSizeEstimate';
-+import { readQuestionOpenRevision } from './lib/questionExpandedState';
- import { onNavigationRelease } from './lib/scroll/timelineScrollIntent';
- import { useSelectionRowHold } from './lib/scroll/selectionRowHold';
- import { readStuckHeaderHeight, replyTopInset } from './lib/scroll/replyTopInset';
-@@ -178,6 +180,15 @@ type TurnEntry = Extract<RenderEntry, { kind: 'turn' }>;
- 
- type ToggleTurnActivity = (turnId: string) => void;
- 
-+/** Sets (or, with null, clears) a pinned row's offset from its own place, and tells the row. */
-+const setStickyRowOffset = (element: HTMLElement, offset: number | null) => {
-+    const value = offset === null ? '' : `${offset}px`;
-+    if (element.style.getPropertyValue(STICKY_ROW_OFFSET) === value) return;
-+    if (offset === null) element.style.removeProperty(STICKY_ROW_OFFSET);
-+    else element.style.setProperty(STICKY_ROW_OFFSET, value);
-+    element.dispatchEvent(new Event(STICKY_ROW_OFFSET_EVENT, { bubbles: true }));
-+};
-+
- // Which settled Activity folds the reader opened. It outlives the list, like
- // tool expansion in ChatMessage: returning to a session shows its folds as they
- // were left, which a restored reading position inside an open fold depends on.
-@@ -484,7 +495,13 @@ const TurnRow = React.memo(({
-         content = <TurnPagesRow turn={turn} />;
-     } else {
-         const message = turn.assistantMessages.find((candidate) => candidate.info.id === row.messageId);
--        if (message) {
-+        const questionPart = row.questionPartId ? message?.parts.find((part) => part.id === row.questionPartId) : undefined;
-+        if (message && questionPart) {
-+            content = (
-+                <QuestionTurnHeader part={questionPart} messageId={message.info.id}
-+                    startsMessage={!row.slice?.from && !row.questionLifted} />
-+            );
-+        } else if (message) {
-             content = (
-                 <MessageSliceContext.Provider value={row.slice}>
-                     {row.final ? (
-@@ -709,7 +726,10 @@ const timelineKeyExtractor = (item: RenderRow): string => item.key;
- // Row type drives container reuse. Prompts, folds and messages have very
- // different shapes, so keeping them in separate pools avoids re-measuring a
- // container every time one replaces the other.
--const timelineItemType = (item: RenderRow): string => item.kind;
-+const timelineItemType = (item: RenderRow): string => {
-+    if (item.kind === 'turn-message' && item.questionPartId) return 'turn-question';
-+    return item.kind;
-+};
- 
- const renderTimelineItem = ({ item }: { item: RenderRow }) => <TimelineRow row={item} />;
- 
-@@ -753,6 +773,7 @@ type TimelineListProps = {
-     rowContext: TimelineRowContextValue;
-     showReasoningTraces: boolean;
-     collapsibleThinkingBlocks: boolean;
-+    autoExpandAnsweredQuestions: boolean;
- };
- 
- const TimelineList = React.memo(({
-@@ -770,6 +791,7 @@ const TimelineList = React.memo(({
-     rowContext,
-     showReasoningTraces,
-     collapsibleThinkingBlocks,
-+    autoExpandAnsweredQuestions,
- }: TimelineListProps) => {
-     const listRef = React.useRef<LegendListRef | null>(null);
-     const isAtEndRef = React.useRef(true);
-@@ -777,9 +799,10 @@ const TimelineList = React.memo(({
- 
-     // Each row is placed at an estimate of its own height until measured
-     // (`rowSizeEstimate.ts`).
--    const sizeMetricsRef = React.useRef<RowSizeMetrics>({ columnWidth: 0, lineHeight: 32, showReasoningTraces, collapsibleThinkingBlocks });
-+    const sizeMetricsRef = React.useRef<RowSizeMetrics>({ columnWidth: 0, lineHeight: 32, showReasoningTraces, collapsibleThinkingBlocks, autoExpandAnsweredQuestions });
-     sizeMetricsRef.current.showReasoningTraces = showReasoningTraces;
-     sizeMetricsRef.current.collapsibleThinkingBlocks = collapsibleThinkingBlocks;
-+    sizeMetricsRef.current.autoExpandAnsweredQuestions = autoExpandAnsweredQuestions;
-     const sizeMetrics = React.useCallback((): RowSizeMetrics => {
-         const metrics = sizeMetricsRef.current;
-         if (metrics.columnWidth <= 0) {
-@@ -793,7 +816,10 @@ const TimelineList = React.memo(({
-     const estimatesRef = React.useRef(new WeakMap<RenderRow, { metrics: string; size: number | undefined }>());
-     const estimateRowSize = React.useCallback((row: RenderRow): number | undefined => {
-         const metrics = sizeMetrics();
--        const signature = `${metrics.columnWidth}|${metrics.lineHeight}|${metrics.showReasoningTraces}|${metrics.collapsibleThinkingBlocks}`;
-+        // A question card's shape follows the reader's own open state, so its
-+        // estimate is re-read after any toggle.
-+        const signature = `${metrics.columnWidth}|${metrics.lineHeight}|${metrics.showReasoningTraces}|${metrics.collapsibleThinkingBlocks}|${metrics.autoExpandAnsweredQuestions}`
-+            + (row.kind === 'turn-message' && row.questionPartId ? `|q${readQuestionOpenRevision()}` : '');
-         const cached = estimatesRef.current.get(row);
-         if (cached && cached.metrics === signature) return cached.size;
-         const size = estimateTimelineRowSize(row, metrics);
-@@ -830,23 +856,40 @@ const TimelineList = React.memo(({
-         const active = state.activeStickyIndex;
-         const element = active >= 0 ? state.elementAtIndex(active) ?? null : null;
-         const pushed = pushedHeaderRef.current;
--        if (pushed && pushed !== element) pushed.style.transform = '';
-+        if (pushed && pushed !== element) {
-+            pushed.style.transform = '';
-+            pushed.style.pointerEvents = '';
-+            setStickyRowOffset(pushed, null);
-+        }
-         pushedHeaderRef.current = element;
-         if (!element) return;
-         const data = rowsRef.current;
-         let end = active + 1;
--        while (end < data.length && data[end].kind !== 'turn-head' && data[end].kind !== 'ungrouped') end += 1;
--        // The turn's end is the top of the row after it; one not mounted is
--        // far below, and the prompt stays where it sticks.
-+        while (end < data.length && !endsStickySpan(data[end])) end += 1;
-+        // The header's span ends at the top of the next prompt, answered
-+        // question or ungrouped row; one not mounted is far below, and the
-+        // header stays where it sticks.
-         const next = end < data.length ? state.elementAtIndex(end) : null;
-         const scroller = listRef.current?.getScrollableNode();
--        if (!next || !scroller) {
--            element.style.transform = '';
--            return;
--        }
--        const push = Math.min(0, next.getBoundingClientRect().top - scroller.getBoundingClientRect().top - element.offsetHeight);
-+        const push = next && scroller
-+            ? Math.min(0, next.getBoundingClientRect().top - scroller.getBoundingClientRect().top - element.offsetHeight)
-+            : 0;
-         element.style.transform = push < 0 ? `translateY(${push}px)` : '';
-+        // An answered question's card draws only its own box: where the
-+        // pinned row draws nothing, taps reach the transcript under it.
-+        element.style.pointerEvents = data[active]?.kind === 'turn-message' ? 'none' : '';
-+        // Positions count from the rows' container, below the list's header.
-+        const origin = element.parentElement?.getBoundingClientRect().top;
-+        const offset = origin === undefined ? 0 : element.getBoundingClientRect().top - origin - state.positionAtIndex(active);
-+        setStickyRowOffset(element, Math.max(0, offset));
-     }, []);
-+    // The list reports the change before it pins the row; measure once it has.
-+    const handleStickyHeaderChange = React.useCallback(() => {
-+        requestAnimationFrame(() => {
-+            const state = listRef.current?.getState();
-+            if (state) pushStickyHeader(state);
-+        });
-+    }, [pushStickyHeader]);
- 
-     // The list reports scroll continuously; only end-crossings are interesting,
-     // so the edge is debounced to a state transition here rather than pushing a
-@@ -909,6 +952,7 @@ const TimelineList = React.memo(({
-                 onScroll={handleScroll}
-                 onMetricsChange={onListMetricsChange}
-                 stickyHeaderIndices={stickyRowIndices}
-+                onStickyHeaderChange={handleStickyHeaderChange}
-                 ListHeaderComponent={header}
-                 ListFooterComponent={footer}
-                 {...scrollContainerProps}
-@@ -945,6 +989,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
+@@ -74,6 +74,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
      const showTurnChangedFiles = useUIStore((state) => state.showTurnChangedFiles);
      const showReasoningTraces = useUIStore((state) => state.showReasoningTraces);
      const collapsibleThinkingBlocks = useUIStore((state) => state.collapsibleThinkingBlocks);
@@ -415,32 +159,6 @@ index e92ab3bf6..641b49b18 100644
      const stickyUserHeader = useUIStore((state) => state.stickyUserHeader);
      const defaultActivityExpanded = activityRenderMode === 'summary';
      const reviewTransferDirection = useGlobalSessionsStore((state) => {
-@@ -1137,14 +1182,11 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
-         return next;
-     }), [allEntries, defaultActivityExpanded, showReasoningTraces, turnExpansion]);
- 
--    // The prompt rows the list keeps on top while their turn scrolls under them.
-+    // The rows the list keeps on top while what follows scrolls under them:
-+    // prompts and answered questions' cards (`stickyRowIndicesOf`).
-     const stickyRowIndices = React.useMemo(() => {
-         if (!stickyUserHeader) return undefined;
--        const indices: number[] = [];
--        rows.forEach((row, index) => {
--            if (row.kind === 'turn-head' && turnHeaderCanStick(row.entry.turn.userMessage)) indices.push(index);
--        });
--        return indices.length > 0 ? indices : undefined;
-+        return stickyRowIndicesOf(rows);
-     }, [rows, stickyUserHeader]);
- 
-     const [liveTail] = React.useState(createLiveTailStore);
-@@ -1772,6 +1814,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
-                     endPinningReleased={endPinningReleased}
-                     showReasoningTraces={showReasoningTraces}
-                     collapsibleThinkingBlocks={collapsibleThinkingBlocks}
-+                    autoExpandAnsweredQuestions={autoExpandAnsweredQuestions}
-                 />
-         </FadeInDisabledProvider>
-     );
 diff --git a/packages/ui/src/components/chat/TimelineDialog.test.tsx b/packages/ui/src/components/chat/TimelineDialog.test.tsx
 index 99a354f16..e185d329b 100644
 --- a/packages/ui/src/components/chat/TimelineDialog.test.tsx
@@ -492,7 +210,7 @@ index 99a354f16..e185d329b 100644
      const page = spyOn(opencodeClient, 'getSessionMessages').mockResolvedValue({
        items: Array.from({ length: 25 }, (_, index) => ({
 diff --git a/packages/ui/src/components/chat/TimelineDialog.tsx b/packages/ui/src/components/chat/TimelineDialog.tsx
-index 7e68f1c78..2315b4c2c 100644
+index dfed13956..e5d5e1270 100644
 --- a/packages/ui/src/components/chat/TimelineDialog.tsx
 +++ b/packages/ui/src/components/chat/TimelineDialog.tsx
 @@ -17,6 +17,9 @@ import { getCurrentIntlLocale, useI18n } from '@/lib/i18n';
@@ -505,7 +223,7 @@ index 7e68f1c78..2315b4c2c 100644
  import { useDeviceInfo } from '@/lib/device';
  import { cn } from '@/lib/utils';
  import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
-@@ -96,6 +99,26 @@ interface TimelineDialogBodyProps extends Omit<TimelineDialogProps, 'open'> {
+@@ -87,6 +90,26 @@ interface TimelineDialogBodyProps extends Omit<TimelineDialogProps, 'open'> {
      onSearchQueryChange: (query: string) => void;
  }
  
@@ -532,7 +250,7 @@ index 7e68f1c78..2315b4c2c 100644
  const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
      onOpenChange,
      onScrollToMessage,
-@@ -110,6 +133,7 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
+@@ -101,6 +124,7 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
      onSearchQueryChange,
  }) => {
      const { t } = useI18n();
@@ -540,13 +258,16 @@ index 7e68f1c78..2315b4c2c 100644
      const descriptorOf = useSourceControlDescriptorOf();
      const messages = useSessionMessageRecords(currentSessionId, currentSessionDirectory);
      const messageLoader = useSessionMessageLoader();
-@@ -134,26 +158,63 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
-     // Timeline actions are only valid for user messages. Folding the injected
-     // context back on is what gives a quote-only prompt a title, and makes the
-     // quote itself searchable.
+@@ -121,23 +145,64 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
+     const pendingLoadAnchorRef = React.useRef<{ messageId: string; top: number } | null>(null);
+     const preservingLoadPositionRef = React.useRef(false);
+ 
 -    const userMessages = React.useMemo(() => {
 -        return foldPromptEntries(messages).map((message) => ({ message }));
 -    }, [messages]);
++    // Timeline actions are only valid for user messages. Folding the injected
++    // context back on is what gives a quote-only prompt a title, and makes the
++    // quote itself searchable.
 +    const turnModel = React.useMemo(() => buildTurnWindowModel(messages), [messages]);
 +    const questionsByTurnId = React.useMemo(() => buildQuestionEntriesByTurnId(messages), [messages]);
 +    const promptGroups = React.useMemo(() => {
@@ -570,7 +291,6 @@ index 7e68f1c78..2315b4c2c 100644
 +        return groups;
 +    }, [messages, questionsByTurnId, turnModel.turnIds]);
  
--    // Filter by search query using all text parts in each user message.
 -    const filteredMessages = React.useMemo(() => {
 +    // Filter by search query using all text parts in each prompt, and the
 +    // questions its turn asked.
@@ -606,15 +326,13 @@ index 7e68f1c78..2315b4c2c 100644
 +        return next;
 +    }, [filteredGroups]);
  
-     // The body mounts on open, so start on the row the reset below would pick;
-     // starting at 0 would scroll the first row into view after the open scroll.
      const [selectedIndex, setSelectedIndex] = React.useState(() => (
 -        searchQuery.trim() ? 0 : Math.max(0, filteredMessages.length - 1)
 +        searchQuery.trim() ? 0 : lastPromptRowIndex(rows)
      ));
  
      React.useEffect(() => {
-@@ -161,12 +222,12 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
+@@ -145,12 +210,12 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
              return;
          }
  
@@ -631,16 +349,16 @@ index 7e68f1c78..2315b4c2c 100644
  
      React.useEffect(() => {
          if (preservingLoadPositionRef.current) {
-@@ -184,7 +245,7 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
+@@ -168,7 +233,7 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
          }
  
          preservingLoadPositionRef.current = false;
 -    }, [filteredMessages.length, isLoadingEarlier]);
 +    }, [rows.length, isLoadingEarlier]);
  
-     // Opening the dialog mounts the body: start at the latest message unless
-     // a search query is active.
-@@ -213,7 +274,7 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
+     const openedWithQueryRef = React.useRef(searchQuery.trim() !== '');
+     React.useLayoutEffect(() => {
+@@ -195,7 +260,7 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
  
          const nextTop = anchoredRow.getBoundingClientRect().top - container.getBoundingClientRect().top;
          container.scrollTop += nextTop - anchor.top;
@@ -649,7 +367,7 @@ index 7e68f1c78..2315b4c2c 100644
  
      const handleLoadEarlier = React.useCallback(() => {
          const container = listRef.current;
-@@ -245,7 +306,7 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
+@@ -227,7 +292,7 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
      }, [onOpenChange, onScrollToMessage]);
  
      const handleSearchKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -658,7 +376,7 @@ index 7e68f1c78..2315b4c2c 100644
          if (total === 0) {
              return;
          }
-@@ -265,12 +326,12 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
+@@ -247,12 +312,12 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
          if (event.key === 'Enter') {
              event.preventDefault();
              const safeIndex = ((selectedIndex % total) + total) % total;
@@ -672,9 +390,9 @@ index 7e68f1c78..2315b4c2c 100644
 -    }, [filteredMessages, navigateToMessage, selectedIndex]);
 +    }, [navigateToMessage, rows, selectedIndex]);
  
-     // Handle fork with loading state and session refresh
      const handleFork = async (messageId: string) => {
-@@ -354,20 +415,76 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
+         setForkingMessageId(messageId);
+@@ -335,20 +400,76 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
                  )}
  
                  <ScrollableOverlay ref={listRef} outerClassName="min-h-0 flex-1" disableHorizontal>
@@ -759,7 +477,7 @@ index 7e68f1c78..2315b4c2c 100644
                              const messageTime = formatMessageTime(timestamp);
                              const isSelected = index === selectedIndex;
  
-@@ -377,11 +494,11 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
+@@ -358,11 +479,11 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
  
                              return (
                                  <React.Fragment key={message.info.id}>
@@ -773,7 +491,7 @@ index 7e68f1c78..2315b4c2c 100644
                                              </span>
                                              <div className="h-px flex-1 bg-edge" />
                                          </div>
-@@ -412,47 +529,49 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
+@@ -393,47 +514,49 @@ const TimelineDialogBody: React.FC<TimelineDialogBodyProps> = ({
                                              {!snippet && preview && preview.length >= 80 && '…'}
                                          </p>
  
@@ -863,6 +581,118 @@ index 7e68f1c78..2315b4c2c 100644
                                      </div>
                                  </React.Fragment>
                              );
+diff --git a/packages/ui/src/components/chat/column/ChatViewport.tsx b/packages/ui/src/components/chat/column/ChatViewport.tsx
+index 5ea32c3cc..07a6e15ef 100644
+--- a/packages/ui/src/components/chat/column/ChatViewport.tsx
++++ b/packages/ui/src/components/chat/column/ChatViewport.tsx
+@@ -67,6 +67,7 @@ type ChatViewportProps = {
+     turnIds: string[];
+     activeTurnId: string | null;
+     onSelectTurn: (turnId: string) => void;
++    onSelectQuestion: (messageId: string) => void;
+     showPromptNavigator: boolean;
+     canLoadEarlierPrompts: boolean;
+     isLoadingOlderPrompts: boolean;
+@@ -108,6 +109,7 @@ export const ChatViewport = React.memo(({
+     turnIds,
+     activeTurnId,
+     onSelectTurn,
++    onSelectQuestion,
+     showPromptNavigator,
+     canLoadEarlierPrompts,
+     isLoadingOlderPrompts,
+@@ -123,7 +125,7 @@ export const ChatViewport = React.memo(({
+         registerList(list, currentSessionKey);
+     }, [currentSessionKey, registerList]);
+     const showingTranscript = placeholder === undefined;
+-    const { promptPreviewsByTurnId, promptTurnIds, railActiveTurnId } = usePromptRail({ renderedMessages, turnIds, activeTurnId });
++    const { promptPreviewsByTurnId, promptTurnIds, railActiveTurnId, questionsByTurnId } = usePromptRail({ renderedMessages, turnIds, activeTurnId });
+     const focusScrollContainer = React.useCallback((event: React.MouseEvent<HTMLElement>) => {
+         if (event.defaultPrevented || shouldIgnoreChatNavigationTarget(event.target)) {
+             return;
+@@ -282,6 +284,8 @@ export const ChatViewport = React.memo(({
+                             previewsByTurnId={promptPreviewsByTurnId}
+                             activeTurnId={railActiveTurnId}
+                             onSelectTurn={onSelectTurn}
++                            questionsByTurnId={questionsByTurnId}
++                            onSelectQuestion={onSelectQuestion}
+                             canLoadEarlier={canLoadEarlierPrompts}
+                             isLoadingOlder={isLoadingOlderPrompts}
+                             onLoadEarlier={onLoadEarlierPrompts}
+@@ -320,6 +324,7 @@ export const ChatViewport = React.memo(({
+         && prev.turnIds === next.turnIds
+         && prev.activeTurnId === next.activeTurnId
+         && prev.onSelectTurn === next.onSelectTurn
++        && prev.onSelectQuestion === next.onSelectQuestion
+         && prev.showPromptNavigator === next.showPromptNavigator
+         && prev.canLoadEarlierPrompts === next.canLoadEarlierPrompts
+         && prev.isLoadingOlderPrompts === next.isLoadingOlderPrompts
+diff --git a/packages/ui/src/components/chat/column/usePromptRail.ts b/packages/ui/src/components/chat/column/usePromptRail.ts
+index 1c04ec01c..cf80fd41f 100644
+--- a/packages/ui/src/components/chat/column/usePromptRail.ts
++++ b/packages/ui/src/components/chat/column/usePromptRail.ts
+@@ -1,6 +1,7 @@
+ import React from 'react';
+ import type { Message, Part } from '@/lib/opencode/model';
+ import { buildPromptPreviewsByTurnId } from '../lib/promptPreviews';
++import { buildQuestionEntriesByTurnId, isPromptSelectorTurn, type QuestionAnswerEntry } from '../lib/questionEntries';
+ 
+ export const usePromptRail = ({
+     renderedMessages,
+@@ -30,22 +31,47 @@ export const usePromptRail = ({
+         promptPreviewsByTurnIdRef.current = next;
+         return next;
+     }, [renderedMessages]);
++    // Keyed by the turn's id, the same keys the previews use, so a question
++    // shows under the prompt row that asked it. Kept across streamed part
++    // updates, like the previews above, so the rail's entries memo stays
++    // stable while a reply streams.
++    const questionsByTurnIdRef = React.useRef<Map<string, QuestionAnswerEntry[]>>(new Map());
++    const questionsByTurnId = React.useMemo(() => {
++        const next = buildQuestionEntriesByTurnId(renderedMessages);
++        const previous = questionsByTurnIdRef.current;
++        if (previous.size === next.size) {
++            let unchanged = true;
++            for (const [turnId, entries] of next) {
++                if (previous.get(turnId) !== entries) {
++                    unchanged = false;
++                    break;
++                }
++            }
++            if (unchanged) {
++                return previous;
++            }
++        }
++        questionsByTurnIdRef.current = next;
++        return next;
++    }, [renderedMessages]);
++    // Only real (non-synthetic) prompts become rail entries; a turn whose
++    // prompt has no readable text still appears when it asked a question.
+     const promptTurnIds = React.useMemo(
+-        () => turnIds.filter((id) => promptPreviewsByTurnId.has(id)),
+-        [promptPreviewsByTurnId, turnIds],
++        () => turnIds.filter((id) => isPromptSelectorTurn(id, promptPreviewsByTurnId, questionsByTurnId)),
++        [promptPreviewsByTurnId, questionsByTurnId, turnIds],
+     );
+     const railActiveTurnId = React.useMemo(() => {
+-        if (!activeTurnId || promptPreviewsByTurnId.has(activeTurnId)) {
++        if (!activeTurnId || isPromptSelectorTurn(activeTurnId, promptPreviewsByTurnId, questionsByTurnId)) {
+             return activeTurnId;
+         }
+         const activeIndex = turnIds.indexOf(activeTurnId);
+         for (let index = activeIndex - 1; index >= 0; index -= 1) {
+             const turnId = turnIds[index];
+-            if (promptPreviewsByTurnId.has(turnId)) {
++            if (isPromptSelectorTurn(turnId, promptPreviewsByTurnId, questionsByTurnId)) {
+                 return turnId;
+             }
+         }
+         return null;
+-    }, [activeTurnId, promptPreviewsByTurnId, turnIds]);
+-    return { promptPreviewsByTurnId, promptTurnIds, railActiveTurnId };
++    }, [activeTurnId, promptPreviewsByTurnId, questionsByTurnId, turnIds]);
++    return { promptPreviewsByTurnId, promptTurnIds, railActiveTurnId, questionsByTurnId };
+ };
 diff --git a/packages/ui/src/components/chat/components/PromptNavigatorRail.test.tsx b/packages/ui/src/components/chat/components/PromptNavigatorRail.test.tsx
 new file mode 100644
 index 000000000..fe3a69280
@@ -1096,7 +926,7 @@ index 000000000..fe3a69280
 +    }
 +});
 diff --git a/packages/ui/src/components/chat/components/PromptNavigatorRail.tsx b/packages/ui/src/components/chat/components/PromptNavigatorRail.tsx
-index eb6fca02f..046cd62b3 100644
+index 8ee43c262..c3fadd995 100644
 --- a/packages/ui/src/components/chat/components/PromptNavigatorRail.tsx
 +++ b/packages/ui/src/components/chat/components/PromptNavigatorRail.tsx
 @@ -11,10 +11,12 @@ import { cn } from '@/lib/utils';
@@ -1123,7 +953,7 @@ index eb6fca02f..046cd62b3 100644
      canLoadEarlier: boolean;
      isLoadingOlder: boolean;
      onLoadEarlier: () => void;
-@@ -43,6 +47,7 @@ const PANEL_HIDE_DELAY_MS = 160;
+@@ -37,6 +41,7 @@ const PANEL_HIDE_DELAY_MS = 160;
  const buildPromptEntries = (
      turnIds: string[],
      previewsByTurnId: Map<string, Part[]>,
@@ -1131,7 +961,7 @@ index eb6fca02f..046cd62b3 100644
      t: (key: I18nKey, params?: I18nParams) => string,
      descriptorOf: SourceControlDescriptorOf,
  ): PromptEntry[] => {
-@@ -51,6 +56,7 @@ const buildPromptEntries = (
+@@ -45,6 +50,7 @@ const buildPromptEntries = (
          return {
              turnId,
              preview: getMessagePreview(parts, PREVIEW_MAX_CHARS, t, descriptorOf),
@@ -1139,7 +969,7 @@ index eb6fca02f..046cd62b3 100644
          };
      });
  };
-@@ -64,20 +70,28 @@ const resolveIndicatorTick = (index: number, total: number, ticks: number): numb
+@@ -57,26 +63,36 @@ const resolveIndicatorTick = (index: number, total: number, ticks: number): numb
  };
  
  const rowId = (turnId: string) => `prompt-navigator-row-${turnId}`;
@@ -1165,10 +995,10 @@ index eb6fca02f..046cd62b3 100644
      const { t } = useI18n();
      const descriptorOf = useSourceControlDescriptorOf();
 +    const listQuestions = useUIStore((state) => state.listQuestionsInPromptSelector);
-     // The keyboard shortcut drives the main chat's navigator; a pinned
-     // column's navigator neither opens on it nor closes it.
++    // The keyboard shortcut drives the main chat's navigator; a pinned
++    // column's navigator neither opens on it nor closes it.
      const { pinned } = useChatColumnActions();
-@@ -85,7 +99,7 @@ export function PromptNavigatorRail({
+     const isKeyboardNavOpen = useUIStore((state) => (pinned ? false : state.isPromptNavigatorPanelOpen));
      const setPromptNavigatorPanelOpen = useUIStore((state) => state.setPromptNavigatorPanelOpen);
      const listRef = React.useRef<HTMLDivElement | null>(null);
      const [isHoverOpen, setIsHoverOpen] = React.useState(false);
@@ -1176,8 +1006,8 @@ index eb6fca02f..046cd62b3 100644
 +    const [highlightedRowId, setHighlightedRowId] = React.useState<string | null>(null);
      const isOpen = isHoverOpen || isKeyboardNavOpen;
  
-     // A reader at the chat's end has the history above the loaded window cut
-@@ -101,8 +115,8 @@ export function PromptNavigatorRail({
+     const messageLoader = useSessionMessageLoader();
+@@ -88,8 +104,8 @@ export function PromptNavigatorRail({
      }, [directory, isOpen, messageLoader, sessionId]);
  
      const prompts = React.useMemo(
@@ -1188,7 +1018,7 @@ index eb6fca02f..046cd62b3 100644
      );
      const activeIndex = React.useMemo(() => {
          if (!activeTurnId) {
-@@ -111,10 +125,40 @@ export function PromptNavigatorRail({
+@@ -98,10 +114,40 @@ export function PromptNavigatorRail({
          return prompts.findIndex((prompt) => prompt.turnId === activeTurnId);
      }, [activeTurnId, prompts]);
      const currentIndex = activeIndex >= 0 ? activeIndex : prompts.length - 1;
@@ -1229,7 +1059,7 @@ index eb6fca02f..046cd62b3 100644
  
      const showTimerRef = React.useRef<number | null>(null);
      const hideTimerRef = React.useRef<number | null>(null);
-@@ -143,7 +187,7 @@ export function PromptNavigatorRail({
+@@ -128,7 +174,7 @@ export function PromptNavigatorRail({
      const close = React.useCallback(() => {
          clearTimers();
          setIsHoverOpen(false);
@@ -1238,7 +1068,7 @@ index eb6fca02f..046cd62b3 100644
          closeKeyboardNav();
      }, [clearTimers, closeKeyboardNav]);
  
-@@ -175,7 +219,7 @@ export function PromptNavigatorRail({
+@@ -159,7 +205,7 @@ export function PromptNavigatorRail({
          hideTimerRef.current = window.setTimeout(() => {
              hideTimerRef.current = null;
              setIsHoverOpen(false);
@@ -1247,7 +1077,7 @@ index eb6fca02f..046cd62b3 100644
          }, PANEL_HIDE_DELAY_MS);
      }, [clearTimers, isHoverOpen, isKeyboardNavOpen]);
  
-@@ -189,6 +233,12 @@ export function PromptNavigatorRail({
+@@ -173,6 +219,15 @@ export function PromptNavigatorRail({
          close();
      }, [close, onSelectTurn, prompts]);
  
@@ -1257,15 +1087,16 @@ index eb6fca02f..046cd62b3 100644
 +        close();
 +    }, [close, onSelectQuestion]);
 +
-     // Each opening shows the current prompt in the middle of the list; the
-     // list then scrolls natively. Read through a ref: later updates (a new
-     // prompt, the chat scrolling underneath) must not move the open list.
-@@ -206,26 +256,23 @@ export function PromptNavigatorRail({
++    // Each opening shows the current prompt in the middle of the list; the
++    // list then scrolls natively. Read through a ref: later updates (a new
++    // prompt, the chat scrolling underneath) must not move the open list.
+     const currentIndexRef = React.useRef(currentIndex);
+     currentIndexRef.current = currentIndex;
+     React.useLayoutEffect(() => {
+@@ -187,39 +242,40 @@ export function PromptNavigatorRail({
          list.scrollTop = row.offsetTop - (list.clientHeight - row.offsetHeight) / 2;
      }, [isOpen]);
  
--    // Earlier prompts load into the top of the list; the prompt that was
--    // first stays where it was on screen, and the highlight stays on its row.
 -    const firstTurnIdRef = React.useRef<string | undefined>(prompts[0]?.turnId);
 -    const prevLengthRef = React.useRef(prompts.length);
 +    // Earlier prompts load into the top of the list; the prompt that was first
@@ -1294,9 +1125,8 @@ index eb6fca02f..046cd62b3 100644
 -    }, [prompts]);
 +    }, [navRows]);
  
-     // The shortcut opens the panel with the keyboard in it.
      React.useEffect(() => {
-@@ -233,16 +280,17 @@ export function PromptNavigatorRail({
+         if (!isKeyboardNavOpen) {
              return;
          }
          listRef.current?.focus();
@@ -1312,7 +1142,7 @@ index eb6fca02f..046cd62b3 100644
 +        const target = navRows[next];
 +        if (!target) return;
 +        setHighlightedRowId(target.id);
-         // Scrolls the list only; scrollIntoView would also move the chat.
++        // Scrolls the list only; scrollIntoView would also move the chat.
          const list = listRef.current;
 -        const prompt = prompts[next];
 -        const row = list && prompt ? document.getElementById(rowId(prompt.turnId)) : null;
@@ -1320,7 +1150,7 @@ index eb6fca02f..046cd62b3 100644
          if (!list || !row) {
              return;
          }
-@@ -251,13 +299,13 @@ export function PromptNavigatorRail({
+@@ -228,13 +284,13 @@ export function PromptNavigatorRail({
          } else if (row.offsetTop + row.offsetHeight > list.scrollTop + list.clientHeight) {
              list.scrollTop = row.offsetTop + row.offsetHeight - list.clientHeight;
          }
@@ -1337,7 +1167,7 @@ index eb6fca02f..046cd62b3 100644
          if (handleDropdownNavigationKey(event, (key) => moveHighlight(current + (key === 'ArrowUp' ? -1 : 1)))) {
              return;
          }
-@@ -268,12 +316,17 @@ export function PromptNavigatorRail({
+@@ -245,12 +301,17 @@ export function PromptNavigatorRail({
          }
          if (event.key === 'Home' || event.key === 'End') {
              event.preventDefault();
@@ -1357,7 +1187,7 @@ index eb6fca02f..046cd62b3 100644
              return;
          }
          if (event.key === 'Escape') {
-@@ -281,7 +334,7 @@ export function PromptNavigatorRail({
+@@ -258,7 +319,7 @@ export function PromptNavigatorRail({
              close();
              listRef.current?.blur();
          }
@@ -1366,7 +1196,7 @@ index eb6fca02f..046cd62b3 100644
  
      const handleListBlur = React.useCallback((event: React.FocusEvent<HTMLDivElement>) => {
          if (event.currentTarget.contains(event.relatedTarget)) {
-@@ -298,7 +351,7 @@ export function PromptNavigatorRail({
+@@ -275,7 +336,7 @@ export function PromptNavigatorRail({
  
      const tickCount = Math.min(prompts.length, INDICATOR_TICKS);
      const currentTick = resolveIndicatorTick(currentIndex, prompts.length, tickCount);
@@ -1375,16 +1205,17 @@ index eb6fca02f..046cd62b3 100644
  
      return (
          <nav
-@@ -350,7 +403,7 @@ export function PromptNavigatorRail({
+@@ -321,7 +382,8 @@ export function PromptNavigatorRail({
                          role="listbox"
                          tabIndex={-1}
                          aria-label={t('chat.promptNavigator.aria')}
 -                        aria-activedescendant={highlightedPrompt ? rowId(highlightedPrompt.turnId) : undefined}
 +                        aria-activedescendant={activeDescendantId}
-                         // Positioned, so row offsets are measured within the list.
++                        // Positioned, so row offsets are measured within the list.
                          outerClassName="min-h-0"
                          className="relative overscroll-contain p-1 outline-none"
-@@ -360,37 +413,83 @@ export function PromptNavigatorRail({
+                         onKeyDown={handleKeyDown}
+@@ -330,35 +392,83 @@ export function PromptNavigatorRail({
                      >
                          {prompts.map((prompt, index) => {
                              const isActive = index === activeIndex;
@@ -1401,8 +1232,6 @@ index eb6fca02f..046cd62b3 100644
 -                                    aria-current={isActive ? 'true' : undefined}
 -                                    data-prompt-index={index}
 -                                    title={isActive ? `${currentPromptLabel}: ${text}` : text}
--                                    // The current prompt carries the only fill; the row
--                                    // under the pointer or keyboard brightens its text.
 -                                    className={cn(
 -                                        'cursor-pointer truncate rounded-lg px-2 py-1.5 typography-meta',
 -                                        isActive
@@ -1499,7 +1328,7 @@ index eb6fca02f..046cd62b3 100644
                      </ScrollableOverlay>
 diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
 new file mode 100644
-index 000000000..fe163a156
+index 000000000..8925fd844
 --- /dev/null
 +++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
 @@ -0,0 +1,324 @@
@@ -1820,8 +1649,8 @@ index 000000000..fe163a156
 +});
 +
 +test('with questions in the chat, a waiting question draws no card at its call; answered ones still do', async () => {
-+    const { FormsInChatContext } = await import('../formsInChat');
-+    const inChat = (node: React.ReactNode) => <FormsInChatContext.Provider value>{node}</FormsInChatContext.Provider>;
++    const { FormDockModeContext } = await import('../formsInChat');
++    const inChat = (node: React.ReactNode) => <FormDockModeContext.Provider value="in-chat">{node}</FormDockModeContext.Provider>;
 +    const waiting = callIn({ status: 'running', time: { start: 1 } });
 +    expect(text(inChat(card(waiting)))).toBe('');
 +    expect(text(card(waiting))).toContain('Awaiting response');
@@ -1829,7 +1658,7 @@ index 000000000..fe163a156
 +});
 diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
 new file mode 100644
-index 000000000..e9c262568
+index 000000000..ded3cf7b3
 --- /dev/null
 +++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
 @@ -0,0 +1,434 @@
@@ -1852,9 +1681,9 @@ index 000000000..e9c262568
 +} from '../lib/questionEntries';
 +import { STICKY_ROW_OFFSET, STICKY_ROW_OFFSET_EVENT } from '../lib/turns/stickyPrompt';
 +import { useQuestionOpen, writeQuestionOpen } from '../lib/questionExpandedState';
-+import { FormsInChatContext } from '../formsInChat';
++import { FormDockModeContext } from '../formsInChat';
 +import { stickyHeaderBackground } from './stickyHeaderBackground';
-+import { USER_BUBBLE_TEXT_LINK_CLASS } from '../message/MessageBody';
++import { USER_BUBBLE_TEXT_LINK_CLASS } from '../message/body/userBubbleLinkStyle';
 +
 +const RAIL_STYLE: React.CSSProperties = { borderColor: 'var(--status-question)' };
 +
@@ -2185,7 +2014,7 @@ index 000000000..e9c262568
 +        writeQuestionOpen(part.id, !readerOpen);
 +    }, [onToggle, part.id, readerOpen]);
 +    const sticks = useUIStore((state) => state.stickyUserHeader);
-+    const formsInChat = React.useContext(FormsInChatContext);
++    const formsInChat = React.useContext(FormDockModeContext) === 'in-chat';
 +    const entries = React.useMemo(() => questionEntriesForPart(part, messageId), [part, messageId]);
 +    const answered = React.useMemo<AnsweredEntry[]>(
 +        () => entries.map((entry) => ({ entry, answer: entry.answer ? withoutRecommendation(entry.answer.trim()) : '' })),
@@ -2267,11 +2096,42 @@ index 000000000..e9c262568
 +        </div>
 +    );
 +};
+diff --git a/packages/ui/src/components/chat/components/stickyHeaderBackground.ts b/packages/ui/src/components/chat/components/stickyHeaderBackground.ts
+new file mode 100644
+index 000000000..c1b3b12e7
+--- /dev/null
++++ b/packages/ui/src/components/chat/components/stickyHeaderBackground.ts
+@@ -0,0 +1,25 @@
++import type React from 'react';
++
++/**
++ * The sticky user header paints the chat background so assistant content scrolling
++ * underneath disappears behind it. The soft edge lives in the header's own background
++ * instead of an overlay below it: the bottom strip of the header box fades the
++ * background out, and that strip sits over the empty space the user row already
++ * reserves below the bubble. At rest the strip reveals the identical page background
++ * (`--background` is generated from the same `surface.background` token), so it is
++ * invisible and can never wash over the assistant content that follows.
++ *
++ * The strip's height follows the reserve: on desktop the user row keeps a 44px gap
++ * to the reply (the hover action row plus `ChatMessage`'s sticky padding), so the
++ * strip is 2.25rem and the solid background still ends 8px under the bubble; on
++ * mobile the header ends with the always-visible actions row instead, and the
++ * 0.75rem strip stays clear of it.
++ */
++const background = (fadeRem: string): React.CSSProperties => ({
++    backgroundImage:
++        `linear-gradient(to bottom, var(--surface-background) calc(100% - ${fadeRem}), transparent)`,
++});
++const DESKTOP = background('2.25rem');
++const MOBILE = background('0.75rem');
++
++export const stickyHeaderBackground = (isMobile: boolean): React.CSSProperties => (isMobile ? MOBILE : DESKTOP);
 diff --git a/packages/ui/src/components/chat/hooks/useChatTimelineController.ts b/packages/ui/src/components/chat/hooks/useChatTimelineController.ts
-index 0df6a4e04..fff8bc0ba 100644
+index 9077635d4..82aaa567c 100644
 --- a/packages/ui/src/components/chat/hooks/useChatTimelineController.ts
 +++ b/packages/ui/src/components/chat/hooks/useChatTimelineController.ts
-@@ -833,8 +833,11 @@ export const useChatTimelineController = ({
+@@ -742,8 +742,11 @@ export const useChatTimelineController = ({
              const turnId = turnModelRef.current.messageToTurnId.get(messageId);
              const turnIndex = turnModelRef.current.messageToTurnIndex.get(messageId);
  
@@ -2583,10 +2443,10 @@ index 000000000..ded741e31
 +});
 diff --git a/packages/ui/src/components/chat/lib/questionEntries.ts b/packages/ui/src/components/chat/lib/questionEntries.ts
 new file mode 100644
-index 000000000..4470cf15e
+index 000000000..1a038a6e3
 --- /dev/null
 +++ b/packages/ui/src/components/chat/lib/questionEntries.ts
-@@ -0,0 +1,348 @@
+@@ -0,0 +1,358 @@
 +/**
 + * The questions an assistant turn asked and the answers the user gave.
 + *
@@ -2675,6 +2535,16 @@ index 000000000..4470cf15e
 +    value.endsWith(RECOMMENDATION_SUFFIX)
 +        ? value.slice(0, -RECOMMENDATION_SUFFIX.length)
 +        : value
++);
++
++/**
++ * A reply with the marker gone from every pick it names. A multi-select answer
++ * joins its labels with `, `, so the marker can sit on any of them; stripping
++ * only the end of the string leaves the others in place and the reply then
++ * matches no option.
++ */
++export const withoutRecommendationPicks = (value: string): string => (
++    value.split(/\s*,\s*/).map(withoutRecommendation).join(', ')
 +);
 +
 +/**
@@ -3109,12 +2979,12 @@ index 000000000..d08de789e
 +    return expanded;
 +};
 diff --git a/packages/ui/src/components/chat/lib/scroll/DOCUMENTATION.md b/packages/ui/src/components/chat/lib/scroll/DOCUMENTATION.md
-index 2142a00e6..c87c5074a 100644
+index cc7e80cc1..4a9c78ac6 100644
 --- a/packages/ui/src/components/chat/lib/scroll/DOCUMENTATION.md
 +++ b/packages/ui/src/components/chat/lib/scroll/DOCUMENTATION.md
-@@ -176,6 +176,15 @@ its original target until alignment completes or the reader intervenes.
+@@ -225,6 +225,15 @@ its original target until alignment completes or the reader intervenes.
  
- - **A row keeps its React tree when it becomes or stops being the live tail.** Every row renders through `TimelineRow` in `MessageList.tsx`; only the tail's rows read the streaming parts. The tail moves on every send and on a revert. When the tail had its own component type, the moving row remounted, its state reset for one commit (a long user message lost its "Show more" link, 28 px), and LegendList measured that commit in its layout effect. The `ResizeObserver` never corrects such a size, because the short height was never painted, so the row below sat that much too high until a later re-measure: 40-80 ms after a send, and from the revert until 200 ms into the next send. Anything that remounts or resets state inside a mounted row has the same effect.
+ - **A row keeps its React tree when it becomes or stops being the live tail.** Every row renders through `TimelineRow` in `timeline/TimelineRow.tsx`; only the tail's rows read the streaming parts. The tail moves on every send and on a revert. When the tail had its own component type, the moving row remounted, its state reset for one commit (a long user message lost its "Show more" link, 28 px), and LegendList measured that commit in its layout effect. The `ResizeObserver` never corrects such a size, because the short height was never painted, so the row below sat that much too high until a later re-measure: 40-80 ms after a send, and from the revert until 200 ms into the next send. Anything that remounts or resets state inside a mounted row has the same effect.
  - **The gap under an answer belongs to the turn, not to the answer.** The 8 px between an answer and the row after it is the bottom padding of the turn's last row (`gapBelow` in `timelineRows.ts`), on every turn except one a hidden prompt continues, from the moment the turn is sent. It used to be the bottom padding of the answer's last step, and the last step changes while a turn runs: Claude opens a step's text block empty and the first paragraph is held until it ends (`lib/streamTextCommit.ts`), so a new step row added 8 px with nothing on screen and the follow lifted the sent message; dropping it on such a row instead shrank the transcript by 8 px whenever a step after tool calls began, moving the whole chat down. Giving the gap only once a next row exists made the settled turn above a new prompt grow, and the list measured that a frame late: the sent message dropped 8 px for a frame. So the live turn carries it too, at the content's end, and so does a turn that got no answer. Lists without turns (the BTW panel) keep it under the answer.
 +- **An answered question's card is a sticky row, and the row kind is set by the cut.** `timelineRows.ts` cuts a question call into a row of its own (`questionPartId`) and marks it `questionSticks` only once it was answered; `stickyRowIndicesOf` pins it, and `endsStickySpan` makes it end the prompt's span, so the next prompt (or the next answered question) pushes it up. `questionLifted` marks the copy a closed fold draws: its message is not a row, so it carries no message anchor.
 +
@@ -3187,7 +3057,7 @@ index e903a0457..3f73852ed 100644
 +    expect(estimateTimelineRowSize(row, { ...metrics, autoExpandAnsweredQuestions: true })).toBe(153);
 +});
 diff --git a/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.ts b/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.ts
-index 26750fb94..440f0f3c9 100644
+index 56acaafa1..5ad2d2a05 100644
 --- a/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.ts
 +++ b/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.ts
 @@ -1,5 +1,7 @@
@@ -3198,16 +3068,16 @@ index 26750fb94..440f0f3c9 100644
  import { filterVisibleParts, isEmptyTextPart } from '../../message/partUtils';
  import { getShownPages, isSettledAsk, type ShownPart } from './liveActivity';
  import type { TimelineRow } from './timelineRows';
-@@ -23,6 +25,8 @@ export type RowSizeMetrics = {
+@@ -10,6 +12,8 @@ export type RowSizeMetrics = {
+     lineHeight: number;
      showReasoningTraces: boolean;
-     /** Reasoning folds to one line; off, it is drawn as text. */
      collapsibleThinkingBlocks: boolean;
 +    /** Answered question rows open with their options and answer. */
 +    autoExpandAnsweredQuestions: boolean;
  };
  
  const TEXT_LINE_PX = 26;
-@@ -172,6 +176,73 @@ const promptHeight = (message: ChatMessageEntry, metrics: RowSizeMetrics): numbe
+@@ -140,6 +144,73 @@ const promptHeight = (message: ChatMessageEntry, metrics: RowSizeMetrics): numbe
      return height > 0 ? PROMPT_CHROME_PX + height : EMPTY_PROMPT_PX;
  };
  
@@ -3281,7 +3151,7 @@ index 26750fb94..440f0f3c9 100644
  export const estimateTimelineRowSize = (row: TimelineRow, metrics: RowSizeMetrics): number | undefined => {
      if (metrics.columnWidth <= 0) return undefined;
      let height: number;
-@@ -181,6 +252,12 @@ export const estimateTimelineRowSize = (row: TimelineRow, metrics: RowSizeMetric
+@@ -149,6 +220,12 @@ export const estimateTimelineRowSize = (row: TimelineRow, metrics: RowSizeMetric
          case 'turn-fold': height = FOLD_HEADER_PX; break;
          case 'turn-pages': height = hoistedHeight(hoistedPages(row), metrics); break;
          case 'turn-message': {
@@ -3294,6 +3164,49 @@ index 26750fb94..440f0f3c9 100644
              const message = messageRowHeight(row, metrics);
              return message === undefined ? undefined : Math.round(message);
          }
+diff --git a/packages/ui/src/components/chat/lib/turns/stickyPrompt.ts b/packages/ui/src/components/chat/lib/turns/stickyPrompt.ts
+index 8324d18ac..73cc49725 100644
+--- a/packages/ui/src/components/chat/lib/turns/stickyPrompt.ts
++++ b/packages/ui/src/components/chat/lib/turns/stickyPrompt.ts
+@@ -1,6 +1,38 @@
+ import { isHiddenUserMessage } from '../../message/hiddenUserMessage';
++import type { TimelineRow } from './timelineRows';
+ import type { ChatMessageEntry } from './types';
+ 
++/**
++ * Whether a prompt row can pin to the top: a real user message, not the hidden
++ * context row a prompt is split into.
++ */
+ export const turnHeaderCanStick = (userMessage: ChatMessageEntry): boolean => (
+     userMessage.info.role === 'user' && !isHiddenUserMessage(userMessage)
+ );
++
++/**
++ * The rows the list keeps on top while what follows scrolls under them: the
++ * prompts that can stick, and the answered questions' cards.
++ */
++export const stickyRowIndicesOf = (rows: readonly TimelineRow[]): number[] | undefined => {
++    const indices: number[] = [];
++    rows.forEach((row, index) => {
++        if (row.kind === 'turn-head' && turnHeaderCanStick(row.entry.turn.userMessage)) indices.push(index);
++        else if (row.kind === 'turn-message' && row.questionSticks) indices.push(index);
++    });
++    return indices.length > 0 ? indices : undefined;
++};
++
++/** A row that starts a new sticky span and pushes the header above it up: a prompt, an answered question, or an ungrouped row. */
++export const endsStickySpan = (row: TimelineRow): boolean => (
++    row.kind === 'turn-head' || row.kind === 'ungrouped' || (row.kind === 'turn-message' && row.questionSticks === true)
++);
++
++/**
++ * How far the list has moved a pinned row below its own place, set on the
++ * row's container while it is the pinned one. A row that lets go of the top
++ * edge (a batch of questions) draws itself back at its place with it.
++ */
++export const STICKY_ROW_OFFSET = '--sticky-row-offset';
++/** Dispatched (bubbling) from a row's container when its offset changes. */
++export const STICKY_ROW_OFFSET_EVENT = 'stickyrowoffset';
 diff --git a/packages/ui/src/components/chat/lib/turns/timelineRows.test.ts b/packages/ui/src/components/chat/lib/turns/timelineRows.test.ts
 index 067cb790b..bfa42f289 100644
 --- a/packages/ui/src/components/chat/lib/turns/timelineRows.test.ts
@@ -3421,78 +3334,141 @@ index 067cb790b..bfa42f289 100644
 +        expect(rows.some((row) => row.kind === 'turn-message' && row.questionLifted)).toBe(false);
 +    });
 +});
-diff --git a/packages/ui/src/components/chat/message/MessageBody.tsx b/packages/ui/src/components/chat/message/MessageBody.tsx
-index 6659ac066..65cfd616b 100644
---- a/packages/ui/src/components/chat/message/MessageBody.tsx
-+++ b/packages/ui/src/components/chat/message/MessageBody.tsx
-@@ -61,7 +61,7 @@ import { formatTimestampForDisplay } from './timeFormat';
- import { StaticToolRow } from './parts/ProgressiveGroup';
- import { isExpandableTool } from './parts/toolRenderUtils';
- import { ShownPartCard, ShownToolCard } from './parts/ShownToolCard';
--import { isShownInPlace } from '@/lib/opencode/tools';
-+import { isQuestionTool, isShownInPlace } from '@/lib/opencode/tools';
- import { LiveActivityCollapse } from '../components/LiveActivityCollapse';
- import { dispatchRowExpand } from '../lib/scroll/timelineScrollIntent';
- import { ActivityRowSkipContext, isActivityRowPart, isToolRowShown } from '../lib/turns/activityRows';
-@@ -87,6 +87,8 @@ import { WorktreeRequiresGitRepositoryError } from '@/lib/worktrees/worktreeCrea
- import { buildTurnImageExportSource, cloneMessageImageExportSource, fitMessageImageExportLayout, resolveMessageImageExportPixelRatio, resolveMessageImageExportWidth } from './imageExport';
- import { hasTextSelectionInside } from '@/lib/textSelection';
- import { DiffCount } from '@/components/ui/diff-count';
-+import { FoldPreviewContext } from '../lib/turns/activityRows';
-+import { QuestionTurnHeader } from '../components/QuestionTurnHeader';
+diff --git a/packages/ui/src/components/chat/lib/turns/timelineRows.ts b/packages/ui/src/components/chat/lib/turns/timelineRows.ts
+index 84a74f468..dc831dd58 100644
+--- a/packages/ui/src/components/chat/lib/turns/timelineRows.ts
++++ b/packages/ui/src/components/chat/lib/turns/timelineRows.ts
+@@ -1,5 +1,6 @@
+ import { isHiddenUserMessage } from '../../message/hiddenUserMessage';
+ import { filterVisibleParts, isEmptyTextPart } from '../../message/partUtils';
++import { isAnsweredQuestionPart } from '../questionEntries';
+ import { answerChunkCuts } from './answerChunks';
+ import { getLiveFinalMessage, getShownPages, hasLiveActivity } from './liveActivity';
+ import type { TimelineEntry } from './timelineEntries';
+@@ -28,6 +29,12 @@ export type TimelineRow =
+         messageId: string;
+         slice: MessageSlice | null;
+         final: boolean;
++        /** The question call this row draws on its own, when it is one. */
++        questionPartId?: string;
++        /** An answered question's card sticks and ends its prompt's span. */
++        questionSticks?: boolean;
++        /** The copy a closed fold lifts out of itself: its message is not a row. */
++        questionLifted?: boolean;
+     } & TurnRowFields);
  
+ type TurnRowFields = {
+@@ -49,12 +56,24 @@ const isMessageCompleted = (message: ChatMessageEntry): boolean => (
  
- // Layout containment only. A `translateZ(0)` here once gave every message its
-@@ -885,7 +887,7 @@ const isInStuckTurnHeader = (element: HTMLElement | null): boolean => {
-     return Math.abs(header.getBoundingClientRect().top - chat.getBoundingClientRect().top) < 1;
- };
+ const PARTS_PER_ROW = 24;
  
--const USER_BUBBLE_TEXT_LINK_CLASS = 'py-0.5 underline-offset-2 transition-colors hover:text-foreground hover:underline focus-visible:underline focus-visible:outline-none focus-visible:text-foreground';
-+export const USER_BUBBLE_TEXT_LINK_CLASS = 'py-0.5 underline-offset-2 transition-colors hover:text-foreground hover:underline focus-visible:underline focus-visible:outline-none focus-visible:text-foreground';
- const INLINE_TEXT_LINK_STYLE = { minHeight: 0, minWidth: 0 };
- const TITLE_SLOT = '\u0000';
- const selectSessionTitle = (session: Session | undefined): string | undefined => session?.title?.trim() || undefined;
-@@ -1735,6 +1737,7 @@ const AssistantMessageBody = React.memo(({
- 
-     const shouldRenderStandaloneActionsAfterContent = shouldShowStandaloneMessageActions && lastRenderableTextPartIndex < 0;
- 
-+    const inFoldPreview = React.useContext(FoldPreviewContext);
-     const renderedParts = React.useMemo(() => {
-         const answerRendered: React.ReactNode[] = [];
-         const activityRendered: React.ReactNode[] = [];
-@@ -1904,6 +1907,18 @@ const AssistantMessageBody = React.memo(({
-                     continue;
-                 }
- 
-+                // A closed fold's preview draws a question as its card, which
-+                // sticks only once the turn has its reply and the card is
-+                // drawn below the fold (`timelineRows.ts`).
-+                if (inFoldPreview && isQuestionTool(toolName)) {
-+                    rendered.push(
-+                        <QuestionTurnHeader key={`question-${toolPart.id}`} part={toolPart} messageId={messageId}
-+                            startsMessage={false} pinnable={false} nested />
-+                    );
-+                    i++;
-+                    continue;
-+                }
++const isQuestionPart = (part: { type: string; tool?: string }): boolean => (
++    part.type === 'tool' && part.tool?.toLowerCase() === 'question'
++);
 +
-                 // Expandable tools: bash, edit, write, task, question — individual rows
-                 if (isExpandableTool(toolName)) {
-                     rendered.push(
-@@ -1960,7 +1975,7 @@ const AssistantMessageBody = React.memo(({
-             ];
+ const messageCuts = (message: ChatMessageEntry, showReasoningTraces: boolean): TextCut[] => {
+     const completed = isMessageCompleted(message);
+     const cuts: TextCut[] = [];
+     let partsInRow = 0;
+-    for (const part of filterVisibleParts(message.parts, { includeReasoning: showReasoningTraces })) {
++    const visible = filterVisibleParts(message.parts, { includeReasoning: showReasoningTraces });
++    for (let index = 0; index < visible.length; index += 1) {
++        const part = visible[index]!;
+         if (isEmptyTextPart(part)) continue;
++        // A question call is cut into a row of its own and the next part starts
++        // another: the card draws the question, not the work around it. A
++        // question that opens the message needs no cut before it; one that
++        // closes the message needs none after it.
++        if (index > 0 && isQuestionPart(part)) cuts.push({ partId: part.id, offset: 0 });
++        if (index > 0 && isQuestionPart(visible[index - 1]!)) cuts.push({ partId: part.id, offset: 0 });
+         if (partsInRow === PARTS_PER_ROW) {
+             cuts.push({ partId: part.id, offset: 0 });
+             partsInRow = 0;
+@@ -76,32 +95,74 @@ const turnRows = (entry: TurnEntry, options: TimelineRowsOptions): TimelineRow[]
+     const finalMessage = underFold ? getLiveFinalMessage(turn.assistantMessages) : undefined;
+     const fields = { entry, underFold, finalMessageId: finalMessage?.info.id, gapBelow: false };
+     const rows: TimelineRow[] = [{ kind: 'turn-head', key: entry.key, ...fields }];
++    // The question a row draws on its own: a row that starts at a question cut,
++    // or a message whose only row opens with one.
++    const questionOf = (message: ChatMessageEntry, slice: MessageSlice | null) => {
++        const visible = filterVisibleParts(message.parts, { includeReasoning: options.showReasoningTraces })
++            .filter((part) => !isEmptyTextPart(part));
++        const first = slice?.from
++            ? visible.find((part) => part.id === slice.from!.partId)
++            : visible[0];
++        if (!first || !isQuestionPart(first)) return undefined;
++        return { id: first.id, answered: isAnsweredQuestionPart(first) };
++    };
++    const withQuestion = (
++        row: Extract<TimelineRow, { kind: 'turn-message' }>,
++        message: ChatMessageEntry,
++    ): Extract<TimelineRow, { kind: 'turn-message' }> => {
++        const question = questionOf(message, row.slice);
++        if (!question) return row;
++        return { ...row, questionPartId: question.id, questionSticks: question.answered };
++    };
+     const addMessage = (message: ChatMessageEntry, final = false) => {
+         const messageId = message.info.id;
+         const cuts = messageCuts(message, options.showReasoningTraces);
+         if (cuts.length === 0) {
+-            rows.push({ kind: 'turn-message', key: `step:${messageId}`, ...fields, messageId, slice: null, final });
++            rows.push(withQuestion({ kind: 'turn-message', key: `step:${messageId}`, ...fields, messageId, slice: null, final }, message));
+             return;
          }
-         return answerRendered;
--    }, [
-+    }, [inFoldPreview,
-         activityRowSkip,
-         alwaysShowMessageActions,
-         hoistedPages,
+         cuts.forEach((cut, index) => {
+             const from = index === 0 ? undefined : cuts[index - 1];
+-            rows.push({
++            rows.push(withQuestion({
+                 kind: 'turn-message',
+                 key: from ? `step:${messageId}:${sliceKey(from)}` : `step:${messageId}`,
+                 ...fields,
+                 messageId,
+                 slice: from ? { from, to: cut, index, count: cuts.length + 1 } : { to: cut, index, count: cuts.length + 1 },
+                 final,
+-            });
++            }, message));
+         });
+         const last = cuts[cuts.length - 1];
+-        rows.push({ kind: 'turn-message', key: `step:${messageId}:${sliceKey(last)}`, ...fields, messageId, slice: { from: last, index: cuts.length, count: cuts.length + 1 }, final });
++        rows.push(withQuestion({ kind: 'turn-message', key: `step:${messageId}:${sliceKey(last)}`, ...fields, messageId, slice: { from: last, index: cuts.length, count: cuts.length + 1 }, final }, message));
+     };
+ 
+     if (underFold) {
+         const activityMessages = finalMessage ? turn.assistantMessages.filter((message) => message !== finalMessage) : turn.assistantMessages;
+         rows.push({ kind: 'turn-fold', key: `fold:${turn.turnId}`, ...fields });
+-        if (options.expandedTurns.get(turn.turnId) === true) {
++        // A finished turn lifts its answered question out of the closed fold:
++        // the answer stays readable, and the card sticks under the prompt like
++        // any answered question. An open fold draws it among its steps instead.
++        const foldOpen = options.expandedTurns.get(turn.turnId) === true;
++        const lastMessage = turn.assistantMessages[turn.assistantMessages.length - 1];
++        if (!foldOpen && lastMessage && isMessageCompleted(lastMessage)) {
++            for (const message of activityMessages) {
++                for (const part of filterVisibleParts(message.parts, { includeReasoning: options.showReasoningTraces })) {
++                    if (!isQuestionPart(part) || !isAnsweredQuestionPart(part)) continue;
++                    rows.push({
++                        kind: 'turn-message',
++                        key: `question:${message.info.id}:${part.id}`,
++                        ...fields,
++                        messageId: message.info.id,
++                        slice: { from: { partId: part.id, offset: 0 }, index: 0, count: 1 },
++                        final: false,
++                        questionPartId: part.id,
++                        questionSticks: true,
++                        questionLifted: true,
++                    });
++                }
++            }
++        }
++        if (foldOpen) {
+             const pages = finalMessage ? [] : getShownPages(turn.assistantMessages);
+             const lastPageMessageId = pages[pages.length - 1]?.messageID;
+             const split = lastPageMessageId ? activityMessages.findIndex((message) => message.info.id === lastPageMessageId) + 1 : 0;
 diff --git a/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md b/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
-index ca97479c8..806d9c75e 100644
+index 1d1a7d495..cb7ec3827 100644
 --- a/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
 +++ b/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
-@@ -28,6 +28,11 @@ Use this doc when you ask an agent to change tool/header/description behavior.
+@@ -29,6 +29,11 @@ Use this doc when you ask an agent to change tool/header/description behavior.
    - While the child runs, foreground or background, the row has a stop action. OpenCode 2.0.23 has no route that cancels a subagent job; interrupting the child ends the job as cancelled, which the agent reads as a failed subagent and tends to restart. `opencodeClient.stopSubagent` therefore first admits a non-resuming synthetic note (`subagentCancellationNote` in `@/lib/opencode/subagent-run`) that explains the cancellation as the user's stop without forbidding the work, and interrupts the child only once the note is in. A foreground call the note names reads `stopped` instead of failed (`toStoppedSubagentPart`). Drop the note once OpenCode reports a user cancel itself.
  
  - A `todowrite` call (OpenCode's experimental todo tool) is titled with the localized name of the Work Status section that keeps the session's list ("Tasks"), and its description is that section's count with the item in progress (`1/4 · ...`, cancelled items out of both). Opened, a finished call shows the list it set in the agent's order (`TodoWriteList.tsx`), with the section's status icons (`components/chat/todoStatus.ts`), in place of the input JSON and the text answer, which only counts the same items again. A running or failed call keeps the plain input.
@@ -3503,8 +3479,8 @@ index ca97479c8..806d9c75e 100644
 +
  
  - `taskToolModel.ts`
-   - Owns subagent output preparation and child identity parsing. `ToolPart.tsx` resolves the call's child identity.
-@@ -656,6 +661,30 @@ and background rows follow the same rule through `useShellOutput`. Reading the
+   - Owns subagent output preparation and child identity parsing. `toolRow/subagentChildSession.ts` resolves the call's child identity.
+@@ -702,6 +707,30 @@ and background rows follow the same rule through `useShellOutput`. Reading the
  whole output on every progress update is not an option: OpenCode sends one
  update, with the `shellID`, when the command starts.
  
@@ -3535,7 +3511,7 @@ index ca97479c8..806d9c75e 100644
  ### Message parts
  
  - Assistant Markdown treats raw HTML as inert visible text, including HTML
-@@ -751,6 +780,11 @@ update, with the `shellID`, when the command starts.
+@@ -811,6 +840,11 @@ update, with the `shellID`, when the command starts.
    (`openContextFile` with `expanded`). Only web and desktop show it: VS Code
    and mobile open files full size already, through the path itself.
  - Every other tool, including search/fetch, OpenCode built-ins, custom tools, plugins, and MCP tools, is **expandable** and renders through `ToolPart`.
@@ -3547,10 +3523,12 @@ index ca97479c8..806d9c75e 100644
  - OpenChamber's own tools (`openchamber`, `openchamber_*`, and an `execute` script that made exactly one of their calls) use the expandable path. Their result is a versioned envelope (`{ ok, action, data }`, `openChamberToolEnvelope.ts`):
    - The row keeps the tool's name as its title. Once the envelope says the action succeeded, the description is the action's verb from the i18n map (`OPENCHAMBER_ACTION_VERB_KEYS`, "Remembered · Uses bun"); a running, failed, or unreadable call keeps the action's own name (`memory.save`). A history page leaves results out (`toolContentShells.ts`), so the row reads the action and outcome the server kept in the shell marker; without them every reloaded row fell back to `memory.save` until opened.
    - The expanded row draws the action's own view (`OpenChamberToolOutput.tsx`) when `hasOpenChamberView` finds a successful action it knows with the data that view reads; anything else keeps the neutral JSON views, so a changed answer never leaves the row empty. A failed call shows its error message as text. "Show the raw answer" switches to the JSON views.
-@@ -871,6 +905,7 @@ Why: only navigation tools use the compact static path; all other tools need obs
+@@ -1067,7 +1101,8 @@ Why: only navigation tools use the compact static path; all other tools need obs
+   `tracker-item` of Linear (`lib/messages/contextParts.ts`). Legacy pre-metadata messages still render
    via text sniffing (`<terminal_context>` blocks, `GitHub issue context (JSON)`
    and `Linear issue context (JSON)` prefixes).
- - Tools: `ToolPart.tsx`, `ToolPartDiffPreview.tsx`, `PlainDiffFallback.tsx`, `ProgressiveGroup.tsx`, `toolPresentation.tsx`, `toolRenderUtils.ts`, `GuestToolTable.tsx`, `GuestToolCard.tsx`
+-- Tools: `ToolPart.tsx`, `toolRow/`, `ToolPartDiffPreview.tsx`, `PlainDiffFallback.tsx`, `ProgressiveGroup.tsx`, `toolPresentation.tsx`, `toolRenderUtils.ts`, `GuestToolTable.tsx`, `GuestToolCard.tsx`
++- Tools: `ToolPart.tsx`, `ToolPartDiffPreview.tsx`, `PlainDiffFallback.tsx`, `ProgressiveGroup.tsx`, `toolPresentation.tsx`, `toolRenderUtils.ts`, `GuestToolTable.tsx`, `GuestToolCard.tsx`
 +- Question rows: the card is `chat/components/QuestionTurnHeader.tsx` (row kind in `chat/lib/turns/timelineRows.ts`); `QuestionToolContent.tsx` draws the `ToolPart` copy. Entries come from `chat/lib/questionEntries.ts` and the open state from `chat/lib/questionExpandedState.ts`
  - Reasoning: `ReasoningPart.tsx`
  - Status/placeholders: `WorkingPlaceholder.tsx`, `SessionActiveSpinner.tsx`, `MigratingPart.tsx`; the dots after a busy label are `components/ui/busy-dots.tsx`
@@ -3709,7 +3687,7 @@ index 000000000..c669a584b
 +});
 diff --git a/packages/ui/src/components/chat/message/parts/QuestionToolContent.tsx b/packages/ui/src/components/chat/message/parts/QuestionToolContent.tsx
 new file mode 100644
-index 000000000..ffc28fd7a
+index 000000000..b06642a42
 --- /dev/null
 +++ b/packages/ui/src/components/chat/message/parts/QuestionToolContent.tsx
 @@ -0,0 +1,251 @@
@@ -3719,7 +3697,7 @@ index 000000000..ffc28fd7a
 +import { useI18n } from '@/lib/i18n';
 +import { cn } from '@/lib/utils';
 +import { FormMarkdown } from '../../FormMarkdown';
-+import { USER_BUBBLE_TEXT_LINK_CLASS } from '../MessageBody';
++import { USER_BUBBLE_TEXT_LINK_CLASS } from '../body/userBubbleLinkStyle';
 +import {
 +    selectedOptionLabels,
 +    withoutRecommendation,
@@ -3964,158 +3942,105 @@ index 000000000..ffc28fd7a
 +        </div>
 +    );
 +};
-diff --git a/packages/ui/src/components/chat/message/parts/ToolPart.tsx b/packages/ui/src/components/chat/message/parts/ToolPart.tsx
-index 850f73615..5c3cfade6 100644
---- a/packages/ui/src/components/chat/message/parts/ToolPart.tsx
-+++ b/packages/ui/src/components/chat/message/parts/ToolPart.tsx
-@@ -5,7 +5,6 @@ import { RuntimeAPIContext } from '@/contexts/runtimeAPIContext';
+diff --git a/packages/ui/src/components/chat/timeline/TimelineList.tsx b/packages/ui/src/components/chat/timeline/TimelineList.tsx
+index 2ea9a31de..2246e2db8 100644
+--- a/packages/ui/src/components/chat/timeline/TimelineList.tsx
++++ b/packages/ui/src/components/chat/timeline/TimelineList.tsx
+@@ -3,7 +3,9 @@ import { LegendList, type LegendListRef } from '@legendapp/list/react';
+ 
+ import { resolveTimelineIsAtEnd } from '../lib/scroll/timelineScrollAnchoring';
+ import { estimateTimelineRowSize, type RowSizeMetrics } from '../lib/turns/rowSizeEstimate';
++import { useUIStore } from '@/stores/useUIStore';
+ import { useSelectionRowHold } from '../lib/scroll/selectionRowHold';
++import { endsStickySpan } from '../lib/turns/stickyPrompt';
+ import { isTouchLayout, readColumnWidth, readToolLineHeight } from './timelineMetrics';
+ import { TimelineRow } from './TimelineRow';
+ import { TimelineRowContext, type TimelineRowContextValue } from './timelineRowContext';
+@@ -54,7 +56,9 @@ export const TimelineList = React.memo(({
+     const isAtEndRef = React.useRef(true);
+     const [touchLayout] = React.useState(isTouchLayout);
+ 
+-    const sizeMetricsRef = React.useRef<RowSizeMetrics>({ columnWidth: 0, lineHeight: 32, showReasoningTraces, collapsibleThinkingBlocks });
++    const autoExpandAnsweredQuestions = useUIStore((state) => state.autoExpandAnsweredQuestions);
++    const sizeMetricsRef = React.useRef<RowSizeMetrics>({ columnWidth: 0, lineHeight: 32, showReasoningTraces, collapsibleThinkingBlocks, autoExpandAnsweredQuestions });
++    sizeMetricsRef.current.autoExpandAnsweredQuestions = autoExpandAnsweredQuestions;
+     sizeMetricsRef.current.showReasoningTraces = showReasoningTraces;
+     sizeMetricsRef.current.collapsibleThinkingBlocks = collapsibleThinkingBlocks;
+     const sizeMetrics = React.useCallback((): RowSizeMetrics => {
+@@ -107,7 +111,7 @@ export const TimelineList = React.memo(({
+         if (!element) return;
+         const data = rowsRef.current;
+         let end = active + 1;
+-        while (end < data.length && data[end].kind !== 'turn-head' && data[end].kind !== 'ungrouped') end += 1;
++        while (end < data.length && !endsStickySpan(data[end]) && data[end].kind !== 'ungrouped') end += 1;
+         const next = end < data.length ? state.elementAtIndex(end) : null;
+         const scroller = listRef.current?.getScrollableNode();
+         if (!next || !scroller) {
+diff --git a/packages/ui/src/components/chat/timeline/TurnRow.tsx b/packages/ui/src/components/chat/timeline/TurnRow.tsx
+index 28484a67b..95845d3ce 100644
+--- a/packages/ui/src/components/chat/timeline/TurnRow.tsx
++++ b/packages/ui/src/components/chat/timeline/TurnRow.tsx
+@@ -5,6 +5,7 @@ import { TurnFold, TurnPagesRow } from '../components/LiveTurnActivity';
+ import { useTurnFoldContexts } from '../components/useTurnFold';
+ import { LiveFinalActivityContext, LiveTurnHoistedPagesContext } from '../components/liveActivityContext';
+ import { MessageSliceContext } from '../message/messageSliceContext';
++import { QuestionTurnHeader } from '../components/QuestionTurnHeader';
  import { cn } from '@/lib/utils';
- import { SimpleMarkdownRenderer } from '../../MarkdownRenderer';
- import { BlockBody } from './BlockLine';
--import { FormMarkdown } from '../../FormMarkdown';
- import { MessageFilesDisplay } from '../../FileAttachment';
- import { getToolMetadata } from '@/lib/toolHelpers';
- import type { FilePart, Metadata, Part, ToolInput, ToolPart as ToolPartType, ToolState as ToolStateUnion } from '@/lib/opencode/model';
-@@ -124,6 +123,8 @@ import { Field, QuietAction } from './ToolResultParts';
- import { openApplyPatchFileInEditor } from './applyPatchEditorAction';
- import { WebSearchResults } from './WebSearchResults';
- import { TodoWriteList } from './TodoWriteList';
-+import { questionEntriesForPart } from '@/components/chat/lib/questionEntries';
-+import { QuestionCollapsedSummary, QuestionExpandedContent } from './QuestionToolContent';
- import { toBackgroundShellPart, toInterruptedShellPart, type BackgroundShellPhase } from './backgroundShellPart';
- import { toBackgroundSubagentPart, toStoppedSubagentPart, type BackgroundSubagentPhase } from './backgroundSubagentPart';
- import { findSubagentCancellation, findSubagentRun, readBackgroundSubagentChildID } from '@/lib/opencode/subagent-run';
-@@ -440,27 +441,6 @@ const getToolDiagnosticSection = (
-     };
- };
+ import type { RenderRow, ToggleTurnActivity, TurnEntry } from './types';
+ import { useTurnMessageRenderer, type TurnRendererInput } from './useTurnMessageRenderer';
+@@ -51,7 +52,21 @@ export const TurnRow = React.memo(({
+         content = <TurnPagesRow turn={turn} />;
+     } else {
+         const message = turn.assistantMessages.find((candidate) => candidate.info.id === row.messageId);
+-        if (message) {
++        const questionPart = row.questionPartId
++            ? message?.parts.find((part) => part.id === row.questionPartId)
++            : undefined;
++        if (message && questionPart) {
++            // A question call draws as its own card: the row begins the prompt
++            // it belongs to unless it is a cut of a longer step, and a lifted
++            // card's message is not a row of its own.
++            content = (
++                <QuestionTurnHeader
++                    part={questionPart}
++                    messageId={message.info.id}
++                    startsMessage={!row.slice?.from && !row.questionLifted}
++                />
++            );
++        } else if (message) {
+             content = (
+                 <MessageSliceContext.Provider value={row.slice}>
+                     {row.final ? (
+diff --git a/packages/ui/src/components/chat/timeline/useTimelineRows.ts b/packages/ui/src/components/chat/timeline/useTimelineRows.ts
+index e5e8b12d5..57eaf61bb 100644
+--- a/packages/ui/src/components/chat/timeline/useTimelineRows.ts
++++ b/packages/ui/src/components/chat/timeline/useTimelineRows.ts
+@@ -1,6 +1,6 @@
+ import React from 'react';
  
--// Parse question tool output: "User has answered your questions: "Q1"="A1", "Q2"="A2". You can now..."
--const parseQuestionOutput = (output: string): Array<{ question: string; answer: string }> | null => {
--    const match = output.match(/^User has answered your questions:\s*(.+?)\.\s*You can now/s);
--    if (!match) return null;
--
--    const pairs: Array<{ question: string; answer: string }> = [];
--    const content = match[1];
--
--    // Match "question"="answer" pairs, handling multiline answers
--    const pairRegex = /"([^"]+)"="([^"]*(?:[^"\\]|\\.)*)"/g;
--    let pairMatch;
--    while ((pairMatch = pairRegex.exec(content)) !== null) {
--        pairs.push({
--            question: pairMatch[1],
--            answer: pairMatch[2],
+-import { turnHeaderCanStick } from '../lib/turns/stickyPrompt';
++import { stickyRowIndicesOf } from '../lib/turns/stickyPrompt';
+ import { getTurnsWithLaterAssistant } from '../lib/turns/liveActivity';
+ import type { ChatMessageEntry } from '../lib/turns/types';
+ import { useTurnRecords } from '../hooks/useTurnRecords';
+@@ -106,11 +106,7 @@ export const useTimelineRows = (
+ 
+     const stickyRowIndices = React.useMemo(() => {
+         if (!stickyUserHeader) return undefined;
+-        const indices: number[] = [];
+-        rows.forEach((row, index) => {
+-            if (row.kind === 'turn-head' && turnHeaderCanStick(row.entry.turn.userMessage)) indices.push(index);
 -        });
--    }
--
--    return pairs.length > 0 ? pairs : null;
--};
--
- const getToolDescriptionPath = (part: ToolPartType, state: ToolStateUnion, currentDirectory: string): string | null => {
-     const stateWithData = state as ToolStateWithMetadata;
-     const described = toolDescription(part.tool, stateWithData.input, stateWithData.metadata);
-@@ -1206,6 +1186,10 @@ const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.memo(({
-     const stateWithData = state as ToolStateWithMetadata;
-     const metadata = stateWithData.metadata;
-     const input = stateWithData.input;
-+    const questionEntries = React.useMemo(
-+        () => (isQuestionTool(part.tool) ? questionEntriesForPart(part, part.messageID) : []),
-+        [part],
-+    );
-     const rawOutput = getToolOutput(part.tool, stateWithData.output, metadata?.output, state.status);
-     const hasStringOutput = typeof rawOutput === 'string' && rawOutput.length > 0;
-     const rawOutputString = typeof rawOutput === 'string' ? rawOutput : '';
-@@ -1408,24 +1392,9 @@ const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.memo(({
-             );
-         }
+-        return indices.length > 0 ? indices : undefined;
++        return stickyRowIndicesOf(rows);
+     }, [rows, stickyUserHeader]);
  
--        // Question tool: show parsed Q&A summary or question content from input
-+        // Question tool: the block grows with the chat, so every question and
-+        // answer stays readable without a scroll inside the transcript.
-         if (isQuestionTool(part.tool)) {
--            if (state.status === 'completed' && hasStringOutput) {
--                const parsedQA = parseQuestionOutput(outputString);
--                if (parsedQA && parsedQA.length > 0) {
--                    return renderScrollableBlock(
--                        <div className="space-y-2">
--                            {parsedQA.map((qa, index) => (
--                                <div key={index} className="space-y-0.5">
--                                    <FormMarkdown content={qa.question} size="micro" className="text-muted-foreground" />
--                                    <div dir="auto" className="typography-meta text-foreground whitespace-pre-wrap">{qa.answer}</div>
--                                </div>
--                            ))}
--                        </div>,
--                        { maxHeightClass: 'max-h-[40vh]' }
--                    );
--                }
--            }
- 
-             if (state.status === 'error' && 'error' in state) {
-                 return (
-@@ -1441,36 +1410,7 @@ const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.memo(({
-                 );
-             }
- 
--            // Show question content from input whenever available, whether the tool is
--            // pending/running or completed without parseable output. This ensures question
--            // text persists across refreshes even if the QuestionCard store data is lost.
--            const questionInput = input as { questions?: Array<{ question?: string; header?: string; options?: Array<{ label: string; description: string }>; multiple?: boolean }> } | undefined;
--            if (questionInput?.questions && Array.isArray(questionInput.questions) && questionInput.questions.length > 0) {
--                return renderScrollableBlock(
--                    <div className="space-y-2">
--                        {questionInput.questions.map((q, index) => (
--                            <div key={index} className="space-y-0.5">
--                                {q.header ? (
--                                    <div dir="auto" className="typography-micro text-muted-foreground">{coerceToText(q.header)}</div>
--                                ) : null}
--                                <FormMarkdown content={coerceToText(q.question)} size="meta" className="text-foreground" />
--                                {Array.isArray(q.options) && q.options.length > 0 ? (
--                                    <div className="flex flex-wrap gap-1 mt-0.5">
--                                        {q.options.map((opt) => (
--                                            <span key={coerceToText(opt.label)} dir="auto" className="typography-micro px-1.5 py-0.5 rounded oc-tile-inset text-muted-foreground">
--                                                {coerceToText(opt.label)}
--                                            </span>
--                                        ))}
--                                    </div>
--                                ) : null}
--                            </div>
--                        ))}
--                    </div>,
--                    { maxHeightClass: 'max-h-[40vh]' }
--                );
--            }
--
--            return <div className="typography-meta text-muted-foreground">{t('chat.toolPart.awaitingResponse')}</div>;
-+            return <QuestionExpandedContent entries={questionEntries} />;
-         }
- 
-         if (isSubagentTool(part.tool) && hasStringOutput) {
-@@ -1800,6 +1740,10 @@ const ToolPartContent: React.FC<ToolPartProps & { header?: ToolRowHeader; subage
-     const stateWithData = state as ToolStateWithMetadata;
-     const metadata = stateWithData.metadata;
-     const input = stateWithData.input;
-+    const questionEntries = React.useMemo(
-+        () => (isQuestionTool(part.tool) ? questionEntriesForPart(part, part.messageID) : []),
-+        [part],
-+    );
-     const showToolFileIcons = useUIStore((s) => s.showToolFileIcons);
-     const currentDirectory = useEffectiveDirectory() ?? '';
- 
-@@ -2337,6 +2281,10 @@ const ToolPartContent: React.FC<ToolPartProps & { header?: ToolRowHeader; subage
-                 )}
-             </div>
- 
-+            {isQuestionTool(part.tool) && !isExpanded ? (
-+                <QuestionCollapsedSummary entries={questionEntries} onActivate={() => onToggle(part.id)} />
-+            ) : null}
-+
-             <div
-                 ref={expandedContentRef}
-                 aria-hidden={!isExpanded}
+     return { projection, allEntries, trailingStreamingEntry, rows, stickyRowIndices };
 diff --git a/packages/ui/src/components/sections/openchamber/ChatSettings.tsx b/packages/ui/src/components/sections/openchamber/ChatSettings.tsx
-index 6d3e4367f..dafc202c6 100644
+index cb0932f3a..b3af261b8 100644
 --- a/packages/ui/src/components/sections/openchamber/ChatSettings.tsx
 +++ b/packages/ui/src/components/sections/openchamber/ChatSettings.tsx
-@@ -143,6 +143,10 @@ const MessagesTab: React.FC = () => {
+@@ -142,6 +142,10 @@ const MessagesTab: React.FC = () => {
    const setChatWidth = useUIStore((state) => state.setChatWidth);
    const promptNavigatorEnabled = useUIStore((state) => state.promptNavigatorEnabled);
    const setPromptNavigatorEnabled = useUIStore((state) => state.setPromptNavigatorEnabled);
@@ -4126,7 +4051,7 @@ index 6d3e4367f..dafc202c6 100644
    const collapsibleUserMessages = useUIStore((state) => state.collapsibleUserMessages);
    const setCollapsibleUserMessages = useUIStore((state) => state.setCollapsibleUserMessages);
    const stickyUserHeader = useUIStore((state) => state.stickyUserHeader);
-@@ -307,6 +311,35 @@ const MessagesTab: React.FC = () => {
+@@ -303,6 +307,35 @@ const MessagesTab: React.FC = () => {
          </div>
        </SettingsSection>
  
@@ -4163,10 +4088,10 @@ index 6d3e4367f..dafc202c6 100644
          <div>
            <SettingsFieldRow label={t('settings.openchamber.visual.section.userMessageRendering')} settingsItem="chat.user-message-rendering">
 diff --git a/packages/ui/src/components/sections/openchamber/chatSettingsTabs.ts b/packages/ui/src/components/sections/openchamber/chatSettingsTabs.ts
-index 7edfb823a..640a5e60d 100644
+index 039b45d9b..65ee017ba 100644
 --- a/packages/ui/src/components/sections/openchamber/chatSettingsTabs.ts
 +++ b/packages/ui/src/components/sections/openchamber/chatSettingsTabs.ts
-@@ -25,6 +25,8 @@ const SEARCH_TARGET_TABS = new Map<string, ChatSettingsTab>([
+@@ -20,6 +20,8 @@ const SEARCH_TARGET_TABS = new Map<string, ChatSettingsTab>([
    ['chat.message-appearance', 'messages'],
    ['chat.width', 'messages'],
    ['chat.prompt-navigator', 'messages'],
@@ -4176,10 +4101,10 @@ index 7edfb823a..640a5e60d 100644
    ['chat.sticky-user-header', 'messages'],
    ['chat.inline-assistant-actions', 'messages'],
 diff --git a/packages/ui/src/lib/i18n/messages/ar.settings.ts b/packages/ui/src/lib/i18n/messages/ar.settings.ts
-index 23fc5ef0d..a9f292fc8 100644
+index 67fcc4031..754cad7ec 100644
 --- a/packages/ui/src/lib/i18n/messages/ar.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/ar.settings.ts
-@@ -2461,6 +2461,12 @@ export const settingsDict = {
+@@ -2477,6 +2477,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'يعرض تفكير النموذج وملخص الضغط فور وصولهما. عند التعطيل، يبقيان مطويين ويُفتحان بنقرة.',
    'settings.openchamber.visual.field.collapsibleUserMessagesAria': 'طي رسائل المستخدم الطويلة',
    'settings.openchamber.visual.field.collapsibleUserMessages': 'طي رسائل المستخدم الطويلة',
@@ -4193,10 +4118,24 @@ index 23fc5ef0d..a9f292fc8 100644
    'settings.openchamber.visual.field.stickyUserHeader': 'تثبيت رأس رسالة المستخدم',
    'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'متصفح الطلبات',
 diff --git a/packages/ui/src/lib/i18n/messages/ar.ts b/packages/ui/src/lib/i18n/messages/ar.ts
-index aaf97b343..a0fbc76b5 100644
+index 9dc226a13..d8546e800 100644
 --- a/packages/ui/src/lib/i18n/messages/ar.ts
 +++ b/packages/ui/src/lib/i18n/messages/ar.ts
-@@ -2736,6 +2736,7 @@ export const dict = {
+@@ -2531,6 +2531,13 @@ export const dict: Record<I18nKey, string> = {
+   'chat.questionCard.inputNeeded': 'مطلوب إدخال',
+   'chat.questionCard.fromSubagent': 'من وكيل فرعي',
+   'chat.questionCard.questionFallback': 'السؤال {index}',
++  'chat.questionCard.moreQuestions': '+{count} more',
++  'chat.questionCard.notAnswered': 'Not answered',
++  'chat.questionCard.chosen': 'Chosen',
++  'chat.questionCard.answerCount': '{count} answers',
++  'chat.questionCard.showOptions': 'Show options',
++  'chat.questionCard.hideOptions': 'Hide options',
++  'chat.questionCard.stoppedBeforeAnswer': 'Stopped before an answer',
+   'chat.questionCard.selectMultiple': 'اختيار متعدد',
+   'chat.questionCard.recommended': 'موصى به',
+   'chat.questionCard.other': 'أخرى…',
+@@ -2739,6 +2746,7 @@ export const dict: Record<I18nKey, string> = {
    'chat.toolPart.awaitingResponse': 'بانتظار الرد…',
    'chat.toolPart.noOutputProduced': 'لا توجد مخرجات',
    'chat.toolPart.questionsAsked': 'الأسئلة المطروحة: {count}',
@@ -4205,10 +4144,10 @@ index aaf97b343..a0fbc76b5 100644
    'chat.toolPart.moreToolCalls': '+{count} أخرى',
    'chat.toolPart.scriptCalls': 'استدعاءات الأدوات',
 diff --git a/packages/ui/src/lib/i18n/messages/de.settings.ts b/packages/ui/src/lib/i18n/messages/de.settings.ts
-index d3dac18d0..a725a5528 100644
+index a915e8025..9c30369c2 100644
 --- a/packages/ui/src/lib/i18n/messages/de.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/de.settings.ts
-@@ -2402,6 +2402,12 @@ export const settingsDict = {
+@@ -2418,6 +2418,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'Zeigt die Gedanken des Modells und die Zusammenfassung beim Komprimieren, während sie eintreffen. Wenn aus, bleiben die Blöcke eingeklappt und öffnen sich per Klick.',
    'settings.openchamber.visual.field.collapsibleUserMessagesAria': 'Lange Benutzernachrichten einklappen',
    'settings.openchamber.visual.field.collapsibleUserMessages': 'Lange Benutzernachrichten einklappen',
@@ -4222,10 +4161,24 @@ index d3dac18d0..a725a5528 100644
    'settings.openchamber.visual.field.stickyUserHeader': 'Fixierter Benutzerkopf',
    'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'Prompt-Navigator',
 diff --git a/packages/ui/src/lib/i18n/messages/de.ts b/packages/ui/src/lib/i18n/messages/de.ts
-index 08f486d51..5a2ec5019 100644
+index 5993a4615..338aeff14 100644
 --- a/packages/ui/src/lib/i18n/messages/de.ts
 +++ b/packages/ui/src/lib/i18n/messages/de.ts
-@@ -2545,6 +2545,7 @@ export const dict = {
+@@ -2352,6 +2352,13 @@ export const dict = {
+   'chat.questionCard.inputNeeded': 'Eingabe erforderlich',
+   'chat.questionCard.fromSubagent': 'Von Subagent',
+   'chat.questionCard.questionFallback': 'Frage {index}',
++  'chat.questionCard.moreQuestions': '+{count} more',
++  'chat.questionCard.notAnswered': 'Not answered',
++  'chat.questionCard.chosen': 'Chosen',
++  'chat.questionCard.answerCount': '{count} answers',
++  'chat.questionCard.showOptions': 'Show options',
++  'chat.questionCard.hideOptions': 'Hide options',
++  'chat.questionCard.stoppedBeforeAnswer': 'Stopped before an answer',
+   'chat.questionCard.selectMultiple': 'Mehrere auswählen',
+   'chat.questionCard.recommended': 'empfohlen',
+   'chat.questionCard.other': 'Andere…',
+@@ -2549,6 +2556,7 @@ export const dict = {
    'chat.toolPart.awaitingResponse': 'Warte auf Antwort...',
    'chat.toolPart.noOutputProduced': 'Keine Ausgabe erzeugt',
    'chat.toolPart.questionsAsked': 'Gestellte Fragen: {count}',
@@ -4234,10 +4187,10 @@ index 08f486d51..5a2ec5019 100644
    'chat.toolPart.moreToolCalls': '+{count} weitere',
    'chat.toolPart.scriptCalls': 'Tool-Aufrufe',
 diff --git a/packages/ui/src/lib/i18n/messages/en.settings.ts b/packages/ui/src/lib/i18n/messages/en.settings.ts
-index c5105d50b..9e8ecb442 100644
+index cc3975f00..920d92bf4 100644
 --- a/packages/ui/src/lib/i18n/messages/en.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/en.settings.ts
-@@ -2490,6 +2490,12 @@ export const settingsDict = {
+@@ -2506,6 +2506,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'Shows the model\'s thinking and the compaction summary as they arrive. When off, they stay folded and open with a click.',
    'settings.openchamber.visual.field.collapsibleUserMessagesAria': 'Collapse long user messages',
    'settings.openchamber.visual.field.collapsibleUserMessages': 'Collapse long user messages',
@@ -4251,10 +4204,24 @@ index c5105d50b..9e8ecb442 100644
    'settings.openchamber.visual.field.stickyUserHeader': 'Sticky user header',
    'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'Prompt navigator',
 diff --git a/packages/ui/src/lib/i18n/messages/en.ts b/packages/ui/src/lib/i18n/messages/en.ts
-index 5a0a566cf..f2190afd8 100644
+index 86877c388..3e416bc57 100644
 --- a/packages/ui/src/lib/i18n/messages/en.ts
 +++ b/packages/ui/src/lib/i18n/messages/en.ts
-@@ -2834,6 +2834,7 @@ export const dict = {
+@@ -2631,6 +2631,13 @@ export const dict = {
+   'chat.questionCard.inputNeeded': 'Input needed',
+   'chat.questionCard.fromSubagent': 'From subagent',
+   'chat.questionCard.questionFallback': 'Question {index}',
++  'chat.questionCard.moreQuestions': '+{count} more',
++  'chat.questionCard.notAnswered': 'Not answered',
++  'chat.questionCard.chosen': 'Chosen',
++  'chat.questionCard.answerCount': '{count} answers',
++  'chat.questionCard.showOptions': 'Show options',
++  'chat.questionCard.hideOptions': 'Hide options',
++  'chat.questionCard.stoppedBeforeAnswer': 'Stopped before an answer',
+   'chat.questionCard.selectMultiple': 'Select multiple',
+   'chat.questionCard.recommended': 'recommended',
+   'chat.questionCard.other': 'Other…',
+@@ -2839,6 +2846,7 @@ export const dict = {
    'chat.toolPart.awaitingResponse': 'Awaiting response...',
    'chat.toolPart.noOutputProduced': 'No output produced',
    'chat.toolPart.questionsAsked': 'Questions asked: {count}',
@@ -4263,10 +4230,10 @@ index 5a0a566cf..f2190afd8 100644
    'chat.toolPart.moreToolCalls': '+{count} more',
    'chat.toolPart.scriptCalls': 'Tool calls',
 diff --git a/packages/ui/src/lib/i18n/messages/es.settings.ts b/packages/ui/src/lib/i18n/messages/es.settings.ts
-index 38a0073bc..291ce9d81 100644
+index a6f0dc258..356f68381 100644
 --- a/packages/ui/src/lib/i18n/messages/es.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/es.settings.ts
-@@ -2440,6 +2440,12 @@ export const settingsDict = {
+@@ -2456,6 +2456,12 @@ export const settingsDict = {
    "settings.openchamber.visual.field.expandReasoningWhileStreamingInfo": "Muestra el razonamiento del modelo y el resumen de la compactación a medida que llegan. Si está desactivado, los bloques quedan plegados y se abren con un clic.",
    "settings.openchamber.visual.field.collapsibleUserMessagesAria": "Contraer mensajes largos del usuario",
    "settings.openchamber.visual.field.collapsibleUserMessages": "Contraer mensajes largos del usuario",
@@ -4280,10 +4247,24 @@ index 38a0073bc..291ce9d81 100644
    "settings.openchamber.visual.field.stickyUserHeader": "Encabezado de usuario fijo",
    "settings.openchamber.visual.field.promptNavigatorEnabledAria": "Navegador de prompts",
 diff --git a/packages/ui/src/lib/i18n/messages/es.ts b/packages/ui/src/lib/i18n/messages/es.ts
-index d3a5091b6..e85a3f9e4 100644
+index 65f69ea1b..30d843426 100644
 --- a/packages/ui/src/lib/i18n/messages/es.ts
 +++ b/packages/ui/src/lib/i18n/messages/es.ts
-@@ -2791,6 +2791,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -2599,6 +2599,13 @@ export const dict: Record<I18nKey, string> = {
+   "chat.questionCard.inputNeeded": "Entrada necesaria",
+   "chat.questionCard.fromSubagent": "De un subagente",
+   "chat.questionCard.questionFallback": "Pregunta {index}",
++  "chat.questionCard.moreQuestions": "+{count} more",
++  "chat.questionCard.notAnswered": "Not answered",
++  "chat.questionCard.chosen": "Chosen",
++  "chat.questionCard.answerCount": "{count} answers",
++  "chat.questionCard.showOptions": "Show options",
++  "chat.questionCard.hideOptions": "Hide options",
++  "chat.questionCard.stoppedBeforeAnswer": "Stopped before an answer",
+   "chat.questionCard.selectMultiple": "Seleccionar múltiples",
+   "chat.questionCard.recommended": "recomendado",
+   "chat.questionCard.other": "Otro…",
+@@ -2796,6 +2803,7 @@ export const dict: Record<I18nKey, string> = {
    "chat.toolPart.awaitingResponse": "Esperando respuesta...",
    "chat.toolPart.noOutputProduced": "No se produjo ninguna salida",
    "chat.toolPart.questionsAsked": 'Preguntas realizadas: {count}',
@@ -4292,10 +4273,10 @@ index d3a5091b6..e85a3f9e4 100644
    "chat.toolPart.moreToolCalls": '+{count} más',
    "chat.toolPart.scriptCalls": 'Llamadas a herramientas',
 diff --git a/packages/ui/src/lib/i18n/messages/fr.settings.ts b/packages/ui/src/lib/i18n/messages/fr.settings.ts
-index 97d2743cd..238fce010 100644
+index 3bee643bc..9fbcb0911 100644
 --- a/packages/ui/src/lib/i18n/messages/fr.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/fr.settings.ts
-@@ -2330,6 +2330,12 @@ export const settingsDict = {
+@@ -2345,6 +2345,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'Affiche le raisonnement du modèle et le résumé de compaction au fil de l\'eau. Désactivé, ces blocs restent repliés et s\'ouvrent d\'un clic.',
    'settings.openchamber.visual.field.collapsibleUserMessagesAria': 'Réduire les longs messages utilisateur',
    'settings.openchamber.visual.field.collapsibleUserMessages': 'Réduire les longs messages utilisateur',
@@ -4309,10 +4290,24 @@ index 97d2743cd..238fce010 100644
    'settings.openchamber.visual.field.stickyUserHeader': 'En-tête utilisateur collant',
    'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'Navigateur de prompts',
 diff --git a/packages/ui/src/lib/i18n/messages/fr.ts b/packages/ui/src/lib/i18n/messages/fr.ts
-index a635184a6..a6b78f2a1 100644
+index b982b5e73..9c5626c76 100644
 --- a/packages/ui/src/lib/i18n/messages/fr.ts
 +++ b/packages/ui/src/lib/i18n/messages/fr.ts
-@@ -2528,6 +2528,7 @@ export const dict = {
+@@ -2343,6 +2343,13 @@ export const dict = {
+   'chat.questionCard.inputNeeded': 'Entrée nécessaire',
+   'chat.questionCard.fromSubagent': 'Du sous-agent',
+   'chat.questionCard.questionFallback': 'Question {index}',
++  'chat.questionCard.moreQuestions': '+{count} more',
++  'chat.questionCard.notAnswered': 'Not answered',
++  'chat.questionCard.chosen': 'Chosen',
++  'chat.questionCard.answerCount': '{count} answers',
++  'chat.questionCard.showOptions': 'Show options',
++  'chat.questionCard.hideOptions': 'Hide options',
++  'chat.questionCard.stoppedBeforeAnswer': 'Stopped before an answer',
+   'chat.questionCard.selectMultiple': 'Sélectionnez plusieurs',
+   'chat.questionCard.recommended': 'recommandé',
+   'chat.questionCard.other': 'Autre…',
+@@ -2532,6 +2539,7 @@ export const dict = {
    'chat.toolPart.awaitingResponse': 'En attente de réponse...',
    'chat.toolPart.noOutputProduced': 'Aucune sortie produite',
    'chat.toolPart.questionsAsked': 'Questions posées : {count}',
@@ -4321,10 +4316,10 @@ index a635184a6..a6b78f2a1 100644
    'chat.toolPart.moreToolCalls': '+{count} de plus',
    'chat.toolPart.scriptCalls': 'Appels d’outils',
 diff --git a/packages/ui/src/lib/i18n/messages/he.settings.ts b/packages/ui/src/lib/i18n/messages/he.settings.ts
-index e0c397f57..56fa82142 100644
+index 49c99fc50..b8194986a 100644
 --- a/packages/ui/src/lib/i18n/messages/he.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/he.settings.ts
-@@ -2461,6 +2461,12 @@ export const settingsDict = {
+@@ -2477,6 +2477,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'מציג את החשיבה של המודל ואת סיכום הדחיסה בזמן שהם מגיעים. כשהאפשרות כבויה, הם נשארים מקופלים ונפתחים בלחיצה.',
    'settings.openchamber.visual.field.collapsibleUserMessagesAria': 'קיפול הודעות משתמש ארוכות',
    'settings.openchamber.visual.field.collapsibleUserMessages': 'קיפול הודעות משתמש ארוכות',
@@ -4338,10 +4333,24 @@ index e0c397f57..56fa82142 100644
    'settings.openchamber.visual.field.stickyUserHeader': 'כותרת משתמש נצמדת',
    'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'ניווט בין הנחיות',
 diff --git a/packages/ui/src/lib/i18n/messages/he.ts b/packages/ui/src/lib/i18n/messages/he.ts
-index 4b74f6f0e..881d79d06 100644
+index 9774b8889..07cb9bc77 100644
 --- a/packages/ui/src/lib/i18n/messages/he.ts
 +++ b/packages/ui/src/lib/i18n/messages/he.ts
-@@ -2736,6 +2736,7 @@ export const dict = {
+@@ -2530,6 +2530,13 @@ export const dict = {
+   'chat.questionCard.inputNeeded': 'נדרש קלט',
+   'chat.questionCard.fromSubagent': 'מסוכן משנה',
+   'chat.questionCard.questionFallback': 'שאלה {index}',
++  'chat.questionCard.moreQuestions': '+{count} more',
++  'chat.questionCard.notAnswered': 'Not answered',
++  'chat.questionCard.chosen': 'Chosen',
++  'chat.questionCard.answerCount': '{count} answers',
++  'chat.questionCard.showOptions': 'Show options',
++  'chat.questionCard.hideOptions': 'Hide options',
++  'chat.questionCard.stoppedBeforeAnswer': 'Stopped before an answer',
+   'chat.questionCard.selectMultiple': 'בחירה מרובה',
+   'chat.questionCard.recommended': 'מומלץ',
+   'chat.questionCard.other': 'אחר…',
+@@ -2738,6 +2745,7 @@ export const dict = {
    'chat.toolPart.awaitingResponse': 'ממתין לתגובה…',
    'chat.toolPart.noOutputProduced': 'לא נוצר פלט',
    'chat.toolPart.questionsAsked': 'שאלות שנשאלו: {count}',
@@ -4350,10 +4359,10 @@ index 4b74f6f0e..881d79d06 100644
    'chat.toolPart.moreToolCalls': '+{count} נוספות',
    'chat.toolPart.scriptCalls': 'קריאות לכלים',
 diff --git a/packages/ui/src/lib/i18n/messages/ja.settings.ts b/packages/ui/src/lib/i18n/messages/ja.settings.ts
-index c4463822a..5ea7836ec 100644
+index 27c1080e2..372420601 100644
 --- a/packages/ui/src/lib/i18n/messages/ja.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/ja.settings.ts
-@@ -2473,6 +2473,12 @@ export const settingsDict = {
+@@ -2489,6 +2489,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'モデルの思考と会話圧縮の要約を届いたそばから表示します。オフのときはブロックが折りたたまれ、クリックで開けます。',
    'settings.openchamber.visual.field.collapsibleUserMessagesAria': '長いユーザーメッセージを折りたたむ',
    'settings.openchamber.visual.field.collapsibleUserMessages': '長いユーザーメッセージを折りたたむ',
@@ -4367,10 +4376,24 @@ index c4463822a..5ea7836ec 100644
    'settings.openchamber.visual.field.stickyUserHeader': 'ユーザーヘッダー固定',
    'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'プロンプトナビゲーター',
 diff --git a/packages/ui/src/lib/i18n/messages/ja.ts b/packages/ui/src/lib/i18n/messages/ja.ts
-index 1b0f72c09..0d39fe9c3 100644
+index b6ca17954..ad0bc3e91 100644
 --- a/packages/ui/src/lib/i18n/messages/ja.ts
 +++ b/packages/ui/src/lib/i18n/messages/ja.ts
-@@ -2833,6 +2833,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -2627,6 +2627,13 @@ export const dict: Record<I18nKey, string> = {
+   'chat.questionCard.inputNeeded': '入力が必要',
+   'chat.questionCard.fromSubagent': 'サブエージェントから',
+   'chat.questionCard.questionFallback': '質問{index}',
++  'chat.questionCard.moreQuestions': '+{count} more',
++  'chat.questionCard.notAnswered': 'Not answered',
++  'chat.questionCard.chosen': 'Chosen',
++  'chat.questionCard.answerCount': '{count} answers',
++  'chat.questionCard.showOptions': 'Show options',
++  'chat.questionCard.hideOptions': 'Hide options',
++  'chat.questionCard.stoppedBeforeAnswer': 'Stopped before an answer',
+   'chat.questionCard.selectMultiple': '複数選択',
+   'chat.questionCard.recommended': '推奨',
+   'chat.questionCard.other': 'その他…',
+@@ -2838,6 +2845,7 @@ export const dict: Record<I18nKey, string> = {
    'chat.toolPart.awaitingResponse': '応答を待機中...',
    'chat.toolPart.noOutputProduced': '出力は生成されませんでした',
    'chat.toolPart.questionsAsked': '質問数: {count}',
@@ -4379,10 +4402,10 @@ index 1b0f72c09..0d39fe9c3 100644
    'chat.toolPart.moreToolCalls': '他 +{count} 件',
    'chat.toolPart.scriptCalls': 'ツール呼び出し',
 diff --git a/packages/ui/src/lib/i18n/messages/ko.settings.ts b/packages/ui/src/lib/i18n/messages/ko.settings.ts
-index f48b39471..289130833 100644
+index 0a09e2368..59204583f 100644
 --- a/packages/ui/src/lib/i18n/messages/ko.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/ko.settings.ts
-@@ -2440,6 +2440,12 @@ export const settingsDict = {
+@@ -2456,6 +2456,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': '모델의 생각과 대화 압축 요약을 도착하는 대로 보여줍니다. 끄면 블록이 접힌 채로 있고 클릭하면 열립니다.',
    'settings.openchamber.visual.field.collapsibleUserMessagesAria': '긴 사용자 메시지 접기',
    'settings.openchamber.visual.field.collapsibleUserMessages': '긴 사용자 메시지 접기',
@@ -4396,10 +4419,24 @@ index f48b39471..289130833 100644
    'settings.openchamber.visual.field.stickyUserHeader': '고정 사용자 헤더',
    'settings.openchamber.visual.field.promptNavigatorEnabledAria': '프롬프트 탐색기',
 diff --git a/packages/ui/src/lib/i18n/messages/ko.ts b/packages/ui/src/lib/i18n/messages/ko.ts
-index 004bbcfc5..6e5d406fc 100644
+index 1f45aa7de..f862ca7fb 100644
 --- a/packages/ui/src/lib/i18n/messages/ko.ts
 +++ b/packages/ui/src/lib/i18n/messages/ko.ts
-@@ -2834,6 +2834,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -2631,6 +2631,13 @@ export const dict: Record<I18nKey, string> = {
+   'chat.questionCard.inputNeeded': '입력 필요',
+   'chat.questionCard.fromSubagent': '서브 에이전트에서',
+   'chat.questionCard.questionFallback': '질문 {index}',
++  'chat.questionCard.moreQuestions': '+{count} more',
++  'chat.questionCard.notAnswered': 'Not answered',
++  'chat.questionCard.chosen': 'Chosen',
++  'chat.questionCard.answerCount': '{count} answers',
++  'chat.questionCard.showOptions': 'Show options',
++  'chat.questionCard.hideOptions': 'Hide options',
++  'chat.questionCard.stoppedBeforeAnswer': 'Stopped before an answer',
+   'chat.questionCard.selectMultiple': '여러 개 선택',
+   'chat.questionCard.recommended': '추천',
+   'chat.questionCard.other': '기타…',
+@@ -2839,6 +2846,7 @@ export const dict: Record<I18nKey, string> = {
    'chat.toolPart.awaitingResponse': '응답 대기 중…',
    'chat.toolPart.noOutputProduced': '출력 없음',
    'chat.toolPart.questionsAsked': '질문 수: {count}',
@@ -4408,10 +4445,10 @@ index 004bbcfc5..6e5d406fc 100644
    'chat.toolPart.moreToolCalls': '+{count}개 더',
    'chat.toolPart.scriptCalls': '도구 호출',
 diff --git a/packages/ui/src/lib/i18n/messages/nl.settings.ts b/packages/ui/src/lib/i18n/messages/nl.settings.ts
-index f102e7d61..8583a8b92 100644
+index 303b149d0..338de2f8e 100644
 --- a/packages/ui/src/lib/i18n/messages/nl.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/nl.settings.ts
-@@ -2463,6 +2463,12 @@ export const settingsDict = {
+@@ -2479,6 +2479,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'Toont de redenering van het model en de samenvatting bij het inkorten terwijl die binnenkomen. Uit: de blokken blijven ingeklapt en openen met een klik.',
    'settings.openchamber.visual.field.collapsibleUserMessagesAria': 'Vouw lange gebruikersberichten samen',
    'settings.openchamber.visual.field.collapsibleUserMessages': 'Lange gebruikersberichten samenvouwen',
@@ -4425,10 +4462,24 @@ index f102e7d61..8583a8b92 100644
    'settings.openchamber.visual.field.stickyUserHeader': 'Vaste gebruikerskop',
    'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'Promptnavigator',
 diff --git a/packages/ui/src/lib/i18n/messages/nl.ts b/packages/ui/src/lib/i18n/messages/nl.ts
-index 318cf2c16..eb142138d 100644
+index 7faf028a8..63469bf8f 100644
 --- a/packages/ui/src/lib/i18n/messages/nl.ts
 +++ b/packages/ui/src/lib/i18n/messages/nl.ts
-@@ -2834,6 +2834,7 @@ export const dict = {
+@@ -2631,6 +2631,13 @@ export const dict = {
+   'chat.questionCard.inputNeeded': 'Invoer nodig',
+   'chat.questionCard.fromSubagent': 'Van subagent',
+   'chat.questionCard.questionFallback': 'Vraag {index}',
++  'chat.questionCard.moreQuestions': '+{count} more',
++  'chat.questionCard.notAnswered': 'Not answered',
++  'chat.questionCard.chosen': 'Chosen',
++  'chat.questionCard.answerCount': '{count} answers',
++  'chat.questionCard.showOptions': 'Show options',
++  'chat.questionCard.hideOptions': 'Hide options',
++  'chat.questionCard.stoppedBeforeAnswer': 'Stopped before an answer',
+   'chat.questionCard.selectMultiple': 'Meerdere selecteren',
+   'chat.questionCard.recommended': 'aanbevolen',
+   'chat.questionCard.other': 'Anders…',
+@@ -2839,6 +2846,7 @@ export const dict = {
    'chat.toolPart.awaitingResponse': 'Wachten op antwoord...',
    'chat.toolPart.noOutputProduced': 'Geen uitvoer',
    'chat.toolPart.questionsAsked': 'Gestelde vragen: {count}',
@@ -4437,10 +4488,10 @@ index 318cf2c16..eb142138d 100644
    'chat.toolPart.moreToolCalls': '+{count} meer',
    'chat.toolPart.scriptCalls': 'Toolaanroepen',
 diff --git a/packages/ui/src/lib/i18n/messages/pl.settings.ts b/packages/ui/src/lib/i18n/messages/pl.settings.ts
-index f070bed26..231421b2d 100644
+index 1126a8c6b..f9d703532 100644
 --- a/packages/ui/src/lib/i18n/messages/pl.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/pl.settings.ts
-@@ -1360,6 +1360,12 @@ export const settingsDict = {
+@@ -1372,6 +1372,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'Pokazuje rozumowanie modelu i podsumowanie kompaktowania na bieżąco. Gdy wyłączone, bloki są zwinięte i otwierają się kliknięciem.',
    'settings.openchamber.visual.field.collapsibleThinkingBlocksAria': 'Włącz zwijalne bloki rozumowania',
    'settings.openchamber.visual.field.collapsibleUserMessages': 'Zwijaj długie wiadomości użytkownika',
@@ -4454,10 +4505,24 @@ index f070bed26..231421b2d 100644
    'settings.openchamber.visual.field.showSplitAssistantMessageActions': 'Akcje asystenta w treści',
    'settings.openchamber.visual.field.showSplitAssistantMessageActionsAria': 'Akcje asystenta w treści',
 diff --git a/packages/ui/src/lib/i18n/messages/pl.ts b/packages/ui/src/lib/i18n/messages/pl.ts
-index 151804876..89c4168b6 100644
+index f77b07115..317d29e12 100644
 --- a/packages/ui/src/lib/i18n/messages/pl.ts
 +++ b/packages/ui/src/lib/i18n/messages/pl.ts
-@@ -1720,6 +1720,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -1180,6 +1180,13 @@ export const dict: Record<I18nKey, string> = {
+   'chat.questionCard.inputNeeded': 'Wymagane wejście',
+   'chat.questionCard.fromSubagent': 'Od pod-agenta',
+   'chat.questionCard.questionFallback': 'Pytanie {index}',
++  'chat.questionCard.moreQuestions': '+{count} more',
++  'chat.questionCard.notAnswered': 'Not answered',
++  'chat.questionCard.chosen': 'Chosen',
++  'chat.questionCard.answerCount': '{count} answers',
++  'chat.questionCard.showOptions': 'Show options',
++  'chat.questionCard.hideOptions': 'Hide options',
++  'chat.questionCard.stoppedBeforeAnswer': 'Stopped before an answer',
+   'chat.questionCard.selectMultiple': 'Wybierz wiele',
+   'chat.questionCard.recommended': 'rekomendowane',
+   'chat.questionCard.other': 'Inne...',
+@@ -1722,6 +1729,7 @@ export const dict: Record<I18nKey, string> = {
    'chat.toolPart.moreRows': '+{count} kolejnych wierszy',
    'chat.toolPart.noOutputProduced': 'Brak wygenerowanego wyniku',
    'chat.toolPart.questionsAsked': 'Zadane pytania: {count}',
@@ -4466,10 +4531,10 @@ index 151804876..89c4168b6 100644
    'chat.toolPart.moreToolCalls': '+{count} więcej',
    'chat.toolPart.scriptCalls': 'Wywołania narzędzi',
 diff --git a/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts b/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
-index e44cead50..aea5eeb36 100644
+index 894ac31d4..d789aac38 100644
 --- a/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
-@@ -2440,6 +2440,12 @@ export const settingsDict = {
+@@ -2456,6 +2456,12 @@ export const settingsDict = {
    "settings.openchamber.visual.field.expandReasoningWhileStreamingInfo": "Mostra o raciocínio do modelo e o resumo da compactação enquanto chegam. Desativado, os blocos ficam recolhidos e abrem com um clique.",
    "settings.openchamber.visual.field.collapsibleUserMessagesAria": "Recolher mensagens longas do usuário",
    "settings.openchamber.visual.field.collapsibleUserMessages": "Recolher mensagens longas do usuário",
@@ -4483,10 +4548,24 @@ index e44cead50..aea5eeb36 100644
    "settings.openchamber.visual.field.stickyUserHeader": "Cabeçalho do usuário fixo",
    "settings.openchamber.visual.field.promptNavigatorEnabledAria": "Navegador de prompts",
 diff --git a/packages/ui/src/lib/i18n/messages/pt-BR.ts b/packages/ui/src/lib/i18n/messages/pt-BR.ts
-index e4289c542..f17e8dffc 100644
+index 4009b9177..5ce28808f 100644
 --- a/packages/ui/src/lib/i18n/messages/pt-BR.ts
 +++ b/packages/ui/src/lib/i18n/messages/pt-BR.ts
-@@ -2791,6 +2791,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -2601,6 +2601,13 @@ export const dict: Record<I18nKey, string> = {
+   "chat.questionCard.inputNeeded": "Entrada necessária",
+   "chat.questionCard.fromSubagent": "De um subagente",
+   "chat.questionCard.questionFallback": "Pergunta {index}",
++  "chat.questionCard.moreQuestions": "+{count} more",
++  "chat.questionCard.notAnswered": "Not answered",
++  "chat.questionCard.chosen": "Chosen",
++  "chat.questionCard.answerCount": "{count} answers",
++  "chat.questionCard.showOptions": "Show options",
++  "chat.questionCard.hideOptions": "Hide options",
++  "chat.questionCard.stoppedBeforeAnswer": "Stopped before an answer",
+   "chat.questionCard.selectMultiple": "Selecionar múltiplas",
+   "chat.questionCard.recommended": "recomendado",
+   "chat.questionCard.other": "Outro…",
+@@ -2796,6 +2803,7 @@ export const dict: Record<I18nKey, string> = {
    "chat.toolPart.awaitingResponse": "Aguardando resposta...",
    "chat.toolPart.noOutputProduced": "Nenhuma saída produzida",
    "chat.toolPart.questionsAsked": 'Perguntas feitas: {count}',
@@ -4619,10 +4698,10 @@ index 693cdc81f..10125a3e4 100644
      'settings.layout.chat.section.formatting': 'עיצוב',
      'settings.layout.chat.section.sending': 'שליחה',
 diff --git a/packages/ui/src/lib/i18n/messages/tr.settings.ts b/packages/ui/src/lib/i18n/messages/tr.settings.ts
-index 02b0520ba..047c98017 100644
+index c9dca5025..ed0145763 100644
 --- a/packages/ui/src/lib/i18n/messages/tr.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/tr.settings.ts
-@@ -2328,6 +2328,12 @@ export const settingsDict = {
+@@ -2344,6 +2344,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'Modelin düşüncelerini ve sıkıştırma özetini geldikçe gösterir. Kapalıyken bloklar daraltılmış kalır ve tıklayınca açılır.',
    'settings.openchamber.visual.field.collapsibleUserMessagesAria': 'Uzun kullanıcı mesajlarını daralt',
    'settings.openchamber.visual.field.collapsibleUserMessages': 'Uzun Kullanıcı Mesajlarını Daralt',
@@ -4636,10 +4715,24 @@ index 02b0520ba..047c98017 100644
    'settings.openchamber.visual.field.stickyUserHeader': 'Yapışkan Kullanıcı Üstbilgisi',
    'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'Prompt gezgini',
 diff --git a/packages/ui/src/lib/i18n/messages/tr.ts b/packages/ui/src/lib/i18n/messages/tr.ts
-index 3c53404fe..18724214e 100644
+index ada2131b8..ec00060e9 100644
 --- a/packages/ui/src/lib/i18n/messages/tr.ts
 +++ b/packages/ui/src/lib/i18n/messages/tr.ts
-@@ -2663,6 +2663,7 @@ export const dict = {
+@@ -2474,6 +2474,13 @@ export const dict = {
+   'chat.questionCard.inputNeeded': 'Girdi gerekiyor',
+   'chat.questionCard.fromSubagent': 'Subagent\'tan',
+   'chat.questionCard.questionFallback': 'Soru {index}',
++  'chat.questionCard.moreQuestions': '+{count} more',
++  'chat.questionCard.notAnswered': 'Not answered',
++  'chat.questionCard.chosen': 'Chosen',
++  'chat.questionCard.answerCount': '{count} answers',
++  'chat.questionCard.showOptions': 'Show options',
++  'chat.questionCard.hideOptions': 'Hide options',
++  'chat.questionCard.stoppedBeforeAnswer': 'Stopped before an answer',
+   'chat.questionCard.selectMultiple': 'Çoklu seçim',
+   'chat.questionCard.recommended': 'önerilen',
+   'chat.questionCard.other': 'Diğer…',
+@@ -2670,6 +2677,7 @@ export const dict = {
    'chat.toolPart.awaitingResponse': 'Yanıt bekleniyor...',
    'chat.toolPart.noOutputProduced': 'Çıktı üretilmedi',
    'chat.toolPart.questionsAsked': 'Sorulan sorular: {count}',
@@ -4648,10 +4741,10 @@ index 3c53404fe..18724214e 100644
    'chat.toolPart.moreToolCalls': '+{count} daha',
    'chat.toolPart.scriptCalls': 'Araç çağrıları',
 diff --git a/packages/ui/src/lib/i18n/messages/uk.settings.ts b/packages/ui/src/lib/i18n/messages/uk.settings.ts
-index 21f7c6042..fc21025bd 100644
+index 5e75c56a6..e7790ec12 100644
 --- a/packages/ui/src/lib/i18n/messages/uk.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/uk.settings.ts
-@@ -2440,6 +2440,12 @@ export const settingsDict = {
+@@ -2456,6 +2456,12 @@ export const settingsDict = {
    "settings.openchamber.visual.field.expandReasoningWhileStreamingInfo": "Показує міркування моделі та підсумок стиснення розмови, поки вони надходять. Коли вимкнено, блоки згорнуті й відкриваються кліком.",
    "settings.openchamber.visual.field.collapsibleUserMessagesAria": "Згортати довгі повідомлення користувача",
    "settings.openchamber.visual.field.collapsibleUserMessages": "Згортати довгі повідомлення користувача",
@@ -4665,10 +4758,24 @@ index 21f7c6042..fc21025bd 100644
    "settings.openchamber.visual.field.stickyUserHeader": "Закріплений заголовок користувача",
    "settings.openchamber.visual.field.promptNavigatorEnabledAria": "Навігатор промптів",
 diff --git a/packages/ui/src/lib/i18n/messages/uk.ts b/packages/ui/src/lib/i18n/messages/uk.ts
-index 06b90c0d9..b2b1d3256 100644
+index 5de7976b1..41e98e55d 100644
 --- a/packages/ui/src/lib/i18n/messages/uk.ts
 +++ b/packages/ui/src/lib/i18n/messages/uk.ts
-@@ -2791,6 +2791,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -2599,6 +2599,13 @@ export const dict: Record<I18nKey, string> = {
+   "chat.questionCard.inputNeeded": "Потрібна відповідь",
+   "chat.questionCard.fromSubagent": "Від субагента",
+   "chat.questionCard.questionFallback": "Питання {index}",
++  "chat.questionCard.moreQuestions": "+{count} more",
++  "chat.questionCard.notAnswered": "Not answered",
++  "chat.questionCard.chosen": "Chosen",
++  "chat.questionCard.answerCount": "{count} answers",
++  "chat.questionCard.showOptions": "Show options",
++  "chat.questionCard.hideOptions": "Hide options",
++  "chat.questionCard.stoppedBeforeAnswer": "Stopped before an answer",
+   "chat.questionCard.selectMultiple": "Вибрати кілька",
+   "chat.questionCard.recommended": "рекомендований",
+   "chat.questionCard.other": "Інше…",
+@@ -2796,6 +2803,7 @@ export const dict: Record<I18nKey, string> = {
    "chat.toolPart.awaitingResponse": "Очікування відповіді...",
    "chat.toolPart.noOutputProduced": "Вивід відсутній",
    "chat.toolPart.questionsAsked": 'Поставлено запитань: {count}',
@@ -4677,10 +4784,10 @@ index 06b90c0d9..b2b1d3256 100644
    "chat.toolPart.moreToolCalls": 'ще +{count}',
    "chat.toolPart.scriptCalls": 'Виклики інструментів',
 diff --git a/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts b/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
-index de0e9cf5f..d06118a9d 100644
+index cfaeeeedd..c8aa937ab 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
-@@ -2440,6 +2440,12 @@ export const settingsDict = {
+@@ -2456,6 +2456,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': '在内容到达时实时显示模型的推理和对话压缩摘要。关闭后这些块保持折叠，点击即可展开。',
    'settings.openchamber.visual.field.collapsibleUserMessagesAria': '折叠较长的用户消息',
    'settings.openchamber.visual.field.collapsibleUserMessages': '折叠较长的用户消息',
@@ -4694,10 +4801,24 @@ index de0e9cf5f..d06118a9d 100644
    'settings.openchamber.visual.field.stickyUserHeader': '固定用户消息头',
    'settings.openchamber.visual.field.promptNavigatorEnabledAria': '提示词导航',
 diff --git a/packages/ui/src/lib/i18n/messages/zh-CN.ts b/packages/ui/src/lib/i18n/messages/zh-CN.ts
-index 2f85b300c..1a8d6f108 100644
+index 82f6f041c..d84d1bbde 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-CN.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-CN.ts
-@@ -2800,6 +2800,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -2597,6 +2597,13 @@ export const dict: Record<I18nKey, string> = {
+   'chat.questionCard.inputNeeded': '需要输入',
+   'chat.questionCard.fromSubagent': '来自子智能体',
+   'chat.questionCard.questionFallback': '问题 {index}',
++  'chat.questionCard.moreQuestions': '+{count} more',
++  'chat.questionCard.notAnswered': 'Not answered',
++  'chat.questionCard.chosen': 'Chosen',
++  'chat.questionCard.answerCount': '{count} answers',
++  'chat.questionCard.showOptions': 'Show options',
++  'chat.questionCard.hideOptions': 'Hide options',
++  'chat.questionCard.stoppedBeforeAnswer': 'Stopped before an answer',
+   'chat.questionCard.selectMultiple': '可多选',
+   'chat.questionCard.recommended': '推荐',
+   'chat.questionCard.other': '其他…',
+@@ -2805,6 +2812,7 @@ export const dict: Record<I18nKey, string> = {
    'chat.toolPart.awaitingResponse': '等待响应...',
    'chat.toolPart.noOutputProduced': '未产生输出',
    'chat.toolPart.questionsAsked': '已提问：{count}',
@@ -4706,10 +4827,10 @@ index 2f85b300c..1a8d6f108 100644
    'chat.toolPart.moreToolCalls': '还有 +{count} 个',
    'chat.toolPart.scriptCalls': '工具调用',
 diff --git a/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts b/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
-index 7092662bc..46825b979 100644
+index 92a810352..a06c1391b 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
-@@ -2318,6 +2318,12 @@ export const settingsDict = {
+@@ -2334,6 +2334,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': '在內容到達時即時顯示模型的推理和對話壓縮摘要。關閉後這些區塊保持摺疊，點擊即可展開。',
    'settings.openchamber.visual.field.collapsibleUserMessagesAria': '收合較長的使用者訊息',
    'settings.openchamber.visual.field.collapsibleUserMessages': '收合較長的使用者訊息',
@@ -4723,10 +4844,24 @@ index 7092662bc..46825b979 100644
    'settings.openchamber.visual.field.stickyUserHeader': '固定使用者訊息標頭',
    'settings.openchamber.visual.field.promptNavigatorEnabledAria': '提示詞導覽',
 diff --git a/packages/ui/src/lib/i18n/messages/zh-TW.ts b/packages/ui/src/lib/i18n/messages/zh-TW.ts
-index 0783c7845..9816dfe11 100644
+index fc8f77636..635618136 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-TW.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-TW.ts
-@@ -2811,6 +2811,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -2608,6 +2608,13 @@ export const dict: Record<I18nKey, string> = {
+   'chat.questionCard.inputNeeded': '需要輸入',
+   'chat.questionCard.fromSubagent': '來自子 Agent',
+   'chat.questionCard.questionFallback': '問題 {index}',
++  'chat.questionCard.moreQuestions': '+{count} more',
++  'chat.questionCard.notAnswered': 'Not answered',
++  'chat.questionCard.chosen': 'Chosen',
++  'chat.questionCard.answerCount': '{count} answers',
++  'chat.questionCard.showOptions': 'Show options',
++  'chat.questionCard.hideOptions': 'Hide options',
++  'chat.questionCard.stoppedBeforeAnswer': 'Stopped before an answer',
+   'chat.questionCard.selectMultiple': '可複選',
+   'chat.questionCard.recommended': '推薦',
+   'chat.questionCard.other': '其他…',
+@@ -2816,6 +2823,7 @@ export const dict: Record<I18nKey, string> = {
    'chat.toolPart.awaitingResponse': '等待回應...',
    'chat.toolPart.noOutputProduced': '未產生輸出',
    'chat.toolPart.questionsAsked': '已提問：{count}',
@@ -4735,7 +4870,7 @@ index 0783c7845..9816dfe11 100644
    'chat.toolPart.moreToolCalls': '還有 +{count} 個',
    'chat.toolPart.scriptCalls': '工具呼叫',
 diff --git a/packages/ui/src/lib/opencode/client.test.ts b/packages/ui/src/lib/opencode/client.test.ts
-index 0d1766dcc..cfaa73395 100644
+index da6928da4..743e61fa2 100644
 --- a/packages/ui/src/lib/opencode/client.test.ts
 +++ b/packages/ui/src/lib/opencode/client.test.ts
 @@ -4,6 +4,7 @@ import { isAmbiguousSendFailure } from '@/sync/send-failure-classification'
@@ -4746,7 +4881,7 @@ index 0d1766dcc..cfaa73395 100644
  
  // The generated `@opencode/client` runs for real here; only the runtime
  // transport (`runtimeFetch`) and runtime identity are replaced. That keeps
-@@ -848,7 +849,7 @@ describe("messages and config", () => {
+@@ -810,7 +811,7 @@ describe("messages and config", () => {
      responses.push(new TypeError("Failed to fetch"), json({ data: [], cursor: {} }), json({ data: [], cursor: {} }))
      await opencodeClient.getSessionMessages("ses_1", { limit: 20, partShells: true })
      await opencodeClient.getSessionMessages("ses_1", { limit: 20, partShells: true })
@@ -4755,7 +4890,7 @@ index 0d1766dcc..cfaa73395 100644
    })
  
    describe("a page asked before the capability is known", () => {
-@@ -869,7 +870,7 @@ describe("messages and config", () => {
+@@ -831,7 +832,7 @@ describe("messages and config", () => {
        runtimeKey = "shells-first-page"
        responses.push(capable(), emptyPage())
        await opencodeClient.getSessionMessages("ses_1", { limit: 20, partShells: true })
@@ -4764,7 +4899,7 @@ index 0d1766dcc..cfaa73395 100644
      })
  
      test("waits once per check for a check that does not answer", async () => {
-@@ -892,7 +893,7 @@ describe("messages and config", () => {
+@@ -854,7 +855,7 @@ describe("messages and config", () => {
          answer(capable())
          await settle()
          await opencodeClient.getSessionMessages("ses_1", { limit: 20, partShells: true })
@@ -4773,7 +4908,7 @@ index 0d1766dcc..cfaa73395 100644
        } finally {
          jest.useRealTimers()
        }
-@@ -929,7 +930,7 @@ describe("messages and config", () => {
+@@ -891,7 +892,7 @@ describe("messages and config", () => {
        responses.push(new Error("relay tunnel reset: relay keepalive timeout"), json({ data: [], cursor: {} }))
        await expect(opencodeClient.getSessionMessages("ses_1", { limit: 20, partShells: true })).rejects.toThrow("transport failure")
        await opencodeClient.getSessionMessages("ses_1", { limit: 20, partShells: true })
@@ -4783,38 +4918,36 @@ index 0d1766dcc..cfaa73395 100644
        deactivateRelayTunnel()
      }
 diff --git a/packages/ui/src/lib/opencode/toolContentShells.ts b/packages/ui/src/lib/opencode/toolContentShells.ts
-index 37ccc5e80..2681d5a53 100644
+index 66110000a..e0d7d5d3f 100644
 --- a/packages/ui/src/lib/opencode/toolContentShells.ts
 +++ b/packages/ui/src/lib/opencode/toolContentShells.ts
-@@ -12,16 +12,18 @@
+@@ -2,11 +2,17 @@
  import { z } from "zod"
  
  import { compact, type Part, type ToolPart } from "./model"
 -import { isNavigationTool } from "./tools"
 +import { isNavigationTool, OPENCODE_TOOLS } from "./tools"
  
- /** Request header asking for shelled pages. */
  export const PART_SHELLS_HEADER = "x-openchamber-part-shells"
  
- /**
-  * The header value. The server also accepts tools to keep whole after the
-- * version (`v1,shell`); every row here opens on a click, so none are listed.
+-export const PART_SHELLS_VERSION = "v1"
++/**
++ * The header value. The server also accepts tools to keep whole after the
 + * version (`v1,shell`). A question call's result holds the user's answers,
 + * which the collapsed and expanded rows show without a per-row fetch.
-  */
--export const PART_SHELLS_VERSION = "v1"
++ */
 +const PART_SHELLS_KEEP_WHOLE_TOOLS = [OPENCODE_TOOLS.question] as const
 +export const PART_SHELLS_VERSION = ["v1", ...PART_SHELLS_KEEP_WHOLE_TOOLS].join(",")
  
  const CONTENT_SHELL_METADATA_KEY = "openchamberContentShell"
  
 diff --git a/packages/ui/src/lib/settings/registry.ts b/packages/ui/src/lib/settings/registry.ts
-index a2dfa2551..7937823c7 100644
+index 8c96ac33d..ba3742c60 100644
 --- a/packages/ui/src/lib/settings/registry.ts
 +++ b/packages/ui/src/lib/settings/registry.ts
-@@ -482,6 +482,8 @@ export const SETTINGS_REGISTRY = {
+@@ -409,6 +409,8 @@ export const SETTINGS_REGISTRY = {
+   promptNavigatorEnabled: field({ scope: 'profile', perSurface: true, parse: parseBoolean, ui: uiStore('promptNavigatorEnabled', (v) => useUIStore.getState().setPromptNavigatorEnabled(v)) }),
    chatWidth: field({ scope: 'profile', perSurface: true, parse: parseChatWidth, ui: uiStore('chatWidth', (v) => useUIStore.getState().setChatWidth(v)) }),
-   /** Legacy boolean that `chatWidth` absorbs at parse time. */
    wideChatLayoutEnabled: field({ scope: 'profile', perSurface: true, parse: parseBoolean }),
 +  autoExpandAnsweredQuestions: field({ scope: 'profile', parse: parseBoolean, ui: uiStore('autoExpandAnsweredQuestions', (v) => useUIStore.getState().setAutoExpandAnsweredQuestions(v)) }),
 +  listQuestionsInPromptSelector: field({ scope: 'profile', parse: parseBoolean, ui: uiStore('listQuestionsInPromptSelector', (v) => useUIStore.getState().setListQuestionsInPromptSelector(v)) }),
@@ -4822,10 +4955,10 @@ index a2dfa2551..7937823c7 100644
    showToolFileIcons: field({ scope: 'profile', parse: parseBoolean, ui: uiStore('showToolFileIcons', (v) => useUIStore.getState().setShowToolFileIcons(v)) }),
    codeBlockLineWrap: field({ scope: 'profile', parse: parseBoolean, ui: uiStore('codeBlockLineWrap', (v) => useUIStore.getState().setCodeBlockLineWrap(v)) }),
 diff --git a/packages/ui/src/lib/settings/search.ts b/packages/ui/src/lib/settings/search.ts
-index 1f8d7039b..03866d4f5 100644
+index e8f4160b7..c1f4bd0b0 100644
 --- a/packages/ui/src/lib/settings/search.ts
 +++ b/packages/ui/src/lib/settings/search.ts
-@@ -424,6 +424,20 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
+@@ -420,6 +420,20 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
      titleKey: 'settings.openchamber.visual.field.promptNavigatorEnabled',
      keywords: ['prompt', 'navigator', 'navigation', 'timeline', 'scroll'],
    },
@@ -4846,64 +4979,98 @@ index 1f8d7039b..03866d4f5 100644
    {
      id: 'chat.collapsible-user-messages',
      page: 'chat',
-diff --git a/packages/ui/src/stores/useUIStore.ts b/packages/ui/src/stores/useUIStore.ts
-index 61d7d7ab7..e6ca038ca 100644
---- a/packages/ui/src/stores/useUIStore.ts
-+++ b/packages/ui/src/stores/useUIStore.ts
-@@ -1237,6 +1237,8 @@ interface UIStore {
+diff --git a/packages/ui/src/stores/ui/initialState.ts b/packages/ui/src/stores/ui/initialState.ts
+index 8e6c57468..3a5e75292 100644
+--- a/packages/ui/src/stores/ui/initialState.ts
++++ b/packages/ui/src/stores/ui/initialState.ts
+@@ -225,6 +225,8 @@ export const createInitialUIState = (): Pick<UIStore,
+   | 'collapsibleUserMessages'
+   | 'stickyUserHeader'
+   | 'promptNavigatorEnabled'
++  | 'autoExpandAnsweredQuestions'
++  | 'listQuestionsInPromptSelector'
+   | 'showSplitAssistantMessageActions'
+   | 'allowPromptingSubagentSessions'
+   | 'savePastedImagesAsFiles'
+@@ -455,6 +457,8 @@ export const createInitialUIState = (): Pick<UIStore,
+   collapsibleUserMessages: true,
+   stickyUserHeader: false,
+   promptNavigatorEnabled: true,
++  autoExpandAnsweredQuestions: false,
++  listQuestionsInPromptSelector: true,
+   showSplitAssistantMessageActions: false,
+   allowPromptingSubagentSessions: false,
+   savePastedImagesAsFiles: false,
+diff --git a/packages/ui/src/stores/ui/persistence.ts b/packages/ui/src/stores/ui/persistence.ts
+index 354316127..40551693b 100644
+--- a/packages/ui/src/stores/ui/persistence.ts
++++ b/packages/ui/src/stores/ui/persistence.ts
+@@ -425,6 +425,8 @@ export const uiStorePersistOptions = {
+     collapsibleUserMessages: state.collapsibleUserMessages,
+     stickyUserHeader: state.stickyUserHeader,
+     promptNavigatorEnabled: state.promptNavigatorEnabled,
++    autoExpandAnsweredQuestions: state.autoExpandAnsweredQuestions,
++    listQuestionsInPromptSelector: state.listQuestionsInPromptSelector,
+     showSplitAssistantMessageActions: state.showSplitAssistantMessageActions,
+     allowPromptingSubagentSessions: state.allowPromptingSubagentSessions,
+     savePastedImagesAsFiles: state.savePastedImagesAsFiles,
+diff --git a/packages/ui/src/stores/ui/preferenceActions.ts b/packages/ui/src/stores/ui/preferenceActions.ts
+index 1558cd754..15396fa7c 100644
+--- a/packages/ui/src/stores/ui/preferenceActions.ts
++++ b/packages/ui/src/stores/ui/preferenceActions.ts
+@@ -83,6 +83,8 @@ export const createPreferenceActions: UIStoreSlice<
+   | 'setCollapsibleUserMessages'
+   | 'setStickyUserHeader'
+   | 'setPromptNavigatorEnabled'
++  | 'setAutoExpandAnsweredQuestions'
++  | 'setListQuestionsInPromptSelector'
+   | 'setShowSplitAssistantMessageActions'
+   | 'setAllowPromptingSubagentSessions'
+   | 'setSavePastedImagesAsFiles'
+@@ -422,6 +424,12 @@ export const createPreferenceActions: UIStoreSlice<
+   setShowSplitAssistantMessageActions: (value) => {
+     set({ showSplitAssistantMessageActions: value });
+   },
++  setAutoExpandAnsweredQuestions: (value) => {
++    set({ autoExpandAnsweredQuestions: value });
++  },
++  setListQuestionsInPromptSelector: (value) => {
++    set({ listQuestionsInPromptSelector: value });
++  },
+ 
+   setAllowPromptingSubagentSessions: (value) => {
+     set({ allowPromptingSubagentSessions: value });
+diff --git a/packages/ui/src/stores/ui/types.ts b/packages/ui/src/stores/ui/types.ts
+index 11e6bf5c9..1edfeb357 100644
+--- a/packages/ui/src/stores/ui/types.ts
++++ b/packages/ui/src/stores/ui/types.ts
+@@ -327,6 +327,10 @@ export interface UIStore {
    collapsibleUserMessages: boolean;
    stickyUserHeader: boolean;
    promptNavigatorEnabled: boolean;
++  /** Answered questions in the transcript open their recorded answers. */
 +  autoExpandAnsweredQuestions: boolean;
++  /** The prompt navigator lists the questions a turn asked beside its prompt. */
 +  listQuestionsInPromptSelector: boolean;
    showSplitAssistantMessageActions: boolean;
    allowPromptingSubagentSessions: boolean;
    savePastedImagesAsFiles: boolean;
-@@ -1531,6 +1533,8 @@ interface UIStore {
+@@ -594,6 +598,10 @@ export interface UIStore {
    setCollapsibleUserMessages: (value: boolean) => void;
    setStickyUserHeader: (value: boolean) => void;
    setPromptNavigatorEnabled: (value: boolean) => void;
++  /** Whether an answered question's card opens its recorded answers. */
 +  setAutoExpandAnsweredQuestions: (value: boolean) => void;
++  /** Whether the prompt navigator lists a turn's questions beside its prompt. */
 +  setListQuestionsInPromptSelector: (value: boolean) => void;
    setShowSplitAssistantMessageActions: (value: boolean) => void;
    setAllowPromptingSubagentSessions: (value: boolean) => void;
    setSavePastedImagesAsFiles: (value: boolean) => void;
-@@ -1798,6 +1802,8 @@ export const useUIStore = create<UIStore>()(
-         collapsibleUserMessages: true,
-         stickyUserHeader: false,
-         promptNavigatorEnabled: true,
-+        autoExpandAnsweredQuestions: false,
-+        listQuestionsInPromptSelector: true,
-         showSplitAssistantMessageActions: false,
-         allowPromptingSubagentSessions: false,
-         savePastedImagesAsFiles: false,
-@@ -3593,6 +3599,12 @@ export const useUIStore = create<UIStore>()(
-         setPromptNavigatorEnabled: (value) => {
-           set({ promptNavigatorEnabled: value });
-         },
-+        setAutoExpandAnsweredQuestions: (value) => {
-+          set({ autoExpandAnsweredQuestions: value });
-+        },
-+        setListQuestionsInPromptSelector: (value) => {
-+          set({ listQuestionsInPromptSelector: value });
-+        },
-         setShowSplitAssistantMessageActions: (value) => {
-           set({ showSplitAssistantMessageActions: value });
-         },
-@@ -4111,6 +4123,8 @@ export const useUIStore = create<UIStore>()(
-           collapsibleUserMessages: state.collapsibleUserMessages,
-           stickyUserHeader: state.stickyUserHeader,
-           promptNavigatorEnabled: state.promptNavigatorEnabled,
-+          autoExpandAnsweredQuestions: state.autoExpandAnsweredQuestions,
-+          listQuestionsInPromptSelector: state.listQuestionsInPromptSelector,
-           showSplitAssistantMessageActions: state.showSplitAssistantMessageActions,
-           allowPromptingSubagentSessions: state.allowPromptingSubagentSessions,
-           savePastedImagesAsFiles: state.savePastedImagesAsFiles,
 diff --git a/packages/vscode/src/settings-registry.json b/packages/vscode/src/settings-registry.json
-index 2866fc2bb..ae47076af 100644
+index 289636940..88b065700 100644
 --- a/packages/vscode/src/settings-registry.json
 +++ b/packages/vscode/src/settings-registry.json
-@@ -454,6 +454,12 @@
+@@ -471,6 +471,12 @@
        "scope": "profile",
        "perSurface": true
      },
@@ -4917,7 +5084,7 @@ index 2866fc2bb..ae47076af 100644
        "scope": "profile"
      },
 diff --git a/packages/web/server/lib/opencode/message-shells.test.js b/packages/web/server/lib/opencode/message-shells.test.js
-index 1e413e18a..0d29576ac 100644
+index c52ef0e10..0d29576ac 100644
 --- a/packages/web/server/lib/opencode/message-shells.test.js
 +++ b/packages/web/server/lib/opencode/message-shells.test.js
 @@ -28,6 +28,8 @@ describe('parsePartShellsHeader', () => {
@@ -4929,10 +5096,21 @@ index 1e413e18a..0d29576ac 100644
    });
  
    test('ignores a missing header and unknown versions', () => {
-@@ -73,6 +75,18 @@ describe('shellMessagePage', () => {
+@@ -73,17 +75,16 @@ describe('shellMessagePage', () => {
      expect(parts[3].state).toEqual(completed());
    });
  
+-  test('keeps whole the results the chat draws a card from: a proposed workflow run and generated images', () => {
+-    const envelope = (action, ok = true) => [{ type: 'text', text: JSON.stringify({ schemaVersion: 1, ok, action, data: { runId: 'wf_1', images: [{ path: '/a.png' }] } }) }];
+-    const workflow = tool('openchamber_workflow', completed({ content: envelope('workflow.run') }));
+-    const image = tool('openchamber_image', completed({ content: envelope('image.generate') }));
+-    const status = tool('openchamber_workflow', completed({ content: envelope('workflow.status') }));
+-    const failed = tool('openchamber_workflow', completed({ content: envelope('workflow.run', false) }));
+-    const parts = shellMessagePage(page([workflow, image, status, failed]), new Set()).data[0].content;
+-    expect(parts[0].state).toEqual(workflow.state);
+-    expect(parts[1].state).toEqual(image.state);
+-    expect(parts[2].state.metadata[CONTENT_SHELL_METADATA_KEY].envelope).toEqual({ ok: true, action: 'workflow.status' });
+-    expect(parts[3].state.metadata[CONTENT_SHELL_METADATA_KEY].envelope).toEqual({ ok: false, action: 'workflow.run' });
 +  test('leaves a question result whole when the client asks for it', () => {
 +    const question = tool('question', completed({
 +      input: { questions: [{ question: 'Ship it?', options: [{ label: 'Yes' }, { label: 'No' }] }] },
@@ -4943,35 +5121,14 @@ index 1e413e18a..0d29576ac 100644
 +    expect(shelled.data[0].content[0].state.content).toEqual([{ type: 'text', text: '' }]);
 +    const whole = shellMessagePage(page([question]), new Set(['question']));
 +    expect(whole.data[0].content[0].state).toEqual(question.state);
-+  });
-+
+   });
+ 
    test('keeps which action an OpenChamber envelope answers and whether it succeeded', () => {
-     const envelope = (ok) => JSON.stringify({ schemaVersion: 1, ok, action: 'memory.save', data: { memory: { title: 'Uses bun' } } });
-     const marker = (name, text) => shellMessagePage(page([tool(name, completed({ content: [{ type: 'text', text }], metadata: {} }))]), new Set())
-diff --git a/packages/web/server/lib/settings/settings-helpers.ts b/packages/web/server/lib/settings/settings-helpers.ts
-index 031cf42d1..708467782 100644
---- a/packages/web/server/lib/settings/settings-helpers.ts
-+++ b/packages/web/server/lib/settings/settings-helpers.ts
-@@ -1086,6 +1086,14 @@ export const createSettingsHelpers = (dependencies) => {
-     if (typeof candidate.wideChatLayoutEnabled === 'boolean') {
-       result.wideChatLayoutEnabled = candidate.wideChatLayoutEnabled;
-     }
-+    const autoExpandAnsweredQuestions = candidate.autoExpandAnsweredQuestions;
-+    if (autoExpandAnsweredQuestions === true || autoExpandAnsweredQuestions === false) {
-+      result.autoExpandAnsweredQuestions = autoExpandAnsweredQuestions;
-+    }
-+    const listQuestionsInPromptSelector = candidate.listQuestionsInPromptSelector;
-+    if (listQuestionsInPromptSelector === true || listQuestionsInPromptSelector === false) {
-+      result.listQuestionsInPromptSelector = listQuestionsInPromptSelector;
-+    }
-     if (typeof candidate.showSplitAssistantMessageActions === 'boolean') {
-       result.showSplitAssistantMessageActions = candidate.showSplitAssistantMessageActions;
-     }
 diff --git a/packages/web/server/lib/settings/settings-helpers.test.js b/packages/web/server/lib/settings/settings-helpers.test.js
-index e1f336f28..3ce523ac0 100644
+index 116141ebb..640476de7 100644
 --- a/packages/web/server/lib/settings/settings-helpers.test.js
 +++ b/packages/web/server/lib/settings/settings-helpers.test.js
-@@ -305,6 +305,16 @@ describe('settings helpers', () => {
+@@ -328,6 +328,16 @@ describe('settings helpers', () => {
      expect(helpers.sanitizeSettingsUpdate({ collapsibleUserMessages: 'true' })).toEqual({});
    });
  
@@ -4988,7 +5145,7 @@ index e1f336f28..3ce523ac0 100644
    it('sanitizes and returns the persisted editor font size', () => {
      const helpers = createTestHelpers();
  
-@@ -967,7 +977,7 @@ describe('settings registry gate', () => {
+@@ -990,7 +1000,7 @@ describe('settings registry gate', () => {
      workStatusPanelEnabled: true, workStatusHiddenSections: ['mcp'], workStatusHiddenSectionsExplicit: true, workStatusSectionOrder: ['mcp', 'session'], workStatusSectionOrderExplicit: true,
      showReasoningTraces: true, streamingAutoFollowEnabled: true, collapsibleThinkingBlocks: true, expandReasoningWhileStreaming: true, showTextJustificationActivity: true,
      chatRenderMode: 'live', activityRenderMode: 'summary', mermaidRenderingMode: 'svg', userMessageRenderingMode: 'markdown', collapsibleUserMessages: true,
@@ -4997,11 +5154,40 @@ index e1f336f28..3ce523ac0 100644
      selectionApprovalText: 'Agreed.',
      codeBlockLineWrap: true, tableCellWrap: true, copyMessagesAsPlainText: true, showTurnChangedFiles: true, toolJsonViewMode: 'raw',
      timeFormatPreference: '24h', weekStartPreference: 'monday', messageStreamTransport: 'ws', diffLayoutPreference: 'inline', diffWrapLines: true, diffHideWhitespace: true,
+diff --git a/packages/web/server/lib/settings/settings-helpers.ts b/packages/web/server/lib/settings/settings-helpers.ts
+index fc31d5607..6f9daa8f7 100644
+--- a/packages/web/server/lib/settings/settings-helpers.ts
++++ b/packages/web/server/lib/settings/settings-helpers.ts
+@@ -240,6 +240,7 @@ type BooleanSettingsKey =
+   | 'promptNavigatorEnabled' | 'wideChatLayoutEnabled' | 'showSplitAssistantMessageActions' | 'directoryShowHidden'
+   | 'filesViewShowGitignored' | 'reportUsage' | 'responseStyleEnabled' | 'dictationEnabled' | 'dictationAutoSend'
+   | 'sidebarHideEmptyWorktrees'
++  | 'autoExpandAnsweredQuestions' | 'listQuestionsInPromptSelector'
+   | 'sttCorrectTranscript' | (typeof AGENT_TOOL_BOOLEAN_KEYS)[number];
+ 
+ type StringSettingsKey =
+@@ -1205,7 +1206,15 @@ export const createSettingsHelpers = (dependencies: SettingsHelpersDependencies)
+     if (isBoolean(candidate.wideChatLayoutEnabled)) {
+       result.wideChatLayoutEnabled = candidate.wideChatLayoutEnabled;
+     }
+-    if (isBoolean(candidate.showSplitAssistantMessageActions)) {
++    const autoExpandAnsweredQuestions = candidate.autoExpandAnsweredQuestions;
++    if (autoExpandAnsweredQuestions === true || autoExpandAnsweredQuestions === false) {
++      result.autoExpandAnsweredQuestions = autoExpandAnsweredQuestions;
++    }
++    const listQuestionsInPromptSelector = candidate.listQuestionsInPromptSelector;
++    if (listQuestionsInPromptSelector === true || listQuestionsInPromptSelector === false) {
++      result.listQuestionsInPromptSelector = listQuestionsInPromptSelector;
++    }
++    if (typeof candidate.showSplitAssistantMessageActions === 'boolean') {
+       result.showSplitAssistantMessageActions = candidate.showSplitAssistantMessageActions;
+     }
+     if (isNumber(candidate.fontSize) && Number.isFinite(candidate.fontSize)) {
 diff --git a/packages/web/server/lib/settings/settings-registry.json b/packages/web/server/lib/settings/settings-registry.json
-index 2866fc2bb..ae47076af 100644
+index 289636940..88b065700 100644
 --- a/packages/web/server/lib/settings/settings-registry.json
 +++ b/packages/web/server/lib/settings/settings-registry.json
-@@ -454,6 +454,12 @@
+@@ -471,6 +471,12 @@
        "scope": "profile",
        "perSurface": true
      },

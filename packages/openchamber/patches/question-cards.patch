@@ -1,37 +1,8 @@
-diff --git a/packages/ui/src/components/chat/ChatContainer.tsx b/packages/ui/src/components/chat/ChatContainer.tsx
-index cfc4babfd..0e644cc8b 100644
---- a/packages/ui/src/components/chat/ChatContainer.tsx
-+++ b/packages/ui/src/components/chat/ChatContainer.tsx
-@@ -127,7 +127,7 @@ import { resolveChatPromptReadOnly } from './chatPromptReadOnly';
- import { PermissionDock } from './PermissionDock';
- import { FormDock } from './FormDock';
- import { TranscriptForms } from './TranscriptForms';
--import { resolveFormsInChat } from './formsInChat';
-+import { FormsInChatContext, resolveFormsInChat } from './formsInChat';
- import { ensureSpaceArchives, useSpaceArchiveOf } from '@/lib/spaces/space-archives';
- import { useSpaceDirectoryStopped } from '@/lib/spaces/spaces-store';
- import { SpaceChatPlaceholder } from '@/components/session/spaces/SpaceChatPlaceholder';
-@@ -601,6 +601,7 @@ const ChatViewport = React.memo(({
-                         capacity={retainedTimelines()}
-                         onBeforeHide={captureOutgoingPosition}
-                     >
-+                        <FormsInChatContext.Provider value={formsInChat}>
-                         <ChatColumnSessionContext.Provider value={session}>
-                             <MessageList
-                                 key={currentSessionKey}
-@@ -626,6 +627,7 @@ const ChatViewport = React.memo(({
-                                 scrollContainerProps={scrollContainerProps}
-                             />
-                         </ChatColumnSessionContext.Provider>
-+                        </FormsInChatContext.Provider>
-                     </KeepAlive>
-                     {/* The transcript's edge fades must follow the scroller. */}
-                     <div aria-hidden="true" className="chat-scroll-fade chat-scroll-fade--top" />
 diff --git a/packages/ui/src/components/chat/ChatMessage.tsx b/packages/ui/src/components/chat/ChatMessage.tsx
-index 98775b7be..c68325951 100644
+index f3e1dd304..2899a277e 100644
 --- a/packages/ui/src/components/chat/ChatMessage.tsx
 +++ b/packages/ui/src/components/chat/ChatMessage.tsx
-@@ -105,6 +105,12 @@ interface ChatMessageProps {
+@@ -106,6 +106,12 @@ interface ChatMessageProps {
      animateUserOnMount?: boolean;
      onUserAnimationConsumed?: (messageId: string) => void;
      reviewTransferDirection?: ReviewTransferDirection | null;
@@ -44,7 +15,7 @@ index 98775b7be..c68325951 100644
  }
  
  const ChatMessage: React.FC<ChatMessageProps> = ({
-@@ -117,6 +123,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
+@@ -118,6 +124,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
      animateUserOnMount = false,
      onUserAnimationConsumed,
      reviewTransferDirection = null,
@@ -52,7 +23,7 @@ index 98775b7be..c68325951 100644
  }) => {
      const { t } = useI18n();
      const { isMobile, isTablet, hasTouchInput } = useDeviceInfo();
-@@ -365,6 +372,16 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
+@@ -355,6 +362,16 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
  
      const shouldHideUserMessage = isUser && visibleParts.length === 0;
  
@@ -69,7 +40,7 @@ index 98775b7be..c68325951 100644
      const shouldAnimateMessage = React.useMemo(() => {
          if (isUser) return false;
          const freshnessDetector = MessageFreshnessDetector.getInstance();
-@@ -630,7 +647,9 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
+@@ -603,7 +620,11 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
              <div
                  className={cn(
                      'group w-full',
@@ -77,10 +48,12 @@ index 98775b7be..c68325951 100644
 +                    // A card body is a row of the reader's own, like a prompt:
 +                    // it takes the row's top gap.
 +                    isUser || body ? (isMobile ? 'pt-2' : 'pt-4') : 'pt-0',
-                     // In the transcript the gap under an answer is the
-                     // turn's (TurnItem gapBelow); only ungrouped lists (BTW) keep it here.
++                    // In the transcript the gap under an answer is the
++                    // turn's (TurnItem gapBelow); only ungrouped lists (BTW) keep it here.
                      isUser || hasTurnGrouping || isFollowedByAssistant || nextIsHiddenUserMessage ? 'pb-0' : 'pb-2'
-@@ -661,7 +680,9 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
+                 )}
+                 id={sliceName ? undefined : `message-${message.info.id}`}
+@@ -632,7 +653,9 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                                              style={{
                                                  backgroundColor: 'var(--chat-user-message-bg)',
                                                  borderRadius: userMessageRadius,
@@ -91,7 +64,7 @@ index 98775b7be..c68325951 100644
                                              }}
                                              className="px-5 py-3 shadow-none border border-primary/5"
                                              data-user-message-bubble=""
-@@ -743,10 +764,11 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
+@@ -716,10 +739,11 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                          )
                      ) : (
                          <div className="relative">
@@ -104,7 +77,7 @@ index 98775b7be..c68325951 100644
                                  isUser={isUser}
                                  isMessageCompleted={isMessageCompleted}
                                  messageFinish={messageFinish}
-@@ -814,6 +836,7 @@ export default React.memo(ChatMessage, (prev, next) => {
+@@ -788,6 +812,7 @@ export default React.memo(ChatMessage, (prev, next) => {
          && prev.assistantHeaderMessageId === next.assistantHeaderMessageId
          && prev.animateUserOnMount === next.animateUserOnMount
          && prev.onUserAnimationConsumed === next.onUserAnimationConsumed
@@ -114,7 +87,7 @@ index 98775b7be..c68325951 100644
              next.turnGroupingContext,
 diff --git a/packages/ui/src/components/chat/MessageList.questionCard.test.tsx b/packages/ui/src/components/chat/MessageList.questionCard.test.tsx
 new file mode 100644
-index 000000000..842b36cd7
+index 000000000..90f8c80f5
 --- /dev/null
 +++ b/packages/ui/src/components/chat/MessageList.questionCard.test.tsx
 @@ -0,0 +1,185 @@
@@ -127,7 +100,7 @@ index 000000000..842b36cd7
 +import { OpenCode } from '@opencode/client';
 +import { SyncProvider } from '@/sync/sync-context';
 +import { ChatColumnSessionContext } from './chatColumnSession';
-+import { FormsInChatContext } from './formsInChat';
++import { FormDockModeContext } from './formsInChat';
 +import { I18nProvider } from '@/lib/i18n';
 +import type { ChatMessageEntry } from './lib/turns/types';
 +import type { AssistantMessage, StructuredError, ToolPart } from '@/lib/opencode/model';
@@ -228,7 +201,7 @@ index 000000000..842b36cd7
 +                <ThemeSystemProvider>
 +                    <SyncProvider sdk={sdk} directory="/repo">
 +                        <I18nProvider>
-+                            <FormsInChatContext.Provider value={options.formsInChat ?? false}>
++                            <FormDockModeContext.Provider value={(options.formsInChat ?? false) ? 'in-chat' : 'dock'}>
 +                                <ChatColumnSessionContext.Provider value={{ sessionId: SESSION, directory: '/repo' }}>
 +                                    <MessageList
 +                                        sessionKey={SESSION}
@@ -237,7 +210,7 @@ index 000000000..842b36cd7
 +                                        scrollContainerProps={{ 'data-scrollbar': 'chat' }}
 +                                    />
 +                                </ChatColumnSessionContext.Provider>
-+                            </FormsInChatContext.Provider>
++                            </FormDockModeContext.Provider>
 +                        </I18nProvider>
 +                    </SyncProvider>
 +                </ThemeSystemProvider>
@@ -303,224 +276,6 @@ index 000000000..842b36cd7
 +        await done();
 +    }
 +});
-diff --git a/packages/ui/src/components/chat/MessageList.tsx b/packages/ui/src/components/chat/MessageList.tsx
-index b3de58ae8..1ad39e8ce 100644
---- a/packages/ui/src/components/chat/MessageList.tsx
-+++ b/packages/ui/src/components/chat/MessageList.tsx
-@@ -11,6 +11,7 @@ import { areOptionalRenderRelevantMessagesEqual, areRelevantTurnGroupingContexts
- import TurnItem from './components/TurnItem';
- import { endsStickySpan, STICKY_ROW_OFFSET, STICKY_ROW_OFFSET_EVENT, stickyRowIndicesOf } from './lib/turns/stickyPrompt';
- import { QuestionTurnHeader } from './components/QuestionTurnHeader';
-+import { FormsInChatContext } from './formsInChat';
- import { TurnFold, TurnPagesRow } from './components/LiveTurnActivity';
- import { useTurnFoldContexts } from './components/useTurnFold';
- import { LiveFinalActivityContext, LiveTurnHoistedPagesContext } from './components/liveActivityContext';
-@@ -229,6 +230,8 @@ interface MessageRowProps {
-     scrollToBottom?: () => void;
-     reviewTransferDirection?: ReviewTransferDirection | null;
-     isFirstRow?: boolean;
-+    /** The row's body in place of the message's parts: a question call's card. */
-+    body?: React.ReactNode;
- }
- 
- const MessageRow = React.memo<MessageRowProps>(({ 
-@@ -243,6 +246,7 @@ const MessageRow = React.memo<MessageRowProps>(({
-     scrollToBottom,
-     reviewTransferDirection,
-     isFirstRow,
-+    body,
- }) => {
-     // Roles that are not a conversation turn render as their own timeline row
-     // (or as nothing); only user and assistant go through ChatMessage.
-@@ -265,6 +269,7 @@ const MessageRow = React.memo<MessageRowProps>(({
-             isInActiveTurn={isInActiveTurn}
-             activeStreamingPhase={activeStreamingPhase}
-             reviewTransferDirection={reviewTransferDirection}
-+            body={body}
-         />
-     );
- }, (prev, next) => {
-@@ -276,6 +281,7 @@ const MessageRow = React.memo<MessageRowProps>(({
-         && prev.animateUserOnMount === next.animateUserOnMount
-         && prev.onUserAnimationConsumed === next.onUserAnimationConsumed
-         && prev.scrollToBottom === next.scrollToBottom
-+        && prev.body === next.body
-         && areRelevantTurnGroupingContextsEqual(prevTurn, nextTurn, prev.message.info.id, resolveMessageRole(prev.message) === 'user')
-         && prev.assistantHeaderMessageId === next.assistantHeaderMessageId
-         && prev.isInActiveTurn === next.isInActiveTurn
-@@ -381,7 +387,7 @@ const useTurnMessageRenderer = ({
-     }, [turn.activityParts, turn.changedFiles, turn.hasReasoning, turn.hasTools, turn.headerMessageId, turn.summaryText, turn.turnId, turn.assistantMessages, turn.userMessage.info]);
- 
-     return React.useCallback(
--        (message: ChatMessageEntry) => {
-+        (message: ChatMessageEntry, body?: React.ReactNode) => {
-             const assistantIndex = assistantIndexById.get(message.info.id) ?? -1;
-             const isAssistantMessage = assistantIndex >= 0;
-             const isFirstAssistant = assistantIndex === 0;
-@@ -426,6 +432,7 @@ const useTurnMessageRenderer = ({
-                     animateUserOnMount={shouldAnimateUserMessage(message)}
-                     onUserAnimationConsumed={onUserAnimationConsumed}
-                     scrollToBottom={scrollToBottom}
-+                    body={body}
-                 />
-             );
-         },
-@@ -480,7 +487,21 @@ const TurnRow = React.memo(({
-     const handleToggleActivity = React.useCallback(() => {
-         onToggleTurnActivity(turn.turnId);
-     }, [onToggleTurnActivity, turn.turnId]);
--
-+    const rowMessage = row.kind === 'turn-message'
-+        ? turn.assistantMessages.find((candidate) => candidate.info.id === row.messageId)
-+        : undefined;
-+    const questionPart = row.kind === 'turn-message' && row.questionPartId
-+        ? rowMessage?.parts.find((part) => part.id === row.questionPartId)
-+        : undefined;
-+    const rowMessageId = rowMessage?.info.id;
-+    // Kept as one node across the row's re-renders: a streamed step must not
-+    // redraw the card on every flush.
-+    const questionCard = React.useMemo(
-+        () => (questionPart && rowMessageId
-+            ? <QuestionTurnHeader part={questionPart} messageId={rowMessageId} placement="row" />
-+            : null),
-+        [questionPart, rowMessageId],
-+    );
-     if (row.kind === 'turn-head') {
-         return <TurnItem turn={turn} gapBelow={row.gapBelow} renderMessage={renderMessage} />;
-     }
-@@ -493,25 +514,17 @@ const TurnRow = React.memo(({
-         );
-     } else if (row.kind === 'turn-pages') {
-         content = <TurnPagesRow turn={turn} />;
--    } else {
--        const message = turn.assistantMessages.find((candidate) => candidate.info.id === row.messageId);
--        const questionPart = row.questionPartId ? message?.parts.find((part) => part.id === row.questionPartId) : undefined;
--        if (message && questionPart) {
--            content = (
--                <QuestionTurnHeader part={questionPart} messageId={message.info.id}
--                    startsMessage={!row.slice?.from && !row.questionLifted} />
--            );
--        } else if (message) {
--            content = (
--                <MessageSliceContext.Provider value={row.slice}>
--                    {row.final ? (
--                        <LiveFinalActivityContext.Provider value={foldContexts.finalContext}>
--                            {renderMessage(message)}
--                        </LiveFinalActivityContext.Provider>
--                    ) : renderMessage(message)}
--                </MessageSliceContext.Provider>
--            );
--        }
-+    } else if (row.kind === 'turn-message' && rowMessage) {
-+        const message = rowMessage;
-+        content = (
-+            <MessageSliceContext.Provider value={row.slice}>
-+                {row.final ? (
-+                    <LiveFinalActivityContext.Provider value={foldContexts.finalContext}>
-+                        {renderMessage(message, questionCard ?? undefined)}
-+                    </LiveFinalActivityContext.Provider>
-+                ) : renderMessage(message, questionCard ?? undefined)}
-+            </MessageSliceContext.Provider>
-+        );
-     }
- 
-     // Under a fold, a message does not draw the pages the turn hoists.
-@@ -774,6 +787,7 @@ type TimelineListProps = {
-     showReasoningTraces: boolean;
-     collapsibleThinkingBlocks: boolean;
-     autoExpandAnsweredQuestions: boolean;
-+    questionsInChat: boolean;
- };
- 
- const TimelineList = React.memo(({
-@@ -792,6 +806,7 @@ const TimelineList = React.memo(({
-     showReasoningTraces,
-     collapsibleThinkingBlocks,
-     autoExpandAnsweredQuestions,
-+    questionsInChat,
- }: TimelineListProps) => {
-     const listRef = React.useRef<LegendListRef | null>(null);
-     const isAtEndRef = React.useRef(true);
-@@ -799,10 +814,11 @@ const TimelineList = React.memo(({
- 
-     // Each row is placed at an estimate of its own height until measured
-     // (`rowSizeEstimate.ts`).
--    const sizeMetricsRef = React.useRef<RowSizeMetrics>({ columnWidth: 0, lineHeight: 32, showReasoningTraces, collapsibleThinkingBlocks, autoExpandAnsweredQuestions });
-+    const sizeMetricsRef = React.useRef<RowSizeMetrics>({ columnWidth: 0, lineHeight: 32, showReasoningTraces, collapsibleThinkingBlocks, autoExpandAnsweredQuestions, questionsInChat });
-     sizeMetricsRef.current.showReasoningTraces = showReasoningTraces;
-     sizeMetricsRef.current.collapsibleThinkingBlocks = collapsibleThinkingBlocks;
-     sizeMetricsRef.current.autoExpandAnsweredQuestions = autoExpandAnsweredQuestions;
-+    sizeMetricsRef.current.questionsInChat = questionsInChat;
-     const sizeMetrics = React.useCallback((): RowSizeMetrics => {
-         const metrics = sizeMetricsRef.current;
-         if (metrics.columnWidth <= 0) {
-@@ -818,7 +834,7 @@ const TimelineList = React.memo(({
-         const metrics = sizeMetrics();
-         // A question card's shape follows the reader's own open state, so its
-         // estimate is re-read after any toggle.
--        const signature = `${metrics.columnWidth}|${metrics.lineHeight}|${metrics.showReasoningTraces}|${metrics.collapsibleThinkingBlocks}|${metrics.autoExpandAnsweredQuestions}`
-+        const signature = `${metrics.columnWidth}|${metrics.lineHeight}|${metrics.showReasoningTraces}|${metrics.collapsibleThinkingBlocks}|${metrics.autoExpandAnsweredQuestions}|${metrics.questionsInChat}`
-             + (row.kind === 'turn-message' && row.questionPartId ? `|q${readQuestionOpenRevision()}` : '');
-         const cached = estimatesRef.current.get(row);
-         if (cached && cached.metrics === signature) return cached.size;
-@@ -858,7 +874,6 @@ const TimelineList = React.memo(({
-         const pushed = pushedHeaderRef.current;
-         if (pushed && pushed !== element) {
-             pushed.style.transform = '';
--            pushed.style.pointerEvents = '';
-             setStickyRowOffset(pushed, null);
-         }
-         pushedHeaderRef.current = element;
-@@ -874,14 +889,15 @@ const TimelineList = React.memo(({
-         const push = next && scroller
-             ? Math.min(0, next.getBoundingClientRect().top - scroller.getBoundingClientRect().top - element.offsetHeight)
-             : 0;
--        element.style.transform = push < 0 ? `translateY(${push}px)` : '';
--        // An answered question's card draws only its own box: where the
--        // pinned row draws nothing, taps reach the transcript under it.
--        element.style.pointerEvents = data[active]?.kind === 'turn-message' ? 'none' : '';
-+        // The pin's offset is measured with the row at its own place: the
-+        // push this call writes would otherwise count as part of it, and a
-+        // card draws itself back by that number.
-+        element.style.transform = '';
-         // Positions count from the rows' container, below the list's header.
-         const origin = element.parentElement?.getBoundingClientRect().top;
-         const offset = origin === undefined ? 0 : element.getBoundingClientRect().top - origin - state.positionAtIndex(active);
-         setStickyRowOffset(element, Math.max(0, offset));
-+        element.style.transform = push < 0 ? `translateY(${push}px)` : '';
-     }, []);
-     // The list reports the change before it pins the row; measure once it has.
-     const handleStickyHeaderChange = React.useCallback(() => {
-@@ -1171,16 +1187,20 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
-         return trailingStreamingEntry ? [...historyEntries, trailingStreamingEntry] : historyEntries;
-     }, [historyEntries, trailingStreamingEntry]);
- 
-+    // A waiting question whose form is in the chat draws at the transcript's
-+    // end, so its call is not cut into a card row of its own.
-+    const formsInChat = React.useContext(FormsInChatContext);
-     const previousRowsRef = React.useRef<RenderRow[]>([]);
-     const rows = React.useMemo(() => streamPerfMeasure('ui.message_list.render_rows_ms', () => {
-         const next = buildTimelineRows(allEntries, {
-             collapsedActivity: !defaultActivityExpanded,
-             expandedTurns: turnExpansion,
-             showReasoningTraces,
-+            questionsInChat: formsInChat,
-         }, previousRowsRef.current);
-         previousRowsRef.current = next;
-         return next;
--    }), [allEntries, defaultActivityExpanded, showReasoningTraces, turnExpansion]);
-+    }), [allEntries, defaultActivityExpanded, showReasoningTraces, turnExpansion, formsInChat]);
- 
-     // The rows the list keeps on top while what follows scrolls under them:
-     // prompts and answered questions' cards (`stickyRowIndicesOf`).
-@@ -1815,6 +1835,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
-                     showReasoningTraces={showReasoningTraces}
-                     collapsibleThinkingBlocks={collapsibleThinkingBlocks}
-                     autoExpandAnsweredQuestions={autoExpandAnsweredQuestions}
-+                    questionsInChat={formsInChat}
-                 />
-         </FadeInDisabledProvider>
-     );
 diff --git a/packages/ui/src/components/chat/components/LiveTurnActivity.test.tsx b/packages/ui/src/components/chat/components/LiveTurnActivity.test.tsx
 index ce8aa24f8..32697b622 100644
 --- a/packages/ui/src/components/chat/components/LiveTurnActivity.test.tsx
@@ -575,7 +330,7 @@ index ce8aa24f8..32697b622 100644
          const page: Part = {
              type: 'tool', tool: 'openchamber_render', id: 'page', callID: 'page', sessionID: 'session', messageID: 'progress',
 diff --git a/packages/ui/src/components/chat/components/LiveTurnActivity.tsx b/packages/ui/src/components/chat/components/LiveTurnActivity.tsx
-index 56f7cea2a..d3f4ce82d 100644
+index b88771bbe..ef75f65ad 100644
 --- a/packages/ui/src/components/chat/components/LiveTurnActivity.tsx
 +++ b/packages/ui/src/components/chat/components/LiveTurnActivity.tsx
 @@ -5,6 +5,7 @@ import { useI18n } from '@/lib/i18n';
@@ -586,15 +341,17 @@ index 56f7cea2a..d3f4ce82d 100644
      LIVE_ACTIVITY_VISIBLE_ROWS,
      activityRowParts,
      planActivityTrim,
-@@ -129,6 +130,7 @@ export function TurnFold({ turn, hasLaterAssistant, expanded, finalMessageId, on
+@@ -113,6 +114,9 @@ export function TurnFold({ turn, hasLaterAssistant, expanded, finalMessageId, on
+                 </div>
+             </div>
              {expanded ? null : (
-                 // What stays in view, its rows above and below the pages, as
-                 // one window: the latest rows of the turn.
++                // What stays in view, its rows above and below the pages, as
++                // one window: the latest rows of the turn.
 +                <FoldPreviewContext.Provider value={true}>
                  <div ref={previewFloorRef}>
                      <div ref={previewRef}>
                          <LiveActivityCollapse expanded={isExpanded} id={contentId}>
-@@ -150,6 +152,7 @@ export function TurnFold({ turn, hasLaterAssistant, expanded, finalMessageId, on
+@@ -134,6 +138,7 @@ export function TurnFold({ turn, hasLaterAssistant, expanded, finalMessageId, on
                          ) : null}
                      </div>
                  </div>
@@ -603,7 +360,7 @@ index 56f7cea2a..d3f4ce82d 100644
          </div>
      );
 diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
-index fe163a156..e6a414ae7 100644
+index 8925fd844..76e0a5efa 100644
 --- a/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
 +++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
 @@ -10,7 +10,7 @@ import { I18nProvider } from '@/lib/i18n';
@@ -774,7 +531,7 @@ index fe163a156..e6a414ae7 100644
      };
      const click = async (element: Element) => {
 diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
-index e9c262568..ecc3fe007 100644
+index ded3cf7b3..836d0f8f1 100644
 --- a/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
 +++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
 @@ -9,9 +9,12 @@ import { useUIStore } from '@/stores/useUIStore';
@@ -792,9 +549,9 @@ index e9c262568..ecc3fe007 100644
      type QuestionCardState,
  } from '../lib/questionEntries';
 @@ -20,14 +23,17 @@ import { useQuestionOpen, writeQuestionOpen } from '../lib/questionExpandedState
- import { FormsInChatContext } from '../formsInChat';
+ import { FormDockModeContext } from '../formsInChat';
  import { stickyHeaderBackground } from './stickyHeaderBackground';
- import { USER_BUBBLE_TEXT_LINK_CLASS } from '../message/MessageBody';
+ import { USER_BUBBLE_TEXT_LINK_CLASS } from '../message/body/userBubbleLinkStyle';
 +import { QuestionAnswerLine, QuestionAnswerRow, QuestionOptionRow } from '../message/parts/QuestionChoices';
  
  const RAIL_STYLE: React.CSSProperties = { borderColor: 'var(--status-question)' };
@@ -1145,7 +902,7 @@ index e9c262568..ecc3fe007 100644
      const autoExpandAnsweredQuestions = useUIStore((state) => state.autoExpandAnsweredQuestions);
 @@ -352,11 +323,15 @@ export const QuestionTurnHeader: React.FC<{
      const sticks = useUIStore((state) => state.stickyUserHeader);
-     const formsInChat = React.useContext(FormsInChatContext);
+     const formsInChat = React.useContext(FormDockModeContext) === 'in-chat';
      const entries = React.useMemo(() => questionEntriesForPart(part, messageId), [part, messageId]);
 +    const cardState = questionCardState(part);
      const answered = React.useMemo<AnsweredEntry[]>(
@@ -1255,7 +1012,7 @@ index e9c262568..ecc3fe007 100644
              ) : null}
          </div>
 diff --git a/packages/ui/src/components/chat/components/TurnItem.tsx b/packages/ui/src/components/chat/components/TurnItem.tsx
-index c1d48abcb..d35a23f71 100644
+index ad848e6fa..bdb35a0d3 100644
 --- a/packages/ui/src/components/chat/components/TurnItem.tsx
 +++ b/packages/ui/src/components/chat/components/TurnItem.tsx
 @@ -4,6 +4,7 @@ import { useDeviceInfo } from '@/lib/device';
@@ -1266,28 +1023,10 @@ index c1d48abcb..d35a23f71 100644
  import type { ChatMessageEntry, Turn } from '../lib/turns/types';
  
  interface TurnItemProps {
-@@ -13,36 +14,14 @@ interface TurnItemProps {
+@@ -12,13 +13,15 @@ interface TurnItemProps {
      gapBelow?: boolean;
  }
  
--/**
-- * The sticky user header paints the chat background so assistant content scrolling
-- * underneath disappears behind it. The soft edge lives in the header's own background
-- * instead of an overlay below it: the bottom strip of the header box fades the
-- * background out, and that strip sits over the empty space the user row already
-- * reserves below the bubble. At rest the strip reveals the identical page background
-- * (`--background` is generated from the same `surface.background` token), so it is
-- * invisible and can never wash over the assistant content that follows.
-- *
-- * The strip's height follows the reserve: on desktop the user row keeps a 44px gap
-- * to the reply (the hover action row plus `ChatMessage`'s sticky padding), so the
-- * strip is 2.25rem and the solid background still ends 8px under the bubble; on
-- * mobile the header ends with the always-visible actions row instead, and the
-- * 0.75rem strip stays clear of it.
-- *
-- * The user row restyles itself inside the header through `in-data-[turn-sticky-header]`
-- * variants, so the setting re-renders turns only, never every message row.
-- */
 -const stickyHeaderBackground = (fadeRem: string): React.CSSProperties => ({
 -    backgroundImage:
 -        `linear-gradient(to bottom, var(--surface-background) calc(100% - ${fadeRem}), transparent)`,
@@ -1295,18 +1034,19 @@ index c1d48abcb..d35a23f71 100644
 -const STICKY_HEADER_BACKGROUND_DESKTOP = stickyHeaderBackground('2.25rem');
 -const STICKY_HEADER_BACKGROUND_MOBILE = stickyHeaderBackground('0.75rem');
 -
- /**
-  * A turn's first list row: its prompt, and the notices that came before its
-  * first step. The turn's work and answer are the rows after it
-  * (`timelineRows.ts`); this row alone names the turn in the DOM, and it is the
-  * one the list keeps on top while the turn scrolls under it.
++/**
++ * A turn's first list row: its prompt, and the notices that came before its
++ * first step. The turn's work and answer are the rows after it
++ * (`timelineRows.ts`); this row alone names the turn in the DOM, and it is the
++ * one the list keeps on top while the turn scrolls under it.
 + *
 + * The user row restyles itself inside the header through `in-data-[turn-sticky-header]`
 + * variants, so the setting re-renders turns only, never every message row.
-  */
++ */
  const TurnItem: React.FC<TurnItemProps> = ({ turn, renderMessage, gapBelow = false }) => {
      const { isMobile } = useDeviceInfo();
-@@ -72,7 +51,7 @@ const TurnItem: React.FC<TurnItemProps> = ({ turn, renderMessage, gapBelow = fal
+     const stickyUserHeader = useUIStore((state) => state.stickyUserHeader);
+@@ -44,7 +47,7 @@ const TurnItem: React.FC<TurnItemProps> = ({ turn, renderMessage, gapBelow = fal
                  <div
                      className="sticky top-0 z-20 [overflow-anchor:none]"
                      data-turn-sticky-header=""
@@ -1315,42 +1055,11 @@ index c1d48abcb..d35a23f71 100644
                  >
                      <div className="relative z-10">
                          {renderMessage(turn.userMessage)}
-diff --git a/packages/ui/src/components/chat/components/stickyHeaderBackground.ts b/packages/ui/src/components/chat/components/stickyHeaderBackground.ts
-new file mode 100644
-index 000000000..c1b3b12e7
---- /dev/null
-+++ b/packages/ui/src/components/chat/components/stickyHeaderBackground.ts
-@@ -0,0 +1,25 @@
-+import type React from 'react';
-+
-+/**
-+ * The sticky user header paints the chat background so assistant content scrolling
-+ * underneath disappears behind it. The soft edge lives in the header's own background
-+ * instead of an overlay below it: the bottom strip of the header box fades the
-+ * background out, and that strip sits over the empty space the user row already
-+ * reserves below the bubble. At rest the strip reveals the identical page background
-+ * (`--background` is generated from the same `surface.background` token), so it is
-+ * invisible and can never wash over the assistant content that follows.
-+ *
-+ * The strip's height follows the reserve: on desktop the user row keeps a 44px gap
-+ * to the reply (the hover action row plus `ChatMessage`'s sticky padding), so the
-+ * strip is 2.25rem and the solid background still ends 8px under the bubble; on
-+ * mobile the header ends with the always-visible actions row instead, and the
-+ * 0.75rem strip stays clear of it.
-+ */
-+const background = (fadeRem: string): React.CSSProperties => ({
-+    backgroundImage:
-+        `linear-gradient(to bottom, var(--surface-background) calc(100% - ${fadeRem}), transparent)`,
-+});
-+const DESKTOP = background('2.25rem');
-+const MOBILE = background('0.75rem');
-+
-+export const stickyHeaderBackground = (isMobile: boolean): React.CSSProperties => (isMobile ? MOBILE : DESKTOP);
 diff --git a/packages/ui/src/components/chat/composer/DOCUMENTATION.md b/packages/ui/src/components/chat/composer/DOCUMENTATION.md
-index e6bdbe347..b745ae801 100644
+index a049c57fd..d64e27aac 100644
 --- a/packages/ui/src/components/chat/composer/DOCUMENTATION.md
 +++ b/packages/ui/src/components/chat/composer/DOCUMENTATION.md
-@@ -1553,8 +1553,12 @@ skill, `references/ios-webkit.md`; `lib/iosWebKitMotion.test.ts` guards them.
+@@ -1909,8 +1909,12 @@ skill, `references/ios-webkit.md`; `lib/iosWebKitMotion.test.ts` guards them.
    glide crept in visible one-pixel steps. `keyboardFollowGlide` sets scrollTop
    once and runs the travel as an upward transform on the list's content (an
    upward one adds no scrollable overflow), with the opposite one on a stuck
@@ -1365,49 +1074,11 @@ index e6bdbe347..b745ae801 100644
  - **The shell follows only its own keyboard.** A keyboard opened for a field
    on a surface over the shell (a drawer's search, the Git commit box, a
    dialog) leaves the shell's strip, layout and movers as they are, and the
-diff --git a/packages/ui/src/components/chat/formsInChat.ts b/packages/ui/src/components/chat/formsInChat.ts
-index 46d2cedba..08cf7f43f 100644
---- a/packages/ui/src/components/chat/formsInChat.ts
-+++ b/packages/ui/src/components/chat/formsInChat.ts
-@@ -1,3 +1,5 @@
-+import { createContext } from 'react';
-+
- /**
-  * Whether a chat column draws waiting questions as cards at the end of its
-  * transcript ("Questions: in the chat") instead of the composer's dock.
-@@ -13,3 +15,10 @@ export const resolveFormsInChat = ({ questionsInChat, pinned, transcriptShown }:
-     pinned: boolean;
-     transcriptShown: boolean;
- }): boolean => questionsInChat && !pinned && transcriptShown;
-+
-+/**
-+ * Whether this chat column's transcript ends with its waiting questions'
-+ * cards (`resolveFormsInChat`). The question's own card at its tool call then
-+ * draws nothing until it is answered, so a waiting question shows once.
-+ */
-+export const FormsInChatContext = createContext(false);
 diff --git a/packages/ui/src/components/chat/lib/questionEntries.ts b/packages/ui/src/components/chat/lib/questionEntries.ts
-index 4470cf15e..840728005 100644
+index 1a038a6e3..840728005 100644
 --- a/packages/ui/src/components/chat/lib/questionEntries.ts
 +++ b/packages/ui/src/components/chat/lib/questionEntries.ts
-@@ -88,6 +88,16 @@ export const withoutRecommendation = (value: string): string => (
-         : value
- );
- 
-+/**
-+ * A reply with the marker gone from every pick it names. A multi-select answer
-+ * joins its labels with `, `, so the marker can sit on any of them; stripping
-+ * only the end of the string leaves the others in place and the reply then
-+ * matches no option.
-+ */
-+export const withoutRecommendationPicks = (value: string): string => (
-+    value.split(/\s*,\s*/).map(withoutRecommendation).join(', ')
-+);
-+
- /**
-  * Parses the question tool's reply:
-  * `User has answered your questions: "Q1"="A1", "Q2"="A2". You can now…`
-@@ -187,6 +197,44 @@ export const isAnsweredQuestionPart = (part: Part): boolean => {
+@@ -197,6 +197,44 @@ export const isAnsweredQuestionPart = (part: Part): boolean => {
      return (parseQuestionAnswers(part.state.output)?.length ?? 0) > 0;
  };
  
@@ -1453,21 +1124,26 @@ index 4470cf15e..840728005 100644
   * Splits a multi-select reply into the labels it names. The reply is the
   * chosen labels joined with `, `, and a label may itself contain a comma, so
 diff --git a/packages/ui/src/components/chat/lib/scroll/DOCUMENTATION.md b/packages/ui/src/components/chat/lib/scroll/DOCUMENTATION.md
-index c87c5074a..101f442a2 100644
+index 4a9c78ac6..f12ce8b26 100644
 --- a/packages/ui/src/components/chat/lib/scroll/DOCUMENTATION.md
 +++ b/packages/ui/src/components/chat/lib/scroll/DOCUMENTATION.md
-@@ -41,7 +41,7 @@ The transcript is a LegendList (`@legendapp/list`) owned by `useChatTimelineScro
+@@ -89,8 +89,13 @@ Transform motion and sticky-header handover remain governed by
+   - A piece starts only at a paragraph or a heading. Its top margin is then the whole gap the answer had there (no block's bottom margin is larger), so the first block of a later piece keeps it (`[data-answer-continues]` in index.css) and the rows stack to within a pixel of the whole answer. A text with footnotes or link definitions stays whole: they resolve across the document. A text still streaming stays one row and is cut once it finishes; the first row keeps its key, so it keeps its React tree.
    - The rows of a message share its record: the first draws what comes before the cut and the message's header, the last its footer, error and actions (`MessageSliceContext`, read by `MessageBody` and `ChatMessage`). Copying and the image export take the message's text from the record, not from the DOM. Navigation and restore find a message by its first row (`[data-message-id]:not([data-message-slice])`); an anchor taken in a later row names that row (`MessageViewportAnchor.slice`).
    - The rows of one answer read as one text. The list puts its rows in DOM order in the layout pass that hands a container a different row (`sortContainerElements`, moving only the rows out of place and keeping focus), so a selection the reader makes crosses rows in reading order. The selection menu of the row a selection starts in takes one that ends in a later row of the same message (`ownsSelection` in `TextSelectionMenu.tsx`); copying serializes each row's part as Markdown and joins them (`data-answer-part`, `getMarkdownSelectionText`). A quote counts in the message's stream: the text of its mounted rows joined in reading order (`findChatQuoteRoots`), as one root's was before the answer was cut, so quotes taken before then still resolve; a quote crossing rows is painted with a Range per row. Revealing a quote in a row not mounted steps down through the message's rows (`data-message-continues`), after asking the navigation hold on its first row to let go (`openchamber:navigation-release`).
-   - Every row of the live tail reads the tail's entry with the newest parts from one store (`LiveTailSource` in `MessageList.tsx`), computed once per publish, so a streamed part re-renders the tail's rows and nothing else. The rows themselves are built from the timeline's record, and a row reads whether its turn is folded from the row (`underFold`), so the rows of a live turn agree on it while the record lags the stream.
--  - The sticky prompt is the list's own sticky row (`stickyHeaderIndices`): the list keeps it on top until the next sticky row reaches the top. A turn's prompt leaves with its turn instead, as it did inside one turn row: once the turn's last row scrolls under it, the scroll handler pushes it up by as much (`pushStickyHeader`, a `transform` on the row's container, measured from the DOM because the list's positions and its scroll offset do not count from the same origin).
++<<<<<<< ours
+   - Every row of the live tail reads the tail's entry with the newest parts from one store (`LiveTailSource` in `timeline/LiveTailSource.tsx`), computed once per publish, so a streamed part re-renders the tail's rows and nothing else. The rows themselves are built from the timeline's record, and a row reads whether its turn is folded from the row (`underFold`), so the rows of a live turn agree on it while the record lags the stream.
+   - The sticky prompt is the list's own sticky row (`stickyHeaderIndices`): the list keeps it on top until the next sticky row reaches the top. A turn's prompt leaves with its turn instead, as it did inside one turn row: once the turn's last row scrolls under it, the scroll handler pushes it up by as much (`pushStickyHeader`, a `transform` on the row's container, measured from the DOM because the list's positions and its scroll offset do not count from the same origin).
++=======
++  - Every row of the live tail reads the tail's entry with the newest parts from one store (`LiveTailSource` in `MessageList.tsx`), computed once per publish, so a streamed part re-renders the tail's rows and nothing else. The rows themselves are built from the timeline's record, and a row reads whether its turn is folded from the row (`underFold`), so the rows of a live turn agree on it while the record lags the stream.
 +  - The sticky prompt is the list's own sticky row (`stickyHeaderIndices`): the list keeps it on top until the next sticky row reaches the top. A turn's prompt leaves with its turn instead, as it did inside one turn row: once the turn's last row scrolls under it, the scroll handler pushes it up by as much (`pushStickyHeader`, a `transform` on the row's container, measured from the DOM because the list's positions and its scroll offset do not count from the same origin). The same handler publishes how far the list moved the pinned row from its own place (`--sticky-row-offset`, one row at a time, plus a `stickyrowoffset` event on that row's container), which is what lets a batch of questions' card scroll away and draw a bar instead. It measures that offset with the row's own transform cleared first: the push it just wrote would otherwise count as part of the pin, and the card draws itself back by the number. A row's container is reused for whatever scrolls in next, so a reader of the offset takes it from the row the event reports and never from the value it inherits on mount.
++>>>>>>> theirs
  - **A selection keeps its rows.** While a selection in the transcript lasts, every row from the one holding its anchor to the one holding its focus stays mounted (`useSelectionRowHold` in `selectionRowHold.ts`, the list's `alwaysRender`), the way `MarkdownWindow` holds the blocks a selection spans in a file preview. Two things broke a selection whose start scrolled off on Android, and the fix needs both:
    - Chrome on Android places the end that stays put again from its spot on screen each time a handle drag starts. In a page that scrolls as a whole that spot holds the same text; in the transcript, an inner scroller, it lies outside the list once that end is scrolled out, and the anchor landed at the top of the page (the list header): the highlight and the native copy grew to everything mounted above. Either end can be the one that stays put, so dragging the start handle up lost the end the same way. The hook remembers the ends in rows of the last selection anchored in one. When the anchor leaves the rows while the focus stays in one, it puts back the remembered end farthest from the focus, the one the reader is not dragging, if the screen no longer shows it at its spot: scrolled out, or under the composer or the selection panel (`setBaseAndExtent`). Chrome takes the anchor from the DOM for the rest of the drag, so this happens once per drag. The first step of such a drag can put the anchor in the list header and the focus in the selection panel, outside the list; only a selection with both ends outside the list ends the hold. Measured in Chrome and the app on an Android 15 emulator: without it, the anchor jumped on the first drag after the start left the screen; with it, the selection grew through three rows of one answer and into the next message, in either direction and with the start handle dragged after the end one.
    - The rows hold the anchor's node. Unmounted, React removed it, the anchor fell to the list's container, and the selection stopped growing. Rows in between stay too, so the copy carries their text.
-@@ -176,11 +176,11 @@ its original target until alignment completes or the reader intervenes.
+@@ -225,11 +230,11 @@ its original target until alignment completes or the reader intervenes.
  
- - **A row keeps its React tree when it becomes or stops being the live tail.** Every row renders through `TimelineRow` in `MessageList.tsx`; only the tail's rows read the streaming parts. The tail moves on every send and on a revert. When the tail had its own component type, the moving row remounted, its state reset for one commit (a long user message lost its "Show more" link, 28 px), and LegendList measured that commit in its layout effect. The `ResizeObserver` never corrects such a size, because the short height was never painted, so the row below sat that much too high until a later re-measure: 40-80 ms after a send, and from the revert until 200 ms into the next send. Anything that remounts or resets state inside a mounted row has the same effect.
+ - **A row keeps its React tree when it becomes or stops being the live tail.** Every row renders through `TimelineRow` in `timeline/TimelineRow.tsx`; only the tail's rows read the streaming parts. The tail moves on every send and on a revert. When the tail had its own component type, the moving row remounted, its state reset for one commit (a long user message lost its "Show more" link, 28 px), and LegendList measured that commit in its layout effect. The `ResizeObserver` never corrects such a size, because the short height was never painted, so the row below sat that much too high until a later re-measure: 40-80 ms after a send, and from the revert until 200 ms into the next send. Anything that remounts or resets state inside a mounted row has the same effect.
  - **The gap under an answer belongs to the turn, not to the answer.** The 8 px between an answer and the row after it is the bottom padding of the turn's last row (`gapBelow` in `timelineRows.ts`), on every turn except one a hidden prompt continues, from the moment the turn is sent. It used to be the bottom padding of the answer's last step, and the last step changes while a turn runs: Claude opens a step's text block empty and the first paragraph is held until it ends (`lib/streamTextCommit.ts`), so a new step row added 8 px with nothing on screen and the follow lifted the sent message; dropping it on such a row instead shrank the transcript by 8 px whenever a step after tool calls began, moving the whole chat down. Giving the gap only once a next row exists made the settled turn above a new prompt grow, and the list measured that a frame late: the sent message dropped 8 px for a frame. So the live turn carries it too, at the content's end, and so does a turn that got no answer. Lists without turns (the BTW panel) keep it under the answer.
 -- **An answered question's card is a sticky row, and the row kind is set by the cut.** `timelineRows.ts` cuts a question call into a row of its own (`questionPartId`) and marks it `questionSticks` only once it was answered; `stickyRowIndicesOf` pins it, and `endsStickySpan` makes it end the prompt's span, so the next prompt (or the next answered question) pushes it up. `questionLifted` marks the copy a closed fold draws: its message is not a row, so it carries no message anchor.
 +- **An answered question's card is a sticky row, and the row kind is set by the cut.** `timelineRows.ts` cuts a question call into a row of its own (`questionPartId`) and marks it `questionSticks` only once it was answered; `stickyRowIndicesOf` pins it, and `endsStickySpan` makes it end the prompt's span, so the next prompt (or the next answered question) pushes it up. The card is that row's body (`ChatMessage`'s body slot), so the row keeps the message's anchor and the message's error, actions and facts under the card. The copy a closed fold lifts out of it is a row with a key of its own (`lifted-question:`), not a second render of the same row.
@@ -1480,17 +1156,13 @@ index c87c5074a..101f442a2 100644
  ### Why the "Load earlier" anchor needs every row's message id
  
 diff --git a/packages/ui/src/components/chat/lib/scroll/keyboardFollowGlide.ts b/packages/ui/src/components/chat/lib/scroll/keyboardFollowGlide.ts
-index b39b4f3fd..dea417d02 100644
+index 39a49fa4a..47636ff1f 100644
 --- a/packages/ui/src/components/chat/lib/scroll/keyboardFollowGlide.ts
 +++ b/packages/ui/src/components/chat/lib/scroll/keyboardFollowGlide.ts
-@@ -130,13 +130,14 @@ export function createKeyboardFollowGlide(options: KeyboardFollowGlideOptions):
+@@ -80,9 +80,14 @@ export function createKeyboardFollowGlide(options: KeyboardFollowGlideOptions):
          if (Math.abs(top - scrollNode.scrollTop) >= 0.5) scrollNode.scrollTop = top;
      };
  
--    // A turn is several list rows: its prompt row (the header) and the rows
--    // after it (`data-turn-row`). Its extent is theirs, as far as they are
--    // mounted; a prompt row stuck to the top edge says nothing about where
--    // the turn starts, which is above the view.
 +    // A turn is several list rows: its prompt row names it (`data-turn-id`),
 +    // the rows after it carry it (`data-turn-row`). Its extent is theirs, as far
 +    // as they are mounted; a prompt row stuck to the top edge says nothing about
@@ -1505,13 +1177,14 @@ index b39b4f3fd..dea417d02 100644
          const headRect = head.getBoundingClientRect();
          const stuck = Math.abs(headRect.top - scrollNode.getBoundingClientRect().top) < 1;
 diff --git a/packages/ui/src/components/chat/lib/turns/activityRows.ts b/packages/ui/src/components/chat/lib/turns/activityRows.ts
-index b48add59d..61d3e0741 100644
+index 6fa77cd68..390283b1d 100644
 --- a/packages/ui/src/components/chat/lib/turns/activityRows.ts
 +++ b/packages/ui/src/components/chat/lib/turns/activityRows.ts
-@@ -63,4 +63,10 @@ export const planActivityTrim = (rowsPerMessage: readonly number[], visibleRows:
+@@ -52,4 +52,11 @@ export const planActivityTrim = (rowsPerMessage: readonly number[], visibleRows:
+     return NO_TRIM;
  };
  
- /** The message the trim cuts into, and how many of its first rows it hides. */
++/** The message the trim cuts into, and how many of its first rows it hides. */
 +/**
 + * True inside a closed fold's preview of a working turn's latest steps,
 + * where a question draws its card in step order but does not stick.
@@ -1598,7 +1271,7 @@ index 3f73852ed..a1c67ce00 100644
 +    expect(estimateTimelineRowSize(row, { ...metrics, autoExpandAnsweredQuestions: true })).toBe(109);
  });
 diff --git a/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.ts b/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.ts
-index 440f0f3c9..08d02ae54 100644
+index 5ad2d2a05..da382efa1 100644
 --- a/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.ts
 +++ b/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.ts
 @@ -1,6 +1,6 @@
@@ -1609,7 +1282,7 @@ index 440f0f3c9..08d02ae54 100644
  import { isQuestionOpen } from '../questionExpandedState';
  import { filterVisibleParts, isEmptyTextPart } from '../../message/partUtils';
  import { getShownPages, isSettledAsk, type ShownPart } from './liveActivity';
-@@ -27,6 +27,8 @@ export type RowSizeMetrics = {
+@@ -14,6 +14,8 @@ export type RowSizeMetrics = {
      collapsibleThinkingBlocks: boolean;
      /** Answered question rows open with their options and answer. */
      autoExpandAnsweredQuestions: boolean;
@@ -1618,7 +1291,7 @@ index 440f0f3c9..08d02ae54 100644
  };
  
  const TEXT_LINE_PX = 26;
-@@ -147,6 +149,8 @@ const messageRowHeight = (row: TurnRowOf<'turn-message'>, metrics: RowSizeMetric
+@@ -116,6 +118,8 @@ const messageRowHeight = (row: TurnRowOf<'turn-message'>, metrics: RowSizeMetric
      let height = answerStartsHere ? hoistedHeight(hoisted, metrics) : 0;
      let hasText = false;
      for (const part of parts) {
@@ -1627,7 +1300,7 @@ index 440f0f3c9..08d02ae54 100644
          if (part.type === 'text') {
              if (hoisted.some((page) => page.id === part.id)) continue;
              hasText = true;
-@@ -178,18 +182,19 @@ const promptHeight = (message: ChatMessageEntry, metrics: RowSizeMetrics): numbe
+@@ -146,18 +150,19 @@ const promptHeight = (message: ChatMessageEntry, metrics: RowSizeMetrics): numbe
  
  // An answered question's card (`questionPartId`), counted from what
  // `QuestionCard` draws: the row's top padding, the card's border and padding,
@@ -1659,7 +1332,7 @@ index 440f0f3c9..08d02ae54 100644
  const QUESTION_CARD_QUESTION_LINE_PX = 18;
  const QUESTION_CARD_ANSWER_LINE_PX = 19;
  const QUESTION_CARD_ENTRY_GAP_PX = 2;
-@@ -254,9 +259,12 @@ export const estimateTimelineRowSize = (row: TimelineRow, metrics: RowSizeMetric
+@@ -222,9 +227,12 @@ export const estimateTimelineRowSize = (row: TimelineRow, metrics: RowSizeMetric
          case 'turn-message': {
              if (row.questionPartId) {
                  const card = questionCardHeight(row, metrics);
@@ -1675,47 +1348,6 @@ index 440f0f3c9..08d02ae54 100644
              }
              const message = messageRowHeight(row, metrics);
              return message === undefined ? undefined : Math.round(message);
-diff --git a/packages/ui/src/components/chat/lib/turns/stickyPrompt.ts b/packages/ui/src/components/chat/lib/turns/stickyPrompt.ts
-index c3c5ebd29..4768a8bcc 100644
---- a/packages/ui/src/components/chat/lib/turns/stickyPrompt.ts
-+++ b/packages/ui/src/components/chat/lib/turns/stickyPrompt.ts
-@@ -1,4 +1,5 @@
- import { isHiddenUserMessage } from '../../message/hiddenUserMessage';
-+import type { TimelineRow } from './timelineRows';
- import type { ChatMessageEntry } from './types';
- 
- /**
-@@ -9,3 +10,30 @@ import type { ChatMessageEntry } from './types';
- export const turnHeaderCanStick = (userMessage: ChatMessageEntry): boolean => (
-     userMessage.info.role === 'user' && !isHiddenUserMessage(userMessage)
- );
-+
-+/**
-+ * The rows the list keeps on top while what follows scrolls under them: the
-+ * prompts that can stick, and the answered questions' cards.
-+ */
-+export const stickyRowIndicesOf = (rows: readonly TimelineRow[]): number[] | undefined => {
-+    const indices: number[] = [];
-+    rows.forEach((row, index) => {
-+        if (row.kind === 'turn-head' && turnHeaderCanStick(row.entry.turn.userMessage)) indices.push(index);
-+        else if (row.kind === 'turn-message' && row.questionSticks) indices.push(index);
-+    });
-+    return indices.length > 0 ? indices : undefined;
-+};
-+
-+/** A row that starts a new sticky span and pushes the header above it up: a prompt, an answered question, or an ungrouped row. */
-+export const endsStickySpan = (row: TimelineRow): boolean => (
-+    row.kind === 'turn-head' || row.kind === 'ungrouped' || (row.kind === 'turn-message' && row.questionSticks === true)
-+);
-+
-+/**
-+ * How far the list has moved a pinned row below its own place, set on the
-+ * row's container while it is the pinned one. A row that lets go of the top
-+ * edge (a batch of questions) draws itself back at its place with it.
-+ */
-+export const STICKY_ROW_OFFSET = '--sticky-row-offset';
-+/** Dispatched (bubbling) from a row's container when its offset changes. */
-+export const STICKY_ROW_OFFSET_EVENT = 'stickyrowoffset';
 diff --git a/packages/ui/src/components/chat/lib/turns/timelineRows.test.ts b/packages/ui/src/components/chat/lib/turns/timelineRows.test.ts
 index bfa42f289..d181eff86 100644
 --- a/packages/ui/src/components/chat/lib/turns/timelineRows.test.ts
@@ -1775,31 +1407,36 @@ index bfa42f289..d181eff86 100644
      });
  });
 diff --git a/packages/ui/src/components/chat/lib/turns/timelineRows.ts b/packages/ui/src/components/chat/lib/turns/timelineRows.ts
-index f4ebed69c..65b319c0a 100644
+index dc831dd58..91c01a942 100644
 --- a/packages/ui/src/components/chat/lib/turns/timelineRows.ts
 +++ b/packages/ui/src/components/chat/lib/turns/timelineRows.ts
-@@ -1,5 +1,6 @@
+@@ -1,6 +1,6 @@
  import { isHiddenUserMessage } from '../../message/hiddenUserMessage';
  import { filterVisibleParts, isEmptyTextPart } from '../../message/partUtils';
+-import { isAnsweredQuestionPart } from '../questionEntries';
 +import { questionCardState, questionPartSuppressed } from '../questionEntries';
  import { answerChunkCuts } from './answerChunks';
  import { getLiveFinalMessage, getShownPages, hasLiveActivity } from './liveActivity';
  import type { TimelineEntry } from './timelineEntries';
-@@ -45,6 +46,13 @@ export type TimelineRow =
+@@ -29,12 +29,13 @@ export type TimelineRow =
+         messageId: string;
          slice: MessageSlice | null;
-         /** The turn's final answer under a fold (collapsed activity mode). */
          final: boolean;
+-        /** The question call this row draws on its own, when it is one. */
 +        /**
 +         * Set when the row is nothing but one question call, cut out of its
 +         * message: it draws as a question card.
 +         */
-+        questionPartId?: string;
+         questionPartId?: string;
+-        /** An answered question's card sticks and ends its prompt's span. */
 +        /** The card's question was answered, so it sticks like a prompt. */
-+        questionSticks?: boolean;
+         questionSticks?: boolean;
+-        /** The copy a closed fold lifts out of itself: its message is not a row. */
+-        questionLifted?: boolean;
      } & TurnRowFields);
  
  type TurnRowFields = {
-@@ -64,6 +72,8 @@ export type TimelineRowsOptions = {
+@@ -48,6 +49,8 @@ export type TimelineRowsOptions = {
      collapsedActivity: boolean;
      expandedTurns: ReadonlyMap<string, boolean>;
      showReasoningTraces: boolean;
@@ -1808,18 +1445,22 @@ index f4ebed69c..65b319c0a 100644
  };
  
  const isMessageCompleted = (message: ChatMessageEntry): boolean => (
-@@ -75,26 +85,45 @@ const PARTS_PER_ROW = 24;
+@@ -56,35 +59,47 @@ const isMessageCompleted = (message: ChatMessageEntry): boolean => (
  
- /**
-  * Where a message is cut into rows, in order: before every PARTS_PER_ROW-th
-- * part it draws, and inside a long text once it is finished. Only parts the
-- * message draws (`MessageBody`'s own filter) are cut at.
+ const PARTS_PER_ROW = 24;
+ 
+-const isQuestionPart = (part: { type: string; tool?: string }): boolean => (
+-    part.type === 'tool' && part.tool?.toLowerCase() === 'question'
+-);
+-
+-const messageCuts = (message: ChatMessageEntry, showReasoningTraces: boolean): TextCut[] => {
++/**
++ * Where a message is cut into rows, in order: before every PARTS_PER_ROW-th
 + * part it draws, and inside a long text once it is finished. An answered
 + * question is cut out into a row of its own, its card: before it, and before
 + * the part that follows it. Only parts the message draws (`MessageBody`'s own
 + * filter) are cut at.
-  */
--const messageCuts = (message: ChatMessageEntry, showReasoningTraces: boolean): TextCut[] => {
++ */
 +const messageCuts = (
 +    message: ChatMessageEntry,
 +    showReasoningTraces: boolean,
@@ -1831,9 +1472,18 @@ index f4ebed69c..65b319c0a 100644
 +    const answeredParts: string[] = [];
 +    let firstPartId: string | undefined;
      let partsInRow = 0;
+-    const visible = filterVisibleParts(message.parts, { includeReasoning: showReasoningTraces });
+-    for (let index = 0; index < visible.length; index += 1) {
+-        const part = visible[index]!;
 +    let cutAfterQuestion = false;
-     for (const part of filterVisibleParts(message.parts, { includeReasoning: showReasoningTraces })) {
++    for (const part of filterVisibleParts(message.parts, { includeReasoning: showReasoningTraces })) {
          if (isEmptyTextPart(part)) continue;
+-        // A question call is cut into a row of its own and the next part starts
+-        // another: the card draws the question, not the work around it. A
+-        // question that opens the message needs no cut before it; one that
+-        // closes the message needs none after it.
+-        if (index > 0 && isQuestionPart(part)) cuts.push({ partId: part.id, offset: 0 });
+-        if (index > 0 && isQuestionPart(visible[index - 1]!)) cuts.push({ partId: part.id, offset: 0 });
 -        if (partsInRow === PARTS_PER_ROW) {
 +        // A waiting question in the chat draws nothing at its call: it draws no
 +        // card row, and it counts as nothing here.
@@ -1859,8 +1509,29 @@ index f4ebed69c..65b319c0a 100644
  };
  
  const sliceKey = (cut: TextCut) => `${cut.partId}:${cut.offset}`;
-@@ -107,9 +136,15 @@ const turnRows = (entry: TurnEntry, options: TimelineRowsOptions): TimelineRow[]
+@@ -95,73 +110,39 @@ const turnRows = (entry: TurnEntry, options: TimelineRowsOptions): TimelineRow[]
+     const finalMessage = underFold ? getLiveFinalMessage(turn.assistantMessages) : undefined;
+     const fields = { entry, underFold, finalMessageId: finalMessage?.info.id, gapBelow: false };
      const rows: TimelineRow[] = [{ kind: 'turn-head', key: entry.key, ...fields }];
+-    // The question a row draws on its own: a row that starts at a question cut,
+-    // or a message whose only row opens with one.
+-    const questionOf = (message: ChatMessageEntry, slice: MessageSlice | null) => {
+-        const visible = filterVisibleParts(message.parts, { includeReasoning: options.showReasoningTraces })
+-            .filter((part) => !isEmptyTextPart(part));
+-        const first = slice?.from
+-            ? visible.find((part) => part.id === slice.from!.partId)
+-            : visible[0];
+-        if (!first || !isQuestionPart(first)) return undefined;
+-        return { id: first.id, answered: isAnsweredQuestionPart(first) };
+-    };
+-    const withQuestion = (
+-        row: Extract<TimelineRow, { kind: 'turn-message' }>,
+-        message: ChatMessageEntry,
+-    ): Extract<TimelineRow, { kind: 'turn-message' }> => {
+-        const question = questionOf(message, row.slice);
+-        if (!question) return row;
+-        return { ...row, questionPartId: question.id, questionSticks: question.answered };
+-    };
      const addMessage = (message: ChatMessageEntry, final = false) => {
          const messageId = message.info.id;
 -        const cuts = messageCuts(message, options.showReasoningTraces);
@@ -1872,25 +1543,59 @@ index f4ebed69c..65b319c0a 100644
 +                : {}
 +        );
          if (cuts.length === 0) {
--            rows.push({ kind: 'turn-message', key: `step:${messageId}`, ...fields, messageId, slice: null, final });
+-            rows.push(withQuestion({ kind: 'turn-message', key: `step:${messageId}`, ...fields, messageId, slice: null, final }, message));
 +            rows.push({ kind: 'turn-message', key: `step:${messageId}`, ...fields, messageId, slice: null, final, ...question(firstPartId) });
              return;
          }
          cuts.forEach((cut, index) => {
-@@ -121,10 +156,11 @@ const turnRows = (entry: TurnEntry, options: TimelineRowsOptions): TimelineRow[]
+             const from = index === 0 ? undefined : cuts[index - 1];
+-            rows.push(withQuestion({
++            rows.push({
+                 kind: 'turn-message',
+                 key: from ? `step:${messageId}:${sliceKey(from)}` : `step:${messageId}`,
+                 ...fields,
                  messageId,
                  slice: from ? { from, to: cut, index, count: cuts.length + 1 } : { to: cut, index, count: cuts.length + 1 },
                  final,
+-            }, message));
 +                ...question(from ? (from.offset === 0 ? from.partId : undefined) : firstPartId),
-             });
++            });
          });
          const last = cuts[cuts.length - 1];
--        rows.push({ kind: 'turn-message', key: `step:${messageId}:${sliceKey(last)}`, ...fields, messageId, slice: { from: last, index: cuts.length, count: cuts.length + 1 }, final });
+-        rows.push(withQuestion({ kind: 'turn-message', key: `step:${messageId}:${sliceKey(last)}`, ...fields, messageId, slice: { from: last, index: cuts.length, count: cuts.length + 1 }, final }, message));
 +        rows.push({ kind: 'turn-message', key: `step:${messageId}:${sliceKey(last)}`, ...fields, messageId, slice: { from: last, index: cuts.length, count: cuts.length + 1 }, final, ...question(last.offset === 0 ? last.partId : undefined) });
      };
  
      if (underFold) {
-@@ -142,6 +178,21 @@ const turnRows = (entry: TurnEntry, options: TimelineRowsOptions): TimelineRow[]
+         const activityMessages = finalMessage ? turn.assistantMessages.filter((message) => message !== finalMessage) : turn.assistantMessages;
+         rows.push({ kind: 'turn-fold', key: `fold:${turn.turnId}`, ...fields });
+-        // A finished turn lifts its answered question out of the closed fold:
+-        // the answer stays readable, and the card sticks under the prompt like
+-        // any answered question. An open fold draws it among its steps instead.
+         const foldOpen = options.expandedTurns.get(turn.turnId) === true;
+-        const lastMessage = turn.assistantMessages[turn.assistantMessages.length - 1];
+-        if (!foldOpen && lastMessage && isMessageCompleted(lastMessage)) {
+-            for (const message of activityMessages) {
+-                for (const part of filterVisibleParts(message.parts, { includeReasoning: options.showReasoningTraces })) {
+-                    if (!isQuestionPart(part) || !isAnsweredQuestionPart(part)) continue;
+-                    rows.push({
+-                        kind: 'turn-message',
+-                        key: `question:${message.info.id}:${part.id}`,
+-                        ...fields,
+-                        messageId: message.info.id,
+-                        slice: { from: { partId: part.id, offset: 0 }, index: 0, count: 1 },
+-                        final: false,
+-                        questionPartId: part.id,
+-                        questionSticks: true,
+-                        questionLifted: true,
+-                    });
+-                }
+-            }
+-        }
+         if (foldOpen) {
+             const pages = finalMessage ? [] : getShownPages(turn.assistantMessages);
+             const lastPageMessageId = pages[pages.length - 1]?.messageID;
+@@ -169,6 +150,21 @@ const turnRows = (entry: TurnEntry, options: TimelineRowsOptions): TimelineRow[]
              activityMessages.slice(0, split > 0 ? split : activityMessages.length).forEach((message) => addMessage(message));
              if (pages.length > 0) rows.push({ kind: 'turn-pages', key: `pages:${turn.turnId}`, ...fields });
              if (split > 0) activityMessages.slice(split).forEach((message) => addMessage(message));
@@ -1912,7 +1617,7 @@ index f4ebed69c..65b319c0a 100644
          }
          if (finalMessage) addMessage(finalMessage, true);
      } else {
-@@ -166,7 +217,9 @@ const isSameRow = (previous: TimelineRow, next: TimelineRow): boolean => {
+@@ -191,7 +187,9 @@ const isSameRow = (previous: TimelineRow, next: TimelineRow): boolean => {
      if (previous.kind === 'ungrouped' || next.kind === 'ungrouped') return true;
      if (previous.gapBelow !== next.gapBelow || previous.underFold !== next.underFold || previous.finalMessageId !== next.finalMessageId) return false;
      if (previous.kind === 'turn-message' && next.kind === 'turn-message') {
@@ -1923,45 +1628,50 @@ index f4ebed69c..65b319c0a 100644
      }
      return true;
  };
-diff --git a/packages/ui/src/components/chat/message/MessageBody.tsx b/packages/ui/src/components/chat/message/MessageBody.tsx
-index 65cfd616b..005de42fc 100644
---- a/packages/ui/src/components/chat/message/MessageBody.tsx
-+++ b/packages/ui/src/components/chat/message/MessageBody.tsx
-@@ -88,6 +88,8 @@ import { buildTurnImageExportSource, cloneMessageImageExportSource, fitMessageIm
- import { hasTextSelectionInside } from '@/lib/textSelection';
- import { DiffCount } from '@/components/ui/diff-count';
- import { FoldPreviewContext } from '../lib/turns/activityRows';
-+import { questionPartSuppressed } from '../lib/questionEntries';
-+import { FormsInChatContext } from '../formsInChat';
- import { QuestionTurnHeader } from '../components/QuestionTurnHeader';
- 
- 
-@@ -1687,9 +1689,10 @@ const AssistantMessageBody = React.memo(({
-         [assistantTextParts, earlierAssistantText, shareTextAsImage]
-     );
-     // This row draws only part of a long answer: the image is made from the
--    // message's text, not from what this row shows.
-+    // message's text, not from what this row shows. A row that draws a card
-+    // instead of the parts has no text of its own to make an image from.
-     const shareShownMessageAsImage = React.useCallback(
--        (requestedSourceElement?: HTMLElement | null) => (slice
-+        (requestedSourceElement?: HTMLElement | null) => (slice && assistantTextParts.length > 0
-             ? shareTextAsImage(assistantTextSegments(assistantTextParts), requestedSourceElement)
-             : shareMessageAsImage(requestedSourceElement)),
-         [assistantTextParts, shareMessageAsImage, shareTextAsImage, slice]
-@@ -1738,6 +1741,8 @@ const AssistantMessageBody = React.memo(({
-     const shouldRenderStandaloneActionsAfterContent = shouldShowStandaloneMessageActions && lastRenderableTextPartIndex < 0;
- 
-     const inFoldPreview = React.useContext(FoldPreviewContext);
+diff --git a/packages/ui/src/components/chat/message/body/useAssistantRenderedParts.tsx b/packages/ui/src/components/chat/message/body/useAssistantRenderedParts.tsx
+index 437ab1bb5..a714362c4 100644
+--- a/packages/ui/src/components/chat/message/body/useAssistantRenderedParts.tsx
++++ b/packages/ui/src/components/chat/message/body/useAssistantRenderedParts.tsx
+@@ -13,9 +13,12 @@ import { readSessionNoticePart } from '@/lib/opencode/session-notices';
+ import { StaticToolRow } from '../parts/ProgressiveGroup';
+ import { isExpandableTool } from '../parts/toolRenderUtils';
+ import { ShownPartCard, ShownToolCard } from '../parts/ShownToolCard';
+-import { isShownInPlace } from '@/lib/opencode/tools';
++import { isQuestionTool, isShownInPlace } from '@/lib/opencode/tools';
+ import { LiveActivityCollapse } from '../../components/LiveActivityCollapse';
+-import { ActivityRowSkipContext, isActivityRowPart, isToolRowShown } from '../../lib/turns/activityRows';
++import { ActivityRowSkipContext, FoldPreviewContext, isActivityRowPart, isToolRowShown } from '../../lib/turns/activityRows';
++import { questionPartSuppressed } from '../../lib/questionEntries';
++import { FormDockModeContext } from '../../formsInChat';
++import { QuestionTurnHeader } from '../../components/QuestionTurnHeader';
+ import { LiveFinalActivityContext, LiveTurnHoistedPagesContext } from '../../components/liveActivityContext';
+ import { MessageSliceContext } from '../messageSliceContext';
+ import { MessageSelectionMark } from '../../messageSelection/MessageSelectionMark';
+@@ -64,6 +67,9 @@ export const useAssistantRenderedParts = ({
+     const collapsibleThinkingBlocks = useUIStore((state) => state.collapsibleThinkingBlocks);
+     const liveFinalActivity = React.useContext(LiveFinalActivityContext);
+     const activityRowSkip = React.useContext(ActivityRowSkipContext);
++    const inFoldPreview = React.useContext(FoldPreviewContext);
 +    // A waiting question whose answer form is in the chat draws there, not here.
-+    const formsInChat = React.useContext(FormsInChatContext);
-     const renderedParts = React.useMemo(() => {
-         const answerRendered: React.ReactNode[] = [];
-         const activityRendered: React.ReactNode[] = [];
-@@ -1896,6 +1901,13 @@ const AssistantMessageBody = React.memo(({
++    const formsInChat = React.useContext(FormDockModeContext) === 'in-chat';
+     const hoistedPages = React.useContext(LiveTurnHoistedPagesContext);
+     const slice = React.useContext(MessageSliceContext);
+ 
+@@ -216,6 +222,24 @@ export const useAssistantRenderedParts = ({
                      continue;
                  }
  
++                // A working turn's fold preview draws an answered question as
++                // its card, in step order; the card does not pin there.
++                if (inFoldPreview && isQuestionTool(toolName)) {
++                    rendered.push(
++                        <QuestionTurnHeader key={`question-${toolPart.id}`} part={toolPart} messageId={messageId}
++                            pinnable={false} placement="preview" />
++                    );
++                    i++;
++                    continue;
++                }
++
 +                // A waiting question whose form is in the chat draws once, at
 +                // the transcript's end: nothing here, and nothing at its call.
 +                if (isQuestionTool(toolName) && questionPartSuppressed(toolPart, formsInChat)) {
@@ -1969,31 +1679,14 @@ index 65cfd616b..005de42fc 100644
 +                    continue;
 +                }
 +
-                 // A page the agent showed, or a workflow it proposed, is drawn
-                 // in place of its row. With Activity collapsed, the final
-                 // answer draws it instead.
-@@ -1913,7 +1925,7 @@ const AssistantMessageBody = React.memo(({
-                 if (inFoldPreview && isQuestionTool(toolName)) {
-                     rendered.push(
-                         <QuestionTurnHeader key={`question-${toolPart.id}`} part={toolPart} messageId={messageId}
--                            startsMessage={false} pinnable={false} nested />
-+                            pinnable={false} placement="preview" />
-                     );
-                     i++;
-                     continue;
-@@ -1976,6 +1988,7 @@ const AssistantMessageBody = React.memo(({
-         }
-         return answerRendered;
-     }, [inFoldPreview,
-+        formsInChat,
-         activityRowSkip,
-         alwaysShowMessageActions,
-         hoistedPages,
+                 if (isShownInPlace(toolPart.tool, toolPart.state)) {
+                     if (!hoistedPages?.has(toolPart.id)) {
+                         rendered.push(<ShownToolCard key={`page-${toolPart.id}`} part={toolPart} onShowPopup={onShowPopup} />);
 diff --git a/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md b/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
-index 806d9c75e..558c412ba 100644
+index cb7ec3827..53a62870f 100644
 --- a/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
 +++ b/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
-@@ -32,6 +32,8 @@ Use this doc when you ask an agent to change tool/header/description behavior.
+@@ -33,6 +33,8 @@ Use this doc when you ask an agent to change tool/header/description behavior.
    - Draws a question call's row: collapsed, one line per question with the answer; expanded, every option (chosen and unchosen) with its description and the full answer, which clamps at two lines behind Show more like a long user message.
    - It is an addition to the existing tool row, not a second card: the row header stays `ToolPart`'s. The collapsed summary is a click target that opens the row, and the row is not louder than a user message.
    - Answers come from `lib/questionEntries.ts` (`questionEntriesForPart`, `selectedOptionLabels`); the parsing there reads the call's input and result, and marks an option only when the answer is that label exactly or a multi-select reply decomposes into whole labels.
@@ -2002,7 +1695,7 @@ index 806d9c75e..558c412ba 100644
  
  
  - `taskToolModel.ts`
-@@ -670,8 +672,28 @@ the call away, it sticks like their own prompt, and its answer is what a reader
+@@ -716,8 +718,28 @@ the call away, it sticks like their own prompt, and its answer is what a reader
  scrolls back for. Drawn inside a `ToolPart` it only ever appeared as one quiet
  line among the agent's tool rows, folded with them and unable to leave a bar.
  The cost is a second renderer for one part (`QuestionToolContent` still draws
@@ -2033,7 +1726,7 @@ index 806d9c75e..558c412ba 100644
  
  ### Why one module map owns a question row's open state
  
-@@ -780,11 +802,16 @@ that is drawn.
+@@ -840,11 +862,16 @@ that is drawn.
    (`openContextFile` with `expanded`). Only web and desktop show it: VS Code
    and mobile open files full size already, through the path itself.
  - Every other tool, including search/fetch, OpenCode built-ins, custom tools, plugins, and MCP tools, is **expandable** and renders through `ToolPart`.
@@ -2053,7 +1746,7 @@ index 806d9c75e..558c412ba 100644
  - OpenChamber's own tools (`openchamber`, `openchamber_*`, and an `execute` script that made exactly one of their calls) use the expandable path. Their result is a versioned envelope (`{ ok, action, data }`, `openChamberToolEnvelope.ts`):
    - The row keeps the tool's name as its title. Once the envelope says the action succeeded, the description is the action's verb from the i18n map (`OPENCHAMBER_ACTION_VERB_KEYS`, "Remembered · Uses bun"); a running, failed, or unreadable call keeps the action's own name (`memory.save`). A history page leaves results out (`toolContentShells.ts`), so the row reads the action and outcome the server kept in the shell marker; without them every reloaded row fell back to `memory.save` until opened.
    - The expanded row draws the action's own view (`OpenChamberToolOutput.tsx`) when `hasOpenChamberView` finds a successful action it knows with the data that view reads; anything else keeps the neutral JSON views, so a changed answer never leaves the row empty. A failed call shows its error message as text. "Show the raw answer" switches to the JSON views.
-@@ -905,7 +932,7 @@ Why: only navigation tools use the compact static path; all other tools need obs
+@@ -1102,7 +1129,7 @@ Why: only navigation tools use the compact static path; all other tools need obs
    via text sniffing (`<terminal_context>` blocks, `GitHub issue context (JSON)`
    and `Linear issue context (JSON)` prefixes).
  - Tools: `ToolPart.tsx`, `ToolPartDiffPreview.tsx`, `PlainDiffFallback.tsx`, `ProgressiveGroup.tsx`, `toolPresentation.tsx`, `toolRenderUtils.ts`, `GuestToolTable.tsx`, `GuestToolCard.tsx`
@@ -2196,7 +1889,7 @@ index c669a584b..20d47927d 100644
  
  test('expanded rows show an option description', () => {
 diff --git a/packages/ui/src/components/chat/message/parts/QuestionToolContent.tsx b/packages/ui/src/components/chat/message/parts/QuestionToolContent.tsx
-index ffc28fd7a..722534373 100644
+index b06642a42..08185733a 100644
 --- a/packages/ui/src/components/chat/message/parts/QuestionToolContent.tsx
 +++ b/packages/ui/src/components/chat/message/parts/QuestionToolContent.tsx
 @@ -1,15 +1,15 @@
@@ -2207,7 +1900,7 @@ index ffc28fd7a..722534373 100644
 +
  import { cn } from '@/lib/utils';
  import { FormMarkdown } from '../../FormMarkdown';
- import { USER_BUBBLE_TEXT_LINK_CLASS } from '../MessageBody';
+ import { USER_BUBBLE_TEXT_LINK_CLASS } from '../body/userBubbleLinkStyle';
 +import { QuestionAnswerRow, QuestionOptionRow } from './QuestionChoices';
  import {
      selectedOptionLabels,
@@ -2335,25 +2028,160 @@ index ffc28fd7a..722534373 100644
                          )}
                      </div>
                  );
+diff --git a/packages/ui/src/components/chat/timeline/MessageRow.tsx b/packages/ui/src/components/chat/timeline/MessageRow.tsx
+index a0cf53053..f1ddfcb5c 100644
+--- a/packages/ui/src/components/chat/timeline/MessageRow.tsx
++++ b/packages/ui/src/components/chat/timeline/MessageRow.tsx
+@@ -22,6 +22,8 @@ interface MessageRowProps {
+     scrollToBottom?: () => void;
+     reviewTransferDirection?: ReviewTransferDirection | null;
+     isFirstRow?: boolean;
++    /** The row's body in place of the message's parts: a question call's card. */
++    body?: React.ReactNode;
+ }
+ 
+ export const MessageRow = React.memo<MessageRowProps>(({ 
+@@ -36,6 +38,7 @@ export const MessageRow = React.memo<MessageRowProps>(({
+     scrollToBottom,
+     reviewTransferDirection,
+     isFirstRow,
++    body,
+ }) => {
+     const role = message.info.role;
+     if (readSessionNotice(message.info)) return <TimelineNotice message={message.info} />;
+@@ -47,6 +50,7 @@ export const MessageRow = React.memo<MessageRowProps>(({
+     return (
+         <ChatMessage
+             message={message}
++            body={body}
+             nextMessage={nextMessage}
+             animateUserOnMount={animateUserOnMount}
+             onUserAnimationConsumed={onUserAnimationConsumed}
+diff --git a/packages/ui/src/components/chat/timeline/TimelineList.tsx b/packages/ui/src/components/chat/timeline/TimelineList.tsx
+index 2246e2db8..1918df59d 100644
+--- a/packages/ui/src/components/chat/timeline/TimelineList.tsx
++++ b/packages/ui/src/components/chat/timeline/TimelineList.tsx
+@@ -4,6 +4,7 @@ import { LegendList, type LegendListRef } from '@legendapp/list/react';
+ import { resolveTimelineIsAtEnd } from '../lib/scroll/timelineScrollAnchoring';
+ import { estimateTimelineRowSize, type RowSizeMetrics } from '../lib/turns/rowSizeEstimate';
+ import { useUIStore } from '@/stores/useUIStore';
++import { FormDockModeContext } from '../formsInChat';
+ import { useSelectionRowHold } from '../lib/scroll/selectionRowHold';
+ import { endsStickySpan } from '../lib/turns/stickyPrompt';
+ import { isTouchLayout, readColumnWidth, readToolLineHeight } from './timelineMetrics';
+@@ -57,8 +58,10 @@ export const TimelineList = React.memo(({
+     const [touchLayout] = React.useState(isTouchLayout);
+ 
+     const autoExpandAnsweredQuestions = useUIStore((state) => state.autoExpandAnsweredQuestions);
+-    const sizeMetricsRef = React.useRef<RowSizeMetrics>({ columnWidth: 0, lineHeight: 32, showReasoningTraces, collapsibleThinkingBlocks, autoExpandAnsweredQuestions });
++    const questionsInChat = React.useContext(FormDockModeContext) === 'in-chat';
++    const sizeMetricsRef = React.useRef<RowSizeMetrics>({ columnWidth: 0, lineHeight: 32, showReasoningTraces, collapsibleThinkingBlocks, autoExpandAnsweredQuestions, questionsInChat });
+     sizeMetricsRef.current.autoExpandAnsweredQuestions = autoExpandAnsweredQuestions;
++    sizeMetricsRef.current.questionsInChat = questionsInChat;
+     sizeMetricsRef.current.showReasoningTraces = showReasoningTraces;
+     sizeMetricsRef.current.collapsibleThinkingBlocks = collapsibleThinkingBlocks;
+     const sizeMetrics = React.useCallback((): RowSizeMetrics => {
+diff --git a/packages/ui/src/components/chat/timeline/TurnRow.tsx b/packages/ui/src/components/chat/timeline/TurnRow.tsx
+index 95845d3ce..4ab7b467d 100644
+--- a/packages/ui/src/components/chat/timeline/TurnRow.tsx
++++ b/packages/ui/src/components/chat/timeline/TurnRow.tsx
+@@ -56,15 +56,15 @@ export const TurnRow = React.memo(({
+             ? message?.parts.find((part) => part.id === row.questionPartId)
+             : undefined;
+         if (message && questionPart) {
+-            // A question call draws as its own card: the row begins the prompt
+-            // it belongs to unless it is a cut of a longer step, and a lifted
+-            // card's message is not a row of its own.
++            // The card is the row's body, so the message still draws what
++            // belongs to it: the turn facts under the answer and a stopped
++            // turn's failure text.
+             content = (
+-                <QuestionTurnHeader
+-                    part={questionPart}
+-                    messageId={message.info.id}
+-                    startsMessage={!row.slice?.from && !row.questionLifted}
+-                />
++                <MessageSliceContext.Provider value={row.slice}>
++                    {renderMessage(message, (
++                        <QuestionTurnHeader part={questionPart} messageId={message.info.id} placement="row" />
++                    ))}
++                </MessageSliceContext.Provider>
+             );
+         } else if (message) {
+             content = (
+diff --git a/packages/ui/src/components/chat/timeline/useTimelineRows.ts b/packages/ui/src/components/chat/timeline/useTimelineRows.ts
+index 57eaf61bb..7b6f36cbf 100644
+--- a/packages/ui/src/components/chat/timeline/useTimelineRows.ts
++++ b/packages/ui/src/components/chat/timeline/useTimelineRows.ts
+@@ -1,4 +1,5 @@
+ import React from 'react';
++import { FormDockModeContext } from '../formsInChat';
+ 
+ import { stickyRowIndicesOf } from '../lib/turns/stickyPrompt';
+ import { getTurnsWithLaterAssistant } from '../lib/turns/liveActivity';
+@@ -94,11 +95,15 @@ export const useTimelineRows = (
+     }, [historyEntries, trailingStreamingEntry]);
+ 
+     const previousRowsRef = React.useRef<RenderRow[]>([]);
++    // The column's own decision, not the preference: a pinned column keeps the
++    // dock's form and draws its card at the call.
++    const questionsInChat = React.useContext(FormDockModeContext) === 'in-chat';
+     const rows = React.useMemo(() => streamPerfMeasure('ui.message_list.render_rows_ms', () => {
+         const next = buildTimelineRows(allEntries, {
+             collapsedActivity: !defaultActivityExpanded,
+             expandedTurns: turnExpansion,
+             showReasoningTraces,
++            questionsInChat,
+         }, previousRowsRef.current);
+         previousRowsRef.current = next;
+         return next;
+diff --git a/packages/ui/src/components/chat/timeline/useTurnMessageRenderer.tsx b/packages/ui/src/components/chat/timeline/useTurnMessageRenderer.tsx
+index 775a76eb0..10ea779ad 100644
+--- a/packages/ui/src/components/chat/timeline/useTurnMessageRenderer.tsx
++++ b/packages/ui/src/components/chat/timeline/useTurnMessageRenderer.tsx
+@@ -124,7 +124,7 @@ export const useTurnMessageRenderer = ({
+     }, [turn.activityParts, turn.changedFiles, turn.hasReasoning, turn.hasTools, turn.headerMessageId, turn.summaryText, turn.turnId, turn.assistantMessages, turn.userMessage.info]);
+ 
+     return React.useCallback(
+-        (message: ChatMessageEntry) => {
++        (message: ChatMessageEntry, body?: React.ReactNode) => {
+             const assistantIndex = assistantIndexById.get(message.info.id) ?? -1;
+             const isAssistantMessage = assistantIndex >= 0;
+             const isFirstAssistant = assistantIndex === 0;
+@@ -161,6 +161,7 @@ export const useTurnMessageRenderer = ({
+                 <MessageRow
+                     key={message.info.id}
+                     message={message}
++                    body={body}
+                     nextMessage={nextMessage}
+                     turnGroupingContext={turnGroupingContext}
+                     assistantHeaderMessageId={assistantHeaderMessageId}
 diff --git a/packages/ui/src/lib/i18n/messages/ar.ts b/packages/ui/src/lib/i18n/messages/ar.ts
-index a0fbc76b5..d0b98a340 100644
+index d8546e800..f1e8164e2 100644
 --- a/packages/ui/src/lib/i18n/messages/ar.ts
 +++ b/packages/ui/src/lib/i18n/messages/ar.ts
-@@ -73,8 +73,12 @@ import { tooltipsTerminalBrowserI18n } from './tooltips-terminal-browser.i18n';
- import { tooltipsWorkspaceI18n } from './tooltips-workspace.i18n';
+@@ -78,6 +78,9 @@ import { tooltipsWorkspaceI18n } from './tooltips-workspace.i18n';
  import { tooltipsPanelI18n } from './tooltips-panel.i18n';
  import { tooltipsChatI18n } from './tooltips-chat.i18n';
-+import type { I18nKey } from './en';
  
--export const dict = {
 +// Annotated: inferred with `as const`, this dictionary's type grew past what
 +// the compiler will serialize (TS7056). The annotation also holds it to
 +// English's keys, as the store's cast does for the other locales.
-+export const dict: Record<I18nKey, string> = {
+ export const dict: Record<I18nKey, string> = {
    'quota.family.zen': 'نماذج Zen',
    'quota.value.requests': 'الطلبات: {count}',
-   'quota.value.spent': 'تم إنفاق {spent}',
-@@ -2538,6 +2542,13 @@ export const dict = {
+@@ -2531,17 +2534,17 @@ export const dict: Record<I18nKey, string> = {
+   'chat.questionCard.inputNeeded': 'مطلوب إدخال',
+   'chat.questionCard.fromSubagent': 'من وكيل فرعي',
+   'chat.questionCard.questionFallback': 'السؤال {index}',
+-  'chat.questionCard.moreQuestions': '+{count} more',
+-  'chat.questionCard.notAnswered': 'Not answered',
+-  'chat.questionCard.chosen': 'Chosen',
+-  'chat.questionCard.answerCount': '{count} answers',
+-  'chat.questionCard.showOptions': 'Show options',
+-  'chat.questionCard.hideOptions': 'Hide options',
+-  'chat.questionCard.stoppedBeforeAnswer': 'Stopped before an answer',
+   'chat.questionCard.selectMultiple': 'اختيار متعدد',
    'chat.questionCard.recommended': 'موصى به',
    'chat.questionCard.other': 'أخرى…',
    'chat.questionCard.yourAnswer': 'إجابتك',
@@ -2368,10 +2196,21 @@ index a0fbc76b5..d0b98a340 100644
    'chat.questionCard.next': 'التالي',
    'chat.questionCard.dismiss': 'تجاهل',
 diff --git a/packages/ui/src/lib/i18n/messages/de.ts b/packages/ui/src/lib/i18n/messages/de.ts
-index 5a2ec5019..0b6291269 100644
+index 338aeff14..758f62b98 100644
 --- a/packages/ui/src/lib/i18n/messages/de.ts
 +++ b/packages/ui/src/lib/i18n/messages/de.ts
-@@ -2356,6 +2356,13 @@ export const dict = {
+@@ -2352,17 +2352,17 @@ export const dict = {
+   'chat.questionCard.inputNeeded': 'Eingabe erforderlich',
+   'chat.questionCard.fromSubagent': 'Von Subagent',
+   'chat.questionCard.questionFallback': 'Frage {index}',
+-  'chat.questionCard.moreQuestions': '+{count} more',
+-  'chat.questionCard.notAnswered': 'Not answered',
+-  'chat.questionCard.chosen': 'Chosen',
+-  'chat.questionCard.answerCount': '{count} answers',
+-  'chat.questionCard.showOptions': 'Show options',
+-  'chat.questionCard.hideOptions': 'Hide options',
+-  'chat.questionCard.stoppedBeforeAnswer': 'Stopped before an answer',
+   'chat.questionCard.selectMultiple': 'Mehrere auswählen',
    'chat.questionCard.recommended': 'empfohlen',
    'chat.questionCard.other': 'Andere…',
    'chat.questionCard.yourAnswer': 'Ihre Antwort',
@@ -2386,28 +2225,48 @@ index 5a2ec5019..0b6291269 100644
    'chat.questionCard.next': 'Weiter',
    'chat.questionCard.dismiss': 'Verwerfen',
 diff --git a/packages/ui/src/lib/i18n/messages/en.ts b/packages/ui/src/lib/i18n/messages/en.ts
-index f2190afd8..5bf6942fe 100644
+index 3e416bc57..280a54486 100644
 --- a/packages/ui/src/lib/i18n/messages/en.ts
 +++ b/packages/ui/src/lib/i18n/messages/en.ts
-@@ -2636,6 +2636,13 @@ export const dict = {
-   'chat.questionCard.recommended': 'recommended',
-   'chat.questionCard.other': 'Other…',
-   'chat.questionCard.yourAnswer': 'Your answer',
-+  'chat.questionCard.notAnswered': 'Not answered',
-+  'chat.questionCard.chosen': 'Chosen',
-+  'chat.questionCard.answerCount': '{count} answers',
+@@ -2631,17 +2631,17 @@ export const dict = {
+   'chat.questionCard.inputNeeded': 'Input needed',
+   'chat.questionCard.fromSubagent': 'From subagent',
+   'chat.questionCard.questionFallback': 'Question {index}',
+-  'chat.questionCard.moreQuestions': '+{count} more',
++  'chat.questionCard.selectMultiple': 'Select multiple',
++  'chat.questionCard.recommended': 'recommended',
++  'chat.questionCard.other': 'Other…',
++  'chat.questionCard.yourAnswer': 'Your answer',
+   'chat.questionCard.notAnswered': 'Not answered',
+   'chat.questionCard.chosen': 'Chosen',
+   'chat.questionCard.answerCount': '{count} answers',
 +  'chat.questionCard.moreQuestions': '+{count} more',
-+  'chat.questionCard.showOptions': 'Show options',
-+  'chat.questionCard.hideOptions': 'Hide options',
-+  'chat.questionCard.stoppedBeforeAnswer': 'Stopped before an answer',
+   'chat.questionCard.showOptions': 'Show options',
+   'chat.questionCard.hideOptions': 'Hide options',
+   'chat.questionCard.stoppedBeforeAnswer': 'Stopped before an answer',
+-  'chat.questionCard.selectMultiple': 'Select multiple',
+-  'chat.questionCard.recommended': 'recommended',
+-  'chat.questionCard.other': 'Other…',
+-  'chat.questionCard.yourAnswer': 'Your answer',
    'chat.questionCard.submit': 'Submit',
    'chat.questionCard.next': 'Next',
    'chat.questionCard.dismiss': 'Dismiss',
 diff --git a/packages/ui/src/lib/i18n/messages/es.ts b/packages/ui/src/lib/i18n/messages/es.ts
-index e85a3f9e4..83cb57f93 100644
+index 30d843426..73915300b 100644
 --- a/packages/ui/src/lib/i18n/messages/es.ts
 +++ b/packages/ui/src/lib/i18n/messages/es.ts
-@@ -2604,6 +2604,13 @@ export const dict: Record<I18nKey, string> = {
+@@ -2599,17 +2599,17 @@ export const dict: Record<I18nKey, string> = {
+   "chat.questionCard.inputNeeded": "Entrada necesaria",
+   "chat.questionCard.fromSubagent": "De un subagente",
+   "chat.questionCard.questionFallback": "Pregunta {index}",
+-  "chat.questionCard.moreQuestions": "+{count} more",
+-  "chat.questionCard.notAnswered": "Not answered",
+-  "chat.questionCard.chosen": "Chosen",
+-  "chat.questionCard.answerCount": "{count} answers",
+-  "chat.questionCard.showOptions": "Show options",
+-  "chat.questionCard.hideOptions": "Hide options",
+-  "chat.questionCard.stoppedBeforeAnswer": "Stopped before an answer",
+   "chat.questionCard.selectMultiple": "Seleccionar múltiples",
    "chat.questionCard.recommended": "recomendado",
    "chat.questionCard.other": "Otro…",
    "chat.questionCard.yourAnswer": "Tu respuesta",
@@ -2422,10 +2281,21 @@ index e85a3f9e4..83cb57f93 100644
    "chat.questionCard.next": "Siguiente",
    "chat.questionCard.dismiss": "Descartar",
 diff --git a/packages/ui/src/lib/i18n/messages/fr.ts b/packages/ui/src/lib/i18n/messages/fr.ts
-index a6b78f2a1..bebb9b37a 100644
+index 9c5626c76..e83f5281b 100644
 --- a/packages/ui/src/lib/i18n/messages/fr.ts
 +++ b/packages/ui/src/lib/i18n/messages/fr.ts
-@@ -2349,6 +2349,13 @@ export const dict = {
+@@ -2343,17 +2343,17 @@ export const dict = {
+   'chat.questionCard.inputNeeded': 'Entrée nécessaire',
+   'chat.questionCard.fromSubagent': 'Du sous-agent',
+   'chat.questionCard.questionFallback': 'Question {index}',
+-  'chat.questionCard.moreQuestions': '+{count} more',
+-  'chat.questionCard.notAnswered': 'Not answered',
+-  'chat.questionCard.chosen': 'Chosen',
+-  'chat.questionCard.answerCount': '{count} answers',
+-  'chat.questionCard.showOptions': 'Show options',
+-  'chat.questionCard.hideOptions': 'Hide options',
+-  'chat.questionCard.stoppedBeforeAnswer': 'Stopped before an answer',
+   'chat.questionCard.selectMultiple': 'Sélectionnez plusieurs',
    'chat.questionCard.recommended': 'recommandé',
    'chat.questionCard.other': 'Autre…',
    'chat.questionCard.yourAnswer': 'Votre réponse',
@@ -2440,10 +2310,21 @@ index a6b78f2a1..bebb9b37a 100644
    'chat.questionCard.next': 'Suivant',
    'chat.questionCard.dismiss': 'Ignorer',
 diff --git a/packages/ui/src/lib/i18n/messages/he.ts b/packages/ui/src/lib/i18n/messages/he.ts
-index 881d79d06..c0c88390b 100644
+index 07cb9bc77..325deb084 100644
 --- a/packages/ui/src/lib/i18n/messages/he.ts
 +++ b/packages/ui/src/lib/i18n/messages/he.ts
-@@ -2538,6 +2538,13 @@ export const dict = {
+@@ -2530,17 +2530,17 @@ export const dict = {
+   'chat.questionCard.inputNeeded': 'נדרש קלט',
+   'chat.questionCard.fromSubagent': 'מסוכן משנה',
+   'chat.questionCard.questionFallback': 'שאלה {index}',
+-  'chat.questionCard.moreQuestions': '+{count} more',
+-  'chat.questionCard.notAnswered': 'Not answered',
+-  'chat.questionCard.chosen': 'Chosen',
+-  'chat.questionCard.answerCount': '{count} answers',
+-  'chat.questionCard.showOptions': 'Show options',
+-  'chat.questionCard.hideOptions': 'Hide options',
+-  'chat.questionCard.stoppedBeforeAnswer': 'Stopped before an answer',
+   'chat.questionCard.selectMultiple': 'בחירה מרובה',
    'chat.questionCard.recommended': 'מומלץ',
    'chat.questionCard.other': 'אחר…',
    'chat.questionCard.yourAnswer': 'התשובה שלך',
@@ -2458,10 +2339,21 @@ index 881d79d06..c0c88390b 100644
    'chat.questionCard.next': 'הבא',
    'chat.questionCard.dismiss': 'דלג',
 diff --git a/packages/ui/src/lib/i18n/messages/ja.ts b/packages/ui/src/lib/i18n/messages/ja.ts
-index 0d39fe9c3..a0d15863a 100644
+index ad0bc3e91..d280636d7 100644
 --- a/packages/ui/src/lib/i18n/messages/ja.ts
 +++ b/packages/ui/src/lib/i18n/messages/ja.ts
-@@ -2632,6 +2632,13 @@ export const dict: Record<I18nKey, string> = {
+@@ -2627,17 +2627,17 @@ export const dict: Record<I18nKey, string> = {
+   'chat.questionCard.inputNeeded': '入力が必要',
+   'chat.questionCard.fromSubagent': 'サブエージェントから',
+   'chat.questionCard.questionFallback': '質問{index}',
+-  'chat.questionCard.moreQuestions': '+{count} more',
+-  'chat.questionCard.notAnswered': 'Not answered',
+-  'chat.questionCard.chosen': 'Chosen',
+-  'chat.questionCard.answerCount': '{count} answers',
+-  'chat.questionCard.showOptions': 'Show options',
+-  'chat.questionCard.hideOptions': 'Hide options',
+-  'chat.questionCard.stoppedBeforeAnswer': 'Stopped before an answer',
+   'chat.questionCard.selectMultiple': '複数選択',
    'chat.questionCard.recommended': '推奨',
    'chat.questionCard.other': 'その他…',
    'chat.questionCard.yourAnswer': 'あなたの回答',
@@ -2476,10 +2368,21 @@ index 0d39fe9c3..a0d15863a 100644
    'chat.questionCard.next': '次へ',
    'chat.questionCard.dismiss': '閉じる',
 diff --git a/packages/ui/src/lib/i18n/messages/ko.ts b/packages/ui/src/lib/i18n/messages/ko.ts
-index 6e5d406fc..f0011d9a0 100644
+index f862ca7fb..b3a3f80d7 100644
 --- a/packages/ui/src/lib/i18n/messages/ko.ts
 +++ b/packages/ui/src/lib/i18n/messages/ko.ts
-@@ -2636,6 +2636,13 @@ export const dict: Record<I18nKey, string> = {
+@@ -2631,17 +2631,17 @@ export const dict: Record<I18nKey, string> = {
+   'chat.questionCard.inputNeeded': '입력 필요',
+   'chat.questionCard.fromSubagent': '서브 에이전트에서',
+   'chat.questionCard.questionFallback': '질문 {index}',
+-  'chat.questionCard.moreQuestions': '+{count} more',
+-  'chat.questionCard.notAnswered': 'Not answered',
+-  'chat.questionCard.chosen': 'Chosen',
+-  'chat.questionCard.answerCount': '{count} answers',
+-  'chat.questionCard.showOptions': 'Show options',
+-  'chat.questionCard.hideOptions': 'Hide options',
+-  'chat.questionCard.stoppedBeforeAnswer': 'Stopped before an answer',
+   'chat.questionCard.selectMultiple': '여러 개 선택',
    'chat.questionCard.recommended': '추천',
    'chat.questionCard.other': '기타…',
    'chat.questionCard.yourAnswer': '내 답변',
@@ -2494,10 +2397,21 @@ index 6e5d406fc..f0011d9a0 100644
    'chat.questionCard.next': '다음',
    'chat.questionCard.dismiss': '닫기',
 diff --git a/packages/ui/src/lib/i18n/messages/nl.ts b/packages/ui/src/lib/i18n/messages/nl.ts
-index eb142138d..ad267011c 100644
+index 63469bf8f..27f1dd811 100644
 --- a/packages/ui/src/lib/i18n/messages/nl.ts
 +++ b/packages/ui/src/lib/i18n/messages/nl.ts
-@@ -2636,6 +2636,13 @@ export const dict = {
+@@ -2631,17 +2631,17 @@ export const dict = {
+   'chat.questionCard.inputNeeded': 'Invoer nodig',
+   'chat.questionCard.fromSubagent': 'Van subagent',
+   'chat.questionCard.questionFallback': 'Vraag {index}',
+-  'chat.questionCard.moreQuestions': '+{count} more',
+-  'chat.questionCard.notAnswered': 'Not answered',
+-  'chat.questionCard.chosen': 'Chosen',
+-  'chat.questionCard.answerCount': '{count} answers',
+-  'chat.questionCard.showOptions': 'Show options',
+-  'chat.questionCard.hideOptions': 'Hide options',
+-  'chat.questionCard.stoppedBeforeAnswer': 'Stopped before an answer',
+   'chat.questionCard.selectMultiple': 'Meerdere selecteren',
    'chat.questionCard.recommended': 'aanbevolen',
    'chat.questionCard.other': 'Anders…',
    'chat.questionCard.yourAnswer': 'Uw antwoord',
@@ -2512,10 +2426,21 @@ index eb142138d..ad267011c 100644
    'chat.questionCard.next': 'Volgende',
    'chat.questionCard.dismiss': 'Sluiten',
 diff --git a/packages/ui/src/lib/i18n/messages/pl.ts b/packages/ui/src/lib/i18n/messages/pl.ts
-index 89c4168b6..1bb9433de 100644
+index 317d29e12..3a5cd012c 100644
 --- a/packages/ui/src/lib/i18n/messages/pl.ts
 +++ b/packages/ui/src/lib/i18n/messages/pl.ts
-@@ -1188,6 +1188,13 @@ export const dict: Record<I18nKey, string> = {
+@@ -1180,17 +1180,17 @@ export const dict: Record<I18nKey, string> = {
+   'chat.questionCard.inputNeeded': 'Wymagane wejście',
+   'chat.questionCard.fromSubagent': 'Od pod-agenta',
+   'chat.questionCard.questionFallback': 'Pytanie {index}',
+-  'chat.questionCard.moreQuestions': '+{count} more',
+-  'chat.questionCard.notAnswered': 'Not answered',
+-  'chat.questionCard.chosen': 'Chosen',
+-  'chat.questionCard.answerCount': '{count} answers',
+-  'chat.questionCard.showOptions': 'Show options',
+-  'chat.questionCard.hideOptions': 'Hide options',
+-  'chat.questionCard.stoppedBeforeAnswer': 'Stopped before an answer',
+   'chat.questionCard.selectMultiple': 'Wybierz wiele',
    'chat.questionCard.recommended': 'rekomendowane',
    'chat.questionCard.other': 'Inne...',
    'chat.questionCard.yourAnswer': 'Twoja odpowiedź',
@@ -2530,10 +2455,21 @@ index 89c4168b6..1bb9433de 100644
    'chat.questionCard.next': 'Następne',
    'chat.questionCard.dismiss': 'Odrzuć',
 diff --git a/packages/ui/src/lib/i18n/messages/pt-BR.ts b/packages/ui/src/lib/i18n/messages/pt-BR.ts
-index f17e8dffc..1ea67dbda 100644
+index 5ce28808f..3015f8f30 100644
 --- a/packages/ui/src/lib/i18n/messages/pt-BR.ts
 +++ b/packages/ui/src/lib/i18n/messages/pt-BR.ts
-@@ -2606,6 +2606,13 @@ export const dict: Record<I18nKey, string> = {
+@@ -2601,17 +2601,17 @@ export const dict: Record<I18nKey, string> = {
+   "chat.questionCard.inputNeeded": "Entrada necessária",
+   "chat.questionCard.fromSubagent": "De um subagente",
+   "chat.questionCard.questionFallback": "Pergunta {index}",
+-  "chat.questionCard.moreQuestions": "+{count} more",
+-  "chat.questionCard.notAnswered": "Not answered",
+-  "chat.questionCard.chosen": "Chosen",
+-  "chat.questionCard.answerCount": "{count} answers",
+-  "chat.questionCard.showOptions": "Show options",
+-  "chat.questionCard.hideOptions": "Hide options",
+-  "chat.questionCard.stoppedBeforeAnswer": "Stopped before an answer",
+   "chat.questionCard.selectMultiple": "Selecionar múltiplas",
    "chat.questionCard.recommended": "recomendado",
    "chat.questionCard.other": "Outro…",
    "chat.questionCard.yourAnswer": "Sua resposta",
@@ -2548,10 +2484,21 @@ index f17e8dffc..1ea67dbda 100644
    "chat.questionCard.next": "Próximo",
    "chat.questionCard.dismiss": "Descartar",
 diff --git a/packages/ui/src/lib/i18n/messages/tr.ts b/packages/ui/src/lib/i18n/messages/tr.ts
-index 18724214e..397e1ecf1 100644
+index ec00060e9..045a1c418 100644
 --- a/packages/ui/src/lib/i18n/messages/tr.ts
 +++ b/packages/ui/src/lib/i18n/messages/tr.ts
-@@ -2477,6 +2477,13 @@ export const dict = {
+@@ -2474,17 +2474,17 @@ export const dict = {
+   'chat.questionCard.inputNeeded': 'Girdi gerekiyor',
+   'chat.questionCard.fromSubagent': 'Subagent\'tan',
+   'chat.questionCard.questionFallback': 'Soru {index}',
+-  'chat.questionCard.moreQuestions': '+{count} more',
+-  'chat.questionCard.notAnswered': 'Not answered',
+-  'chat.questionCard.chosen': 'Chosen',
+-  'chat.questionCard.answerCount': '{count} answers',
+-  'chat.questionCard.showOptions': 'Show options',
+-  'chat.questionCard.hideOptions': 'Hide options',
+-  'chat.questionCard.stoppedBeforeAnswer': 'Stopped before an answer',
+   'chat.questionCard.selectMultiple': 'Çoklu seçim',
    'chat.questionCard.recommended': 'önerilen',
    'chat.questionCard.other': 'Diğer…',
    'chat.questionCard.yourAnswer': 'Yanıtın',
@@ -2566,10 +2513,21 @@ index 18724214e..397e1ecf1 100644
    'chat.questionCard.next': 'İleri',
    'chat.questionCard.dismiss': 'Yok say',
 diff --git a/packages/ui/src/lib/i18n/messages/uk.ts b/packages/ui/src/lib/i18n/messages/uk.ts
-index b2b1d3256..84f9ee759 100644
+index 41e98e55d..5ab8f75a6 100644
 --- a/packages/ui/src/lib/i18n/messages/uk.ts
 +++ b/packages/ui/src/lib/i18n/messages/uk.ts
-@@ -2604,6 +2604,13 @@ export const dict: Record<I18nKey, string> = {
+@@ -2599,17 +2599,17 @@ export const dict: Record<I18nKey, string> = {
+   "chat.questionCard.inputNeeded": "Потрібна відповідь",
+   "chat.questionCard.fromSubagent": "Від субагента",
+   "chat.questionCard.questionFallback": "Питання {index}",
+-  "chat.questionCard.moreQuestions": "+{count} more",
+-  "chat.questionCard.notAnswered": "Not answered",
+-  "chat.questionCard.chosen": "Chosen",
+-  "chat.questionCard.answerCount": "{count} answers",
+-  "chat.questionCard.showOptions": "Show options",
+-  "chat.questionCard.hideOptions": "Hide options",
+-  "chat.questionCard.stoppedBeforeAnswer": "Stopped before an answer",
+   "chat.questionCard.selectMultiple": "Вибрати кілька",
    "chat.questionCard.recommended": "рекомендований",
    "chat.questionCard.other": "Інше…",
    "chat.questionCard.yourAnswer": "Ваша відповідь",
@@ -2584,10 +2542,21 @@ index b2b1d3256..84f9ee759 100644
    "chat.questionCard.next": "Далі",
    "chat.questionCard.dismiss": "Відхилити",
 diff --git a/packages/ui/src/lib/i18n/messages/zh-CN.ts b/packages/ui/src/lib/i18n/messages/zh-CN.ts
-index 1a8d6f108..4923660a9 100644
+index d84d1bbde..58aba12e2 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-CN.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-CN.ts
-@@ -2602,6 +2602,13 @@ export const dict: Record<I18nKey, string> = {
+@@ -2597,17 +2597,17 @@ export const dict: Record<I18nKey, string> = {
+   'chat.questionCard.inputNeeded': '需要输入',
+   'chat.questionCard.fromSubagent': '来自子智能体',
+   'chat.questionCard.questionFallback': '问题 {index}',
+-  'chat.questionCard.moreQuestions': '+{count} more',
+-  'chat.questionCard.notAnswered': 'Not answered',
+-  'chat.questionCard.chosen': 'Chosen',
+-  'chat.questionCard.answerCount': '{count} answers',
+-  'chat.questionCard.showOptions': 'Show options',
+-  'chat.questionCard.hideOptions': 'Hide options',
+-  'chat.questionCard.stoppedBeforeAnswer': 'Stopped before an answer',
+   'chat.questionCard.selectMultiple': '可多选',
    'chat.questionCard.recommended': '推荐',
    'chat.questionCard.other': '其他…',
    'chat.questionCard.yourAnswer': '你的回答',
@@ -2602,10 +2571,21 @@ index 1a8d6f108..4923660a9 100644
    'chat.questionCard.next': '下一个',
    'chat.questionCard.dismiss': '忽略',
 diff --git a/packages/ui/src/lib/i18n/messages/zh-TW.ts b/packages/ui/src/lib/i18n/messages/zh-TW.ts
-index 9816dfe11..38b6eceb2 100644
+index 635618136..5e759445e 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-TW.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-TW.ts
-@@ -2613,6 +2613,13 @@ export const dict: Record<I18nKey, string> = {
+@@ -2608,17 +2608,17 @@ export const dict: Record<I18nKey, string> = {
+   'chat.questionCard.inputNeeded': '需要輸入',
+   'chat.questionCard.fromSubagent': '來自子 Agent',
+   'chat.questionCard.questionFallback': '問題 {index}',
+-  'chat.questionCard.moreQuestions': '+{count} more',
+-  'chat.questionCard.notAnswered': 'Not answered',
+-  'chat.questionCard.chosen': 'Chosen',
+-  'chat.questionCard.answerCount': '{count} answers',
+-  'chat.questionCard.showOptions': 'Show options',
+-  'chat.questionCard.hideOptions': 'Hide options',
+-  'chat.questionCard.stoppedBeforeAnswer': 'Stopped before an answer',
+   'chat.questionCard.selectMultiple': '可複選',
    'chat.questionCard.recommended': '推薦',
    'chat.questionCard.other': '其他…',
    'chat.questionCard.yourAnswer': '你的回答',

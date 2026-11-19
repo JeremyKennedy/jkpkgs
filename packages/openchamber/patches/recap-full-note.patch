@@ -1,21 +1,64 @@
 diff --git a/packages/ui/src/apps/mobileNativeChrome.ts b/packages/ui/src/apps/mobileNativeChrome.ts
-index d93b0b8..0386148 100644
+index d5067c08d..c11c2e7f4 100644
 --- a/packages/ui/src/apps/mobileNativeChrome.ts
 +++ b/packages/ui/src/apps/mobileNativeChrome.ts
-@@ -222,7 +222,7 @@ export const useNativeMobileChrome = (): void => {
+@@ -157,6 +157,8 @@ export const useNativeMobileChrome = (): void => {
          const movers: KbMover[] = [];
          const composer = keyboardInShell ? document.querySelector<HTMLElement>('.oc-mobile-composer') : null;
          if (composer) movers.push({ el: composer, factor: 1, base: 'shell' });
--        // Status row, recap hint and scroll-to-end button sit on the slot's
 +        // Status row and scroll-to-end button sit on the slot's
-         // top edge outside the form; they ride the same slide.
++        // top edge outside the form; they ride the same slide.
          const riders = keyboardInShell ? document.querySelector<HTMLElement>('.oc-composer-riders') : null;
          if (riders) movers.push({ el: riders, factor: 1, base: 'shell' });
-diff --git a/packages/ui/src/components/chat/ChatContainer.tsx b/packages/ui/src/components/chat/ChatContainer.tsx
-index b54ea25..432ce3f 100644
---- a/packages/ui/src/components/chat/ChatContainer.tsx
-+++ b/packages/ui/src/components/chat/ChatContainer.tsx
-@@ -422,11 +422,24 @@ const ChatViewport = React.memo(({
+         const draftCenter = keyboardInShell ? document.querySelector<HTMLElement>('.oc-draft-center') : null;
+diff --git a/packages/ui/src/components/chat/SessionRecapSpacer.tsx b/packages/ui/src/components/chat/SessionRecapSpacer.tsx
+index 224a6fead..63c8bf1f6 100644
+--- a/packages/ui/src/components/chat/SessionRecapSpacer.tsx
++++ b/packages/ui/src/components/chat/SessionRecapSpacer.tsx
+@@ -1,18 +1,25 @@
+ import React from 'react';
+ import { useSessionAssistState } from '@/hooks/useSessionAssist';
+ import { useI18n } from '@/lib/i18n';
++import { FLOATING_COMPOSER_GROWTH_OVERHANG_PX } from '@/components/chat/composer/state/composerTailInset';
+ 
+ interface SessionRecapNoteProps {
+   sessionId: string;
+   directory?: string;
+-  isMobile: boolean;
+ }
+ 
+ const plainRecap = (recap: string): string => recap
+   .replace(/`([^`]+)`/g, '$1')
+   .replace(/\*\*([^*]+)\*\*/g, '$1');
+ 
+-export const SessionRecapNote: React.FC<SessionRecapNoteProps> = React.memo(({ sessionId, directory, isMobile }) => {
++// Quiet one-paragraph recap of the agent's last reply. A hint about the
++// current state rather than part of the transcript: it sits under the last
++// answer's footer and takes its own room, so the full note stays readable
++// and the transcript's end moves up to reveal it. It keeps the reach of a
++// composer grown past its growth allowance clear of itself (see
++// composerTailInset), so the glass never covers the note. Appears only after
++// the 1-minute quiet window and vanishes once a new message makes it stale.
++export const SessionRecapNote: React.FC<SessionRecapNoteProps> = React.memo(({ sessionId, directory }) => {
+   const { visibleRecap } = useSessionAssistState(sessionId, directory);
+   const { t } = useI18n();
+ 
+@@ -21,8 +28,8 @@ export const SessionRecapNote: React.FC<SessionRecapNoteProps> = React.memo(({ s
+   }
+ 
+   return (
+-    <div aria-label={t('chat.recap.aria')}>
+-      <span className={`typography-meta text-muted-foreground ${isMobile ? 'line-clamp-3' : 'line-clamp-2'}`}>
++    <div role="note" aria-label={t('chat.recap.aria')} style={{ paddingBottom: FLOATING_COMPOSER_GROWTH_OVERHANG_PX }}>
++      <span className="typography-meta text-muted-foreground whitespace-pre-wrap break-words">
+         <span className="italic text-muted-foreground">{t('chat.recap.label')} </span>
+         {plainRecap(visibleRecap)}
+       </span>
+diff --git a/packages/ui/src/components/chat/column/ChatViewport.tsx b/packages/ui/src/components/chat/column/ChatViewport.tsx
+index d888a4c71..5ea32c3cc 100644
+--- a/packages/ui/src/components/chat/column/ChatViewport.tsx
++++ b/packages/ui/src/components/chat/column/ChatViewport.tsx
+@@ -159,6 +159,27 @@ export const ChatViewport = React.memo(({
              <SessionErrorNotice sessionId={currentSessionId} directory={directory} />
              {formsInChat && currentSessionId ? <TranscriptForms sessionId={currentSessionId} directory={directory} /> : null}
  
@@ -32,28 +75,22 @@ index b54ea25..432ce3f 100644
 +                </div>
 +            ) : null}
 +
-             {/* Tail spacer. With a floating composer it reserves the band the
-                 composer covers, plus any panel docked above it (queue, BTW),
-                 so the end of the transcript stays readable above them; the
--                extra gap is the breathing room between the last row and the
--                top edge of whatever floats. Both heights come from CSS
++            {/* Tail spacer. With a floating composer it reserves the band the
++                composer covers, plus any panel docked above it (queue, BTW),
++                so the end of the transcript stays readable above them; the
 +                extra gap is the breathing room between the transcript's end
 +                and the top edge of whatever floats. Both heights come from CSS
-                 variables written straight by observers (the composer's onto
-                 this element itself, see composerInsetReaders), so a growing
-                 composer or panel resizes the footer without a list re-render;
-@@ -445,22 +458,7 @@ const ChatViewport = React.memo(({
-                             : `var(--chat-composer-tail-inset, ${FLOATING_COMPOSER_DEFAULT_TAIL_INSET_PX}px)`} + var(--chat-floating-panel-clearance, 0px))`
++                variables written straight by observers (the composer's onto
++                this element itself, see composerInsetReaders), so a growing
++                composer or panel resizes the footer without a list re-render. */}
+             <div
+                 ref={registerComposerInsetReader}
+                 className="relative flex-shrink-0"
+@@ -169,15 +190,7 @@ export const ChatViewport = React.memo(({
+                             : `var(--chat-composer-tail-inset, ${FLOATING_COMPOSER_DEFAULT_TAIL_INSET_PX}px)`} + var(--chat-floating-panel-reserve, 0px))`
                          : (isMobile ? '40px' : '10vh'),
                  }}
 -            >
--                {/* The recap of the latest answer lies at the top of this band,
--                    right under the answer's footer: it takes no room, so its
--                    arrival and leaving move nothing. Rows of the list paint
--                    only inside their own box (`contain: paint`), so it lives
--                    here rather than in the answer's row. It goes once a new
--                    prompt makes the session busy, and while the composer grows
--                    into the band or a panel docks over it (design-system.css). */}
 -                {floatingComposer && currentSessionId ? (
 -                    <div className="oc-recap-hint pointer-events-none absolute inset-x-0 top-0 transition-opacity duration-300 ease-out">
 -                        <div className="chat-message-column">
@@ -66,26 +103,13 @@ index b54ea25..432ce3f 100644
          </>
      ), [currentSessionId, directory, floatingComposer, formsInChat, isMobile, sessionIsWorking]);
  
-@@ -1864,9 +1862,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
-     // written straight from the observer so composer growth never re-renders
-     // the timeline, and onto the reading elements, not the column: inherited
-     // from the column, every new composer line restyled the whole transcript
--    // (composerInsetReaders). While the composer is taller than at rest,
--    // `data-composer-grown` on the column hides the recap hint, which lies
--    // in the gap under the latest answer the composer then grows into.
-+    // (composerInsetReaders). The recap note ends the transcript above the tail
-+    // spacer, so a composer grown into the band moves up into it without
-+    // covering the note.
-     React.useLayoutEffect(() => {
-         const slot = composerSlotNode;
-         const column = slot?.parentElement;
-@@ -1878,12 +1876,10 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
-             // banner, the mobile comment composer: data-composer-transient)
-             // and a slot the pill morph pins for its tween (an inline height,
-             // measured with the keyboard's padding) are shorter, and kept as
--            // the floor they left the composer "grown" (recap hidden) until a
--            // reload.
-+            // the floor they left the resting height too high until a reload.
+diff --git a/packages/ui/src/components/chat/column/useComposerPresentation.ts b/packages/ui/src/components/chat/column/useComposerPresentation.ts
+index b23671ff6..ad6ce30fb 100644
+--- a/packages/ui/src/components/chat/column/useComposerPresentation.ts
++++ b/packages/ui/src/components/chat/column/useComposerPresentation.ts
+@@ -50,9 +50,8 @@ export const useComposerPresentation = ({
+         const update = () => {
+             const height = Math.round(slot.getBoundingClientRect().height);
              const transient = slot.style.height !== '' || slot.querySelector('[data-composer-transient]') !== null;
 -            const { tailInset, grown } = recordComposerSlotHeight(column, height, !transient);
 +            const { tailInset } = recordComposerSlotHeight(column, height, !transient);
@@ -94,85 +118,39 @@ index b54ea25..432ce3f 100644
          };
          const observer = new ResizeObserver(update);
          observer.observe(slot);
-@@ -1892,7 +1888,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
+@@ -61,7 +60,6 @@ export const useComposerPresentation = ({
              observer.disconnect();
              forgetComposerSlot(column);
              withdrawComposerInsets(column);
 -            column.removeAttribute('data-composer-grown');
          };
      }, [composerSlotNode, floatingComposer]);
-     // The list owns the scroll element, so the shadows and the load-older
-diff --git a/packages/ui/src/components/chat/SessionRecapSpacer.tsx b/packages/ui/src/components/chat/SessionRecapSpacer.tsx
-index 8015617..2033d93 100644
---- a/packages/ui/src/components/chat/SessionRecapSpacer.tsx
-+++ b/packages/ui/src/components/chat/SessionRecapSpacer.tsx
-@@ -1,11 +1,11 @@
- import React from 'react';
- import { useSessionAssistState } from '@/hooks/useSessionAssist';
- import { useI18n } from '@/lib/i18n';
-+import { FLOATING_COMPOSER_GROWTH_OVERHANG_PX } from '@/components/chat/composer/state/composerTailInset';
  
- interface SessionRecapNoteProps {
-   sessionId: string;
-   directory?: string;
--  isMobile: boolean;
- }
- 
- // The model marks up its recap now and then; the note is plain text.
-@@ -14,12 +14,13 @@ const plainRecap = (recap: string): string => recap
-   .replace(/\*\*([^*]+)\*\*/g, '$1');
- 
- // Quiet one-paragraph recap of the agent's last reply. A hint about the
--// current state rather than part of the transcript: it lies over the empty
--// band the transcript keeps above the composer, right under the last
--// answer's footer (ChatContainer's tail spacer), and simply vanishes in place
--// once a new message makes it stale. Appears only after the 1-minute quiet
--// window.
--export const SessionRecapNote: React.FC<SessionRecapNoteProps> = React.memo(({ sessionId, directory, isMobile }) => {
-+// current state rather than part of the transcript: it sits under the last
-+// answer's footer and takes its own room, so the full note stays readable
-+// and the transcript's end moves up to reveal it. It keeps the reach of a
-+// composer grown past its growth allowance clear of itself (see
-+// composerTailInset), so the glass never covers the note. Appears only after
-+// the 1-minute quiet window and vanishes once a new message makes it stale.
-+export const SessionRecapNote: React.FC<SessionRecapNoteProps> = React.memo(({ sessionId, directory }) => {
-   const { visibleRecap } = useSessionAssistState(sessionId, directory);
-   const { t } = useI18n();
- 
-@@ -28,8 +29,8 @@ export const SessionRecapNote: React.FC<SessionRecapNoteProps> = React.memo(({ s
-   }
- 
-   return (
--    <div aria-label={t('chat.recap.aria')}>
--      <span className={`typography-meta text-muted-foreground ${isMobile ? 'line-clamp-3' : 'line-clamp-2'}`}>
-+    <div role="note" aria-label={t('chat.recap.aria')} style={{ paddingBottom: FLOATING_COMPOSER_GROWTH_OVERHANG_PX }}>
-+      <span className="typography-meta text-muted-foreground whitespace-pre-wrap break-words">
-         <span className="italic text-muted-foreground">{t('chat.recap.label')} </span>
-         {plainRecap(visibleRecap)}
-       </span>
 diff --git a/packages/ui/src/components/chat/composer/DOCUMENTATION.md b/packages/ui/src/components/chat/composer/DOCUMENTATION.md
-index b5c5162..e1279a7 100644
+index 46274a10f..7a95434ec 100644
 --- a/packages/ui/src/components/chat/composer/DOCUMENTATION.md
 +++ b/packages/ui/src/components/chat/composer/DOCUMENTATION.md
-@@ -339,13 +339,10 @@ The shared frame measures its height and gap as
+@@ -479,12 +479,13 @@ The shared frame measures its height and gap as
  `--chat-floating-panel-clearance`, published through
  `state/composerInsetReaders.ts` onto the elements that read it, never on the
  chat column (inherited from the column, every resize of the frame restyled
 -the whole transcript). The floating status row, the recap hint and
--`ScrollToBottomButton` translate upward by that amount, the transcript's tail
--spacer and the end fade band grow by it (so the frame never covers the last
--rows), and the column carries `data-floating-panel` while any frame is
+-`ScrollToBottomButton` translate upward by that amount, the end fade band
+-grows by it and the transcript's tail spacer by its reserve twin
+-`--chat-floating-panel-reserve` (equal to it except while a panel holds its
+-room, see the question dock above; so the frame never covers the last rows), and the column carries `data-floating-panel` while any frame is
 -mounted so the recap hint hides instead of landing over the transcript.
--Unmounting clears the offset and the marker; resizing or collapsing the frame
--updates it.
 +the whole transcript). The floating status row and `ScrollToBottomButton`
-+translate upward by that amount, the transcript's tail spacer and the end
-+fade band grow by it (so the frame never covers the last rows). Unmounting
-+clears the offset; resizing or collapsing the frame updates it.
++translate upward by that amount, the end fade band grows by it and the
++transcript's tail spacer by its reserve twin `--chat-floating-panel-reserve`
++(equal to it except while a panel holds its room, see the question dock above;
++so the frame never covers the last rows), and the column carries
++`data-floating-panel` while any frame is mounted. The recap note ends the
++transcript above the tail spacer, so a docked frame never lands over it.
+ Unmounting clears the offset and the marker; resizing or collapsing the frame
+ updates it.
  
- ## Floating composer
- 
-@@ -374,16 +371,18 @@ fade sit in that gap, and a composer grown into it left the last line under
+@@ -515,16 +516,18 @@ fade sit in that gap, and a composer grown into it left the last line under
  the row. The rule and the resting
  height per column live in `state/composerTailInset.ts`; the mobile morph uses
  the same rule to announce how far the transcript's end moves, which is less
@@ -198,7 +176,7 @@ index b5c5162..e1279a7 100644
  The transcript's end fade is a band in the chat background over the
  scroller's end (`.chat-scroll-fade--end` in `index.css`; a mask on the
  scroller made the GPU recomposite the whole transcript every frame). It reads
-@@ -1496,7 +1495,7 @@ second half. The floating composer slot (`data-composer-slot="floating"`, in
+@@ -1848,7 +1851,7 @@ second half. The floating composer slot (`data-composer-slot="floating"`, in
  `ChatContainer`) is pinned for the tween at the height the transcript should
  see — the new one on expand, the old one on collapse — so its
  `ResizeObserver` publishes one final inset instead of chasing frames. The
@@ -208,7 +186,7 @@ index b5c5162..e1279a7 100644
  the keyboard choreography slides it as a mover and the morph moves it with the
  box's top edge through the individual `translate` property, so nothing above
 diff --git a/packages/ui/src/components/chat/composer/state/composerTailInset.test.ts b/packages/ui/src/components/chat/composer/state/composerTailInset.test.ts
-index 7f949fa..ecdbd38 100644
+index 7f949fa9b..ecdbd38ca 100644
 --- a/packages/ui/src/components/chat/composer/state/composerTailInset.test.ts
 +++ b/packages/ui/src/components/chat/composer/state/composerTailInset.test.ts
 @@ -28,19 +28,20 @@ describe('recordComposerSlotHeight', () => {
@@ -242,32 +220,26 @@ index 7f949fa..ecdbd38 100644
      });
  });
 diff --git a/packages/ui/src/components/chat/composer/state/composerTailInset.ts b/packages/ui/src/components/chat/composer/state/composerTailInset.ts
-index 5dca855..e7c3bf0 100644
+index f6c1ea309..221355085 100644
 --- a/packages/ui/src/components/chat/composer/state/composerTailInset.ts
 +++ b/packages/ui/src/components/chat/composer/state/composerTailInset.ts
-@@ -11,20 +11,26 @@
+@@ -1,6 +1,27 @@
  
- /**
-  * Gap between the last transcript row and the resting composer's top edge,
-- * on top of the status row reserve. Generous on purpose: the recap note and
-- * the rows docked above the composer (context chips, linked references, the
-- * queue) land in this band, and a follow glide that trails the live edge
-- * should still leave the last line clear of the glass.
++/**
++ * Gap between the last transcript row and the resting composer's top edge,
 + * on top of the status row reserve. Generous on purpose: the rows docked
 + * above the composer (context chips, linked references, the queue) land in
 + * this band, and a follow glide that trails the live edge should still leave
 + * the last line clear of the glass.
-  */
++ */
  export const FLOATING_COMPOSER_GAP_PX = 80;
- /**
-  * How far the composer grows above its resting height before it pushes the
-  * transcript. The visible band at rest is the gap plus the last turn's own
-  * bottom padding (about 104px); this leaves about 16px of it above the glass.
-- * The recap hint hides while the composer is grown, so nothing else needs
-- * the band.
++/**
++ * How far the composer grows above its resting height before it pushes the
++ * transcript. The visible band at rest is the gap plus the last turn's own
++ * bottom padding (about 104px); this leaves about 16px of it above the glass.
 + * The recap note ends the transcript above this band, so nothing else needs
 + * it.
-  */
++ */
  const FLOATING_COMPOSER_GROWTH_ALLOWANCE_PX = 88;
 +/**
 + * How far a composer grown past the allowance reaches into the gap above it,
@@ -275,20 +247,15 @@ index 5dca855..e7c3bf0 100644
 + * composer (the recap note) keeps this much clearance below itself.
 + */
 +export const FLOATING_COMPOSER_GROWTH_OVERHANG_PX = FLOATING_COMPOSER_GROWTH_ALLOWANCE_PX - FLOATING_COMPOSER_GAP_PX;
- /** Footer reserve before the floating composer slot has been measured. */
++/** Footer reserve before the floating composer slot has been measured. */
  const FLOATING_COMPOSER_DEFAULT_HEIGHT = 128;
  export const FLOATING_COMPOSER_DEFAULT_TAIL_INSET_PX = FLOATING_COMPOSER_DEFAULT_HEIGHT + FLOATING_COMPOSER_GAP_PX;
-@@ -38,26 +44,26 @@ export const resolveComposerTailInset = (restingHeight: number, height: number):
+ 
+@@ -11,18 +32,27 @@ export const resolveComposerTailInset = (restingHeight: number, height: number):
+     height + FLOATING_COMPOSER_GAP_PX - FLOATING_COMPOSER_GROWTH_ALLOWANCE_PX,
  );
  
- /**
-- * Records a measured slot height for the column and returns the tail inset
-- * and whether the composer is taller than at rest. A zero height (a slot not
-- * laid out yet) is not a resting composer, and neither is a slot that holds
-- * no composer or holds it pinned (`composer: false`: a subagent's read-only
-- * banner, the mobile comment composer, the pill morph's tween): kept as the
-- * floor, its shorter height left the composer "grown" until a reload. Such a
-- * slot is still measured against the known resting height.
++/**
 + * Records a measured slot height for the column and returns the tail inset. A
 + * zero height (a slot not laid out yet) is not a resting composer, and neither
 + * is a slot that holds no composer or holds it pinned (`composer: false`: a
@@ -296,7 +263,7 @@ index 5dca855..e7c3bf0 100644
 + * tween): kept as the floor, its shorter height left the resting height too
 + * high until a reload. Such a slot is still measured against the known resting
 + * height.
-  */
++ */
  export const recordComposerSlotHeight = (column: HTMLElement, height: number, composer = true) => {
      const previous = restingHeights.get(column);
      if (!composer) {
@@ -317,54 +284,24 @@ index 5dca855..e7c3bf0 100644
  
  export const forgetComposerSlot = (column: HTMLElement): void => {
 diff --git a/packages/ui/src/components/chat/composer/state/mobileComposerMorph.ts b/packages/ui/src/components/chat/composer/state/mobileComposerMorph.ts
-index 854e05e..894361d 100644
+index b42c458fa..72d00c2cc 100644
 --- a/packages/ui/src/components/chat/composer/state/mobileComposerMorph.ts
 +++ b/packages/ui/src/components/chat/composer/state/mobileComposerMorph.ts
-@@ -49,8 +49,8 @@ const PROMPT_SELECTOR = '[data-composer-morph-prompt]';
- /** The floating composer slot (ChatContainer); pinned for the tween. */
+@@ -9,6 +9,12 @@ export type ComposerMorphDirection = 'expand' | 'collapse';
+ const BOX_SELECTOR = '[data-composer-box]';
+ const PROMPT_SELECTOR = '[data-composer-morph-prompt]';
  const FLOATING_SLOT_SELECTOR = '[data-composer-slot="floating"]';
- /**
-- * The anchor on the slot's top edge that carries the status row, recap hint
-- * and scroll-to-end button. It follows the box's top edge through the tween
++/**
 + * The anchor on the slot's top edge that carries the status row and
 + * scroll-to-end button. It follows the box's top edge through the tween
-  * via the individual `translate` property, which composes with the keyboard
-  * slide's `transform` instead of replacing it.
-  */
-diff --git a/packages/ui/src/components/chat/composer/ui/ComposerFloatingPanel.tsx b/packages/ui/src/components/chat/composer/ui/ComposerFloatingPanel.tsx
-index 231bd36..0ef187d 100644
---- a/packages/ui/src/components/chat/composer/ui/ComposerFloatingPanel.tsx
-+++ b/packages/ui/src/components/chat/composer/ui/ComposerFloatingPanel.tsx
-@@ -14,7 +14,7 @@ interface ComposerFloatingPanelProps {
- }
++ * via the individual `translate` property, which composes with the keyboard
++ * slide's `transform` instead of replacing it.
++ */
+ const RIDERS_SELECTOR = '[data-composer-riders]';
+ const ARRIVING_CONTROLS_SELECTOR = '[data-chat-input-footer] .composer-mobile-actions > :not(:first-child)';
  
- /** Shared dock for the mutually exclusive BTW, permission, and form panels. */
--/** Panels mounted per chat column, so the marker survives an overlap. */
-+/** Panels mounted per chat column, so the clearance survives an overlap. */
- const mountedPanels = new WeakMap<HTMLElement, number>();
- 
- export function ComposerFloatingPanel({ header, children, compact = false, role, ariaLabel, maxHeight }: ComposerFloatingPanelProps) {
-@@ -24,10 +24,7 @@ export function ComposerFloatingPanel({ header, children, compact = false, role,
-         const panel = panelRef.current;
-         const column = panel?.closest<HTMLElement>('[data-composer-bound]');
-         if (!panel || !column) return;
--        // Marks the column while any panel is docked above the composer, so
--        // chrome that would end up over the panel (the recap hint) can hide.
-         mountedPanels.set(column, (mountedPanels.get(column) ?? 0) + 1);
--        column.setAttribute('data-floating-panel', 'true');
-         // The floating status/navigation overlays translate up by this
-         // offset, and the transcript's tail spacer grows by it so the panel
-         // never covers the last rows. Written onto those readers, not the
-@@ -47,7 +44,6 @@ export function ComposerFloatingPanel({ header, children, compact = false, role,
-             if (remaining <= 0) {
-                 withdrawFloatingPanelClearance(column);
-                 mountedPanels.delete(column);
--                column.removeAttribute('data-floating-panel');
-             } else {
-                 mountedPanels.set(column, remaining);
-             }
 diff --git a/packages/ui/src/styles/design-system.css b/packages/ui/src/styles/design-system.css
-index 68424db..d8c9e27 100644
+index f2665c21a..cd520eea8 100644
 --- a/packages/ui/src/styles/design-system.css
 +++ b/packages/ui/src/styles/design-system.css
 @@ -913,21 +913,6 @@ html[data-glass-redraw-guard] body::before {
@@ -390,7 +327,7 @@ index 68424db..d8c9e27 100644
    .oc-glass-popover,
    .oc-glass-tooltip,
 diff --git a/packages/ui/src/styles/mobile.css b/packages/ui/src/styles/mobile.css
-index 2d4276a..63003a3 100644
+index 2d4276a4a..63003a3e3 100644
 --- a/packages/ui/src/styles/mobile.css
 +++ b/packages/ui/src/styles/mobile.css
 @@ -843,13 +843,6 @@

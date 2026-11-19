@@ -52,7 +52,7 @@ index b1ef20947..38643046c 100644
 -  );
 -};
 diff --git a/packages/ui/src/apps/MobileSessionSwitcher.tsx b/packages/ui/src/apps/MobileSessionSwitcher.tsx
-index 5fb7525d1..dc558eaff 100644
+index 945fb2e16..ceaf5ba6a 100644
 --- a/packages/ui/src/apps/MobileSessionSwitcher.tsx
 +++ b/packages/ui/src/apps/MobileSessionSwitcher.tsx
 @@ -2,6 +2,7 @@ import React from 'react';
@@ -63,7 +63,7 @@ index 5fb7525d1..dc558eaff 100644
  import type { Session } from '@/lib/opencode/model';
  import type { SessionNode } from '@/components/session/sidebar/types';
  
-@@ -63,7 +64,12 @@ const SwitcherRow: React.FC<{
+@@ -65,7 +66,12 @@ const SwitcherRow: React.FC<{
            <span className="block truncate typography-micro text-muted-foreground">{meta}</span>
          ) : null}
        </span>
@@ -78,7 +78,7 @@ index 5fb7525d1..dc558eaff 100644
            state={turnActivity ?? 'unread'}
          />
 diff --git a/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx b/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx
-index 236164d3e..c110b1662 100644
+index 1a9985e6d..53f248ba6 100644
 --- a/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx
 +++ b/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx
 @@ -39,7 +39,8 @@ import { useSessionMarkedUnread, useSessionUnread } from '@/sync/session-unread'
@@ -91,7 +91,7 @@ index 236164d3e..c110b1662 100644
  import { MobileSessionRowActions, MobileSwipeActionsRow, ROW_ACTION_SLOT_WIDTH, ROW_ACTIONS_WIDTH } from '../MobileSessionSwipe';
  import { mobileSessionTitleClass } from '../mobileSessionTitle';
  import { usePendingRequests } from '../usePendingRequests';
-@@ -217,7 +218,7 @@ export const MobileSessionRow: React.FC<{
+@@ -228,7 +229,7 @@ export const MobileSessionRow: React.FC<{
              <MobileSessionGoalGlyph session={session} />
              {refMark(true)}
              {marks}
@@ -100,7 +100,7 @@ index 236164d3e..c110b1662 100644
            </span>
          </> : null}
        />
-@@ -241,7 +242,7 @@ export const MobileSessionRow: React.FC<{
+@@ -252,7 +253,7 @@ export const MobileSessionRow: React.FC<{
            <MobileSessionGoalGlyph session={session} />
            {refMark(false)}
            {marks}
@@ -311,7 +311,7 @@ index 000000000..4c46d11f4
 +  );
 +};
 diff --git a/packages/ui/src/components/session/SessionSwitcherDropdown.tsx b/packages/ui/src/components/session/SessionSwitcherDropdown.tsx
-index 5faef6d34..595929bda 100644
+index 4880e077d..1d4be0451 100644
 --- a/packages/ui/src/components/session/SessionSwitcherDropdown.tsx
 +++ b/packages/ui/src/components/session/SessionSwitcherDropdown.tsx
 @@ -11,6 +11,8 @@ import {
@@ -323,7 +323,7 @@ index 5faef6d34..595929bda 100644
  import { useWaitingBlink } from '@/hooks/useDurationTicker';
  import { useSessionUIStore } from '@/sync/session-ui-store';
  import { useSessionMarkedUnread, useSessionUnread } from '@/sync/session-unread';
-@@ -193,7 +195,10 @@ type SwitcherNodeProps = {
+@@ -195,7 +197,10 @@ type SwitcherNodeProps = {
  function SwitcherNode({ item, depth, variant, expandedParents, toggleParent, closeDropdown }: SwitcherNodeProps): React.ReactElement {
    const { node, secondaryMeta } = item;
    const session = node.session;
@@ -333,9 +333,9 @@ index 5faef6d34..595929bda 100644
 +  const childNodes = listedChildren(node);
 +  const hasChildren = childNodes.length > 0;
    const isExpanded = expandedParents.has(session.id);
- 
-   return (
-@@ -209,7 +214,7 @@ function SwitcherNode({ item, depth, variant, expandedParents, toggleParent, clo
+   // A folded row stands for its subsessions too: their waiting requests count
+   // here, exactly as the sidebar's collapsed rows count them.
+@@ -219,7 +224,7 @@ function SwitcherNode({ item, depth, variant, expandedParents, toggleParent, clo
          closeDropdown={closeDropdown}
        />
        {hasChildren && isExpanded
@@ -344,7 +344,7 @@ index 5faef6d34..595929bda 100644
              <SwitcherNode
                key={childNode.session.id}
                item={{ node: childNode, projectId: item.projectId, groupDirectory: item.groupDirectory, secondaryMeta }}
-@@ -341,7 +346,11 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
+@@ -356,7 +361,11 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
          ) : null}
        </div>
  
@@ -358,7 +358,7 @@ index 5faef6d34..595929bda 100644
            <SessionActivityIndicator
              state={turnActivity ?? 'unread'}
 diff --git a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-index 424a78b6e..7c39fc3ad 100644
+index 933aca0b5..05c6a7416 100644
 --- a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
 +++ b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
 @@ -350,7 +350,7 @@ no Shift.
@@ -374,7 +374,7 @@ index 424a78b6e..7c39fc3ad 100644
  structural list update does not make every row observe unrelated streaming
  updates.
  
--Session-row permission and form badges read the relevant directory-store buckets and show only whether something waits, without a count: one form can hold many questions, and a number that does not drop as the user answers them reads as wrong. A collapsed row covers its own pending requests and those of the descendants it hides; an expanded row covers only its own. Collapsed worktree, folder, group and run headers count their hidden sessions the same way, through `useCollapsedSessionActivityState`. The lookup never bootstraps a directory and never creates a store for one: it reads a store that already exists and leaves a directory nobody opened to the cross-directory index. Until a store's own request snapshots are ready, the row lookup also reads permissions and forms from that index, which the host seed fills at load, so a request already waiting in a project this client never opened still shows after a reload. Once they are ready, the store answers alone, so a form the index kept after a lost settlement stops showing. Mobile rows use the same lookup and icon-only badges: `MobileSessionRow` and `MobileSessionSwitcher` build their scopes with `selectBlockingBadgeSessionScopes`, the helper the desktop row uses, so a session resolves its directory the same way on every surface. The desktop header switcher renders no request badge, so it passes no scopes. A session with no known directory has no store to answer for it, so the index still counts there, on the phone as on the desktop. A page an agent shows that waits for the user's answer has no directory-store bucket, so the row lookup also reads it from the cross-directory index and shows it as a form.
+-Session-row permission and form badges read the relevant directory-store buckets and show only whether something waits, without a count: one form can hold many questions, and a number that does not drop as the user answers them reads as wrong. A collapsed row covers its own pending requests and those of the descendants it hides; an expanded row covers only its own. Collapsed worktree, folder, group and run headers count their hidden sessions the same way, through `useCollapsedSessionActivityState`. The lookup never bootstraps a directory and never creates a store for one: it reads a store that already exists and leaves a directory nobody opened to the cross-directory index. Until a store's own request snapshots are ready, the row lookup also reads permissions and forms from that index, which the host seed fills at load, so a request already waiting in a project this client never opened still shows after a reload. Once they are ready, the store answers alone, so a form the index kept after a lost settlement stops showing. Mobile rows use the same lookup and icon-only badges: `MobileSessionRow` and `MobileSessionSwitcher` build their scopes with `selectBlockingBadgeSessionScopes`, the helper the desktop row and switcher use, so a session resolves its directory the same way on every surface. A session with no known directory has no store to answer for it, so the index still counts there, on the phone as on the desktop. A page an agent shows that waits for the user's answer has no directory-store bucket, so the row lookup also reads it from the cross-directory index and shows it as a form.
 +Session-row permission and form badges read the relevant directory-store buckets and show only whether something waits, without a count: one form can hold many questions, and a number that does not drop as the user answers them reads as wrong. A collapsed row covers its own pending requests and those of the descendants it hides; an expanded row covers only its own. Collapsed worktree, folder, group and run headers count their hidden sessions the same way, through `useCollapsedSessionActivityState`. The lookup never bootstraps a directory and never creates a store for one: it reads a store that already exists and leaves a directory nobody opened to the cross-directory index. Until a store's own request snapshots are ready, the row lookup also reads permissions and forms from that index, which the host seed fills at load, so a request already waiting in a project this client never opened still shows after a reload. Once they are ready, the store answers alone, so a form the index kept after a lost settlement stops showing. Mobile rows use the same lookup and the same marks: `SessionPendingMarks` (`components/session/`) draws the permission shield and the question mark at the row-mark size, as bare glyphs with the label as a tooltip on a row and as the native title elsewhere. `MobileSessionRow`, `MobileSessionSwitcher`, the desktop switcher and the sidebar's rows all take it, and the mobile rows build their scopes with `selectBlockingBadgeSessionScopes`, the helper the desktop row and switcher use, so a session resolves its directory the same way on every surface. A session with no known directory has no store to answer for it, so the index still counts there, on the phone as on the desktop. A page an agent shows that waits for the user's answer has no directory-store bucket, so the row lookup also reads it from the cross-directory index and shows it as a form.
  
  A session row's menu and the header's session menus (a tab's, the title's)
