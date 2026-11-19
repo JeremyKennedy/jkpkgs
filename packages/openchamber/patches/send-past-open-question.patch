@@ -1,0 +1,511 @@
+diff --git a/packages/ui/src/components/chat/ChatInput.tsx b/packages/ui/src/components/chat/ChatInput.tsx
+index 4dc6dcb40..942587d90 100644
+--- a/packages/ui/src/components/chat/ChatInput.tsx
++++ b/packages/ui/src/components/chat/ChatInput.tsx
+@@ -2173,7 +2173,15 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+         const submitRuntimeKey = getRuntimeKey();
+         const queuedOnly = options?.queuedOnly ?? false;
+         const queuedMessageId = options?.queuedMessageId;
+-        const delivery = options?.delivery === 'steer' && sessionPhase !== 'idle' ? 'steer' : undefined;
++        // A pending form the composer shows is the agent waiting on the user,
++        // so the message joins that waiting turn (steer) and the form stays
++        // open and answerable. The session can read idle while its own form
++        // waits, so this cannot depend on `sessionPhase`. Local patch
++        // send-past-open-question: upstream (#6960) defers such a send
++        // instead; reconcile on upgrade. In btw mode the send goes to the fork,
++        // which the main chat's forms do not hold.
++        const hasShownPendingForm = !isBtwActive && pendingForms.length > 0;
++        const delivery = hasShownPendingForm || (options?.delivery === 'steer' && sessionPhase !== 'idle') ? 'steer' : undefined;
+         const capturedTarget = messageQueueTarget;
+         // Snapshot the draft and current-session identity before the first
+         // async gap so a later sidebar selection cannot reroute the send.
+@@ -2355,7 +2363,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+         }
+ 
+         // Auto-review owns the active workflow; follow-ups wait in its queue.
+-        if (currentSessionId && !queuedOnly && autoReviewRunning && !isBtwActive && !commandPlan) {
++        // A pending form keeps its turn open, so that send steers instead.
++        if (currentSessionId && !queuedOnly && autoReviewRunning && !isBtwActive && !commandPlan && !hasShownPendingForm) {
+             void handleQueueMessage();
+             return;
+         }
+@@ -2364,14 +2373,19 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+         // panel; the composer send goes straight to the fork (routeMessage
+         // queues if the fork's own turn is busy).
+         if (currentSessionId && !queuedOnly && !isBtwActive && !commandPlan) {
+-            // Sending is authoritative for blocking prompts: deny pending
+-            // permissions and dismiss the open forms that hold a turn in the
+-            // session subtree (a form whose tool call ended stays). The
+-            // deny/clear vanishes the card instantly (optimistic); rejecting
+-            // unblocks the agent's tool but does NOT end its turn.
++            // Sending is authoritative for pending permissions: deny them for
++            // the session subtree. The deny/clear vanishes the card instantly
++            // (optimistic); rejecting unblocks the agent's tool but does NOT
++            // end its turn.
++            //
++            // The forms the composer shows stay open: the message steers into
++            // the turn they wait on (see `delivery`), and cancelling them would
++            // stop that turn and lose the ask. Only the subtree's turn-holding
++            // forms the composer cannot show are cancelled (a form whose tool
++            // call ended stays either way).
+             const [deniedPermissions, dismissedForms] = await Promise.all([
+                 sessionActions.dismissOpenPermissionsForSession(currentSessionId),
+-                sessionActions.dismissOpenFormsForSession(currentSessionId),
++                sessionActions.dismissOpenFormsForSession(currentSessionId, { keep: pendingForms }),
+             ]);
+             // An explicit Steer goes straight to the session inbox, which
+             // takes it while the turn is still active. Any other send would
+@@ -2957,7 +2971,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+         if (isMobileCommentOpen()) return;
+         if (pendingFirstSend) return;
+         const inputSnapshot = getCurrentInputSnapshot();
+-        const canQueue = !isBtwActive && !isPageWaiting && inputMode === 'normal' && inputSnapshot.hasContent && currentSessionId && (currentSessionPhase !== 'idle' || autoReviewRunning);
++        // Queueing waits for the turn to end, and a pending form keeps the turn
++        // open until it is answered. Such a send goes into the waiting turn
++        // instead (handleSubmit steers it), leaving the form open.
++        const canQueue = !isBtwActive && !isPageWaiting && inputMode === 'normal' && inputSnapshot.hasContent && currentSessionId && (currentSessionPhase !== 'idle' || autoReviewRunning) && pendingForms.length === 0;
+         if (followUpBehavior === 'queue' && canQueue) {
+             void handleQueueMessage();
+         } else if (followUpBehavior === 'steer' && canQueue) {
+@@ -2965,7 +2982,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+         } else {
+             void handleSubmitRef.current();
+         }
+-    }, [inputMode, getCurrentInputSnapshot, currentSessionId, currentSessionPhase, autoReviewRunning, followUpBehavior, handleQueueMessage, isBtwActive, isPageWaiting, isMobileCommentOpen, pendingFirstSend]);
++    }, [inputMode, getCurrentInputSnapshot, currentSessionId, currentSessionPhase, autoReviewRunning, followUpBehavior, handleQueueMessage, isBtwActive, isPageWaiting, isMobileCommentOpen, pendingFirstSend, pendingForms.length]);
+ 
+     // Draft welcome presets: submit immediately.
+     const submitPresetPrompt = React.useCallback((text: string, type: 'command' | 'skill') => {
+@@ -3305,8 +3322,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+             // a turn runs Stop replaces the send button, so only Enter does it.
+ 
+             // Queueing / steering only works when there's an existing busy
+-            // session (or an active auto-review run).
+-            const canQueue = !isBtwActive && !isPageWaiting && inputMode === 'normal' && getCurrentInputSnapshot().hasContent && currentSessionId && (currentSessionPhase !== 'idle' || autoReviewRunning);
++            // session (or an active auto-review run). A pending form keeps the
++            // turn open, so its send steers instead of waiting in the queue.
++            const canQueue = !isBtwActive && !isPageWaiting && inputMode === 'normal' && getCurrentInputSnapshot().hasContent && currentSessionId && (currentSessionPhase !== 'idle' || autoReviewRunning) && pendingForms.length === 0;
+ 
+             if (followUpBehavior === 'queue') {
+                 if (isCtrlEnter || !canQueue) {
+diff --git a/packages/ui/src/components/chat/__tests__/ChatInput.pendingForm.test.tsx b/packages/ui/src/components/chat/__tests__/ChatInput.pendingForm.test.tsx
+new file mode 100644
+index 000000000..b6e59a14e
+--- /dev/null
++++ b/packages/ui/src/components/chat/__tests__/ChatInput.pendingForm.test.tsx
+@@ -0,0 +1,257 @@
++import { afterAll, afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
++import { plugin } from 'bun';
++import { readFileSync, readdirSync } from 'node:fs';
++import { dirname, resolve } from 'node:path';
++import { pathToFileURL } from 'node:url';
++import { Window } from 'happy-dom';
++import type { RuntimeAPIs } from '@/lib/api/types';
++import type { FormRequest, Session } from '@/lib/opencode/model';
++import type { AutoReviewRun } from '@/stores/useAutoReviewStore';
++
++// Local patch send-past-open-question: a send while the composer shows a
++// pending form joins the turn that waits on it (steer) and leaves the form
++// open, instead of cancelling it and queueing the message (upstream #6960
++// defers such a send instead).
++
++const browser = new Window({ url: 'http://localhost/' });
++Object.assign(globalThis, {
++  window: browser, document: browser.document, navigator: browser.navigator,
++  localStorage: browser.localStorage, sessionStorage: browser.sessionStorage,
++  ...Object.fromEntries(([
++    'Window', 'Node', 'Text', 'Element', 'HTMLElement', 'HTMLInputElement', 'HTMLTextAreaElement',
++    'HTMLFormElement', 'Range', 'Selection', 'DocumentFragment', 'Event', 'KeyboardEvent',
++    'MouseEvent', 'FocusEvent', 'InputEvent', 'CustomEvent', 'MutationObserver',
++    'ResizeObserver', 'IntersectionObserver', 'HTMLDivElement', 'HTMLSpanElement',
++    'SVGElement', 'ShadowRoot', 'CSSStyleSheet', 'DOMParser',
++  ] satisfies (keyof Window)[]).map((name) => [name, browser[name]])),
++  matchMedia: browser.matchMedia.bind(browser),
++  getComputedStyle: browser.getComputedStyle.bind(browser),
++  requestAnimationFrame: browser.requestAnimationFrame.bind(browser),
++  cancelAnimationFrame: browser.cancelAnimationFrame.bind(browser),
++  customElements: browser.customElements, IS_REACT_ACT_ENVIRONMENT: true,
++});
++
++const DIRECTORY = '/pending-form-fixture';
++const location = { directory: DIRECTORY, project: { id: 'project', directory: DIRECTORY, canonical: DIRECTORY } };
++// Backend data is isolated; the composer, its submit path and the sync stores are real.
++const responseFor = (input: RequestInfo | URL) => {
++  const path = new URL(input instanceof Request ? input.url : input.toString(), 'http://localhost/').pathname;
++  if (path === '/api/config/settings') return Response.json({ projects: [{ id: 'project', path: DIRECTORY }] });
++  if (path.endsWith('/event')) return new Response(new ReadableStream(), { headers: { 'content-type': 'text/event-stream' } });
++  if (path.endsWith('/location')) return Response.json(location);
++  if (path.endsWith('/session/active')) return Response.json({ data: {} });
++  const composerSession = /^\/api\/session\/(ses_form_\d+)$/.exec(path)?.[1];
++  if (composerSession) return Response.json({
++    location,
++    data: { ...session(composerSession), model: { providerID: 'provider', id: 'model' }, location: { directory: DIRECTORY } },
++  });
++  if (path === '/api/config') return Response.json([]);
++  if (path === '/api/project') return Response.json([]);
++  if (path.endsWith('/vcs')) return Response.json({ data: { branch: { current: 'main', default: 'main' } } });
++  if (path.endsWith('/session-warming')) return Response.json({ revision: 0, enabled: false, minutes: 60, sessions: [] });
++  return Response.json({ location, data: [] });
++};
++spyOn(globalThis, 'fetch').mockImplementation(async (input) => responseFor(input));
++
++// Match the Vite-only import transforms in the sibling real-composer tests.
++plugin({
++  name: 'composer-pending-form-vite-modules',
++  setup(build) {
++    build.onLoad({ filter: /useProviderLogo\.ts$/ }, ({ path }) => {
++      const directory = resolve(dirname(path), '../assets/provider-logos');
++      const logos = Object.fromEntries(readdirSync(directory).filter((name) => name.endsWith('.svg')).map((name) => [
++        `../assets/provider-logos/${name}`, pathToFileURL(resolve(directory, name)).href,
++      ]));
++      return { contents: readFileSync(path, 'utf8').replace(/import\.meta\.glob<string>\([\s\S]*?\);/, `${JSON.stringify(logos)};`), loader: 'ts' };
++    });
++  },
++});
++
++const { act } = await import('react');
++const { createRoot } = await import('react-dom/client');
++const { EditorView } = await import('@codemirror/view');
++const { I18nProvider } = await import('@/lib/i18n');
++const { ThemeSystemProvider } = await import('@/contexts/ThemeSystemContext');
++const { RuntimeAPIContext } = await import('@/contexts/runtimeAPIContext');
++const { ChatInput } = await import('../ChatInput');
++const { SyncProvider } = await import('@/sync/sync-context');
++const { useDirectoryStore } = await import('@/stores/useDirectoryStore');
++const { useConfigStore } = await import('@/stores/useConfigStore');
++const { useSessionUIStore } = await import('@/sync/session-ui-store');
++const { useProjectsStore } = await import('@/stores/useProjectsStore');
++const { useMessageQueueStore } = await import('@/stores/messageQueueStore');
++const { useAutoReviewStore } = await import('@/stores/useAutoReviewStore');
++const { OpenCode } = await import('@opencode/client');
++const { opencodeClient } = await import('@/lib/opencode/client');
++const { getSyncChildStores } = await import('@/sync/sync-refs');
++const { setOptimisticRefs } = await import('@/sync/session-actions');
++
++const sdk = OpenCode.make({ baseUrl: 'https://sync.test', fetch: async (request) => responseFor(request) });
++// SAFETY: Same minimal offline runtime as sibling composer integration tests.
++const runtimeAPIs = { runtime: { platform: 'web', isDesktop: false, isVSCode: false }, sourceControl: {} } as RuntimeAPIs;
++const session = (id: string, parentID?: string): Session => ({
++  id, title: id, directory: DIRECTORY, projectID: 'project', cost: 0, parentID,
++  tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
++  time: { created: 0, updated: 1 },
++});
++const question = (id: string, sessionID: string): FormRequest => ({
++  id, sessionID, title: 'Pick one', fields: [{ key: 'choice', type: 'boolean' }],
++});
++
++const yieldToEventLoop = () => new Promise((resolve) => setTimeout(resolve, 0));
++const settle = async () => {
++  for (let index = 0; index < 5; index++) await act(yieldToEventLoop);
++};
++
++type Composer = {
++  sessionId: string;
++  type: (text: string) => Promise<void>;
++  key: (key: string, init?: KeyboardEventInit) => Promise<void>;
++  clickSend: () => Promise<void>;
++  forms: (sessionId: string) => FormRequest[] | undefined;
++};
++
++type Fixture = {
++  /** Forms by session id, put in the composer's directory store. */
++  forms: (sessionId: string) => Record<string, FormRequest[]>;
++  /** A subagent child of the composer's session. */
++  child?: boolean;
++  busy?: boolean;
++};
++
++let composerCount = 0;
++const withComposer = async (fixture: Fixture, run: (composer: Composer) => Promise<void>) => {
++  useProjectsStore.setState({ projects: [{ id: 'project', path: DIRECTORY }] });
++  const sessionId = `ses_form_${++composerCount}`;
++  useDirectoryStore.setState({ currentDirectory: DIRECTORY });
++  useSessionUIStore.setState({
++    currentSessionId: sessionId,
++    currentSessionDirectory: DIRECTORY,
++    newSessionDraft: { ...useSessionUIStore.getState().newSessionDraft, open: false },
++  });
++  useConfigStore.setState({ currentProviderId: 'provider', currentModelId: 'model', isConnected: true, hasEverConnected: true });
++  const container = document.createElement('div');
++  document.body.append(container);
++  const root = createRoot(container);
++  try {
++    await act(async () => root.render(
++      <RuntimeAPIContext.Provider value={runtimeAPIs}><ThemeSystemProvider><I18nProvider>
++        <SyncProvider sdk={sdk} directory={DIRECTORY}>
++          <ChatInput />
++        </SyncProvider>
++      </I18nProvider></ThemeSystemProvider></RuntimeAPIContext.Provider>,
++    ));
++    await settle();
++    const store = getSyncChildStores().ensureChild(DIRECTORY, { bootstrap: false });
++    await act(async () => store.setState({
++      session: fixture.child ? [session(sessionId), session(`${sessionId}_child`, sessionId)] : [session(sessionId)],
++      sessionTotal: 1,
++      form: fixture.forms(sessionId),
++      session_status: fixture.busy ? { [sessionId]: { type: 'busy' } } : {},
++    }));
++    await settle();
++    const content = container.querySelector<HTMLElement>('.cm-content');
++    const view = content && EditorView.findFromDOM(content);
++    if (!view || !content) throw new Error('The real composer editor did not mount');
++    setOptimisticRefs(() => {}, () => {});
++    await run({
++      sessionId,
++      type: async (text) => {
++        await act(async () => view.dispatch({
++          changes: { from: 0, to: view.state.doc.length, insert: text },
++          selection: { anchor: text.length }, userEvent: 'input.type',
++        }));
++        await settle();
++      },
++      key: async (key, init) => {
++        await act(async () => content.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init })));
++        await settle();
++      },
++      clickSend: async () => {
++        await act(async () => container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
++        await settle();
++      },
++      forms: (id) => store.getState().form[id],
++    });
++  } finally {
++    await act(async () => root.unmount());
++    container.remove();
++  }
++};
++
++let send: ReturnType<typeof spyOn<ReturnType<typeof useSessionUIStore.getState>, 'sendMessage'>>;
++let queue: ReturnType<typeof spyOn<ReturnType<typeof useMessageQueueStore.getState>, 'addToQueue'>>;
++let cancel: ReturnType<typeof spyOn<typeof opencodeClient, 'cancelForm'>>;
++beforeEach(() => {
++  send = spyOn(useSessionUIStore.getState(), 'sendMessage').mockResolvedValue(undefined);
++  queue = spyOn(useMessageQueueStore.getState(), 'addToQueue').mockResolvedValue(undefined);
++  cancel = spyOn(opencodeClient, 'cancelForm').mockResolvedValue(true);
++});
++afterEach(() => {
++  send.mockRestore();
++  queue.mockRestore();
++  cancel.mockRestore();
++  useMessageQueueStore.setState({ followUpBehavior: 'steer' });
++  useAutoReviewStore.setState({ runs: {} });
++});
++afterAll(() => browser.close());
++
++// The options argument of useSessionUIStore.sendMessage.
++const deliveryOf = (call: unknown[] | undefined) => (call?.[9] as { delivery?: string } | undefined)?.delivery;
++
++test('a send while the session waits on its question steers into that turn and leaves the question open', async () => {
++  await withComposer({ forms: (id) => ({ [id]: [question('q-own', id)] }) }, async ({ sessionId, type, key, forms }) => {
++    await type('also do this');
++    await key('Enter');
++    expect(send.mock.calls.length).toBe(1);
++    expect(deliveryOf(send.mock.calls[0])).toBe('steer');
++    expect(cancel.mock.calls.length).toBe(0);
++    expect(queue.mock.calls.length).toBe(0);
++    expect(forms(sessionId)?.map((form) => form.id)).toEqual(['q-own']);
++  });
++});
++
++// A subagent's form leaves the parent's turn busy, the case where Queue used to take the send.
++for (const [label, press] of [
++  ['Enter', { key: 'Enter' }],
++  ['Ctrl+Enter', { key: 'Enter', ctrlKey: true }],
++  ['the send button', null],
++] as const) {
++  test(`with follow-ups set to queue, ${label} steers past a subagent's question instead of queueing`, async () => {
++    useMessageQueueStore.setState({ followUpBehavior: 'queue' });
++    await withComposer({ child: true, busy: true, forms: (id) => ({ [`${id}_child`]: [question('q-child', `${id}_child`)] }) }, async ({ sessionId, type, key, clickSend, forms }) => {
++      await type('a note for the agent');
++      if (press) await key(press.key, press);
++      else await clickSend();
++      expect(queue.mock.calls.length).toBe(0);
++      expect(send.mock.calls.length).toBe(1);
++      expect(deliveryOf(send.mock.calls[0])).toBe('steer');
++      expect(cancel.mock.calls.length).toBe(0);
++      expect(forms(`${sessionId}_child`)?.map((form) => form.id)).toEqual(['q-child']);
++    });
++  });
++}
++
++test('while auto-review runs, a send with a pending question steers instead of queueing', async () => {
++  await withComposer({ forms: (id) => ({ [id]: [question('q-review', id)] }) }, async ({ sessionId, type, key, forms }) => {
++    // SAFETY: the composer reads only `status` of its own run.
++    const run = { originalSessionID: sessionId, reviewSessionID: 'ses_review', directory: DIRECTORY, status: 'running' } as AutoReviewRun;
++    await act(async () => useAutoReviewStore.setState({ runs: { [`\n${sessionId}`]: run } }));
++    await type('while reviewing');
++    await key('Enter');
++    expect(queue.mock.calls.length).toBe(0);
++    expect(send.mock.calls.length).toBe(1);
++    expect(deliveryOf(send.mock.calls[0])).toBe('steer');
++    expect(forms(sessionId)?.map((form) => form.id)).toEqual(['q-review']);
++  });
++});
++
++test('without a pending form, a send to a busy session still queues when follow-ups are set to queue', async () => {
++  useMessageQueueStore.setState({ followUpBehavior: 'queue' });
++  await withComposer({ busy: true, forms: () => ({}) }, async ({ type, key }) => {
++    await type('later');
++    await key('Enter');
++    expect(send.mock.calls.length).toBe(0);
++    expect(queue.mock.calls.length).toBe(1);
++  });
++});
+diff --git a/packages/ui/src/components/chat/composer/DOCUMENTATION.md b/packages/ui/src/components/chat/composer/DOCUMENTATION.md
+index e6bdbe347..716e475c3 100644
+--- a/packages/ui/src/components/chat/composer/DOCUMENTATION.md
++++ b/packages/ui/src/components/chat/composer/DOCUMENTATION.md
+@@ -100,7 +100,7 @@ at the call would sit above the message it refers to, and a form with no tool
+ part (an MCP elicitation) has no call to sit at. The dock keeps one line
+ instead of disappearing: a reader who scrolled up gets no other sign of a new
+ question (no toast for the open session, no status row), and the next send
+-cancels a question the reader never saw. The line is not a collapsed
++steers into the turn that waits on a question the reader never saw. The line is not a collapsed
+ `FormDockPanel`, because that panel writes the shared draft from its own state
+ and would overwrite what the card saved. The full panel still shows beside or
+ instead of a card in three cases: a chat pinned in the side panel (see below),
+diff --git a/packages/ui/src/sync/DOCUMENTATION.md b/packages/ui/src/sync/DOCUMENTATION.md
+index 0b3dbd56e..514a5d141 100644
+--- a/packages/ui/src/sync/DOCUMENTATION.md
++++ b/packages/ui/src/sync/DOCUMENTATION.md
+@@ -1419,12 +1419,16 @@ A form reply resumes the turn, so `replyToForm` first puts the session on its co
+ 
+ A reply or cancel made while the connection is down is refused by `waitForConnectionOrThrow` before any request leaves, with a `ConnectionLostError` (`connection-lost-error.ts`) that keeps the last disconnect reason and whether the page ever connected. The form surfaces turn it into a translated "nothing was sent" toast through `connectionLostMessage` (`form-request-error.ts`), never "could not submit", and keep the answer so the same click retries; there is no automatic retry and the reconnect grace is the same as for sends. The error's English `message` stays for callers that show it as is (the composer, `/btw`).
+ 
+-A direct composer send (not a queued one, not a queue row's own Send) cancels the open forms of the session subtree that hold a turn through `dismissOpenFormsForSession`. A form holds its turn unless its `metadata.tool` link points at a tool part that completed or failed (`formTurnHold` in `recoverable-questions.ts`): a plugin that asks a deferred question posts its question and its tool call returns at once, so cancelling it would throw away a question nobody waits behind. Such a form stays open and answerable, the send is not queued for it, and the composer's phase ignores it (`useSessionActivity`), so a running turn keeps Stop and Queue. When the linked part is not in the store (its message lies before the loaded window), `useSessionActivity` reads that one message (`getSessionMessage`) as soon as it sees the form, and records a completed or failed answer in `releasedForms`, so the composer's phase is right before the first send; until the answer arrives the form keeps the composer idle. A failed read is tried again when the session's forms are refreshed (a reconnect or materialization resync), not in a loop. A send reads too when no answer is recorded, and shares a read already in flight on the same runtime instance; a read started before a runtime switch is never shared, even after switching back. A failed read or a missing part records nothing, and the send cancels the form as before. A form can sit in more than one directory store; the send decides once per session and form id over every copy, after its reads, and ended-call evidence from any copy (its store part or a recorded read) keeps the form open. A same-id form of another session is a different form, decided, removed and cancelled on its own. A runtime switch during a read stops the send's dismissal: nothing is removed or cancelled. That check covers the reads, not the cancel request itself, which resolves its target after the removal like any other `cancelForm` call. The cancelled forms are removed from the store before the cancel request so the card disappears at once. A not-found answer keeps them removed. Any other failure puts each form back into the store and session it came from: the agent is still waiting, and no event will return it. The mounted chat's form-only recovery would refetch the open session's own form, but a subagent's form shown in the parent chat has no other path back. Open permissions follow the same rule through `dismissOpenPermissionsForSession`, which rejects them: a not-found answer keeps them removed, any other failure puts each one back. Permissions have no in-chat recovery at all, so without the restore even the open session's own prompt stays hidden until a reconnect. A restored card can belong to a request the server already settled (its response was lost, or another client answered it); any reply from the card then comes back not-found, and `respondToPermission` removes it. The same cleanup applies to its other callers, VS Code auto-accept and the desktop tray's approve action.
++A direct composer send (not a queued one, not a queue row's own Send) while the composer shows a pending form leaves that form open: the card stays answerable and the message is steered into the waiting turn, even when the session reads idle, instead of being queued behind the form (also while auto-review runs, and for Enter, Ctrl+Enter and the send button alike). Cancelling the form would stop the turn and lose the ask. This is a local patch (`send-past-open-question`); upstream's later #6960 defers such a send instead, so an upgrade has to reconcile the two. The send passes the forms its composer shows to `dismissOpenFormsForSession` as `keep`, and cancels only the other open forms of the session subtree that hold a turn, the ones the composer cannot show (a subagent session held by another directory store). A form holds its turn unless its `metadata.tool` link points at a tool part that completed or failed (`formTurnHold` in `recoverable-questions.ts`): a plugin that asks a deferred question posts its question and its tool call returns at once, so cancelling it would throw away a question nobody waits behind. Such a form stays open and answerable, the send is not queued for it, and the composer's phase ignores it (`useSessionActivity`), so a running turn keeps Stop and Queue. When the linked part is not in the store (its message lies before the loaded window), `useSessionActivity` reads that one message (`getSessionMessage`) as soon as it sees the form, and records a completed or failed answer in `releasedForms`, so the composer's phase is right before the first send; until the answer arrives the form keeps the composer idle. A failed read is tried again when the session's forms are refreshed (a reconnect or materialization resync), not in a loop. A send reads too when no answer is recorded, and shares a read already in flight on the same runtime instance; a read started before a runtime switch is never shared, even after switching back. A failed read or a missing part records nothing, and the send cancels the form as before. A form can sit in more than one directory store; the send decides once per session and form id over every copy, after its reads, and ended-call evidence from any copy (its store part or a recorded read) keeps the form open. A same-id form of another session is a different form, decided, removed and cancelled on its own. A runtime switch during a read stops the send's dismissal: nothing is removed or cancelled. That check covers the reads, not the cancel request itself, which resolves its target after the removal like any other `cancelForm` call. The cancelled forms are removed from the store before the cancel request so the card disappears at once. A not-found answer keeps them removed. Any other failure puts each form back into the store and session it came from: the agent is still waiting, and no event will return it. The mounted chat's form-only recovery would refetch the open session's own form, but a subagent's form shown in the parent chat has no other path back. Open permissions follow the same rule through `dismissOpenPermissionsForSession`, which rejects them: a not-found answer keeps them removed, any other failure puts each one back. Permissions have no in-chat recovery at all, so without the restore even the open session's own prompt stays hidden until a reconnect. A restored card can belong to a request the server already settled (its response was lost, or another client answered it); any reply from the card then comes back not-found, and `respondToPermission` removes it. The same cleanup applies to its other callers, VS Code auto-accept and the desktop tray's approve action.
+ 
+ A lost question can be answered through a new paid turn in the asking session. `recoverable-questions.ts` captures only observed session-owned question forms with a tool link. Recovery requires that linked call's exact interruption error or a local interrupted-turn mark. A recorded interrupted or failed turn also grants that mark to stale active tools finalized by materialization under an already completed assistant message; the server's completed message stays unchanged. Explicit replies and local dismissals veto recovery; shutdown, still-running calls and unknown evidence do not qualify. Later authoritative tool transitions supersede local marks.
+ 
+ Recovery is memory-only and retains the last 100 captured questions together with their outcomes and tool dispositions. Closed questions remain tombstoned within that window; eviction forgets the question and its auxiliary records together. Session deletion clears its entries and runtime switching clears everything. These cards do not hold directories, protect caches or count as blocking requests. Both form surfaces warn about the new paid turn, use the normal send path with a per-request lock, and retain drafts after rejected sends. Recovered answers explicitly disable Goal Mode for their turn and leave the main composer's armed goal untouched.
+ 
++### Why a send steers past an open question
++
++Dismissing on send cancels the ask, which stops the turn, and the typed message then waits in the queue until that turn ends. Steering the message into the waiting turn keeps the ask and the message together, so the user can still answer the question and the model reads the message in the same turn. Pending permissions are still denied on send: a permission card is a gate on one tool call, not the agent asking the user something.
++
+ ### Why a send reads an unloaded tool call and not only the store
+ 
+ A form's tool part can lie before the loaded window, so the store alone cannot tell an ended deferred-question call from a running question. Taking a missing part as ended would leave a running question open and the send would wait behind it; taking it as running cancels the deferred question this rule keeps. One message read answers it from the server. The answer goes to `releasedForms` (memory-only, cleared on runtime switch), not into the message store, which would then hold parts of a message outside its window. An entry is keyed by session, form id and tool link, since a form id can be reused once the old form is gone. A tool call that ended never runs again, so an entry needs no revoking while its form is open; it goes when the form settles, or at the next recorded read once the form is no longer open in any store. A read that finishes after its form closed records nothing. Open forms bound the set, so there is no count cap that could drop an open form's answer.
+diff --git a/packages/ui/src/sync/session-actions.test.ts b/packages/ui/src/sync/session-actions.test.ts
+index 9393e7ebe..752f46f4e 100644
+--- a/packages/ui/src/sync/session-actions.test.ts
++++ b/packages/ui/src/sync/session-actions.test.ts
+@@ -4561,6 +4561,64 @@ describe("dismissOpenFormsForSession", () => {
+     expect(replyCalls.filter((call) => call.method === "form.cancel")).toHaveLength(0)
+   })
+ 
++  // Local patch send-past-open-question: the forms the composer shows stay in
++  // their turn, and the message steers into it (upstream #6960 defers instead).
++  test("keeps a form the composer shows open and cancels nothing for it, even while it holds the turn", async () => {
++    const form = buildLinkedForm("q-shown", "session-a")
++    const store = createStore({}, {
++      session: [sessionFixture("session-a")],
++      form: { "session-a": [form] },
++      part: { "msg-tool": [buildToolPart("q-shown", "session-a", "running")] },
++    })
++    sessionRecords.set("session-a", sessionFixture("session-a"))
++    const { setActionRefs, dismissOpenFormsForSession } = await import("./session-actions")
++    setActionRefs(createChildStores([["/test/project", store]]), () => "/test/project")
++
++    expect(await dismissOpenFormsForSession("session-a", { keep: [form] })).toBe(false)
++    expect(store.getState().form["session-a"]).toEqual([form])
++    expect(replyCalls.filter((call) => call.method === "form.cancel" || call.method === "session.message")).toHaveLength(0)
++  })
++
++  test("still cancels a subagent form the composer cannot show while keeping the shown one", async () => {
++    const rootForm = buildForm("q-root", "session-a")
++    const childForm = buildForm("q-child", "session-child")
++    const store = createStore({}, {
++      session: [sessionFixture("session-a")],
++      form: { "session-a": [rootForm] },
++    })
++    // The subagent's session lives in its own worktree store, which the composer does not read.
++    const worktreeStore = createStore({}, {
++      session: [{ ...sessionFixture("session-child"), parentID: "session-a" }],
++      form: { "session-child": [childForm] },
++    })
++    sessionRecords.set("session-a", sessionFixture("session-a"))
++    sessionRecords.set("session-child", { ...sessionFixture("session-child"), parentID: "session-a" })
++    const { setActionRefs, dismissOpenFormsForSession } = await import("./session-actions")
++    setActionRefs(createChildStores([["/test/project", store], ["/test/project/wt", worktreeStore]]), () => "/test/project")
++
++    expect(await dismissOpenFormsForSession("session-a", { keep: [rootForm] })).toBe(true)
++    expect(replyCalls.filter((call) => call.method === "form.cancel").map((call) => call.params.formID)).toEqual(["q-child"])
++    expect(store.getState().form["session-a"]).toEqual([rootForm])
++    expect(worktreeStore.getState().form["session-child"]).toBe(undefined)
++  })
++
++  test("keeps by session and form id, so a same-id form of another session is still cancelled", async () => {
++    const shown = buildForm("q-same", "session-a")
++    const other = buildForm("q-same", "session-child")
++    const store = createStore({}, {
++      session: [sessionFixture("session-a"), { ...sessionFixture("session-child"), parentID: "session-a" }],
++      form: { "session-a": [shown], "session-child": [other] },
++    })
++    for (const record of store.getState().session) sessionRecords.set(record.id, record)
++    const { setActionRefs, dismissOpenFormsForSession } = await import("./session-actions")
++    setActionRefs(createChildStores([["/test/project", store]]), () => "/test/project")
++
++    expect(await dismissOpenFormsForSession("session-a", { keep: [shown] })).toBe(true)
++    expect(replyCalls.filter((call) => call.method === "form.cancel").map((call) => call.params.sessionID)).toEqual(["session-child"])
++    expect(store.getState().form["session-a"]).toEqual([shown])
++    expect(store.getState().form["session-child"]).toBe(undefined)
++  })
++
+   test("reads an unloaded tool call once, and a completed one leaves the form open for the composer too", async () => {
+     const form = buildLinkedForm("q-old", "session-a")
+     // The question's message lies before the loaded window: no parts for it.
+diff --git a/packages/ui/src/sync/session-actions.ts b/packages/ui/src/sync/session-actions.ts
+index c53c330e7..973ec187f 100644
+--- a/packages/ui/src/sync/session-actions.ts
++++ b/packages/ui/src/sync/session-actions.ts
+@@ -3028,8 +3028,9 @@ function formCopiesHold(copies: readonly OpenFormCopy[]): "holds" | "released" |
+ /**
+  * Cancel the pending forms that hold a turn in the session subtree rooted at
+  * `sessionId` (the session itself plus any subagent children). Used by the
+- * chat send path: sending a message while such a form is open must supersede
+- * it so it cannot strand the session in a half-answered state. A form whose
++ * chat send path for the forms its composer cannot show (see `keep`): such a
++ * form must not linger unseen or strand the session in a half-answered state.
++ * A form whose
+  * tool call has ended (`formCopiesHold`) stays open and answerable. A runtime
+  * switch during a read stops the dismissal: nothing is removed or cancelled.
+  *
+@@ -3044,13 +3045,24 @@ function formCopiesHold(copies: readonly OpenFormCopy[]): "holds" | "released" |
+  * puts the form back: the agent is still waiting on it, and no event will bring
+  * it back (a subagent's form has no other recovery path, #2448).
+  *
+- * Rejecting unblocks the agent's tool without guaranteeing an idle session.
+- * The chat caller preserves explicit Steer as a direct send (the inbox takes
+- * it while the turn is still active) and queues other follow-ups after
+- * dismissal. This helper does not abort the session.
++ * `keep` names forms that stay open whatever their hold (matched by session and
++ * form id over every copy). The chat send passes the forms its composer shows:
++ * local patch send-past-open-question keeps such a question open in its turn
++ * and steers the message into that turn, so only forms the composer cannot
++ * show are cancelled here. Upstream (#6960) defers the send instead; reconcile
++ * the two on upgrade.
++ *
++ * Cancelling stops the turn the form waits on. The chat caller sends an
++ * explicit Steer, or any send while a shown form is pending, as a direct send
++ * (the inbox takes it while the turn is still active) and queues other
++ * follow-ups after dismissal. This helper does not abort the session.
+  */
+-export async function dismissOpenFormsForSession(sessionId: string): Promise<boolean> {
++export async function dismissOpenFormsForSession(
++  sessionId: string,
++  options?: { keep?: readonly Pick<FormRequest, "id" | "sessionID">[] },
++): Promise<boolean> {
+   if (!sessionId) return false
++  const keep = new Set((options?.keep ?? []).map((form) => `${form.sessionID}\u0000${form.id}`))
+   const stores = _childStores
+   if (!stores) return false
+ 
+@@ -3067,6 +3079,7 @@ export async function dismissOpenFormsForSession(sessionId: string): Promise<boo
+       for (const request of requests) {
+         // A form id is unique only within its session.
+         const formKey = `${scopedId}\u0000${request.id}`
++        if (keep.has(formKey)) continue
+         const copies = copiesByForm.get(formKey) ?? []
+         copies.push({ store, sessionId: scopedId, form: request })
+         copiesByForm.set(formKey, copies)
