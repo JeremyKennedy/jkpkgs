@@ -5,6 +5,10 @@ dev:
 upstream tag="":
     bash scripts/openchamber-upstream.sh --upstream "${OPENCHAMBER_UPSTREAM:-$HOME/dev/openchamber}" {{ if tag != "" { "--tag " + tag } else { "" } }}
 
+# One patch: does the tag already contain it, and what does it add (fresh tree per run)
+upstream-single patch tag="":
+    bash scripts/openchamber-upstream.sh --upstream "${OPENCHAMBER_UPSTREAM:-$HOME/dev/openchamber}" --single {{ patch }} {{ if tag != "" { "--tag " + tag } else { "" } }}
+
 # What still needs to go upstream, grouped by intent (offline, no checkout needed)
 upstream-backlog:
     bash scripts/openchamber-upstream.sh --backlog

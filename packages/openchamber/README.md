@@ -28,6 +28,33 @@ It exits non-zero when any patch needs a decision, so it belongs at the start
 of a base bump, before `source.nix` changes. Every patch must have a verdict
 before the queue moves.
 
+## Checking a single patch
+
+`just upstream <tag>` answers "does this patch survive the tag". When the
+question is narrower — "does the tag already contain this change, and what does
+the patch actually add" — ask for one patch:
+
+```
+just upstream-single image-viewer-zoom v2.7.3
+```
+
+It extracts the tag fresh, applies the queue prefix in `source.nix` order,
+applies the patch, and prints the diffstat that patch added plus whether it
+applied. Exit `0` means it applies and adds content; exit `2` means it does not
+apply, or applies and adds nothing — the real "already absorbed" signal.
+
+Each run has its own extraction and reads nothing from a previous one. That is
+the point of the mode: an absorb check run against a tree that already had
+patches applied reported a patch as absorbed twice, because the change was
+there before the check started. Here a leftover scratch tree or a patched
+`--upstream` checkout cannot supply the answer.
+
+A patch that needs its prefix is judged against the prefix tree, the same tree
+the whole-queue run builds, so `notification-family-clear` (written against
+`.js` server files the tag ships as `.ts`) fails as expected and the patches
+after it still apply. Add `--json` when calling the script directly for the same
+result as machine-readable fields.
+
 ## `upstream.json`
 
 One record per patch, and the reason each patch exists:
