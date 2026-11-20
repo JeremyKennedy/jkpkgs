@@ -28,6 +28,13 @@ It exits non-zero when any patch needs a decision, so it belongs at the start
 of a base bump, before `source.nix` changes. Every patch must have a verdict
 before the queue moves.
 
+A green `nix build .#checks.x86_64-linux.openchamber` proves the patches apply
+and the version smoke test passes. It does **not** typecheck the server: run
+`node packages/web/scripts/check-server-types.mjs` from the repository root of
+the patched tree, after a fresh frozen install, and compare the count against
+the same check on the bare tag. The tag is the baseline, and a bump is clean
+when the count matches it rather than when it is zero.
+
 ## `upstream.json`
 
 One record per patch, and the reason each patch exists:

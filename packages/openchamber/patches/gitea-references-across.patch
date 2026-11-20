@@ -22,59 +22,6 @@ index 0cb4e3a5a..2c4d03aba 100644
        startThread: false, reviewDrafts: true, reviewDraftFileComments: false, authorCanReview: false, projectUploads: false, issueCloseReason: false,
        issueEdit: true, changeRequestEdit: true, commentEdit: true,
        changeRequestTemplates: Object.freeze([
-diff --git a/packages/web/server/lib/gitea/mappers.js b/packages/web/server/lib/gitea/mappers.js
-index ff5fbacab..88b9ec9cf 100644
---- a/packages/web/server/lib/gitea/mappers.js
-+++ b/packages/web/server/lib/gitea/mappers.js
-@@ -70,10 +70,24 @@ const pullState = (value) => {
- 
- export const branchRepoId = (branch) => integer(branch?.repo_id) ?? integer(branch?.repo?.id);
- 
-+/**
-+ * The branch name of a pull request side. Forgejo answers `head.ref` as
-+ * `refs/pull/<n>/head` once the source branch is deleted, and keeps the real
-+ * name in `head.label`, so the label is preferred there.
-+ */
-+export const headBranch = (branch) => {
-+  const ref = text(branch?.ref);
-+  if (!ref) return '';
-+  const label = text(branch?.label);
-+  return /^refs\/pull\//.test(ref) && label ? label : ref;
-+};
-+
- export function mapGiteaPull(value, identity, project) {
-   if (!isPlainObject(value) || integer(value.number) === null || !text(value.title) || !text(value.html_url)) return null;
-   const state = pullState(value);
--  if (!state || !text(value.head?.ref) || !text(value.base?.ref)) return null;
-+  const head = headBranch(value.head);
-+  const base = text(value.base?.ref);
-+  if (!state || !head || !base) return null;
-   const request = {
-     ...identity,
-     id: `${project.id}#${value.number}`,
-@@ -82,9 +96,10 @@ export function mapGiteaPull(value, identity, project) {
-     title: value.title,
-     url: value.html_url,
-     state,
--    draft: value.draft === true || isDraftTitle(value.title),
--    base: value.base.ref,
--    head: value.head.ref,
-+    // A merged or closed pull request is not a draft, whatever its title still says.
-+    draft: state === 'open' && (value.draft === true || isDraftTitle(value.title)),
-+    base,
-+    head,
-   };
-   if (isString(value.body)) request.body = value.body;
-   if (text(value.head.sha)) request.headSha = value.head.sha;
-@@ -92,7 +107,7 @@ export function mapGiteaPull(value, identity, project) {
-   if (author) request.author = author;
-   if (text(value.created_at)) request.createdAt = value.created_at;
-   if (text(value.updated_at)) request.updatedAt = value.updated_at;
--  if (text(value.head.repo?.owner?.login)) request.headLabel = `${value.head.repo.owner.login}:${value.head.ref}`;
-+  if (text(value.head.repo?.owner?.login)) request.headLabel = `${value.head.repo.owner.login}:${head}`;
-   request.labels = mapLabels(value.labels);
-   if (state === 'open' && (value.mergeable === true || value.mergeable === false)) {
-     request.mergeable = value.mergeable;
 diff --git a/packages/web/server/lib/gitea/mappers.test.js b/packages/web/server/lib/gitea/mappers.test.js
 index b738f6eab..76945bb56 100644
 --- a/packages/web/server/lib/gitea/mappers.test.js
@@ -98,57 +45,47 @@ index b738f6eab..76945bb56 100644
    });
  
    it('maps a 1.21 pull request, which has no draft flag, by its title', () => {
-diff --git a/packages/web/server/lib/gitea/provider.js b/packages/web/server/lib/gitea/provider.js
-index 8a92d2fe3..7612db778 100644
---- a/packages/web/server/lib/gitea/provider.js
-+++ b/packages/web/server/lib/gitea/provider.js
-@@ -4,6 +4,7 @@ import { classifyGiteaFailure, createGiteaClient } from './client.js';
- import { giteaDescriptor } from './descriptor.js';
- import { createGtCli } from './gt-cli.js';
- import { createGiteaResourceService } from './resources.js';
-+import { readReferencesAcross, readReferencesAcrossRequest } from './references-across.js';
- import { normalizeSshUrl, parseSshUrl } from '../source-control/ssh-url.js';
- import { isForgejoVersion, probeGiteaVersion, verifyGiteaToken } from './verify.js';
+diff --git a/packages/web/server/lib/gitea/mappers.ts b/packages/web/server/lib/gitea/mappers.ts
+index 16231c4ca..d4301b1df 100644
+--- a/packages/web/server/lib/gitea/mappers.ts
++++ b/packages/web/server/lib/gitea/mappers.ts
+@@ -124,12 +124,24 @@ const pullState = (value: JsonObject) => {
+ export const branchRepoId = (branch: JsonValue | undefined) =>
+   integer(field(branch, 'repo_id')) ?? integer(field(field(branch, 'repo'), 'id'));
  
-@@ -212,6 +213,38 @@ export function createGiteaFamilyProvider({
-       readChangeRequestFile: ({ session, directory, number, sourceRepo, remote, path, previousPath, status, binary, linked }) => serviceFor(session)
-         .changeRequestFileContents(directory, number, { project: projectSelector(sourceRepo), remote, path, previousPath, status, binary, linked }),
-       liveSummaries: ({ session, refs, issueRefs }) => serviceFor(session).liveSummaries({ refs, issueRefs }),
-+      /**
-+       * The picker's search across a folder's repositories. One request spans
-+       * folders and so more than one session; each folder is validated and
-+       * read with its own account, as the GitHub search does.
-+       */
-+      referencesAcross: ({ body, validateReadContext }) => {
-+        const input = readReferencesAcrossRequest(body, descriptor.id);
-+        if (!input) {
-+          throw Object.assign(new Error('Invalid references request; at most 100 unique contexts are allowed'), { status: 400 });
-+        }
-+        return readReferencesAcross({
-+          input,
-+          providerId: descriptor.id,
-+          validateReadContext,
-+          resolveService: async (trusted) => {
-+            const session = await accounts.auth.resolveAccount({
-+              instance: trusted.instance,
-+              accountId: trusted.accountId,
-+            });
-+            return serviceFor(session);
-+          },
-+          // A token the host refuses is written off here too, as a refused
-+          // per-repository read does through the shell.
-+          onFolderFailure: async (error, identity) => {
-+            const status = error?.status ?? error?.response?.status;
-+            if (status !== 401 || error?.sourceControlAccountUnavailable) return;
-+            const account = error?.sourceControlIdentity ?? identity;
-+            if (!account?.accountId) return;
-+            await accounts.auth.invalidateAccount({ instance: account.instance, accountId: account.accountId });
-+          },
-+        });
-+      },
-       readChangeRequestHead: async ({ session, directory, remote, number }) => {
-         const { request, headProject } = await serviceFor(session).findChangeRequest(directory, number, null, remote);
-         const headSha = String(request.headSha || '').toLowerCase();
++/**
++ * The branch name of a pull request side. Forgejo answers `head.ref` as
++ * `refs/pull/<n>/head` once the source branch is deleted, and keeps the real
++ * name in `head.label`, so the label is preferred there.
++ */
++export const headBranch = (branch: JsonValue | undefined): string => {
++  const ref = field(branch, 'ref');
++  if (!nonEmptyText(ref)) return '';
++  const label = field(branch, 'label');
++  return /^refs\/pull\//.test(ref) && nonEmptyText(label) ? label : ref;
++};
++
+ export function mapGiteaPull(value: JsonValue | undefined, identity: GiteaIdentity, project: GiteaProject): GiteaPull | null {
+   if (!isJsonObject(value) || !nonNegativeInteger(value.number) || !nonEmptyText(value.title) || !nonEmptyText(value.html_url)) return null;
+   const state = pullState(value);
+   if (!state) return null;
+-  const head = field(value.head, 'ref');
+-  if (!nonEmptyText(head)) return null;
++  const head = headBranch(value.head);
++  if (!head) return null;
+   const base = field(value.base, 'ref');
+   if (!nonEmptyText(base)) return null;
+   const request: Omit<GiteaPull, 'labels'> = {
+@@ -140,7 +152,8 @@ export function mapGiteaPull(value: JsonValue | undefined, identity: GiteaIdenti
+     title: value.title,
+     url: value.html_url,
+     state,
+-    draft: value.draft === true || isDraftTitle(value.title),
++    // A merged or closed pull request is not a draft, whatever its title still says.
++    draft: state === 'open' && (value.draft === true || isDraftTitle(value.title)),
+     base,
+     head,
+   };
 diff --git a/packages/web/server/lib/gitea/provider.test.js b/packages/web/server/lib/gitea/provider.test.js
 index 0dc784ee6..fb5bbeb24 100644
 --- a/packages/web/server/lib/gitea/provider.test.js
@@ -254,481 +191,291 @@ index 0dc784ee6..fb5bbeb24 100644
    });
  });
  
-diff --git a/packages/web/server/lib/gitea/references-across.js b/packages/web/server/lib/gitea/references-across.js
-new file mode 100644
-index 000000000..a76eee878
---- /dev/null
-+++ b/packages/web/server/lib/gitea/references-across.js
-@@ -0,0 +1,464 @@
-+/**
-+ * The reference picker's search across a folder's repositories, for Gitea and
-+ * Forgejo. The board asks one provider for every repository under a project
-+ * folder; each folder arrives as its own bound read context.
-+ *
-+ * Gitea has no search that names a set of repositories, so a page is built by
-+ * reading the newest page of each folder's repository and merging them by
-+ * activity. That bounds a page to `MAX_PAGES_PER_REPO` pages per repository
-+ * (`4`, 200 items at Gitea's 50-item cap); deeper pages stop there rather than
-+ * pretend the folder holds nothing older. Pages are cached briefly so paging
-+ * does not read every repository again for each page.
-+ *
-+ * A pull request read through Gitea's issue search carries no head or base, so
-+ * only the items that land on the page are read as pull requests before they
-+ * are mapped. A repository with no remote on the instance is reported as
-+ * `no-repo`, a folder whose binding changed as `invalid-context`, and a gone
-+ * account as `disconnected`, the same statuses the GitHub search answers.
-+ */
-+
-+import { createHash } from 'node:crypto';
-+import { z } from 'zod';
-+import { isPlainObject, isString } from '../shared/guards.js';
-+import { mapLimited } from '../shared/map-limited.js';
-+import { headBranch, isDraftTitle } from './mappers.js';
-+
-+const PAGE_SIZE = 30;
-+// Gitea caps a page at `[api] MAX_RESPONSE_ITEMS` (50 by default).
-+const REPO_PAGE_LIMIT = 50;
-+const MAX_PAGES_PER_REPO = 4;
-+const ACROSS_CONCURRENCY = 4;
-+const DETAIL_CONCURRENCY = 4;
-+const BODY_PREVIEW_MAX = 20_000;
-+const CACHE_TTL_MS = 30_000;
-+const CACHE_MAX_ENTRIES = 400;
-+const MAX_CONTEXTS = 100;
-+
-+const integer = (value) => (Number.isInteger(value) ? value : null);
-+const text = (value) => (isString(value) && value.trim() ? value : null);
-+
-+const contextSchema = z.strictObject({
-+  directory: z.string().trim().min(1),
-+  repositoryId: z.string().min(1),
-+  provider: z.string().min(1),
-+  instance: z.string().min(1),
-+  accountId: z.string().min(1),
-+  bindingRevision: z.number().int().nonnegative(),
-+  primaryRemote: z.string().min(1),
-+});
-+
-+const requestSchema = z.strictObject({
-+  contexts: z.array(contextSchema),
-+  kind: z.enum(['issue', 'pull', 'discussion']),
-+  state: z.enum(['open', 'closed', 'merged', 'all', 'unanswered']).optional(),
-+  people: z.enum(['any', 'assigned', 'created', 'reviewRequested']).optional(),
-+  query: z.string().optional(),
-+  // The first page sends no cursor as null, like the single-repository list.
-+  cursor: z.string().max(100_000).nullable().optional(),
-+  // A forced read (the board's list refresh) skips the page cache.
-+  refresh: z.boolean().optional(),
-+});
-+
-+const invalidCursor = () => Object.assign(new Error('Invalid references cursor'), {
-+  status: 400, code: 'INVALID_REFERENCES_CURSOR',
-+});
-+
-+/** Validate the JSON read request before any folder or credential access. */
-+export function readReferencesAcrossRequest(body, providerId) {
-+  const parsed = requestSchema.safeParse(body);
-+  if (!parsed.success) return null;
-+  // One request goes to one provider; a context of another one is a caller bug.
-+  if (parsed.data.contexts.some((context) => context.provider !== providerId)) return null;
-+  const folders = new Map();
-+  for (const context of parsed.data.contexts) {
-+    if (!folders.has(context.directory)) folders.set(context.directory, context);
-+  }
-+  if (folders.size > MAX_CONTEXTS) return null;
-+  return {
-+    ...parsed.data,
-+    contexts: [...folders.values()],
-+    directories: parsed.data.contexts.map((context) => context.directory),
-+  };
-+}
-+
-+/**
-+ * The cursor is an offset into a result set plus a hash of the scope that set
-+ * was read for. The scope changes when a folder's binding, the kind, filters
-+ * or the query do; the cursor is then not an offset into what this request
-+ * would read, so the request starts again instead of showing a shifted window.
-+ */
-+const cursorScope = (input, kind, state, people, query) => createHash('sha256').update(JSON.stringify({
-+  provider: input.contexts.map((context) => [
-+    context.directory, context.repositoryId, context.bindingRevision, context.primaryRemote,
-+    context.instance, context.accountId,
-+  ]),
-+  kind,
-+  state,
-+  people,
-+  query,
-+})).digest('hex');
-+
-+const CURSOR = /^(\d+)\.([a-f0-9]{64})$/;
-+
-+const readCursor = (value, scope) => {
-+  if (value === null || value === undefined || value === '') return 0;
-+  const match = CURSOR.exec(value);
-+  if (!match) throw invalidCursor();
-+  const offset = Number(match[1]);
-+  if (!Number.isSafeInteger(offset)) throw invalidCursor();
-+  return match[2] === scope ? offset : 0;
-+};
-+
-+const NUMBERED = /^(\D{0,4})(\d+)$/u;
-+// An item's page on the instance: `/owner/repo/issues/12`,
-+// `/owner/repo/pulls/12`, with an optional trailing `/files`, `/commits`, ...
-+const ITEM_PATH = /^\/([^/]+)\/([^/]+)\/(?:issues|pulls)\/(\d+)(?:\/.*)?$/;
-+
-+/**
-+ * The one item a query names: `#12` or `12` (a bare number reads every asked
-+ * repository), or a link to an item on the instance. Anything else is a text
-+ * search. It mirrors the single-repository list's lookup, which also reads
-+ * the item rather than searching for its number.
-+ */
-+function parseReferenceLookup(query) {
-+  const trimmed = query.trim();
-+  const numbered = NUMBERED.exec(trimmed);
-+  if (numbered) {
-+    const prefix = numbered[1];
-+    const number = Number(numbered[2]);
-+    return (prefix === '' || prefix === '#') && Number.isSafeInteger(number) && number > 0 ? { number } : null;
-+  }
-+  if (!/^https?:\/\//i.test(trimmed)) return null;
-+  let url;
-+  try {
-+    url = new URL(trimmed);
-+  } catch {
-+    return null;
-+  }
-+  const match = ITEM_PATH.exec(decodeURIComponent(url.pathname));
-+  if (!match) return null;
-+  const number = Number(match[3]);
-+  if (!Number.isSafeInteger(number) || number <= 0) return null;
-+  return { number, host: url.origin.toLowerCase(), project: { owner: match[1], repo: match[2] } };
-+}
-+
-+const sameRepository = (repo, project) => repo.owner.toLowerCase() === project.owner.toLowerCase()
-+  && repo.name.toLowerCase() === project.repo.toLowerCase();
-+
-+const previewBody = (body) => {
-+  const value = isString(body) ? body : '';
-+  return value.length > BODY_PREVIEW_MAX
-+    ? { body: value.slice(0, BODY_PREVIEW_MAX), bodyTruncated: true }
-+    : { body: value, bodyTruncated: false };
-+};
-+
-+const authorOf = (raw) => {
-+  const login = text(raw?.user?.login);
-+  if (!login) return null;
-+  const avatarUrl = text(raw.user.avatar_url);
-+  return avatarUrl ? { login, avatarUrl } : { login };
-+};
-+
-+const labelsOf = (raw) => {
-+  if (!Array.isArray(raw?.labels)) return [];
-+  return raw.labels.flatMap((label) => {
-+    if (!isPlainObject(label) || !text(label.name)) return [];
-+    const mapped = { name: label.name };
-+    const color = text(label.color);
-+    if (color) mapped.color = color.replace(/^#/, '');
-+    return [mapped];
-+  });
-+};
-+
-+/** `source` is the folder's primary remote: an item read through `upstream` says so. */
-+const sourceRepoOf = (repo, source = 'origin') => ({ owner: repo.owner, repo: repo.name, source });
-+
-+/** One issue of the folder's repository as a picker item, or null when it does not map. */
-+export function issueReference(raw, repo, directory, source = 'origin') {
-+  if (!isPlainObject(raw) || integer(raw.number) === null || !text(raw.title) || !text(raw.html_url)) return null;
-+  if (raw.pull_request != null) return null;
-+  if (raw.state !== 'open' && raw.state !== 'closed') return null;
-+  return {
-+    kind: 'issue',
-+    number: raw.number,
-+    title: raw.title,
-+    url: raw.html_url,
-+    ...previewBody(raw.body),
-+    createdAt: text(raw.created_at),
-+    updatedAt: text(raw.updated_at),
-+    author: authorOf(raw),
-+    labels: labelsOf(raw),
-+    commentCount: integer(raw.comments) ?? 0,
-+    sourceRepo: sourceRepoOf(repo, source),
-+    // Gitea sends no close reason, so a closed issue reads as done.
-+    state: raw.state === 'open' ? 'open' : 'completed',
-+    directory,
-+  };
-+}
-+
-+const headRepoOf = (raw) => {
-+  const head = raw?.head?.repo;
-+  if (!isPlainObject(head)) return null;
-+  const owner = text(head.owner?.login);
-+  const name = text(head.name);
-+  if (!owner || !name || !text(head.html_url)) return null;
-+  const mapped = { owner, repo: name, url: head.html_url };
-+  const cloneUrl = text(head.clone_url);
-+  if (cloneUrl) mapped.cloneUrl = cloneUrl;
-+  const sshUrl = text(head.ssh_url);
-+  if (sshUrl) mapped.sshUrl = sshUrl;
-+  return mapped;
-+};
-+
-+/** One pull request of the folder's repository as a picker item, or null when it does not map. */
-+export function pullReference(raw, repo, directory, source = 'origin') {
-+  if (!isPlainObject(raw) || integer(raw.number) === null || !text(raw.title) || !text(raw.html_url)) return null;
-+  const head = headBranch(raw.head);
-+  if (!head || !text(raw.base?.ref) || !text(raw.head?.sha)) return null;
-+  const state = raw.merged === true ? 'merged' : raw.state;
-+  if (state !== 'open' && state !== 'closed' && state !== 'merged') return null;
-+  // Gitea's own work-in-progress prefixes (`[repository.pull-request] WORK_IN_PROGRESS_PREFIXES`).
-+  // A merged or closed pull request is not a draft, whatever its title still says.
-+  const draft = state === 'open' && (raw.draft === true || isDraftTitle(raw.title));
-+  return {
-+    kind: 'pull',
-+    number: raw.number,
-+    title: raw.title,
-+    url: raw.html_url,
-+    ...previewBody(raw.body),
-+    createdAt: text(raw.created_at),
-+    updatedAt: text(raw.updated_at),
-+    author: authorOf(raw),
-+    labels: labelsOf(raw),
-+    commentCount: integer(raw.comments) ?? 0,
-+    sourceRepo: sourceRepoOf(repo, source),
-+    state,
-+    draft,
-+    head,
-+    base: raw.base.ref,
-+    headSha: raw.head.sha,
-+    headRepo: headRepoOf(raw),
-+    directory,
-+  };
-+}
-+
-+const failureStatus = (error) => {
-+  if (error?.sourceControlAccountUnavailable) return 'disconnected';
-+  if ((error?.status ?? error?.response?.status) === 401) return 'disconnected';
-+  if (error?.code === 'SOURCE_CONTROL_NO_REPOSITORY') return 'no-repo';
-+  // A local Git or exec failure carries its exit status as a numeric `code`;
-+  // only this module's own codes are strings.
-+  const code = isString(error?.code) ? error.code : '';
-+  if (code.startsWith('SOURCE_CONTROL_BINDING_') || code.startsWith('SOURCE_CONTROL_LOCK_')
-+    || code === 'INVALID_SOURCE_CONTROL_READ_CONTEXT' || code === 'INVALID_SOURCE_CONTROL_BINDING') {
-+    return 'invalid-context';
-+  }
-+  return 'error';
-+};
-+
-+// Per-repository pages are read again for the next page of the same search;
-+// a short cache keeps paging from re-reading every repository each time.
-+const pageCache = new Map();
-+
-+/** Drop every cached page; tests use it between cases. */
-+export const resetReferencePageCache = () => pageCache.clear();
-+
-+const cachedPage = async (key, read, { refresh = false } = {}) => {
-+  const now = Date.now();
-+  if (!refresh) {
-+    const held = pageCache.get(key);
-+    if (held && now - held.at < CACHE_TTL_MS) return held.value;
-+  }
-+  const value = await read();
-+  pageCache.delete(key);
-+  pageCache.set(key, { at: now, value });
-+  while (pageCache.size > CACHE_MAX_ENTRIES) {
-+    pageCache.delete(pageCache.keys().next().value);
-+  }
-+  return value;
-+};
-+
-+const activity = (raw) => Date.parse(raw?.updated_at) || 0;
-+
-+/**
-+ * The board's search across the folder's repositories. `input` is
-+ * `readReferencesAcrossRequest`'s answer; `validateReadContext` returns the
-+ * trusted context for a folder, and `resolveService` the resource service
-+ * that reads it. `onFolderFailure` sees every folder failure with the
-+ * identity it was read under, so a refused account can be marked invalid.
-+ */
-+export async function readReferencesAcross({
-+  input, providerId, validateReadContext, resolveService, onFolderFailure,
-+}) {
-+  const kind = input.kind;
-+  const state = input.state ?? 'open';
-+  const people = input.people ?? 'any';
-+  const query = input.query?.trim() ?? '';
-+  const scope = cursorScope(input, kind, state, people, query);
-+  const offset = readCursor(input.cursor, scope);
-+  const refresh = input.refresh === true;
-+
-+  const folders = new Map();
-+  const services = new Map();
-+
-+  // A folder's failure is its own: the caller may mark a refused account, and
-+  // the status keeps the rest of the page answering.
-+  const failed = async (error, identity) => {
-+    if (onFolderFailure) await onFolderFailure(error, identity);
-+    return failureStatus(error);
-+  };
-+
-+  await mapLimited(input.contexts, ACROSS_CONCURRENCY, async (context) => {
-+    const directory = context.directory;
-+    let trusted;
-+    try {
-+      trusted = await validateReadContext({ ...context, provider: providerId });
-+    } catch (error) {
-+      folders.set(directory, { status: await failed(error, context) });
-+      return;
-+    }
-+    if (!trusted) {
-+      folders.set(directory, { status: 'invalid-context' });
-+      return;
-+    }
-+    try {
-+      const accountKey = `${trusted.instance ?? ''}|${trusted.accountId ?? ''}`;
-+      let service = services.get(accountKey);
-+      if (!service) {
-+        service = await resolveService(trusted);
-+        services.set(accountKey, service);
-+      }
-+      folders.set(directory, { trusted, service });
-+    } catch (error) {
-+      folders.set(directory, { status: await failed(error, trusted) });
-+    }
-+  });
-+
-+  const repositoriesOf = () => input.directories.map((directory) => {
-+    const entry = folders.get(directory);
-+    if (!entry || entry.status || !entry.repo) return { directory, status: entry?.status ?? 'error' };
-+    return {
-+      directory,
-+      status: 'included',
-+      repo: { owner: entry.repo.owner, repo: entry.repo.name, url: entry.repo.url },
-+    };
-+  });
-+
-+  // A link or a number names one item, as on the single-repository list: read
-+  // that item instead of searching for its text, and answer a one-item page.
-+  const lookup = kind === 'issue' || kind === 'pull' ? parseReferenceLookup(query) : null;
-+  if (lookup) {
-+    // A link names one host: folders on another instance cannot answer it, so
-+    // they are not read at all. A bare `#number` has no host and reads every
-+    // folder, as the single-repository list does.
-+    const asked = [...folders.entries()].filter(([, entry]) => {
-+      if (!lookup.host) return true;
-+      if (entry.status) return true;
-+      const host = String(entry.trusted.instance ?? '').toLowerCase();
-+      if (host && host !== lookup.host) {
-+        entry.status = 'invalid-context';
-+        return false;
-+      }
-+      return true;
-+    });
-+    const found = await mapLimited(asked, ACROSS_CONCURRENCY, async ([directory, entry]) => {
-+      if (entry.status) return null;
-+      try {
-+        const result = await entry.service.readReferenceItem(directory, {
-+          kind, number: lookup.number, remote: entry.trusted.primaryRemote,
-+        });
-+        entry.repo = result.repo;
-+        // A link names one host and one repository; a folder elsewhere, or
-+        // with another repository, still answers with its repository alone.
-+        if (lookup.host && lookup.host !== String(entry.trusted.instance ?? '').toLowerCase()) return null;
-+        if (!result.item) return null;
-+        if (lookup.project && !sameRepository(result.repo, lookup.project)) return null;
-+        const mapped = kind === 'pull'
-+          ? pullReference(result.item, result.repo, directory, entry.trusted.primaryRemote)
-+          : issueReference(result.item, result.repo, directory, entry.trusted.primaryRemote);
-+        return mapped;
-+      } catch (error) {
-+        entry.status = await failed(error, entry.trusted);
-+        return null;
-+      }
-+    });
-+    const items = found.filter(Boolean);
-+    return { items, cursor: null, hasMore: false, total: items.length, repositories: repositoriesOf() };
-+  }
-+
-+  // Enough pages per repository that the next window can be told to have
-+  // more, within the cap: one more page than the offset itself needs.
-+  const pages = Math.min(MAX_PAGES_PER_REPO, Math.floor((offset + PAGE_SIZE) / REPO_PAGE_LIMIT) + 1);
-+  const candidates = [];
-+
-+  await mapLimited([...folders.entries()], ACROSS_CONCURRENCY, async ([directory, entry]) => {
-+    if (entry.status) return;
-+    // A folder that fails on a later page contributes none of its rows: a
-+    // page that says the folder could not be read must not also show them.
-+    const local = [];
-+    try {
-+      for (let page = 1; page <= pages; page += 1) {
-+        const key = JSON.stringify([
-+          providerId, entry.trusted.instance ?? '', entry.trusted.accountId ?? '',
-+          directory, entry.trusted.repositoryId ?? '', entry.trusted.bindingRevision ?? 0,
-+          entry.trusted.primaryRemote ?? '', kind, state, people, query, page,
-+        ]);
-+        const result = await cachedPage(key, () => entry.service.listReferenceCandidates(directory, {
-+          kind, state, people, query, page, remote: entry.trusted.primaryRemote,
-+        }), { refresh });
-+        entry.repo ??= result.repo;
-+        for (const raw of result.items) {
-+          local.push({ raw, repo: result.repo, needsDetail: result.needsDetail === true, directory, entry });
+diff --git a/packages/web/server/lib/gitea/provider.ts b/packages/web/server/lib/gitea/provider.ts
+index ede4cda85..164a580b1 100644
+--- a/packages/web/server/lib/gitea/provider.ts
++++ b/packages/web/server/lib/gitea/provider.ts
+@@ -4,14 +4,16 @@ import { classifyGiteaFailure, createGiteaClient } from './client.js';
+ import { giteaDescriptor } from './descriptor.js';
+ import { createGtCli } from './gt-cli.js';
+ import { createGiteaResourceService } from './resources.js';
++import { readReferencesAcross, readReferencesAcrossRequest } from './references-across.js';
++import type { FolderFailure, ReferenceService, TrustedContext } from './references-across.js';
+ import { normalizeSshUrl, parseSshUrl } from '../source-control/ssh-url.js';
+ import { isForgejoVersion, probeGiteaVersion, verifyGiteaToken } from './verify.js';
+ import type { PatAccountAuthOptions } from '../source-control/pat-account-auth.js';
+ import type { createSourceControlAuthStore } from '../source-control/auth-storage.js';
+-import type { ProviderDescriptor, ProviderMutationContext, ProviderReadContext, ProviderSession } from '../source-control/provider-contract.js';
++import type { ProviderDescriptor, ProviderMutationContext, ProviderReadContext, ProviderSession, ReadContextRequest } from '../source-control/provider-contract.js';
+ import type { MutationRecord } from '../source-control/mutation-storage.js';
+ import type { StandardMutationInput } from '../source-control/standard-mutations.js';
+-import type { SourceControlMutationTarget } from '@openchamber/sdk';
++import type { SourceControlJson, SourceControlMutationTarget } from '@openchamber/sdk';
+ import type { BindingMutationTarget } from '../source-control/binding-service-contracts.js';
+ import type { GiteaFetch } from './client.js';
+ import type { GiteaResourceOptions } from './resources.js';
+@@ -309,7 +311,46 @@ export function createGiteaFamilyProvider(build: GiteaFamilyProviderOptions) {
+       readChangeRequestFile: ({ session, directory, number, sourceRepo, remote, path, previousPath, status, binary, linked }: PatchRead & Pick<Parameters<Service['changeRequestFileContents']>[2], 'path' | 'previousPath' | 'status' | 'binary'>) => serviceFor(session)
+         .changeRequestFileContents(directory, number, { project: projectSelector(sourceRepo), remote, path, previousPath, status, binary, linked }),
+       liveSummaries: ({ session, refs, issueRefs }: { session: ProviderSession } & Parameters<Service['liveSummaries']>[0]) => serviceFor(session).liveSummaries({ refs, issueRefs }),
+-      readChangeRequestHead: async ({ session, directory, remote, number }: NumberedRead) => {
++      /**
++       * The picker's search across a folder's repositories. One request spans
++       * folders and so more than one session; each folder is validated and
++       * read with its own account, as the GitHub search does.
++       */
++      referencesAcross: ({ body, validateReadContext }: {
++        body: SourceControlJson;
++        validateReadContext(context: ReadContextRequest): Promise<ProviderReadContext | null>;
++      }) => {
++        const input = readReferencesAcrossRequest(body, descriptor.id);
++        if (!input) {
++          throw Object.assign(new Error('Invalid references request; at most 100 unique contexts are allowed'), { status: 400 });
 +        }
-+        if (!result.hasMore) break;
-+      }
-+      if (!entry.repo) entry.status = 'no-repo';
-+      else candidates.push(...local);
-+    } catch (error) {
-+      entry.status = await failed(error, entry.trusted);
-+    }
-+  });
++        return readReferencesAcross({
++          input,
++          providerId: descriptor.id,
++          validateReadContext: async (context) => {
++            const trusted = await validateReadContext(context as ReadContextRequest);
++            if (!trusted) throw Object.assign(new Error('The read context is not valid'), { status: 400 });
++            return trusted;
++          },
++          resolveService: async (trusted: TrustedContext) => {
++            const session = await accounts.auth.resolveAccount({
++              instance: String(trusted.instance ?? ''),
++              accountId: String(trusted.accountId ?? ''),
++            });
++            return serviceFor(session) as unknown as ReferenceService;
++          },
++          // A token the host refuses is written off here too, as a refused
++          // per-repository read does through the shell.
++          onFolderFailure: async (error: FolderFailure, identity: TrustedContext) => {
++            const status = error?.status ?? error?.response?.status;
++            if (status !== 401 || error?.sourceControlAccountUnavailable) return;
++            const account = error?.sourceControlIdentity ?? identity;
++            if (!account?.accountId || !account.instance) return;
++            await accounts.auth.invalidateAccount({ instance: account.instance, accountId: account.accountId });
++          },
++        }) as Promise<object>;
++      },
++      readChangeRequestHead: async ({ session, directory, remote, number }) => {
+         const { request, headProject } = await serviceFor(session).findChangeRequest(directory, number, null, remote);
+         const headSha = String(request.headSha || '').toLowerCase();
+         if (!/^[0-9a-f]{40}$/.test(headSha)) {
+diff --git a/packages/web/server/lib/gitea/resources.ts b/packages/web/server/lib/gitea/resources.ts
+index 542460a52..10c98ac84 100644
+--- a/packages/web/server/lib/gitea/resources.ts
++++ b/packages/web/server/lib/gitea/resources.ts
+@@ -31,6 +31,19 @@ type Remote = string | null | undefined;
+ type Selector = Repository | null | undefined;
+ type NetworkOptions = { requireComplete?: boolean; linked?: boolean | undefined };
+ type ReadOptions = { remote?: Remote; linked?: boolean | undefined; project?: Selector };
 +
-+  candidates.sort((a, b) => {
-+    const byActivity = activity(b.raw) - activity(a.raw);
-+    return byActivity !== 0 ? byActivity : (integer(b.raw?.number) ?? 0) - (integer(a.raw?.number) ?? 0);
-+  });
++/** What the picker's across-repository search asks one folder's repository. */
++type ReferenceCandidateOptions = {
++  kind?: 'issue' | 'pull';
++  state?: 'open' | 'closed' | 'merged' | 'all' | 'unanswered';
++  people?: 'any' | 'assigned' | 'created' | 'reviewRequested';
++  query?: string;
++  page?: number;
++  remote?: Remote;
++};
 +
-+  const window = candidates.slice(offset, offset + PAGE_SIZE);
-+  const read = await mapLimited(window, DETAIL_CONCURRENCY, async (candidate) => {
-+    let raw = candidate.raw;
-+    if (candidate.needsDetail) {
++/** The picker's single-item lookup: a link or `#number`. */
++type ReferenceItemOptions = { kind?: 'issue' | 'pull'; number: number; remote?: Remote };
+ type Ref = { owner: string; repo: string; number: number };
+ type ListOptions = {
+   labels?: string[] | undefined;
+@@ -133,11 +146,28 @@ export function createGiteaResourceService({
+     const resolved = await resolveRepos(directory, origin, remote, { sshUrl });
+     const repos: Repo[] = [];
+     for (const candidate of resolved.repos) {
+-      const item = await showRepo({ owner: candidate.owner, name: candidate.name }, candidate.remoteName);
++      let item: Repo;
 +      try {
-+        raw = await candidate.entry.service.readPullDetail(
-+          candidate.directory, candidate.raw.number, candidate.entry.trusted.primaryRemote,
-+        );
++        item = await showRepo({ owner: candidate.owner, name: candidate.name }, candidate.remoteName);
 +      } catch (error) {
-+        const status = error?.status ?? error?.response?.status;
-+        // A pull request that moved or went away between the list and this
-+        // read is dropped from the page; anything else is not an empty page.
-+        if (status === 404 || status === 410) return null;
-+        if (status === 401) {
-+          candidate.entry.status = await failed(error, candidate.entry.trusted);
-+          return null;
-+        }
++        // A repository deleted or renamed on the instance is a remote this
++        // account can no longer read, not a read that broke: the folder reads
++        // as having no repository, as the module's documentation says.
++        const status = statusOf(error as Failure);
++        if (status === 404 || status === 410) continue;
 +        throw error;
 +      }
+       if (!repos.some((known) => known.project.id === item.project.id)) repos.push(item);
+     }
+     const [first, ...rest] = repos;
+-    if (!first) throw malformed(`No ${providerLabel} repository found for the repository remotes`);
++    if (!first) {
++      throw Object.assign(new Error(`No ${providerLabel} repository found for the repository remotes`), {
++        code: 'SOURCE_CONTROL_NO_REPOSITORY',
++        // `no repository` is a missing target, not a stale one (the shell's
++        // generic mutation answer for a coded error is 409).
++        status: 404,
++      });
 +    }
-+    const mapped = kind === 'pull'
-+      ? pullReference(raw, candidate.repo, candidate.directory, candidate.entry.trusted.primaryRemote)
-+      : issueReference(raw, candidate.repo, candidate.directory, candidate.entry.trusted.primaryRemote);
-+    return mapped ? { candidate, item: mapped } : null;
-+  });
-+  // A folder that a detail read wrote off (401) keeps its rows off the page too.
-+  const shown = candidates.filter((candidate) => !candidate.entry.status);
-+  const items = read.filter((entry) => entry && !entry.candidate.entry.status).map((entry) => entry.item);
+     return [first, ...rest];
+   };
+ 
+@@ -514,6 +544,98 @@ export function createGiteaResourceService({
+       return { items, page, hasMore: result.hasMore };
+     },
+ 
++    /**
++     * One page of raw issues or pull requests of the folder's repository, for
++     * the reference picker's search across repositories. Unlike the neutral
++     * lists above this keeps the host's own fields, so the picker's rows and
++     * preview get their branches, draft flag and comment count.
++     *
++     * Pull requests read the network's upstream, the repository
++     * `listChangeRequests` lists, while issues stay on the folder's own
++     * repository. A review request lives on the upstream's pull requests, so
++     * the owner-wide search is narrowed to that repository's id.
++     *
++     * Gitea's issue search answers a pull request without its head or base;
++     * `needsDetail` says the page has to read those pull requests before
++     * mapping them. The unfiltered pull list already carries them.
++     */
++    async listReferenceCandidates(directory: string, options: ReferenceCandidateOptions = {}) {
++      const page = options.page ?? 1;
++      const { primary, targets } = await network(directory, null, options.remote);
++      const target = options.kind === 'issue' ? primary : targets.at(-1);
++      if (!target) return { repo: null, items: [], hasMore: false };
++      const repo = target.project;
++      const state: string = (options.state && LIST_STATES[options.state]) ?? 'open';
++      if (options.kind === 'issue') {
++        const query: { type: string; state: string; q?: string | undefined; created_by?: string | null; assigned_by?: string | null } = { type: 'issues', state, q: options.query };
++        if (options.people === 'created') query.created_by = await readCurrentLogin();
++        if (options.people === 'assigned') query.assigned_by = await readCurrentLogin();
++        const result = await client.page(`${repoPath(repo)}/issues`, query, { page, limit: PAGE_LIMIT });
++        return {
++          repo,
++          items: result.items.filter((raw) => isPlainObject(raw) && raw.pull_request == null),
++          hasMore: result.hasMore,
++        };
++      }
++      if (options.people === 'any' && !options.query && options.state !== 'merged') {
++        const result = await client.page(`${repoPath(repo)}/pulls`, { state, sort: 'recentupdate' }, { page, limit: PAGE_LIMIT });
++        return { repo, items: result.items.filter(isPlainObject), hasMore: result.hasMore };
++      }
++      let result: { items: unknown[]; hasMore: boolean };
++      if (options.people === 'reviewRequested') {
++        // Only the cross-repository search filters on review requests; it is
++        // narrowed to the owner here and to the repository below.
++        result = await client.page('/repos/issues/search', {
++          type: 'pulls', state, q: options.query, owner: repo.owner, review_requested: true,
++        }, { page, limit: PAGE_LIMIT });
++        result.items = result.items.filter((item) => isPlainObject(item)
++          && isPlainObject((item as { repository?: unknown }).repository)
++          && Number(((item as { repository: { id?: unknown } }).repository).id) === target.raw.id);
++      } else {
++        const query: { type: string; state: string; q?: string | undefined; created_by?: string | null; assigned_by?: string | null } = { type: 'pulls', state, q: options.query };
++        if (options.people === 'created') query.created_by = await readCurrentLogin();
++        if (options.people === 'assigned') query.assigned_by = await readCurrentLogin();
++        result = await client.page(`${repoPath(repo)}/issues`, query, { page, limit: PAGE_LIMIT });
++        result.items = result.items.filter((raw) => isPlainObject(raw) && raw.pull_request != null);
++      }
++      if (options.state === 'merged') {
++        result.items = result.items.filter((raw) => isPlainObject(raw)
++          && isPlainObject(raw.pull_request) && raw.pull_request.merged === true);
++      }
++      return { repo, items: result.items, hasMore: result.hasMore, needsDetail: true };
++    },
 +
-+  const hasMore = shown.length > offset + PAGE_SIZE;
-+  return {
-+    items,
-+    cursor: hasMore ? `${offset + PAGE_SIZE}.${scope}` : null,
-+    hasMore,
-+    total: shown.length,
-+    repositories: repositoriesOf(),
-+  };
-+}
-diff --git a/packages/web/server/lib/gitea/references-across.test.js b/packages/web/server/lib/gitea/references-across.test.js
++    /** One pull request of the folder's repository, for a search hit that needs its head and base. */
++    async readPullDetail(directory: string, number: number, remote?: Remote) {
++      const { targets } = await network(directory, null, remote);
++      const target = targets.at(-1);
++      if (!target) return null;
++      return client.get(`${repoPath(target.project)}/pulls/${number}`);
++    },
++
++    /**
++     * One issue or pull request by number, for the picker's link or `#number`
++     * lookup. A number the repository does not have is `item: null` with the
++     * repository it was looked up in, so a link that names another repository
++     * is told apart from a read that failed.
++     */
++    async readReferenceItem(directory: string, options: ReferenceItemOptions) {
++      const { primary, targets } = await network(directory, null, options.remote);
++      const target = options.kind === 'issue' ? primary : targets.at(-1);
++      if (!target) return { repo: null, item: null };
++      const path = options.kind === 'issue' ? 'issues' : 'pulls';
++      try {
++        return {
++          repo: target.project,
++          item: await client.get(`${repoPath(target.project)}/${path}/${options.number}`),
++        };
++      } catch (error) {
++        const status = statusOf(error as Failure);
++        if (status === 404 || status === 410) return { repo: target.project, item: null };
++        throw error;
++      }
++    },
++
+     async getIssue(directory: string, number: number, selector?: Selector, remote?: Remote, { linked }: ReadOptions = {}) {
+       const { target } = await network(directory, selector, remote, { linked });
+       return requireIssue(await client.get(`${repoPath(target.project)}/issues/${number}`), target.project);
+diff --git a/packages/web/server/lib/source-control/provider-descriptors.test.js b/packages/web/server/lib/source-control/provider-descriptors.test.js
+index fbdb2e56d..690498378 100644
+--- a/packages/web/server/lib/source-control/provider-descriptors.test.js
++++ b/packages/web/server/lib/source-control/provider-descriptors.test.js
+@@ -76,13 +76,22 @@ describe('source control provider descriptors', () => {
+     expect(gitea.capabilities).toMatchObject({
+       merge: { methods: ['merge', 'squash', 'rebase'] },
+       reviewThreads: { start: false, reply: false, resolve: false },
+-      uploads: false, stacks: false, referencePicker: false,
++      uploads: false, stacks: false, referencePicker: true,
+     });
+     const published = publicProviderDescriptor(gitea, 2);
+     expect(published).toMatchObject({ id: 'gitea', auth: { methods: ['pat', 'cli'], cliName: 'gt', cliTransport: false }, instances: { defaultInstance: null } });
+     expect(published.icon.path).toMatch(/^[MmLlHhVvCcSsQqTtAaZz0-9eE.,\s+-]+$/);
+   });
+ 
++  it('lets Forgejo inherit the reference picker and the search across repositories', () => {
++    const forgejo = sourceControlProviderDescriptors.get('forgejo');
++
++    expect(forgejo.capabilities.referencePicker).toBe(true);
++    expect(publicProviderDescriptor(forgejo, 4).features).toMatchObject({
++      referenceSearch: false, referenceDetail: false, listStatuses: false, referencesAcross: true,
++    });
++  });
++
+   it('builds the origin every caller used to spell out per provider', () => {
+     expect(github.instance.origin('github.com').origin).toBe('https://github.com');
+     expect(github.instance.origin('ghe.example.com').origin).toBe('https://ghe.example.com');
+diff --git a/packages/web/server/lib/source-control/provider-publication-freeze.json b/packages/web/server/lib/source-control/provider-publication-freeze.json
+index ee42d75b4..577b8d5e3 100644
+--- a/packages/web/server/lib/source-control/provider-publication-freeze.json
++++ b/packages/web/server/lib/source-control/provider-publication-freeze.json
+@@ -285,7 +285,7 @@
+         "referenceSearch": false,
+         "referenceDetail": false,
+         "listStatuses": false,
+-        "referencesAcross": false,
++        "referencesAcross": true,
+         "reviewDraftFileComments": false,
+         "reviewDrafts": true,
+         "startThread": false,
+diff --git a/packages/web/server/lib/source-control/provider-routes.ts b/packages/web/server/lib/source-control/provider-routes.ts
+index 6ee84b39e..a2f26be1e 100644
+--- a/packages/web/server/lib/source-control/provider-routes.ts
++++ b/packages/web/server/lib/source-control/provider-routes.ts
+@@ -884,6 +884,9 @@ export function registerProviderRoutes(app: Router, {
+     route('post', '/references/across', 'referencePicker', async (req, res) => {
+       let impl;
+       try {
++        // A kind the descriptor turns off is the shell's own answer, the same
++        // 501 the single-repository list gives, not a provider failure.
++        if (!discussions && req.body?.kind === 'discussion') return unsupportedCapability(res);
+         impl = await loadImplementation(id);
+         const read = requireResource(impl, 'referencesAcross');
+         if (!(validateReadContext instanceof Function)) return res.status(501).json({ error: 'Bound source control read is unavailable' });
+diff --git a/packages/web/server/lib/gitea/references-across.test.ts b/packages/web/server/lib/gitea/references-across.test.ts
 new file mode 100644
 index 000000000..76ff72db8
 --- /dev/null
-+++ b/packages/web/server/lib/gitea/references-across.test.js
++++ b/packages/web/server/lib/gitea/references-across.test.ts
 @@ -0,0 +1,515 @@
 +import { beforeEach, describe, expect, it, vi } from 'vitest';
 +import {
@@ -1245,185 +992,545 @@ index 000000000..76ff72db8
 +    }
 +  });
 +});
-diff --git a/packages/web/server/lib/gitea/resources.js b/packages/web/server/lib/gitea/resources.js
-index ac0540558..47dcb7c78 100644
---- a/packages/web/server/lib/gitea/resources.js
-+++ b/packages/web/server/lib/gitea/resources.js
-@@ -65,10 +65,26 @@ export function createGiteaResourceService({
-     const resolved = await resolveRepos(directory, origin, remote, { sshUrl });
-     const repos = [];
-     for (const candidate of resolved.repos) {
--      const item = await showRepo({ owner: candidate.owner, name: candidate.name }, candidate.remoteName);
-+      let item;
-+      try {
-+        item = await showRepo({ owner: candidate.owner, name: candidate.name }, candidate.remoteName);
-+      } catch (error) {
-+        // A repository deleted or renamed on the instance is a remote this
-+        // account can no longer read, not a read that broke: the folder reads
-+        // as having no repository, as the module's documentation says.
-+        if (statusOf(error) === 404 || statusOf(error) === 410) continue;
-+        throw error;
-+      }
-       if (!repos.some((known) => known.project.id === item.project.id)) repos.push(item);
-     }
--    if (!repos.length) throw malformed(`No ${providerLabel} repository found for the repository remotes`);
-+    if (!repos.length) {
-+      throw Object.assign(new Error(`No ${providerLabel} repository found for the repository remotes`), {
-+        code: 'SOURCE_CONTROL_NO_REPOSITORY',
-+        // `no repository` is a missing target, not a stale one (the shell's
-+        // generic mutation answer for a coded error is 409).
-+        status: 404,
-+      });
+diff --git a/packages/web/server/lib/gitea/references-across.ts b/packages/web/server/lib/gitea/references-across.ts
+new file mode 100644
+index 000000000..4a5cc6feb
+--- /dev/null
++++ b/packages/web/server/lib/gitea/references-across.ts
+@@ -0,0 +1,536 @@
++/**
++ * The reference picker's search across a folder's repositories, for Gitea and
++ * Forgejo. The board asks one provider for every repository under a project
++ * folder; each folder arrives as its own bound read context.
++ *
++ * Gitea has no search that names a set of repositories, so a page is built by
++ * reading the newest page of each folder's repository and merging them by
++ * activity. That bounds a page to `MAX_PAGES_PER_REPO` pages per repository
++ * (`4`, 200 items at Gitea's 50-item cap); deeper pages stop there rather than
++ * pretend the folder holds nothing older. Pages are cached briefly so paging
++ * does not read every repository again for each page.
++ *
++ * A pull request read through Gitea's issue search carries no head or base, so
++ * only the items that land on the page are read as pull requests before they
++ * are mapped. A repository with no remote on the instance is reported as
++ * `no-repo`, a folder whose binding changed as `invalid-context`, and a gone
++ * account as `disconnected`, the same statuses the GitHub search answers.
++ */
++
++import { createHash } from 'node:crypto';
++import { z } from 'zod';
++import { isPlainObject, isString } from '../shared/guards.js';
++import { mapLimited } from '../shared/map-limited.js';
++import { headBranch, isDraftTitle } from './mappers.js';
++
++type JsonObject = Record<string, unknown>;
++type Raw = JsonObject | null | undefined;
++type RepoRef = { owner: string; name: string };
++type ProjectRef = { owner: string; repo: string };
++type Lookup = { number: number; host?: string; project?: ProjectRef };
++
++/** What this module needs of a folder's resource service. */
++export type ReferenceService = {
++  listReferenceCandidates(directory: string, options: {
++    kind: 'issue' | 'pull'; state: string; people: string; query: string; page: number; remote: string;
++  }): Promise<{ repo: RepoRef | null; items: JsonObject[]; hasMore: boolean; needsDetail?: boolean }>;
++  readPullDetail(directory: string, number: number, remote: string): Promise<unknown>;
++  readReferenceItem(directory: string, options: { kind: 'issue' | 'pull'; number: number; remote: string }): Promise<{ repo: RepoRef | null; item: unknown }>;
++};
++
++const PAGE_SIZE = 30;
++// Gitea caps a page at `[api] MAX_RESPONSE_ITEMS` (50 by default).
++const REPO_PAGE_LIMIT = 50;
++const MAX_PAGES_PER_REPO = 4;
++const ACROSS_CONCURRENCY = 4;
++const DETAIL_CONCURRENCY = 4;
++const BODY_PREVIEW_MAX = 20_000;
++const CACHE_TTL_MS = 30_000;
++const CACHE_MAX_ENTRIES = 400;
++const MAX_CONTEXTS = 100;
++
++const integer = (value: unknown): number | null => (Number.isInteger(value) ? value as number : null);
++const text = (value: unknown): string | null => (isString(value) && value.trim() ? value : null);
++
++const contextSchema = z.strictObject({
++  directory: z.string().trim().min(1),
++  repositoryId: z.string().min(1),
++  provider: z.string().min(1),
++  instance: z.string().min(1),
++  accountId: z.string().min(1),
++  bindingRevision: z.number().int().nonnegative(),
++  primaryRemote: z.string().min(1),
++});
++
++const requestSchema = z.strictObject({
++  contexts: z.array(contextSchema),
++  kind: z.enum(['issue', 'pull', 'discussion']),
++  state: z.enum(['open', 'closed', 'merged', 'all', 'unanswered']).optional(),
++  people: z.enum(['any', 'assigned', 'created', 'reviewRequested']).optional(),
++  query: z.string().optional(),
++  // The first page sends no cursor as null, like the single-repository list.
++  cursor: z.string().max(100_000).nullable().optional(),
++  // A forced read (the board's list refresh) skips the page cache.
++  refresh: z.boolean().optional(),
++});
++
++const invalidCursor = () => Object.assign(new Error('Invalid references cursor'), {
++  status: 400, code: 'INVALID_REFERENCES_CURSOR',
++});
++
++type AcrossContext = z.infer<typeof contextSchema>;
++type AcrossRequest = z.infer<typeof requestSchema>;
++type AcrossInput = AcrossRequest & { contexts: AcrossContext[]; directories: string[] };
++
++/** Validate the JSON read request before any folder or credential access. */
++export function readReferencesAcrossRequest(body: unknown, providerId: string): AcrossInput | null {
++  const parsed = requestSchema.safeParse(body);
++  if (!parsed.success) return null;
++  // One request goes to one provider; a context of another one is a caller bug.
++  if (parsed.data.contexts.some((context) => context.provider !== providerId)) return null;
++  const folders = new Map<string, AcrossContext>();
++  for (const context of parsed.data.contexts) {
++    if (!folders.has(context.directory)) folders.set(context.directory, context);
++  }
++  if (folders.size > MAX_CONTEXTS) return null;
++  return {
++    ...parsed.data,
++    contexts: [...folders.values()],
++    directories: parsed.data.contexts.map((context) => context.directory),
++  };
++}
++
++/**
++ * The cursor is an offset into a result set plus a hash of the scope that set
++ * was read for. The scope changes when a folder's binding, the kind, filters
++ * or the query do; the cursor is then not an offset into what this request
++ * would read, so the request starts again instead of showing a shifted window.
++ */
++const cursorScope = (input: AcrossInput, kind: string, state: string, people: string, query: string) => createHash('sha256').update(JSON.stringify({
++  provider: input.contexts.map((context) => [
++    context.directory, context.repositoryId, context.bindingRevision, context.primaryRemote,
++    context.instance, context.accountId,
++  ]),
++  kind,
++  state,
++  people,
++  query,
++})).digest('hex');
++
++const CURSOR = /^(\d+)\.([a-f0-9]{64})$/;
++
++const readCursor = (value: unknown, scope: string): number => {
++  if (value === null || value === undefined || value === '') return 0;
++  const match = CURSOR.exec(String(value));
++  if (!match) throw invalidCursor();
++  const offset = Number(match[1]);
++  if (!Number.isSafeInteger(offset)) throw invalidCursor();
++  return match[2] === scope ? offset : 0;
++};
++
++const NUMBERED = /^(\D{0,4})(\d+)$/u;
++// An item's page on the instance: `/owner/repo/issues/12`,
++// `/owner/repo/pulls/12`, with an optional trailing `/files`, `/commits`, ...
++const ITEM_PATH = /^\/([^/]+)\/([^/]+)\/(?:issues|pulls)\/(\d+)(?:\/.*)?$/;
++
++/**
++ * The one item a query names: `#12` or `12` (a bare number reads every asked
++ * repository), or a link to an item on the instance. Anything else is a text
++ * search. It mirrors the single-repository list's lookup, which also reads
++ * the item rather than searching for its number.
++ */
++function parseReferenceLookup(query: string): Lookup | null {
++  const trimmed = query.trim();
++  const numbered = NUMBERED.exec(trimmed);
++  if (numbered) {
++    const prefix = numbered[1];
++    const number = Number(numbered[2]);
++    return (prefix === '' || prefix === '#') && Number.isSafeInteger(number) && number > 0 ? { number } : null;
++  }
++  if (!/^https?:\/\//i.test(trimmed)) return null;
++  let url;
++  try {
++    url = new URL(trimmed);
++  } catch {
++    return null;
++  }
++  const match = ITEM_PATH.exec(decodeURIComponent(url.pathname));
++  if (!match) return null;
++  const number = Number(match[3]);
++  if (!Number.isSafeInteger(number) || number <= 0) return null;
++  const [, owner, repo] = match;
++  if (!owner || !repo) return null;
++  return { number, host: url.origin.toLowerCase(), project: { owner, repo } };
++}
++
++const sameRepository = (repo: RepoRef, project: ProjectRef): boolean => repo.owner.toLowerCase() === project.owner.toLowerCase()
++  && repo.name.toLowerCase() === project.repo.toLowerCase();
++
++const previewBody = (body: unknown): { body: string; bodyTruncated: boolean } => {
++  const value = isString(body) ? body : '';
++  return value.length > BODY_PREVIEW_MAX
++    ? { body: value.slice(0, BODY_PREVIEW_MAX), bodyTruncated: true }
++    : { body: value, bodyTruncated: false };
++};
++
++const authorOf = (raw: Raw): { login: string; avatarUrl?: string } | null => {
++  const user = isPlainObject(raw?.user) ? raw.user : null;
++  const login = text(user?.login);
++  if (!login) return null;
++  const avatarUrl = text(user?.avatar_url);
++  return avatarUrl ? { login, avatarUrl } : { login };
++};
++
++const labelsOf = (raw: Raw): { name: string; color?: string }[] => {
++  if (!Array.isArray(raw?.labels)) return [];
++  return raw.labels.flatMap((label) => {
++    if (!isPlainObject(label)) return [];
++    const name = text(label.name);
++    if (!name) return [];
++    const mapped: { name: string; color?: string } = { name };
++    const color = text(label.color);
++    if (color) mapped.color = color.replace(/^#/, '');
++    return [mapped];
++  });
++};
++
++/** `source` is the folder's primary remote: an item read through `upstream` says so. */
++const sourceRepoOf = (repo: RepoRef, source = 'origin'): { owner: string; repo: string; source: string } => ({ owner: repo.owner, repo: repo.name, source });
++
++/** One issue of the folder's repository as a picker item, or null when it does not map. */
++export function issueReference(raw: unknown, repo: RepoRef, directory: string, source = 'origin') {
++  if (!isPlainObject(raw) || integer(raw.number) === null || !text(raw.title) || !text(raw.html_url)) return null;
++  if (raw.pull_request != null) return null;
++  if (raw.state !== 'open' && raw.state !== 'closed') return null;
++  return {
++    kind: 'issue',
++    number: raw.number,
++    title: raw.title,
++    url: raw.html_url,
++    ...previewBody(raw.body),
++    createdAt: text(raw.created_at),
++    updatedAt: text(raw.updated_at),
++    author: authorOf(raw),
++    labels: labelsOf(raw),
++    commentCount: integer(raw.comments) ?? 0,
++    sourceRepo: sourceRepoOf(repo, source),
++    // Gitea sends no close reason, so a closed issue reads as done.
++    state: raw.state === 'open' ? 'open' : 'completed',
++    directory,
++  };
++}
++
++type HeadRepo = { owner: string; repo: string; url: string; cloneUrl?: string; sshUrl?: string };
++
++const headRepoOf = (raw: JsonObject): HeadRepo | null => {
++  const head = isPlainObject(raw.head) && isPlainObject(raw.head.repo) ? raw.head.repo : null;
++  if (!head) return null;
++  const ownerNode = isPlainObject(head.owner) ? head.owner : null;
++  const owner = text(ownerNode?.login);
++  const name = text(head.name);
++  const url = text(head.html_url);
++  if (!owner || !name || !url) return null;
++  const mapped: HeadRepo = { owner, repo: name, url };
++  const cloneUrl = text(head.clone_url);
++  if (cloneUrl) mapped.cloneUrl = cloneUrl;
++  const sshUrl = text(head.ssh_url);
++  if (sshUrl) mapped.sshUrl = sshUrl;
++  return mapped;
++};
++
++/** One pull request of the folder's repository as a picker item, or null when it does not map. */
++export function pullReference(raw: unknown, repo: RepoRef, directory: string, source = 'origin') {
++  if (!isPlainObject(raw) || integer(raw.number) === null || !text(raw.title) || !text(raw.html_url)) return null;
++  const headNode = isPlainObject(raw.head) ? raw.head : null;
++  const baseNode = isPlainObject(raw.base) ? raw.base : null;
++  const head = headBranch(headNode as never);
++  const baseRef = text(baseNode?.ref);
++  const headSha = text(headNode?.sha);
++  if (!head || !baseRef || !headSha) return null;
++  const state = raw.merged === true ? 'merged' : raw.state;
++  if (state !== 'open' && state !== 'closed' && state !== 'merged') return null;
++  // Gitea's own work-in-progress prefixes (`[repository.pull-request] WORK_IN_PROGRESS_PREFIXES`).
++  // A merged or closed pull request is not a draft, whatever its title still says.
++  const draft = state === 'open' && (raw.draft === true || isDraftTitle(String(raw.title)));
++  return {
++    kind: 'pull',
++    number: raw.number,
++    title: raw.title,
++    url: raw.html_url,
++    ...previewBody(raw.body),
++    createdAt: text(raw.created_at),
++    updatedAt: text(raw.updated_at),
++    author: authorOf(raw),
++    labels: labelsOf(raw),
++    commentCount: integer(raw.comments) ?? 0,
++    sourceRepo: sourceRepoOf(repo, source),
++    state,
++    draft,
++    head,
++    base: baseRef,
++    headSha,
++    headRepo: headRepoOf(raw),
++    directory,
++  };
++}
++
++export type TrustedContext = { instance?: string; accountId?: string; repositoryId?: string; bindingRevision?: number; primaryRemote?: string };
++
++export type FolderFailure = { sourceControlAccountUnavailable?: boolean; status?: number; response?: { status?: number }; code?: unknown; sourceControlIdentity?: { instance: string; accountId: string } } | null | undefined;
++
++const failureStatus = (error: FolderFailure): string => {
++  if (error?.sourceControlAccountUnavailable) return 'disconnected';
++  if ((error?.status ?? error?.response?.status) === 401) return 'disconnected';
++  if (error?.code === 'SOURCE_CONTROL_NO_REPOSITORY') return 'no-repo';
++  // A local Git or exec failure carries its exit status as a numeric `code`;
++  // only this module's own codes are strings.
++  const code = isString(error?.code) ? error.code : '';
++  if (code.startsWith('SOURCE_CONTROL_BINDING_') || code.startsWith('SOURCE_CONTROL_LOCK_')
++    || code === 'INVALID_SOURCE_CONTROL_READ_CONTEXT' || code === 'INVALID_SOURCE_CONTROL_BINDING') {
++    return 'invalid-context';
++  }
++  return 'error';
++};
++
++// Per-repository pages are read again for the next page of the same search;
++// a short cache keeps paging from re-reading every repository each time.
++const pageCache = new Map<string, { at: number; value: unknown }>();
++
++/** Drop every cached page; tests use it between cases. */
++export const resetReferencePageCache = () => pageCache.clear();
++
++const cachedPage = async <T>(key: string, read: () => Promise<T>, { refresh = false } = {}): Promise<T> => {
++  const now = Date.now();
++  if (!refresh) {
++    const held = pageCache.get(key);
++    if (held && now - held.at < CACHE_TTL_MS) return held.value as T;
++  }
++  const value = await read();
++  pageCache.delete(key);
++  pageCache.set(key, { at: now, value });
++  while (pageCache.size > CACHE_MAX_ENTRIES) {
++    const oldest = pageCache.keys().next().value;
++    if (oldest !== undefined) pageCache.delete(oldest);
++  }
++  return value;
++};
++
++const activity = (raw: JsonObject): number => {
++  const updated = text(raw.updated_at);
++  return updated ? Date.parse(updated) || 0 : 0;
++};
++
++/**
++ * The board's search across the folder's repositories. `input` is
++ * `readReferencesAcrossRequest`'s answer; `validateReadContext` returns the
++ * trusted context for a folder, and `resolveService` the resource service
++ * that reads it. `onFolderFailure` sees every folder failure with the
++ * identity it was read under, so a refused account can be marked invalid.
++ */
++export async function readReferencesAcross({
++  input, providerId, validateReadContext, resolveService, onFolderFailure,
++}: {
++  input: AcrossInput;
++  providerId: string;
++  validateReadContext: (context: AcrossContext & { provider: string }) => Promise<TrustedContext | null>;
++  resolveService: (trusted: TrustedContext) => Promise<ReferenceService>;
++  onFolderFailure?: (error: FolderFailure, identity: { instance?: string; accountId?: string }) => Promise<void>;
++}) {
++  const kind = input.kind;
++  const state = input.state ?? 'open';
++  const people = input.people ?? 'any';
++  const query = input.query?.trim() ?? '';
++  const scope = cursorScope(input, kind, state, people, query);
++  const offset = readCursor(input.cursor, scope);
++  const refresh = input.refresh === true;
++
++  const folders = new Map<string, { trusted?: TrustedContext; service?: ReferenceService; status?: string; repo?: RepoRef | null }>();
++  const services = new Map<string, ReferenceService>();
++
++  // A folder's failure is its own: the caller may mark a refused account, and
++  // the status keeps the rest of the page answering.
++  const failed = async (error: FolderFailure, identity: { instance?: string; accountId?: string }) => {
++    if (onFolderFailure) await onFolderFailure(error, identity);
++    return failureStatus(error);
++  };
++
++  await mapLimited(input.contexts, ACROSS_CONCURRENCY, async (item) => {
++    if (!item) return;
++    const context: AcrossContext = item;
++    const directory = context.directory;
++    let trusted;
++    try {
++      trusted = await validateReadContext({ ...context, provider: providerId });
++    } catch (error) {
++      folders.set(directory, { status: await failed(error as FolderFailure, context) });
++      return;
 +    }
-     return repos;
-   };
- 
-@@ -443,6 +459,93 @@ export function createGiteaResourceService({
-       return { items, page, hasMore: result.hasMore };
-     },
- 
-+    /**
-+     * One page of raw issues or pull requests of the folder's repository, for
-+     * the reference picker's search across repositories. Unlike the neutral
-+     * lists above this keeps the host's own fields, so the picker's rows and
-+     * preview get their branches, draft flag and comment count.
-+     *
-+     * Pull requests read the network's upstream, the repository
-+     * `listChangeRequests` lists, while issues stay on the folder's own
-+     * repository. A review request lives on the upstream's pull requests, so
-+     * the owner-wide search is narrowed to that repository's id.
-+     *
-+     * Gitea's issue search answers a pull request without its head or base;
-+     * `needsDetail` says the page has to read those pull requests before
-+     * mapping them. The unfiltered pull list already carries them.
-+     */
-+    async listReferenceCandidates(directory, options = {}) {
-+      const page = options.page ?? 1;
-+      const { primary, targets } = await network(directory, null, options.remote);
-+      const target = options.kind === 'issue' ? primary : targets.at(-1);
-+      const repo = target.project;
-+      const state = LIST_STATES[options.state] ?? 'open';
-+      if (options.kind === 'issue') {
-+        const query = { type: 'issues', state, q: options.query };
-+        if (options.people === 'created') query.created_by = await readCurrentLogin();
-+        if (options.people === 'assigned') query.assigned_by = await readCurrentLogin();
-+        const result = await client.page(`${repoPath(repo)}/issues`, query, { page, limit: PAGE_LIMIT });
-+        return {
-+          repo,
-+          items: result.items.filter((raw) => isPlainObject(raw) && raw.pull_request == null),
-+          hasMore: result.hasMore,
-+        };
++    if (!trusted) {
++      folders.set(directory, { status: 'invalid-context' });
++      return;
++    }
++    try {
++      const accountKey = `${trusted.instance ?? ''}|${trusted.accountId ?? ''}`;
++      let service = services.get(accountKey);
++      if (!service) {
++        service = await resolveService(trusted);
++        services.set(accountKey, service);
 +      }
-+      if (options.people === 'any' && !options.query && options.state !== 'merged') {
-+        const result = await client.page(`${repoPath(repo)}/pulls`, { state, sort: 'recentupdate' }, { page, limit: PAGE_LIMIT });
-+        return { repo, items: result.items.filter(isPlainObject), hasMore: result.hasMore };
-+      }
-+      let result;
-+      if (options.people === 'reviewRequested') {
-+        // Only the cross-repository search filters on review requests; it is
-+        // narrowed to the owner here and to the repository below.
-+        result = await client.page('/repos/issues/search', {
-+          type: 'pulls', state, q: options.query, owner: repo.owner, review_requested: true,
-+        }, { page, limit: PAGE_LIMIT });
-+        result.items = result.items.filter((item) => isPlainObject(item?.repository)
-+          && Number(item.repository.id) === target.raw.id);
-+      } else {
-+        const query = { type: 'pulls', state, q: options.query };
-+        if (options.people === 'created') query.created_by = await readCurrentLogin();
-+        if (options.people === 'assigned') query.assigned_by = await readCurrentLogin();
-+        result = await client.page(`${repoPath(repo)}/issues`, query, { page, limit: PAGE_LIMIT });
-+        result.items = result.items.filter((raw) => isPlainObject(raw) && raw.pull_request != null);
-+      }
-+      if (options.state === 'merged') {
-+        result.items = result.items.filter((raw) => raw.pull_request?.merged === true);
-+      }
-+      return { repo, items: result.items, hasMore: result.hasMore, needsDetail: true };
-+    },
-+
-+    /** One pull request of the folder's repository, for a search hit that needs its head and base. */
-+    async readPullDetail(directory, number, remote) {
-+      const { targets } = await network(directory, null, remote);
-+      const target = targets.at(-1);
-+      return client.get(`${repoPath(target.project)}/pulls/${number}`);
-+    },
-+
-+    /**
-+     * One issue or pull request by number, for the picker's link or `#number`
-+     * lookup. A number the repository does not have is `item: null` with the
-+     * repository it was looked up in, so a link that names another repository
-+     * is told apart from a read that failed.
-+     */
-+    async readReferenceItem(directory, options = {}) {
-+      const { primary, targets } = await network(directory, null, options.remote);
-+      const target = options.kind === 'issue' ? primary : targets.at(-1);
-+      const path = options.kind === 'issue' ? 'issues' : 'pulls';
-+      try {
-+        return {
-+          repo: target.project,
-+          item: await client.get(`${repoPath(target.project)}/${path}/${options.number}`),
-+        };
-+      } catch (error) {
-+        const status = statusOf(error);
-+        if (status === 404 || status === 410) return { repo: target.project, item: null };
-+        throw error;
-+      }
-+    },
-+
-     async getIssue(directory, number, selector, remote, { linked } = {}) {
-       const { target } = await network(directory, selector, remote, { linked });
-       return requireIssue(await client.get(`${repoPath(target.project)}/issues/${number}`), target.project);
-diff --git a/packages/web/server/lib/source-control/provider-descriptors.test.js b/packages/web/server/lib/source-control/provider-descriptors.test.js
-index fbdb2e56d..690498378 100644
---- a/packages/web/server/lib/source-control/provider-descriptors.test.js
-+++ b/packages/web/server/lib/source-control/provider-descriptors.test.js
-@@ -76,13 +76,22 @@ describe('source control provider descriptors', () => {
-     expect(gitea.capabilities).toMatchObject({
-       merge: { methods: ['merge', 'squash', 'rebase'] },
-       reviewThreads: { start: false, reply: false, resolve: false },
--      uploads: false, stacks: false, referencePicker: false,
-+      uploads: false, stacks: false, referencePicker: true,
-     });
-     const published = publicProviderDescriptor(gitea, 2);
-     expect(published).toMatchObject({ id: 'gitea', auth: { methods: ['pat', 'cli'], cliName: 'gt', cliTransport: false }, instances: { defaultInstance: null } });
-     expect(published.icon.path).toMatch(/^[MmLlHhVvCcSsQqTtAaZz0-9eE.,\s+-]+$/);
-   });
- 
-+  it('lets Forgejo inherit the reference picker and the search across repositories', () => {
-+    const forgejo = sourceControlProviderDescriptors.get('forgejo');
-+
-+    expect(forgejo.capabilities.referencePicker).toBe(true);
-+    expect(publicProviderDescriptor(forgejo, 4).features).toMatchObject({
-+      referenceSearch: false, referenceDetail: false, listStatuses: false, referencesAcross: true,
-+    });
++      folders.set(directory, { trusted, service });
++    } catch (error) {
++      folders.set(directory, { status: await failed(error as FolderFailure, trusted) });
++    }
 +  });
 +
-   it('builds the origin every caller used to spell out per provider', () => {
-     expect(github.instance.origin('github.com').origin).toBe('https://github.com');
-     expect(github.instance.origin('ghe.example.com').origin).toBe('https://ghe.example.com');
-diff --git a/packages/web/server/lib/source-control/provider-publication-freeze.json b/packages/web/server/lib/source-control/provider-publication-freeze.json
-index ee42d75b4..577b8d5e3 100644
---- a/packages/web/server/lib/source-control/provider-publication-freeze.json
-+++ b/packages/web/server/lib/source-control/provider-publication-freeze.json
-@@ -285,7 +285,7 @@
-         "referenceSearch": false,
-         "referenceDetail": false,
-         "listStatuses": false,
--        "referencesAcross": false,
-+        "referencesAcross": true,
-         "reviewDraftFileComments": false,
-         "reviewDrafts": true,
-         "startThread": false,
-diff --git a/packages/web/server/lib/source-control/provider-routes.js b/packages/web/server/lib/source-control/provider-routes.js
-index cd037e9a8..79a175ffa 100644
---- a/packages/web/server/lib/source-control/provider-routes.js
-+++ b/packages/web/server/lib/source-control/provider-routes.js
-@@ -787,6 +787,9 @@ export function registerProviderRoutes(app, {
-     route('post', '/references/across', 'referencePicker', async (req, res) => {
-       let impl;
-       try {
-+        // A kind the descriptor turns off is the shell's own answer, the same
-+        // 501 the single-repository list gives, not a provider failure.
-+        if (!discussions && req.body?.kind === 'discussion') return unsupportedCapability(res);
-         impl = await loadImplementation(id);
-         const read = requireResource(impl, 'referencesAcross');
-         if (!(validateReadContext instanceof Function)) return res.status(501).json({ error: 'Bound source control read is unavailable' });
++  const repositoriesOf = () => input.directories.map((directory) => {
++    const entry = folders.get(directory);
++    if (!entry || entry.status || !entry.repo) return { directory, status: entry?.status ?? 'error' };
++    return {
++      directory,
++      status: 'included',
++      repo: { owner: entry.repo.owner, repo: entry.repo.name, url: (entry.repo as RepoRef & { url?: string }).url },
++    };
++  });
++
++  // A link or a number names one item, as on the single-repository list: read
++  // that item instead of searching for its text, and answer a one-item page.
++  const lookup = kind === 'issue' || kind === 'pull' ? parseReferenceLookup(query) : null;
++  if (lookup) {
++    // A link names one host: folders on another instance cannot answer it, so
++    // they are not read at all. A bare `#number` has no host and reads every
++    // folder, as the single-repository list does.
++    const folderEntries = [...folders.entries()].filter((pair): pair is [string, NonNullable<typeof pair[1]>] => pair[1] !== undefined);
++    const asked = folderEntries.filter(([, entry]) => {
++      if (!lookup.host) return true;
++      if (entry.status) return true;
++      const host = String(entry.trusted?.instance ?? '').toLowerCase();
++      if (host && host !== lookup.host) {
++        entry.status = 'invalid-context';
++        return false;
++      }
++      return true;
++    });
++    const found = await mapLimited(asked, ACROSS_CONCURRENCY, async (pair) => {
++      if (!pair) return null;
++      const [directory, entry] = pair;
++      const trusted = entry.trusted ?? {};
++      const service = entry.service;
++      if (!service) return null;
++      if (entry.status) return null;
++      try {
++        const result = await service.readReferenceItem(directory, {
++          kind: kind === 'discussion' ? 'issue' : kind, number: lookup.number, remote: String(trusted.primaryRemote ?? 'origin'),
++        });
++        entry.repo = result.repo;
++        // A link names one host and one repository; a folder elsewhere, or
++        // with another repository, still answers with its repository alone.
++        if (lookup.host && lookup.host !== String(trusted.instance ?? '').toLowerCase()) return null;
++        if (!result.item) return null;
++        if (lookup.project && (!result.repo || !sameRepository(result.repo, lookup.project))) return null;
++        if (!result.repo) return null;
++        const mapped = kind === 'pull'
++          ? pullReference(result.item, result.repo, directory, String(trusted.primaryRemote ?? 'origin'))
++          : issueReference(result.item, result.repo, directory, String(trusted.primaryRemote ?? 'origin'));
++        return mapped;
++      } catch (error) {
++        entry.status = await failed(error as FolderFailure, trusted);
++        return null;
++      }
++    });
++    const items = found.filter(Boolean);
++    return { items, cursor: null, hasMore: false, total: items.length, repositories: repositoriesOf() };
++  }
++
++  // Enough pages per repository that the next window can be told to have
++  // more, within the cap: one more page than the offset itself needs.
++  const pages = Math.min(MAX_PAGES_PER_REPO, Math.floor((offset + PAGE_SIZE) / REPO_PAGE_LIMIT) + 1);
++  type Candidate = { raw: JsonObject; repo: RepoRef | null; needsDetail: boolean; directory: string; entry: NonNullable<typeof folders extends Map<string, infer V> ? V : never> };
++  const candidates: Candidate[] = [];
++
++  const pageEntries = [...folders.entries()].filter((pair): pair is [string, NonNullable<typeof pair[1]>] => pair[1] !== undefined);
++  await mapLimited(pageEntries, ACROSS_CONCURRENCY, async (pair) => {
++    if (!pair) return;
++    const [directory, entry] = pair;
++    const trusted = entry.trusted ?? {};
++    if (entry.status) return;
++    // A folder that fails on a later page contributes none of its rows: a
++    // page that says the folder could not be read must not also show them.
++    const local: Candidate[] = [];
++    try {
++      for (let page = 1; page <= pages; page += 1) {
++        const key = JSON.stringify([
++          providerId, entry.trusted?.instance ?? '', entry.trusted?.accountId ?? '',
++          directory, entry.trusted?.repositoryId ?? '', entry.trusted?.bindingRevision ?? 0,
++          entry.trusted?.primaryRemote ?? '', kind, state, people, query, page,
++        ]);
++        const service = entry.service;
++        const trusted = entry.trusted ?? {};
++        if (!service) throw Object.assign(new Error('No service for folder'), { code: 'SOURCE_CONTROL_NO_SERVICE' });
++        const candidateKind: 'issue' | 'pull' = kind === 'pull' ? 'pull' : 'issue';
++        const result = await cachedPage(key, () => service.listReferenceCandidates(directory, {
++          kind: candidateKind, state, people, query, page, remote: String(trusted.primaryRemote ?? 'origin'),
++        }), { refresh });
++        entry.repo ??= result.repo ?? null;
++        for (const raw of result.items) {
++          local.push({ raw, repo: result.repo, needsDetail: result.needsDetail === true, directory, entry });
++        }
++        if (!result.hasMore) break;
++      }
++      if (!entry.repo) entry.status = 'no-repo';
++      else candidates.push(...local);
++    } catch (error) {
++      entry.status = await failed(error as FolderFailure, entry.trusted ?? {});
++    }
++  });
++
++  candidates.sort((a, b) => {
++    const byActivity = activity(b.raw) - activity(a.raw);
++    return byActivity !== 0 ? byActivity : (integer(b.raw?.number) ?? 0) - (integer(a.raw?.number) ?? 0);
++  });
++
++  const window = candidates.slice(offset, offset + PAGE_SIZE);
++  const read = await mapLimited(window, DETAIL_CONCURRENCY, async (item) => {
++    if (!item) return null;
++    const candidate = item;
++    let raw: unknown = candidate.raw;
++    const detailService = candidate.entry?.service;
++    if (candidate.needsDetail && detailService) {
++      try {
++        raw = await detailService.readPullDetail(
++          candidate.directory, Number(candidate.raw.number), String(candidate.entry?.trusted?.primaryRemote ?? 'origin'),
++        );
++      } catch (error) {
++        const failure = error as FolderFailure;
++        const status = failure?.status ?? failure?.response?.status;
++        // A pull request that moved or went away between the list and this
++        // read is dropped from the page; anything else is not an empty page.
++        if (status === 404 || status === 410) return null;
++        if (status === 401) {
++          if (candidate.entry) candidate.entry.status = await failed(error as FolderFailure, candidate.entry.trusted ?? {});
++          return null;
++        }
++        throw error;
++      }
++    }
++    if (!candidate.repo) return null;
++    const remote = String(candidate.entry?.trusted?.primaryRemote ?? 'origin');
++    const mapped = kind === 'pull'
++      ? pullReference(raw, candidate.repo, candidate.directory, remote)
++      : issueReference(raw, candidate.repo, candidate.directory, remote);
++    return mapped ? { candidate, item: mapped } : null;
++  });
++  // A folder that a detail read wrote off (401) keeps its rows off the page too.
++  const shown = candidates.filter((candidate) => !candidate.entry?.status);
++  const items = read
++    .filter((entry): entry is NonNullable<typeof entry> => entry !== null && !entry.candidate.entry?.status)
++    .map((entry) => entry.item);
++
++  const hasMore = shown.length > offset + PAGE_SIZE;
++  return {
++    items,
++    cursor: hasMore ? `${offset + PAGE_SIZE}.${scope}` : null,
++    hasMore,
++    total: shown.length,
++    repositories: repositoriesOf(),
++  };
++}

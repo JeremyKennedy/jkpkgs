@@ -1,5 +1,5 @@
 diff --git a/packages/web/server/lib/notifications/DOCUMENTATION.md b/packages/web/server/lib/notifications/DOCUMENTATION.md
-index 157c04e37..3d6f83c12 100644
+index 6e00f8410..22b31574e 100644
 --- a/packages/web/server/lib/notifications/DOCUMENTATION.md
 +++ b/packages/web/server/lib/notifications/DOCUMENTATION.md
 @@ -40,7 +40,7 @@ This module provides notification message preparation utilities for the web serv
@@ -30,7 +30,7 @@ index 157c04e37..3d6f83c12 100644
  
  - **Nothing stale is sent.** A notification claims its tag before its text is prepared (`claimPushTag`), and a cause handled meanwhile takes the claim away, so the push is dropped: a form or page that settles inside the 500 ms debounce or while the session name is read, a permission replied to during the auto-accept lookup or later. A notification is also dropped when the session's notifications were cleared (`sessionClearedAt`) after its turn ended or its ask arrived.
 diff --git a/packages/web/server/lib/notifications/routes.ts b/packages/web/server/lib/notifications/routes.ts
-index 82a555522..0230ee9a7 100644
+index 82f1625c7..041bd4a39 100644
 --- a/packages/web/server/lib/notifications/routes.ts
 +++ b/packages/web/server/lib/notifications/routes.ts
 @@ -38,7 +38,7 @@ interface NotificationRouteDependencies extends Pick<PushRuntime,
@@ -51,15 +51,15 @@ index 82a555522..0230ee9a7 100644
  
      return res.json({
        success: true,
-diff --git a/packages/web/server/lib/notifications/runtime.js b/packages/web/server/lib/notifications/runtime.js
-index 69b0cfa5b..0561c0833 100644
---- a/packages/web/server/lib/notifications/runtime.js
-+++ b/packages/web/server/lib/notifications/runtime.js
-@@ -211,7 +211,14 @@ export const createNotificationTriggerRuntime = (deps) => {
+diff --git a/packages/web/server/lib/notifications/runtime.ts b/packages/web/server/lib/notifications/runtime.ts
+index 952af66b2..c7870c192 100644
+--- a/packages/web/server/lib/notifications/runtime.ts
++++ b/packages/web/server/lib/notifications/runtime.ts
+@@ -403,7 +403,14 @@ export const createNotificationTriggerRuntime = (deps: NotificationTriggerDepend
      shareAnswerBatch = null;
    };
  
--  const clearSessionPushNotifications = async (sessionId, { turnStart = false } = {}) => {
+-  const clearSessionPushNotifications = async (sessionId: string, { turnStart = false } = {}) => {
 +  /**
 +   * Every notification about this session is handled: the user saw it or it
 +   * moved on. On a turn start (`turnStart`), a notification marked
@@ -67,11 +67,11 @@ index 69b0cfa5b..0561c0833 100644
 +   * stays once and loses the mark; the next turn, a view or a message clears it.
 +   * A view (`withSubagents`) goes on to the session's subagents.
 +   */
-+  const clearSessionPushNotifications = async (sessionId, { turnStart = false, withSubagents = false } = {}) => {
++  const clearSessionPushNotifications = async (sessionId: string, { turnStart = false, withSubagents = false } = {}) => {
      if (!sessionId) return;
      sessionClearedAt.delete(sessionId);
      sessionClearedAt.set(sessionId, Date.now());
-@@ -229,6 +236,125 @@ export const createNotificationTriggerRuntime = (deps) => {
+@@ -421,6 +428,125 @@ export const createNotificationTriggerRuntime = (deps: NotificationTriggerDepend
        tags.push(tag);
      }
      clearPushTags(tags);
@@ -196,7 +196,7 @@ index 69b0cfa5b..0561c0833 100644
 +    }
    };
  
-   const genericTitleOf = (payload) => genericNotificationTitle(payload?.data?.type);
+   const genericTitleOf = (payload: TriggerPushPayload) => genericNotificationTitle(payload.data.type);
 diff --git a/packages/web/server/lib/notifications/trigger-runtime.test.js b/packages/web/server/lib/notifications/trigger-runtime.test.js
 index a8052ac6a..8edfb28bf 100644
 --- a/packages/web/server/lib/notifications/trigger-runtime.test.js
@@ -445,11 +445,11 @@ index a8052ac6a..8edfb28bf 100644
    it('sends no clearing push for a notification the phones never got, but still drops it in browsers', async () => {
      const { runtime, sendPushToAllUiSessions, clearApnsNotifications } = makeClearRuntime({ desktopVisible: true });
      await readyFor(runtime, 'ses_1');
-diff --git a/packages/web/server/runtime.js b/packages/web/server/runtime.js
-index dc9b69ad1..cf3ecba43 100644
---- a/packages/web/server/runtime.js
-+++ b/packages/web/server/runtime.js
-@@ -2700,7 +2700,7 @@ async function main(options = {}) {
+diff --git a/packages/web/server/runtime.ts b/packages/web/server/runtime.ts
+index f1cf6fb30..f0cfd4b72 100644
+--- a/packages/web/server/runtime.ts
++++ b/packages/web/server/runtime.ts
+@@ -2801,7 +2801,7 @@ async function main(options: WebUiServerOptions = {}) {
      removeApnsToken,
      updateUiVisibility,
      clearPendingPushBadge: () => clearPendingPushBadge(),
