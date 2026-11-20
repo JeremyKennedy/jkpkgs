@@ -1,0 +1,167 @@
+diff --git a/packages/ui/src/components/chat/ChatMessage.tsx b/packages/ui/src/components/chat/ChatMessage.tsx
+index 2899a277e..1aa470739 100644
+--- a/packages/ui/src/components/chat/ChatMessage.tsx
++++ b/packages/ui/src/components/chat/ChatMessage.tsx
+@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils';
+ import { useChatSurfaceMode } from './useChatSurfaceMode';
+ 
+ import MessageBody, { type MessageExtraAction } from './message/MessageBody';
++import { USER_BUBBLE_SHELL_CLASS, userBubbleStyle } from './message/body/userBubbleStyle';
+ import { GuestIcon } from '@/components/layout/GuestRailIcon';
+ import { useGuestActions } from '@/hooks/useGuestSurfaces';
+ import { buildGuestMessageItem, guestMessageActionsFor } from '@/lib/guests/actions';
+@@ -613,8 +614,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
+         return null;
+     }
+ 
+-    const userMessageRadius = 'var(--radius-xl)';
+-
+     return (
+         <>
+             <div
+@@ -650,14 +649,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
+                                     <MessageSelectionMark sessionId={sessionId} unitKey={promptUnitKey} kind="prompt" />
+                                     <div className={cn('max-w-[85%]', chatSurfaceMode === 'peek' ? 'pb-3' : undefined)}>
+                                         <div
+-                                            style={{
+-                                                backgroundColor: 'var(--chat-user-message-bg)',
+-                                                borderRadius: userMessageRadius,
+-                                                // The tail sits at the inline end in either
+-                                                // direction; a physical corner points inward in RTL.
+-                                                borderEndEndRadius: 'var(--radius-sm)',
+-                                            }}
+-                                            className="px-5 py-3 shadow-none border border-primary/5"
++                                            style={userBubbleStyle('var(--chat-user-message-bg)')}
++                                            className={USER_BUBBLE_SHELL_CLASS}
+                                             data-user-message-bubble=""
+                                         >
+                                             <MessageBody
+diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
+index 4edef89ae..bee084b34 100644
+--- a/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
++++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
+@@ -314,9 +314,16 @@ test('the card fits its content, aligns right and uses transcript typography', (
+     expect(markup).toContain('typography-meta');
+     expect(markup).toContain('typography-markdown');
+     expect(markup).not.toContain('text-base');
+-    expect(markup).toContain('color-mix(in srgb, var(--status-question-background) 55%, transparent)');
+-    // The tint is painted on the canvas, so the transcript cannot read through it.
+-    expect(markup).toContain('background-color:var(--surface-background)');
++    // The card is the prompt bubble with the question colour mixed into the
++    // bubble's own fill, so it is opaque and follows the theme's bubble colour.
++    // Mixing the role's `-background` tint instead would carry that tint's own
++    // alpha through and leave the transcript readable through the card.
++    expect(markup).toContain('background-color:color-mix(in srgb, var(--status-question) 14%, var(--chat-user-message-bg))');
++    expect(markup).not.toContain('--status-question-background');
++    expect(markup).not.toContain('--surface-background');
++    // The prompt bubble's padding and radii, so the card lines up with a prompt.
++    expect(markup).toContain('px-5 py-3 shadow-none border border-primary/5');
++    expect(markup).toContain('border-radius:var(--radius-xl)');
+ });
+ 
+ test('text is selectable and expansion uses the native message link instead of a clickable card', () => {
+diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
+index 7471bf7bd..897e160f5 100644
+--- a/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
++++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
+@@ -23,24 +23,20 @@ import { useQuestionOpen, writeQuestionOpen } from '../lib/questionExpandedState
+ import { FormDockModeContext } from '../formsInChat';
+ import { stickyHeaderBackground } from './stickyHeaderBackground';
+ import { USER_BUBBLE_TEXT_LINK_CLASS } from '../message/body/userBubbleLinkStyle';
++import { USER_BUBBLE_SHELL_CLASS, userBubbleStyle, userBubbleTintedFill } from '../message/body/userBubbleStyle';
+ import { QuestionAnswerLine, QuestionAnswerRow, QuestionOptionRow } from '../message/parts/QuestionChoices';
+ 
+ const RAIL_STYLE: React.CSSProperties = { borderColor: 'var(--status-question)' };
+ 
+-// Match the prompt bubble's shape and subtle border without its body-sized
+-// text or full-column footprint. The faint purple fill identifies questions,
+-// and it is painted on the canvas rather than left at the tint's own alpha:
+-// at 55% of a 12.5% tint it was near-clear, so the transcript read through
+-// the card and through the bar that covers the chat while the card is open.
+-const QUESTION_TINT = 'color-mix(in srgb, var(--status-question-background) 55%, transparent)';
+-// The tail corner is the inline end of the block end in either direction, so
+-// it stays the far corner in Arabic.
+-const CARD_STYLE: React.CSSProperties = {
+-    borderRadius: 'var(--radius-xl)',
+-    borderEndEndRadius: 'var(--radius-sm)',
+-    backgroundColor: 'var(--surface-background)',
+-    backgroundImage: `linear-gradient(${QUESTION_TINT}, ${QUESTION_TINT})`,
+-};
++// The prompt bubble with the question colour mixed into its own fill, so the
++// card is the same shape and reads as the row's purple sibling instead of a
++// copy that drifted. Mixing into `--chat-user-message-bg` is what keeps it
++// opaque: the old fill mixed the question's own tint, which is already
++// translucent, so the card came out near-clear and the transcript read
++// through it and through the bar that covers the chat while the card is open.
++const CARD_STYLE: React.CSSProperties = userBubbleStyle(
++    userBubbleTintedFill('--status-question'),
++);
+ 
+ const LINK_STYLE: React.CSSProperties = { minHeight: 0, minWidth: 0 };
+ 
+@@ -214,7 +210,7 @@ const QuestionCard: React.FC<QuestionCardProps> = ({
+     return (
+         <div className={cn('relative z-10 flex flex-col items-end', placement === 'preview' ? 'py-1.5' : undefined)} data-question-turn-header="">
+             <div className="max-w-[85%]">
+-                <div className="select-text border border-primary/5 px-5 py-3 shadow-none" style={CARD_STYLE}>
++                <div className={`select-text ${USER_BUBBLE_SHELL_CLASS}`} style={CARD_STYLE}>
+                     <div
+                         className={cn(
+                             'space-y-2.5',
+diff --git a/packages/ui/src/components/chat/message/body/userBubbleStyle.ts b/packages/ui/src/components/chat/message/body/userBubbleStyle.ts
+new file mode 100644
+index 000000000..17bc071ce
+--- /dev/null
++++ b/packages/ui/src/components/chat/message/body/userBubbleStyle.ts
+@@ -0,0 +1,38 @@
++import type React from 'react';
++
++/**
++ * The prompt bubble's shape: fill, radii, padding and hairline. It lives here
++ * so a card that reads as the user's own row, such as an answered question,
++ * draws the same bubble instead of repeating its numbers.
++ *
++ * The repetition is what drifted. A card that copied the radii and the padding
++ * but mixed its own fill stopped reading as a bubble at all: its tint was a
++ * small alpha over the page, so it looked like a floating black bar with a
++ * strip of bare background above the content.
++ *
++ * The tail corner is at the end of the block in either direction, so it stays
++ * the far corner in a right-to-left layout.
++ */
++export const userBubbleStyle = (fill: React.CSSProperties['backgroundColor']): React.CSSProperties => ({
++    backgroundColor: fill,
++    borderRadius: 'var(--radius-xl)',
++    borderEndEndRadius: 'var(--radius-sm)',
++});
++
++/**
++ * The bubble's fill for a card that belongs to the row it sits in but is not a
++ * typed prompt, such as a question the app asked. `role` is a solid colour role
++ * such as `--status-question`; the result mixes it into the prompt's own fill,
++ * so the card follows the theme's bubble colour and reads as its purple
++ * sibling.
++ *
++ * Mix the solid role, not the role's own `-background` tint: that tint is
++ * already translucent, and mixing it into the fill carries its alpha through,
++ * which is the near-clear card this replaced.
++ */
++export const userBubbleTintedFill = (role: string, amount = 14): string => (
++    `color-mix(in srgb, var(${role}) ${amount}%, var(--chat-user-message-bg))`
++);
++
++/** The bubble's padding and hairline, shared so a card lines up with a prompt. */
++export const USER_BUBBLE_SHELL_CLASS = 'px-5 py-3 shadow-none border border-primary/5';
+diff --git a/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md b/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
+index 53a62870f..c03622295 100644
+--- a/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
++++ b/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
+@@ -862,7 +862,7 @@ that is drawn.
+   (`openContextFile` with `expanded`). Only web and desktop show it: VS Code
+   and mobile open files full size already, through the path itself.
+ - Every other tool, including search/fetch, OpenCode built-ins, custom tools, plugins, and MCP tools, is **expandable** and renders through `ToolPart`.
+-- A `question` call draws as its own transcript row, the purple card (`components/QuestionTurnHeader.tsx`), not as a `ToolPart`: `lib/turns/timelineRows.ts` cuts a question call into a row of its own (`questionPartId`), so an answered card can stick like a prompt and a batch can leave a bar. Collapsed, one question shows its sentence and answer and a batch one line per question; Show more lists the options with their descriptions and the chosen one marked (a batch first lists every question with its answer, then Show options opens the options). `QuestionToolContent.tsx` keeps the `ToolPart`-drawn question row (collapsed summary, expanded options) for a message body outside the row model, which is the BTW panel's path; its collapsed summary is a click target only, because the row header above is the one keyboard control. Both draw their options and answers through `QuestionChoices.tsx`.
++- A `question` call draws as its own transcript row, the purple card (`components/QuestionTurnHeader.tsx`), not as a `ToolPart`: `lib/turns/timelineRows.ts` cuts a question call into a row of its own (`questionPartId`), so an answered card can stick like a prompt and a batch can leave a bar. Collapsed, one question shows its sentence and answer and a batch one line per question; Show more lists the options with their descriptions and the chosen one marked (a batch first lists every question with its answer, then Show options opens the options). `QuestionToolContent.tsx` keeps the `ToolPart`-drawn question row (collapsed summary, expanded options) for a message body outside the row model, which is the BTW panel's path; its collapsed summary is a click target only, because the row header above is the one keyboard control. Both draw their options and answers through `QuestionChoices.tsx`. The card draws the prompt bubble itself (`message/body/userBubbleStyle.ts`) with the question colour mixed into that bubble's fill, so a card is the same shape as the prompt above it and stays opaque: mixing the role's own `-background` tint would carry that tint's alpha through and let the transcript read through the card and the pinned bar.
+   - The card is the **body of the message's own row**, not the row itself: `MessageList` passes it to `ChatMessage`'s body slot, so the message keeps its error banner, its hover actions and its `model · duration` facts under the card, and the row still carries `data-message-id` and its slice. A message that ends in a question therefore loses nothing that its other rows would have drawn; the card row is the slice end, and the banner or the footer appears under the card. The card no longer reserves a prompt's hover-action band, because those actions are drawn.
+   - The row's open state has a single owner, `lib/questionExpandedState.ts`: the reader's own decision per part id, remembered across session switches until a reload or the 4000-entry trim, and `autoExpandAnsweredQuestions` only as the default. The transcript card, a closed fold's preview card and a `ToolPart` question row all read that one map, so a card the reader closed in the transcript cannot come back open in a preview. Turning the setting off closes rows the reader did not open themselves; a row they opened stays open.
+   - Where a question stands is decided **per question**, not per call: `questionCardState` reads the call (answered, waiting, dismissed, stopped), and `questionEntryState` hands each question its own state from its own answer. A call that got an answer for one of its questions and left another blank is answered, and the blank one reads "Not answered", never "Stopped before an answer". The call's state still decides whether the card sticks and what the row estimate reads.
