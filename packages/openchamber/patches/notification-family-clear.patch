@@ -1,5 +1,5 @@
 diff --git a/packages/web/server/lib/notifications/DOCUMENTATION.md b/packages/web/server/lib/notifications/DOCUMENTATION.md
-index 157c04e37..3d6f83c12 100644
+index 6e00f8410..22b31574e 100644
 --- a/packages/web/server/lib/notifications/DOCUMENTATION.md
 +++ b/packages/web/server/lib/notifications/DOCUMENTATION.md
 @@ -40,7 +40,7 @@ This module provides notification message preparation utilities for the web serv
@@ -30,7 +30,7 @@ index 157c04e37..3d6f83c12 100644
  
  - **Nothing stale is sent.** A notification claims its tag before its text is prepared (`claimPushTag`), and a cause handled meanwhile takes the claim away, so the push is dropped: a form or page that settles inside the 500 ms debounce or while the session name is read, a permission replied to during the auto-accept lookup or later. A notification is also dropped when the session's notifications were cleared (`sessionClearedAt`) after its turn ended or its ask arrived.
 diff --git a/packages/web/server/lib/notifications/routes.ts b/packages/web/server/lib/notifications/routes.ts
-index 82a555522..0230ee9a7 100644
+index 82f1625c7..041bd4a39 100644
 --- a/packages/web/server/lib/notifications/routes.ts
 +++ b/packages/web/server/lib/notifications/routes.ts
 @@ -38,7 +38,7 @@ interface NotificationRouteDependencies extends Pick<PushRuntime,
@@ -51,152 +51,6 @@ index 82a555522..0230ee9a7 100644
  
      return res.json({
        success: true,
-diff --git a/packages/web/server/lib/notifications/runtime.js b/packages/web/server/lib/notifications/runtime.js
-index 69b0cfa5b..0561c0833 100644
---- a/packages/web/server/lib/notifications/runtime.js
-+++ b/packages/web/server/lib/notifications/runtime.js
-@@ -211,7 +211,14 @@ export const createNotificationTriggerRuntime = (deps) => {
-     shareAnswerBatch = null;
-   };
- 
--  const clearSessionPushNotifications = async (sessionId, { turnStart = false } = {}) => {
-+  /**
-+   * Every notification about this session is handled: the user saw it or it
-+   * moved on. On a turn start (`turnStart`), a notification marked
-+   * `skipTurnStart` (a shared page's answer, whose delivery wakes the session)
-+   * stays once and loses the mark; the next turn, a view or a message clears it.
-+   * A view (`withSubagents`) goes on to the session's subagents.
-+   */
-+  const clearSessionPushNotifications = async (sessionId, { turnStart = false, withSubagents = false } = {}) => {
-     if (!sessionId) return;
-     sessionClearedAt.delete(sessionId);
-     sessionClearedAt.set(sessionId, Date.now());
-@@ -229,6 +236,125 @@ export const createNotificationTriggerRuntime = (deps) => {
-       tags.push(tag);
-     }
-     clearPushTags(tags);
-+    if (withSubagents) await clearSubagentPushNotifications(sessionId);
-+  };
-+
-+  // A subagent's banner carries the subagent's own id, and the user reaches the
-+  // subagent through its parent, so viewing the parent has to clear it too.
-+  const MAX_FAMILY_SESSIONS = 50;
-+  const MAX_FAMILY_DEPTH = 8;
-+  const FAMILY_WALK_BUDGET_MS = 5_000;
-+
-+  /** The open tags of every other session, taken before the walk starts. */
-+  const openTagsBySession = (sessionId) => {
-+    const bySession = new Map();
-+    for (const [tag, open] of [...openPushTags].reverse()) {
-+      const candidate = open?.sessionId;
-+      if (!candidate || candidate === sessionId || candidate === LOCATION_SCOPED_FORM_SESSION_ID) continue;
-+      if (!bySession.has(candidate)) {
-+        // The walk is capped, so the newest sessions are the ones kept.
-+        if (bySession.size >= MAX_FAMILY_SESSIONS) continue;
-+        bySession.set(candidate, new Map());
-+      }
-+      bySession.get(candidate).set(tag, open);
-+    }
-+    return bySession;
-+  };
-+
-+  /**
-+   * Whether `sessionId` sits under `ancestorId`, from the parent answers the
-+   * trigger already learned (`known`) or from its record. An unreadable record,
-+   * a chain deeper than `MAX_FAMILY_DEPTH`, or one still unread when the walk
-+   * runs out of time says no; a repeated id ends it.
-+   */
-+  const isSubagentOf = async (sessionId, ancestorId, parents, known, deadline) => {
-+    const seen = new Set([sessionId]);
-+    let current = sessionId;
-+    for (let depth = 0; depth < MAX_FAMILY_DEPTH; depth += 1) {
-+      if (!parents.has(current)) {
-+        const learned = known.get(current);
-+        if (learned !== undefined) {
-+          parents.set(current, learned);
-+        } else {
-+          // One read is bounded by its own 2 s timeout; the wall clock only
-+          // stops the walk from starting another chain.
-+          if (Date.now() >= deadline) return false;
-+          parents.set(current, await fetchSessionParentId(current));
-+        }
-+      }
-+      const parentId = parents.get(current);
-+      if (typeof parentId !== 'string' || parentId.length === 0) return false;
-+      if (parentId === ancestorId) return true;
-+      if (seen.has(parentId)) return false;
-+      seen.add(parentId);
-+      current = parentId;
-+    }
-+    return false;
-+  };
-+
-+  /**
-+   * The parent answers already in `sessionParentIdCache`, by session id. Its
-+   * keys also carry the directory and the space, which an open tag does not,
-+   * so this one pass is what lets the walk reuse what the trigger learned from
-+   * `session.created` instead of reading each record again.
-+   */
-+  const knownSessionParents = () => {
-+    const bySessionId = new Map();
-+    const now = Date.now();
-+    for (const [key, entry] of sessionParentIdCache) {
-+      // A space's key starts with its id; the host's starts with the separator.
-+      if (!key.startsWith('\0')) continue;
-+      if (!entry || now - entry.at > SESSION_PARENT_CACHE_TTL_MS) continue;
-+      const sessionId = key.slice(key.lastIndexOf('\0') + 1);
-+      if (sessionId && !bySessionId.has(sessionId)) bySessionId.set(sessionId, entry.parentID);
-+    }
-+    return bySessionId;
-+  };
-+
-+  /**
-+   * Clearing a subagent is what viewing it would do, so a "ready" for a turn
-+   * that ended before the view stays down. A turn that ends after it is newer
-+   * than the mark and still announces. Only a session with a tag actually
-+   * cleared is marked: a tag re-claimed during the walk keeps its banner, and
-+   * silencing its announcement would be a second bug.
-+   */
-+  const clearSubagent = (sessionId, snapshot) => {
-+    const tags = [];
-+    for (const [tag, open] of openPushTags) {
-+      if (open.sessionId !== sessionId) continue;
-+      // A tag re-claimed during the walk shows a banner nobody has seen yet.
-+      if (snapshot.get(tag) !== open) continue;
-+      tags.push(tag);
-+    }
-+    if (tags.length === 0) return;
-+    sessionClearedAt.delete(sessionId);
-+    sessionClearedAt.set(sessionId, Date.now());
-+    keepNewest(sessionClearedAt, OPEN_PUSH_TAGS_LIMIT);
-+    dropPendingShareAnswers(sessionId, false);
-+    // One session per native call, as the single-session clear does: its tags
-+    // are far fewer than the 20 a clearing push takes.
-+    clearPushTags(tags);
-+  };
-+
-+  /**
-+   * Best effort, and bounded in sessions, depth and time. Each candidate stands
-+   * on its own: one whose record cannot be read keeps its tags and the rest
-+   * still clear. Only the host's OpenCode is asked, since an open tag does not
-+   * record a space.
-+   */
-+  const clearSubagentPushNotifications = async (sessionId) => {
-+    const deadline = Date.now() + FAMILY_WALK_BUDGET_MS;
-+    const parents = new Map();
-+    const known = knownSessionParents();
-+    for (const [candidate, snapshot] of openTagsBySession(sessionId)) {
-+      if (Date.now() >= deadline) return;
-+      try {
-+        if (!await isSubagentOf(candidate, sessionId, parents, known, deadline)) continue;
-+        clearSubagent(candidate, snapshot);
-+      } catch (error) {
-+        console.warn('[Push] failed to clear a subagent notification:', error?.message ?? error);
-+      }
-+    }
-   };
- 
-   const genericTitleOf = (payload) => genericNotificationTitle(payload?.data?.type);
 diff --git a/packages/web/server/lib/notifications/trigger-runtime.test.js b/packages/web/server/lib/notifications/trigger-runtime.test.js
 index a8052ac6a..8edfb28bf 100644
 --- a/packages/web/server/lib/notifications/trigger-runtime.test.js
@@ -445,11 +299,11 @@ index a8052ac6a..8edfb28bf 100644
    it('sends no clearing push for a notification the phones never got, but still drops it in browsers', async () => {
      const { runtime, sendPushToAllUiSessions, clearApnsNotifications } = makeClearRuntime({ desktopVisible: true });
      await readyFor(runtime, 'ses_1');
-diff --git a/packages/web/server/runtime.js b/packages/web/server/runtime.js
-index dc9b69ad1..cf3ecba43 100644
---- a/packages/web/server/runtime.js
-+++ b/packages/web/server/runtime.js
-@@ -2700,7 +2700,7 @@ async function main(options = {}) {
+diff --git a/packages/web/server/runtime.ts b/packages/web/server/runtime.ts
+index f1cf6fb30..f0cfd4b72 100644
+--- a/packages/web/server/runtime.ts
++++ b/packages/web/server/runtime.ts
+@@ -2801,7 +2801,7 @@ async function main(options: WebUiServerOptions = {}) {
      removeApnsToken,
      updateUiVisibility,
      clearPendingPushBadge: () => clearPendingPushBadge(),
@@ -492,3 +346,161 @@ index ed640ebbc..d4a89be46 100644
 +    expect(clearSessionPushNotifications).toHaveBeenCalledTimes(2);
 +  });
  });
+diff --git a/packages/web/server/lib/notifications/runtime.ts b/packages/web/server/lib/notifications/runtime.ts
+index 952af66b2..9f1b92b59 100644
+--- a/packages/web/server/lib/notifications/runtime.ts
++++ b/packages/web/server/lib/notifications/runtime.ts
+@@ -403,7 +403,14 @@ export const createNotificationTriggerRuntime = (deps: NotificationTriggerDepend
+     shareAnswerBatch = null;
+   };
+ 
+-  const clearSessionPushNotifications = async (sessionId: string, { turnStart = false } = {}) => {
++  /**
++   * Every notification about this session is handled: the user saw it or it
++   * moved on. On a turn start (`turnStart`), a notification marked
++   * `skipTurnStart` (a shared page's answer, whose delivery wakes the session)
++   * stays once and loses the mark; the next turn, a view or a message clears it.
++   * A view (`withSubagents`) goes on to the session's subagents.
++   */
++  const clearSessionPushNotifications = async (sessionId: string, { turnStart = false, withSubagents = false } = {}) => {
+     if (!sessionId) return;
+     sessionClearedAt.delete(sessionId);
+     sessionClearedAt.set(sessionId, Date.now());
+@@ -421,6 +428,137 @@ export const createNotificationTriggerRuntime = (deps: NotificationTriggerDepend
+       tags.push(tag);
+     }
+     clearPushTags(tags);
++    if (withSubagents) await clearSubagentPushNotifications(sessionId);
++  };
++
++  // A subagent's banner carries the subagent's own id, and the user reaches the
++  // subagent through its parent, so viewing the parent has to clear it too.
++  const MAX_FAMILY_SESSIONS = 50;
++  const MAX_FAMILY_DEPTH = 8;
++  const FAMILY_WALK_BUDGET_MS = 5_000;
++
++  /** The open tags of every other session, taken before the walk starts. */
++  const openTagsBySession = (sessionId: string) => {
++    const bySession = new Map<string, Map<JsonValue, PushClaim>>();
++    for (const [tag, open] of [...openPushTags].reverse()) {
++      // An open tag's session id is JSON; only a string names a session.
++      const raw = open?.sessionId;
++      if (typeof raw !== 'string' || !raw || raw === sessionId || raw === LOCATION_SCOPED_FORM_SESSION_ID) continue;
++      const bucket = bySession.get(raw);
++      if (!bucket) {
++        // The walk is capped, so the newest sessions are the ones kept.
++        if (bySession.size >= MAX_FAMILY_SESSIONS) continue;
++        bySession.set(raw, new Map([[tag, open]]));
++        continue;
++      }
++      bucket.set(tag, open);
++    }
++    return bySession;
++  };
++
++  /**
++   * Whether `sessionId` sits under `ancestorId`, from the parent answers the
++   * trigger already learned (`known`) or from its record. An unreadable record,
++   * a chain deeper than `MAX_FAMILY_DEPTH`, or one still unread when the walk
++   * runs out of time says no; a repeated id ends it.
++   */
++  const isSubagentOf = async (
++    sessionId: string,
++    ancestorId: string,
++    parents: Map<string, string | null | undefined>,
++    known: Map<string, string | null | undefined>,
++    deadline: number,
++  ): Promise<boolean> => {
++    const seen = new Set([sessionId]);
++    let current = sessionId;
++    for (let depth = 0; depth < MAX_FAMILY_DEPTH; depth += 1) {
++      if (!parents.has(current)) {
++        const learned = known.get(current);
++        if (learned !== undefined) {
++          parents.set(current, learned);
++        } else {
++          // One read is bounded by its own 2 s timeout; the wall clock only
++          // stops the walk from starting another chain.
++          if (Date.now() >= deadline) return false;
++          // An open tag records no directory; the host's own is the one this
++          // trigger reads for a session it does not hold.
++          parents.set(current, await fetchSessionParentId(current, undefined));
++        }
++      }
++      const parentId = parents.get(current);
++      if (typeof parentId !== 'string' || parentId.length === 0) return false;
++      if (parentId === ancestorId) return true;
++      if (seen.has(parentId)) return false;
++      seen.add(parentId);
++      current = parentId;
++    }
++    return false;
++  };
++
++  /**
++   * The parent answers already in `sessionParentIdCache`, by session id. Its
++   * keys also carry the directory and the space, which an open tag does not,
++   * so this one pass is what lets the walk reuse what the trigger learned from
++   * `session.created` instead of reading each record again.
++   */
++  const knownSessionParents = () => {
++    const bySessionId = new Map();
++    const now = Date.now();
++    for (const [key, entry] of sessionParentIdCache) {
++      // A space's key starts with its id; the host's starts with the separator.
++      if (!key.startsWith('\0')) continue;
++      if (!entry || now - entry.at > SESSION_PARENT_CACHE_TTL_MS) continue;
++      const sessionId = key.slice(key.lastIndexOf('\0') + 1);
++      if (sessionId && !bySessionId.has(sessionId)) bySessionId.set(sessionId, entry.parentID);
++    }
++    return bySessionId;
++  };
++
++  /**
++   * Clearing a subagent is what viewing it would do, so a "ready" for a turn
++   * that ended before the view stays down. A turn that ends after it is newer
++   * than the mark and still announces. Only a session with a tag actually
++   * cleared is marked: a tag re-claimed during the walk keeps its banner, and
++   * silencing its announcement would be a second bug.
++   */
++  const clearSubagent = (sessionId: string, snapshot: Map<JsonValue, PushClaim>) => {
++    const tags: JsonValue[] = [];
++    for (const [tag, open] of openPushTags) {
++      if (open.sessionId !== sessionId) continue;
++      // A tag re-claimed during the walk shows a banner nobody has seen yet.
++      if (snapshot.get(tag) !== open) continue;
++      tags.push(tag);
++    }
++    if (tags.length === 0) return;
++    sessionClearedAt.delete(sessionId);
++    sessionClearedAt.set(sessionId, Date.now());
++    keepNewest(sessionClearedAt, OPEN_PUSH_TAGS_LIMIT);
++    dropPendingShareAnswers(sessionId, false);
++    // One session per native call, as the single-session clear does: its tags
++    // are far fewer than the 20 a clearing push takes.
++    clearPushTags(tags);
++  };
++
++  /**
++   * Best effort, and bounded in sessions, depth and time. Each candidate stands
++   * on its own: one whose record cannot be read keeps its tags and the rest
++   * still clear. Only the host's OpenCode is asked, since an open tag does not
++   * record a space.
++   */
++  const clearSubagentPushNotifications = async (sessionId: string) => {
++    const deadline = Date.now() + FAMILY_WALK_BUDGET_MS;
++    const parents = new Map<string, string | null | undefined>();
++    const known = knownSessionParents();
++    for (const [candidate, snapshot] of openTagsBySession(sessionId)) {
++      if (Date.now() >= deadline) return;
++      try {
++        if (!await isSubagentOf(candidate, sessionId, parents, known, deadline)) continue;
++        clearSubagent(candidate, snapshot);
++      } catch (error) {
++        const reason = error instanceof Error ? error.message : error;
++        console.warn('[Push] failed to clear a subagent notification:', reason);
++      }
++    }
+   };
+ 
+   const genericTitleOf = (payload: TriggerPushPayload) => genericNotificationTitle(payload.data.type);

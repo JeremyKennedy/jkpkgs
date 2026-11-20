@@ -23,7 +23,7 @@ index 2d7bdaa58..2820dadf8 100644
    | 'github-copilot-addon'
    | 'google'
 diff --git a/packages/web/server/lib/quota/DOCUMENTATION.md b/packages/web/server/lib/quota/DOCUMENTATION.md
-index 59d672af9..19d8c558a 100644
+index 02b4ce102..80043fe27 100644
 --- a/packages/web/server/lib/quota/DOCUMENTATION.md
 +++ b/packages/web/server/lib/quota/DOCUMENTATION.md
 @@ -55,6 +55,7 @@ the list loses its usage card with no error.
@@ -43,27 +43,15 @@ index 59d672af9..19d8c558a 100644
  ## Extension usage providers
  
  An installed extension with `provides: ["quota"]` and `contributes.quota` (the SDK role, `packages/sdk/GUEST_SERVICES.md`, *Usage provider*) is one more registry entry, `ext-<guestId>`, attached after the built-ins by `extension-quotas.js` and answered by `extension-quota.js`.
-diff --git a/packages/web/server/lib/quota/providers/command-code.js b/packages/web/server/lib/quota/providers/command-code.js
+diff --git a/packages/web/server/lib/quota/providers/command-code.ts b/packages/web/server/lib/quota/providers/command-code.ts
 new file mode 100644
-index 000000000..f6293bddf
+index 000000000..e9f71851a
 --- /dev/null
-+++ b/packages/web/server/lib/quota/providers/command-code.js
-@@ -0,0 +1,187 @@
-+/**
-+ * Command Code quota.
-+ *
-+ * Upstream removed this provider in 1.21.0 ("their official API exposes no
-+ * usage data") and declined to restore it, so this module is a local patch. It
-+ * reads the same billing routes the Command Code web app uses and reports only
-+ * what they return; there is no documented usage API to fall back to.
-+ *
-+ * The credential is the browser session token, not an API key: the inference
-+ * key (`CMD_API_KEY`) is accepted by `/provider/v1/models` but answers 401 on
-+ * every billing route. `COMMANDCODE_COOKIE` carries the token (the variable
-+ * headroom's collector reads), and an OpenCode `command-code` entry is accepted
-+ * when it holds one.
-+ */
++++ b/packages/web/server/lib/quota/providers/command-code.ts
+@@ -0,0 +1,210 @@
 +import { readOpenCodeCredentials } from '../../opencode/auth.js';
++import type { LegacyAuthFile } from '../../opencode/auth.js';
++import type { ProviderUsage, QuotaResult, UsageWindow } from '../utils/contracts.js';
 +import {
 +  asObject,
 +  buildResult,
@@ -86,7 +74,7 @@ index 000000000..f6293bddf
 +const SESSION_COOKIE = '__Secure-commandcode_prod_.session_token';
 +
 +/** Plan ids from the subscription payload, as Command Code's own app names them. */
-+const PLAN_LABELS = {
++const PLAN_LABELS: Readonly<Record<string, string>> = {
 +  'individual-go': 'Go',
 +  'individual-goat': 'GOAT',
 +  'individual-pro': 'Pro',
@@ -94,11 +82,23 @@ index 000000000..f6293bddf
 +  'individual-ultra': 'Max 20x'
 +};
 +
++type FetchImpl = (input: string, init?: RequestInit) => Promise<Response>;
++
++type JsonObject = Record<string, unknown>;
++
++type Warnings = Partial<Record<string, UsageWindow>>;
++
++/**
++ * What the subscription read contributes: the plan label the usage card shows,
++ * and the period end the monthly row resets at.
++ */
++type SubscriptionInfo = { currentPeriodEnd: unknown; planLabel: string | null };
++
 +/**
 + * A bare session token becomes a Cookie header; a full captured Cookie header
 + * (several pairs, or one already named) is passed through unchanged.
 + */
-+export const normalizeCookie = (value) => {
++export const normalizeCookie = (value: unknown): string | null => {
 +  const trimmed = typeof value === 'string' ? value.trim() : '';
 +  if (!trimmed) return null;
 +  return /^[\w.-]*commandcode_prod_\.session_(?:token|data)=/i.test(trimmed)
@@ -106,14 +106,14 @@ index 000000000..f6293bddf
 +    : `${SESSION_COOKIE}=${trimmed}`;
 +};
 +
-+const readCookie = (auth) => {
++const readCookie = (auth: LegacyAuthFile | null | undefined): string | null => {
 +  const envCookie = normalizeCookie(process.env[COOKIE_ENV]);
 +  if (envCookie) return envCookie;
 +  const entry = normalizeAuthEntry(getAuthEntry(auth ?? {}, aliases));
-+  return normalizeCookie(entry?.key ?? entry?.token ?? entry?.access);
++  return normalizeCookie(field(entry, 'key') ?? field(entry, 'token') ?? field(entry, 'access'));
 +};
 +
-+const requestJson = async (path, cookie, fetchImpl) => {
++const requestJson = async (path: string, cookie: string, fetchImpl: FetchImpl): Promise<unknown> => {
 +  const response = await fetchImpl(`${API_BASE_URL}${path}`, {
 +    headers: {
 +      Accept: 'application/json',
@@ -129,45 +129,58 @@ index 000000000..f6293bddf
 +  return response.json().catch(() => null);
 +};
 +
-+const clampPercent = (value) => Math.min(100, Math.max(0, value));
++const clampPercent = (value: number): number => Math.min(100, Math.max(0, value));
 +
-+const rollingWindow = (limit, windowSeconds) => {
-+  const used = toNumber(limit?.used);
-+  const cap = toNumber(limit?.cap);
++/**
++ * A field of a payload `asObject` accepted. `asObject` answers `object | null`,
++ * which types no property at all; every read of this provider's payloads goes
++ * through here so the shapes stay in one place.
++ */
++const field = (value: object | null | undefined, key: string): unknown => (
++  value === null || value === undefined ? undefined : (value as Record<string, unknown>)[key]
++);
++
++const objectField = (value: object | null | undefined, key: string): JsonObject | null => (
++  asObject(field(value, key)) as JsonObject | null
++);
++
++const rollingWindow = (limit: object | null | undefined, windowSeconds: number): UsageWindow | null => {
++  const used = toNumber(field(limit, 'used'));
++  const cap = toNumber(field(limit, 'cap'));
 +  if (used === null || cap === null || cap <= 0) return null;
 +  return toUsageWindow({
 +    usedPercent: clampPercent((used / cap) * 100),
 +    windowSeconds,
-+    resetAt: toTimestamp(toNumber(limit?.resetAt))
++    resetAt: toTimestamp(field(limit, 'resetAt'))
 +  });
 +};
 +
-+export const parseCommandCodeCredits = (payload, subscription = null) => {
++export const parseCommandCodeCredits = (payload: unknown, subscription: unknown = null): Warnings => {
 +  const root = asObject(payload);
-+  const credits = asObject(root?.credits);
-+  const limits = asObject(root?.windowLimits);
-+  const windows = {};
++  const credits = objectField(root, 'credits');
++  const limits = objectField(root, 'windowLimits');
++  const windows: Warnings = {};
 +
-+  const fiveHour = rollingWindow(limits?.fiveHour, 5 * 60 * 60);
++  const fiveHour = rollingWindow(objectField(limits, 'fiveHour') ?? null, 5 * 60 * 60);
 +  if (fiveHour) windows['5h'] = fiveHour;
 +
-+  const weekly = rollingWindow(limits?.weekly, 7 * 24 * 60 * 60);
++  const weekly = rollingWindow(objectField(limits, 'weekly') ?? null, 7 * 24 * 60 * 60);
 +  if (weekly) windows.weekly = weekly;
 +
 +  // `monthlyCredits` is what remains of the granted allowance, so the grant is
 +  // the denominator: this row is consumption, not a balance. The reset comes
 +  // from the subscription period, which the credits payload does not carry.
-+  const granted = toNumber(credits?.monthlyCreditsGranted);
-+  const remaining = toNumber(credits?.monthlyCredits);
++  const granted = toNumber(field(credits, 'monthlyCreditsGranted'));
++  const remaining = toNumber(field(credits, 'monthlyCredits'));
 +  if (granted !== null && remaining !== null && granted > 0) {
 +    windows.monthly = toUsageWindow({
 +      usedPercent: clampPercent(((granted - remaining) / granted) * 100),
 +      windowSeconds: 30 * 24 * 60 * 60,
-+      resetAt: toTimestamp(asObject(subscription)?.currentPeriodEnd)
++      resetAt: toTimestamp(field(asObject(subscription), 'currentPeriodEnd'))
 +    });
 +  }
 +
-+  const purchased = toNumber(credits?.purchasedCredits);
++  const purchased = toNumber(field(credits, 'purchasedCredits'));
 +  if (purchased !== null) {
 +    windows.credits_balance = toUsageWindow({
 +      usedPercent: null,
@@ -181,22 +194,22 @@ index 000000000..f6293bddf
 +};
 +
 +/** Best-effort: the plan label and the monthly reset are enrichment, never a reason to fail. */
-+const readSubscription = async (cookie, fetchImpl) => {
++const readSubscription = async (cookie: string, fetchImpl: FetchImpl): Promise<SubscriptionInfo | null> => {
 +  try {
 +    const payload = asObject(await requestJson(SUBSCRIPTIONS_PATH, cookie, fetchImpl));
-+    const data = asObject(payload?.data);
++    const data = objectField(payload, 'data');
 +    if (!data) return null;
-+    const planId = typeof data.planId === 'string' ? data.planId : '';
++    const planId = field(data, 'planId');
 +    return {
-+      currentPeriodEnd: data.currentPeriodEnd ?? data.current_period_end ?? null,
-+      planLabel: PLAN_LABELS[planId] ?? null
++      currentPeriodEnd: field(data, 'currentPeriodEnd') ?? field(data, 'current_period_end') ?? null,
++      planLabel: typeof planId === 'string' ? PLAN_LABELS[planId] ?? null : null
 +    };
 +  } catch {
 +    return null;
 +  }
 +};
 +
-+export const fetchCommandCodeUsage = async (cookie, fetchImpl = fetch) => {
++export const fetchCommandCodeUsage = async (cookie: string, fetchImpl: FetchImpl = fetch) => {
 +  const [credits, subscription] = await Promise.all([
 +    requestJson(CREDITS_PATH, cookie, fetchImpl),
 +    readSubscription(cookie, fetchImpl)
@@ -208,10 +221,20 @@ index 000000000..f6293bddf
 +  return { windows, planLabel: subscription?.planLabel ?? null };
 +};
 +
-+export const isConfigured = (auth) => Boolean(readCookie(auth));
++export const isConfigured = (auth: LegacyAuthFile | null | undefined): boolean => Boolean(readCookie(auth));
 +
-+export const fetchQuota = async ({ readAuth = readOpenCodeCredentials, fetchImpl = fetch } = {}) => {
-+  let auth = {};
++/**
++ * The registry calls this with no arguments; the options exist so a test can
++ * inject a credential read and a fake fetch.
++ */
++export const fetchQuota = async ({
++  readAuth = readOpenCodeCredentials,
++  fetchImpl = fetch
++}: {
++  readAuth?: () => Promise<LegacyAuthFile | null | undefined>;
++  fetchImpl?: FetchImpl;
++} = {}): Promise<QuotaResult<string | null, string, ProviderUsage>> => {
++  let auth: LegacyAuthFile | null | undefined = {};
 +  try {
 +    auth = (await readAuth()) ?? {};
 +  } catch {
@@ -220,12 +243,12 @@ index 000000000..f6293bddf
 +
 +  const cookie = readCookie(auth);
 +  if (!cookie) {
-+    return buildResult({ providerId, providerName, ok: false, configured: false, error: 'Not configured' });
++    return buildResult({ providerId, providerName, ok: false, configured: false, error: 'Not configured' }) as QuotaResult<string | null, string, ProviderUsage>;
 +  }
 +
 +  try {
 +    const { windows, planLabel } = await fetchCommandCodeUsage(cookie, fetchImpl);
-+    return buildResult({ providerId, providerName, ok: true, configured: true, usage: { windows }, planLabel });
++    return buildResult({ providerId, providerName, ok: true, configured: true, usage: { windows }, planLabel }) as QuotaResult<string | null, string, ProviderUsage>;
 +  } catch (error) {
 +    return buildResult({
 +      providerId,
@@ -233,7 +256,7 @@ index 000000000..f6293bddf
 +      ok: false,
 +      configured: true,
 +      error: error instanceof Error ? error.message : 'Request failed'
-+    });
++    }) as QuotaResult<string | null, string, ProviderUsage>;
 +  }
 +};
 diff --git a/packages/web/server/lib/quota/providers/index.ts b/packages/web/server/lib/quota/providers/index.ts
