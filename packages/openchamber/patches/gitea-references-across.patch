@@ -484,19 +484,96 @@ index 6ee84b39e..cf48c5614 100644
          if (!(validateReadContext instanceof Function)) return res.status(501).json({ error: 'Bound source control read is unavailable' });
 diff --git a/packages/web/server/lib/gitea/references-across.test.ts b/packages/web/server/lib/gitea/references-across.test.ts
 new file mode 100644
-index 000000000..76ff72db8
+index 000000000..4362f626f
 --- /dev/null
 +++ b/packages/web/server/lib/gitea/references-across.test.ts
-@@ -0,0 +1,515 @@
+@@ -0,0 +1,644 @@
 +import { beforeEach, describe, expect, it, vi } from 'vitest';
 +import {
 +  issueReference, pullReference, readReferencesAcross, readReferencesAcrossRequest, resetReferencePageCache,
 +} from './references-across.js';
++import type { FolderFailure, ReferenceService, TrustedContext } from './references-across.js';
 +
 +const ORIGIN = 'https://gitea.example.com';
-+const REPO = { id: '1', owner: 'acme', name: 'app', url: `${ORIGIN}/acme/app` };
 +
-+const context = (directory, accountId = 'acct-1') => ({
++/** The repository shape the mappers take. */
++type RepoRef = Parameters<typeof issueReference>[1];
++/** A repository as the resource service reports it: the ref the mappers take, plus the instance's own row. */
++type FixtureRepo = RepoRef & { id: string; url: string };
++
++const REPO: FixtureRepo = { id: '1', owner: 'acme', name: 'app', url: `${ORIGIN}/acme/app` };
++/** A folder's read context as the provider hands it to `validateReadContext`. */
++type ReadContextRequest = Parameters<Parameters<typeof readReferencesAcross>[0]['validateReadContext']>[0];
++/** A validated request, as `readReferencesAcrossRequest` answers one. */
++type ReadRequest = NonNullable<ReturnType<typeof readReferencesAcrossRequest>>;
++
++/** One fixture issue, as Gitea's issue list sends it. */
++type RawIssueFields = {
++  number: number;
++  title: string;
++  html_url?: string | undefined;
++  state?: string | undefined;
++  user?: Record<string, unknown> | undefined;
++  labels?: unknown[] | undefined;
++  comments?: number | undefined;
++  body?: string | undefined;
++  created_at?: string | undefined;
++  updated_at?: string | undefined;
++  pull_request?: unknown;
++};
++
++/** The head of one fixture pull request. */
++type RawPullHead = {
++  ref?: string | undefined;
++  sha?: string | undefined;
++  repo?: unknown;
++  label?: string | undefined;
++};
++
++type RawPullFields = RawIssueFields & {
++  head: RawPullHead;
++  base: { ref?: string | undefined };
++  merged?: boolean | undefined;
++  draft?: boolean | undefined;
++};
++
++/** A field-wise override of one fixture issue. */
++type RawIssueOverride = Partial<RawIssueFields>;
++
++type RawPullOverride = Partial<Omit<RawPullFields, 'head' | 'base'>> & {
++  head?: RawPullHead;
++  base?: { ref?: string | undefined };
++};
++
++/** A service whose methods are spies, so a test can read the calls it made. */
++type MockedService = {
++  [K in keyof ReferenceService]: ReferenceService[K] & { mock: { calls: Parameters<ReferenceService[K]>[] } };
++};
++
++/** One page of a folder's repository, given per page number. */
++type CandidatePage = { items: RawIssueFields[]; hasMore: boolean; needsDetail?: boolean | undefined };
++
++type ServiceOptions = {
++  repo?: FixtureRepo;
++  detail?: (number: number) => unknown;
++  item?: (options: Parameters<ReferenceService['readReferenceItem']>[1]) => { repo: RepoRef | null; item: unknown };
++};
++
++/** One item of the merged page, as the module reports it. */
++type ReferenceRow = NonNullable<Awaited<ReturnType<typeof readReferencesAcross>>['items'][number]>;
++
++type RepositoryEntry = { directory: string; status: string; repo?: { owner: string; repo: string; url: string | undefined } };
++
++/** The page `readReferencesAcross` answers, with the rows it can carry. */
++type ReferencesPage = {
++  items: (ReferenceRow | null)[];
++  cursor: string | null;
++  hasMore: boolean;
++  total: number;
++  repositories: RepositoryEntry[];
++};
++
++const context = (directory: string, accountId = 'acct-1'): ReadContextRequest => ({
 +  directory,
 +  repositoryId: `repo-${directory}`,
 +  provider: 'gitea',
@@ -506,9 +583,13 @@ index 000000000..76ff72db8
 +  primaryRemote: 'origin',
 +});
 +
-+const request = (contexts, extra = {}) => readReferencesAcrossRequest({ contexts, kind: 'issue', ...extra }, 'gitea');
++const request = (contexts: ReadContextRequest[], extra: Record<string, unknown> = {}): ReadRequest => {
++  const input = readReferencesAcrossRequest({ contexts, kind: 'issue', ...extra }, 'gitea');
++  if (!input) throw new Error('the fixture request did not validate');
++  return input;
++};
 +
-+const rawIssue = (number, updated, extra = {}) => ({
++const rawIssue = (number: number, updated: string, extra: RawIssueOverride = {}): RawIssueFields => ({
 +  number,
 +  title: `Issue ${number}`,
 +  html_url: `${ORIGIN}/acme/app/issues/${number}`,
@@ -522,7 +603,7 @@ index 000000000..76ff72db8
 +  ...extra,
 +});
 +
-+const rawPull = (number, updated, extra = {}) => ({
++const rawPull = (number: number, updated: string, extra: RawPullOverride = {}): RawPullFields => ({
 +  number,
 +  title: `PR ${number}`,
 +  html_url: `${ORIGIN}/acme/app/pulls/${number}`,
@@ -546,16 +627,58 @@ index 000000000..76ff72db8
 +});
 +
 +/** A resource service whose pages are given per page number. */
-+const serviceWith = (pages, { repo = REPO, detail, item } = {}) => ({
-+  listReferenceCandidates: vi.fn(async (_directory, options) => {
++const serviceWith = (pages: Record<number, CandidatePage>, { repo = REPO, detail, item }: ServiceOptions = {}): MockedService => ({
++  listReferenceCandidates: vi.fn(async (_directory: string, options: Parameters<ReferenceService['listReferenceCandidates']>[1]) => {
 +    const page = pages[options.page] ?? { items: [], hasMore: false };
 +    return { repo, items: page.items, hasMore: page.hasMore, needsDetail: page.needsDetail };
 +  }),
-+  readPullDetail: vi.fn(async (_directory, number) => detail(number)),
-+  readReferenceItem: vi.fn(async (_directory, options) => (item ? item(options) : { repo, item: null })),
++  readPullDetail: vi.fn(async (_directory: string, number: number) => {
++    if (!detail) throw new Error('this fixture has no pull request detail');
++    return detail(number);
++  }),
++  readReferenceItem: vi.fn(async (_directory: string, options: Parameters<ReferenceService['readReferenceItem']>[1]) => (
++    item ? item(options) : { repo, item: null }
++  )),
 +});
 +
-+const healthy = async (context) => ({ ...context, primaryRemote: 'origin' });
++const healthy = async (candidate: ReadContextRequest): Promise<TrustedContext | null> => ({ ...candidate, primaryRemote: 'origin' });
++
++/**
++ * The folder a trusted context was read for. `validateReadContext` echoes the
++ * request context, so the folder travels with it, but the module's own trusted
++ * shape does not name it: it is narrowed at the read like any other field.
++ */
++const folderOf = (trusted: TrustedContext): string => {
++  const directory = 'directory' in trusted ? trusted.directory : undefined;
++  if (typeof directory !== 'string') throw new Error('trusted context carries no folder');
++  return directory;
++};
++
++/** The fixture's service for a folder; the folder maps are total over the bound folders. */
++const serviceFor = (services: Record<string, MockedService>, trusted: TrustedContext): ReferenceService => {
++  const service = services[folderOf(trusted)];
++  if (!service) throw new Error(`no service fixture for ${folderOf(trusted)}`);
++  return service;
++};
++
++/** A mapped issue the test reads fields off; a null here is the failure the assertion would report. */
++const mappedIssue = (raw: unknown, repo: RepoRef, directory: string): NonNullable<ReturnType<typeof issueReference>> => {
++  const mapped = issueReference(raw, repo, directory);
++  if (!mapped) throw new Error('the fixture issue did not map');
++  return mapped;
++};
++
++/** A row of the merged page, carrying no nulls; a null is a row the page should not show. */
++const rowOf = (row: ReferenceRow | null): ReferenceRow => {
++  if (!row) throw new Error('the page carried an unmapped row');
++  return row;
++};
++
++/** A pull row's branch fields, which only the pull branch of a page carries. */
++const pullFields = (row: ReferenceRow): unknown[] => {
++  if (!('head' in row && 'base' in row && 'headSha' in row)) throw new Error('the page carried a row that is not a pull request');
++  return [row.number, row.head, row.base, row.headSha];
++};
 +
 +beforeEach(() => resetReferencePageCache());
 +
@@ -572,6 +695,7 @@ index 000000000..76ff72db8
 +      cursor: null,
 +    }, 'gitea');
 +
++    if (!input) throw new Error('the request did not validate');
 +    expect(input.contexts).toEqual([first, second]);
 +    expect(input.directories).toEqual(['/a', '/a', '/b']);
 +    expect(input).toMatchObject({ kind: 'pull', state: 'closed', people: 'created', query: ' crash ' });
@@ -620,7 +744,7 @@ index 000000000..76ff72db8
 +  });
 +
 +  it('cuts a long body at the preview size', () => {
-+    const mapped = issueReference(rawIssue(12, '2026-10-01T00:00:00Z', { body: 'x'.repeat(20_001) }), REPO, '/repo');
++    const mapped = mappedIssue(rawIssue(12, '2026-10-01T00:00:00Z', { body: 'x'.repeat(20_001) }), REPO, '/repo');
 +    expect(mapped.body).toHaveLength(20_000);
 +    expect(mapped.bodyTruncated).toBe(true);
 +  });
@@ -686,7 +810,7 @@ index 000000000..76ff72db8
 +  });
 +});
 +
-+const cursorOffset = (cursor) => Number(String(cursor).split('.')[0]);
++const cursorOffset = (cursor: string | null) => Number(String(cursor).split('.')[0]);
 +const SCOPED_CURSOR = /^\d+\.[a-f0-9]{64}$/;
 +
 +describe('readReferencesAcross', () => {
@@ -694,17 +818,17 @@ index 000000000..76ff72db8
 +    const pages = {
 +      '/a': { 1: { items: Array.from({ length: 20 }, (_value, index) => rawIssue(index + 1, `2026-10-${String(index + 1).padStart(2, '0')}T00:00:00Z`)), hasMore: false } },
 +      '/b': { 1: { items: Array.from({ length: 20 }, (_value, index) => rawIssue(index + 101, `2026-09-${String(index + 1).padStart(2, '0')}T00:00:00Z`)), hasMore: false } },
-+    };
++    } satisfies Record<string, Record<number, CandidatePage>>;
 +    const services = {
 +      '/a': serviceWith(pages['/a']),
 +      '/b': serviceWith(pages['/b']),
 +    };
 +    const input = request([context('/a'), context('/b')]);
-+    const read = (cursor) => readReferencesAcross({
++    const read = (cursor: string | null): Promise<ReferencesPage> => readReferencesAcross({
 +      input: { ...input, cursor },
 +      providerId: 'gitea',
 +      validateReadContext: healthy,
-+      resolveService: async (trusted) => services[trusted.directory],
++      resolveService: async (trusted) => serviceFor(services, trusted),
 +    });
 +
 +    const first = await read(null);
@@ -730,8 +854,8 @@ index 000000000..76ff72db8
 +  });
 +
 +  it('keeps reading a folder until the window is covered, and stops at the per-folder cap', async () => {
-+    const items = (from, to) => Array.from({ length: to - from }, (_value, index) => rawIssue(from + index, '2026-10-01T00:00:00Z'));
-+    const pages = {
++    const items = (from: number, to: number) => Array.from({ length: to - from }, (_value, index) => rawIssue(from + index, '2026-10-01T00:00:00Z'));
++    const pages: Record<number, CandidatePage> = {
 +      1: { items: items(1, 51), hasMore: true },
 +      2: { items: items(51, 101), hasMore: true },
 +      3: { items: items(101, 151), hasMore: true },
@@ -739,7 +863,7 @@ index 000000000..76ff72db8
 +    };
 +    const service = serviceWith(pages);
 +    const input = request([context('/a')]);
-+    const read = (cursor) => readReferencesAcross({
++    const read = (cursor: string | null): Promise<ReferencesPage> => readReferencesAcross({
 +      input: { ...input, cursor }, providerId: 'gitea', validateReadContext: healthy, resolveService: async () => service,
 +    });
 +
@@ -775,7 +899,7 @@ index 000000000..76ff72db8
 +      1: { items: Array.from({ length: 40 }, (_value, index) => rawIssue(index + 1, '2026-10-01T00:00:00Z')), hasMore: false },
 +    });
 +    const input = request([context('/a')]);
-+    const read = (overrides) => readReferencesAcross({
++    const read = (overrides: { cursor?: string | null; query?: string }): Promise<ReferencesPage> => readReferencesAcross({
 +      input: { ...input, ...overrides }, providerId: 'gitea', validateReadContext: healthy, resolveService: async () => service,
 +    });
 +
@@ -789,13 +913,13 @@ index 000000000..76ff72db8
 +  });
 +
 +  it('keys a cached page by the binding it was read under', async () => {
-+    let repo = { id: '1', owner: 'acme', name: 'alpha', url: `${ORIGIN}/acme/alpha` };
-+    const service = {
++    let repo: FixtureRepo = { id: '1', owner: 'acme', name: 'alpha', url: `${ORIGIN}/acme/alpha` };
++    const service: MockedService = {
 +      listReferenceCandidates: vi.fn(async () => ({ repo, items: [rawIssue(1, '2026-10-01T00:00:00Z')], hasMore: false })),
 +      readPullDetail: vi.fn(),
 +      readReferenceItem: vi.fn(),
 +    };
-+    const read = (extra) => readReferencesAcross({
++    const read = (extra: Partial<ReadContextRequest>): Promise<ReferencesPage> => readReferencesAcross({
 +      input: request([{ ...context('/a'), ...extra }]),
 +      providerId: 'gitea',
 +      validateReadContext: healthy,
@@ -811,7 +935,7 @@ index 000000000..76ff72db8
 +  it('reads every repository again for a forced page', async () => {
 +    const service = serviceWith({ 1: { items: [rawIssue(1, '2026-10-01T00:00:00Z')], hasMore: false } });
 +    const input = request([context('/a')]);
-+    const read = (refresh) => readReferencesAcross({
++    const read = (refresh: boolean): Promise<ReferencesPage> => readReferencesAcross({
 +      input: { ...input, refresh }, providerId: 'gitea', validateReadContext: healthy, resolveService: async () => service,
 +    });
 +
@@ -823,15 +947,15 @@ index 000000000..76ff72db8
 +  });
 +
 +  it('reports each folder it could not read and still answers the others', async () => {
-+    const failures = {
++    const failures: Record<string, Error> = {
 +      '/signed-out': Object.assign(new Error('signed out'), { status: 401 }),
 +      '/stale': Object.assign(new Error('stale'), { code: 'SOURCE_CONTROL_BINDING_STALE' }),
 +    };
-+    const failureCalls = [];
++    const failureCalls: { error: FolderFailure; identity: { instance?: string; accountId?: string } }[] = [];
 +    // One account reads every folder, so one service answers them all; a
 +    // folder without a repository on the instance fails its own read.
-+    const service = {
-+      listReferenceCandidates: vi.fn(async (directory) => {
++    const service: MockedService = {
++      listReferenceCandidates: vi.fn(async (directory: string) => {
 +        if (directory === '/no-repo') throw Object.assign(new Error('no repo'), { code: 'SOURCE_CONTROL_NO_REPOSITORY' });
 +        // A local Git failure carries its exit status as a numeric code.
 +        if (directory === '/broken') throw Object.assign(new Error('git failed'), { code: 128 });
@@ -841,19 +965,22 @@ index 000000000..76ff72db8
 +      readReferenceItem: vi.fn(),
 +    };
 +    const input = request([context('/ok'), context('/signed-out'), context('/no-repo'), context('/stale'), context('/broken'), context('/empty')]);
-+    const page = await readReferencesAcross({
++    const page: ReferencesPage = await readReferencesAcross({
 +      input,
 +      providerId: 'gitea',
 +      validateReadContext: async (candidate) => {
-+        if (failures[candidate.directory]) throw failures[candidate.directory];
++        const failure = failures[candidate.directory];
++        if (failure) throw failure;
 +        if (candidate.directory === '/empty') return null;
 +        return { ...candidate, primaryRemote: 'origin' };
 +      },
 +      resolveService: async () => service,
-+      onFolderFailure: async (error, identity) => failureCalls.push({ error, identity }),
++      onFolderFailure: async (error, identity) => {
++        failureCalls.push({ error, identity });
++      },
 +    });
 +
-+    expect(page.items.map((item) => item.number)).toEqual([1]);
++    expect(page.items.map(rowOf).map((item) => item.number)).toEqual([1]);
 +    // The refused account is reported with the identity it was read under.
 +    expect(failureCalls).toContainEqual({
 +      error: expect.objectContaining({ status: 401 }),
@@ -870,8 +997,8 @@ index 000000000..76ff72db8
 +  });
 +
 +  it('drops a folder\'s rows when a later page of it fails', async () => {
-+    const service = {
-+      listReferenceCandidates: vi.fn(async (_directory, options) => {
++    const service: MockedService = {
++      listReferenceCandidates: vi.fn(async (_directory: string, options: Parameters<ReferenceService['listReferenceCandidates']>[1]) => {
 +        if (options.page === 2) throw new Error('second page failed');
 +        return {
 +          repo: REPO,
@@ -882,7 +1009,7 @@ index 000000000..76ff72db8
 +      readPullDetail: vi.fn(),
 +      readReferenceItem: vi.fn(),
 +    };
-+    const read = (cursor) => readReferencesAcross({
++    const read = (cursor: string | null): Promise<ReferencesPage> => readReferencesAcross({
 +      input: { ...request([context('/a')]), cursor },
 +      providerId: 'gitea',
 +      validateReadContext: healthy,
@@ -911,12 +1038,12 @@ index 000000000..76ff72db8
 +      } },
 +    );
 +    const input = request([context('/a')], { kind: 'pull' });
-+    const page = await readReferencesAcross({
++    const page: ReferencesPage = await readReferencesAcross({
 +      input, providerId: 'gitea', validateReadContext: healthy, resolveService: async () => service,
 +    });
 +
 +    expect(service.readPullDetail.mock.calls.map((call) => call[1])).toEqual([1, 2, 3]);
-+    expect(page.items.map((item) => [item.number, item.head, item.base, item.headSha])).toEqual([
++    expect(page.items.map((row) => pullFields(rowOf(row)))).toEqual([
 +      [1, 'feature', 'main', 'a'.repeat(40)],
 +      [3, 'feature', 'main', 'a'.repeat(40)],
 +    ]);
@@ -927,13 +1054,15 @@ index 000000000..76ff72db8
 +      { 1: { items: [rawIssue(1, '2026-10-03T00:00:00Z', { pull_request: { merged: false } })], hasMore: false, needsDetail: true } },
 +      { detail: () => { throw Object.assign(new Error('refused'), { status: 401 }); } },
 +    );
-+    const failureCalls = [];
-+    const page = await readReferencesAcross({
++    const failureCalls: { error: FolderFailure; identity: { instance?: string; accountId?: string } }[] = [];
++    const page: ReferencesPage = await readReferencesAcross({
 +      input: request([context('/a')], { kind: 'pull' }),
 +      providerId: 'gitea',
 +      validateReadContext: healthy,
 +      resolveService: async () => service,
-+      onFolderFailure: async (error, identity) => failureCalls.push({ error, identity }),
++      onFolderFailure: async (error, identity) => {
++        failureCalls.push({ error, identity });
++      },
 +    });
 +
 +    expect(failureCalls).toHaveLength(1);
@@ -956,7 +1085,7 @@ index 000000000..76ff72db8
 +  });
 +
 +  it('reads the item a number or a link names', async () => {
-+    const itemOf = (repo) => (options) => ({
++    const itemOf = (repo: FixtureRepo) => (options: Parameters<ReferenceService['readReferenceItem']>[1]) => ({
 +      repo,
 +      item: options.number === 12
 +        ? rawIssue(12, '2026-10-01T00:00:00Z', { html_url: `${ORIGIN}/${repo.owner}/${repo.name}/issues/12` })
@@ -966,15 +1095,15 @@ index 000000000..76ff72db8
 +      '/a': serviceWith({}, { item: itemOf(REPO) }),
 +      '/b': serviceWith({}, { item: itemOf({ id: '9', owner: 'acme', name: 'beta', url: `${ORIGIN}/acme/beta` }) }),
 +    };
-+    const read = (servicesById, extra) => readReferencesAcross({
++    const read = (servicesById: Record<string, MockedService>, extra: Record<string, unknown>): Promise<ReferencesPage> => readReferencesAcross({
 +      input: request([context('/a'), context('/b')], extra),
 +      providerId: 'gitea',
 +      validateReadContext: healthy,
-+      resolveService: async (trusted) => servicesById[trusted.directory],
++      resolveService: async (trusted) => serviceFor(servicesById, trusted),
 +    });
 +
 +    const numbered = await read(services, { query: '#12' });
-+    expect(numbered.items.map((entry) => [entry.number, entry.sourceRepo.repo])).toEqual([[12, 'app'], [12, 'beta']]);
++    expect(numbered.items.map(rowOf).map((entry) => [entry.number, entry.sourceRepo.repo])).toEqual([[12, 'app'], [12, 'beta']]);
 +    expect(numbered.repositories).toEqual([
 +      { directory: '/a', status: 'included', repo: { owner: 'acme', repo: 'app', url: `${ORIGIN}/acme/app` } },
 +      { directory: '/b', status: 'included', repo: { owner: 'acme', repo: 'beta', url: `${ORIGIN}/acme/beta` } },
@@ -986,7 +1115,7 @@ index 000000000..76ff72db8
 +    // A link names one repository: the folder holding it answers, and the
 +    // text is not searched for.
 +    const linked = await read(services, { query: `${ORIGIN}/acme/beta/issues/12` });
-+    expect(linked.items.map((entry) => entry.sourceRepo.repo)).toEqual(['beta']);
++    expect(linked.items.map(rowOf).map((entry) => entry.sourceRepo.repo)).toEqual(['beta']);
 +    const elsewhere = await read(services, { query: `${ORIGIN}/acme/other/issues/12` });
 +    expect(elsewhere.items).toEqual([]);
 +    const text = await read(services, { query: 'crash on start' });
