@@ -1,0 +1,69 @@
+diff --git a/packages/ui/src/components/chat/message/partUtils.test.ts b/packages/ui/src/components/chat/message/partUtils.test.ts
+index a402c11b2..8dac27016 100644
+--- a/packages/ui/src/components/chat/message/partUtils.test.ts
++++ b/packages/ui/src/components/chat/message/partUtils.test.ts
+@@ -34,8 +34,10 @@ describe('contextPartsPastCollapse', () => {
+         expect(hiddenIds([...quotes, textPart('prompt')], 1)).toEqual(['b', 'c']);
+     });
+ 
+-    test('two lines of text leave no context rows and never hide the text', () => {
+-        expect(hiddenIds([...quotes, textPart('prompt')], 2)).toEqual(['a', 'b', 'c']);
++    test('two lines of text keep one context row, so an attached quote is never invisible', () => {
++        // The reported case: one quote, a prompt that fills both lines.
++        expect(hiddenIds([quote('a'), textPart('prompt')], 2)).toEqual([]);
++        expect(hiddenIds([...quotes, textPart('prompt')], 2)).toEqual(['b', 'c']);
+     });
+ 
+     test('a quote with a comment takes two lines', () => {
+diff --git a/packages/ui/src/components/chat/message/partUtils.ts b/packages/ui/src/components/chat/message/partUtils.ts
+index 3e56601ac..53c0a0651 100644
+--- a/packages/ui/src/components/chat/message/partUtils.ts
++++ b/packages/ui/src/components/chat/message/partUtils.ts
+@@ -6,20 +6,40 @@ import type { Part } from '@/lib/opencode/model';
+ const COLLAPSED_LINES = 2;
+ 
+ export const contextPartsPastCollapse = (parts: Part[], textLines: number): ReadonlySet<Part> => {
+-    const hidden = new Set<Part>();
+-    let linesLeft = COLLAPSED_LINES - textLines;
++    const rows: Array<{ part: Part; lines: number }> = [];
+     for (const part of parts) {
+         const context = readContextPart(part);
+         if (context === null || context.kind === 'session' || context.kind === 'session-message') continue;
+         const comment = context.kind === 'browser-annotation'
+             ? context.text || readBrowserAnnotationPrompt(context.prompt).comment || ''
+             : 'text' in context ? context.text : '';
+-        const lines = comment.trim().length > 0 ? 2 : 1;
+-        if (hidden.size === 0 && lines <= linesLeft) {
+-            linesLeft -= lines;
+-        } else {
+-            hidden.add(part);
++        rows.push({ part, lines: comment.trim().length > 0 ? 2 : 1 });
++    }
++
++    // Rows fill the budget from the top: what fits shows, the rest waits behind
++    // show more.
++    const hidden = new Set<Part>();
++    let linesLeft = COLLAPSED_LINES - textLines;
++    let shown = 0;
++    let keptOneRow = false;
++    let hiding = false;
++    for (const row of rows) {
++        if (!hiding && row.lines <= linesLeft) {
++            linesLeft -= row.lines;
++            shown += 1;
++            continue;
++        }
++        // The typed text can take the whole budget, which left an attached quote
++        // reachable only behind show more. When a one-line row would show
++        // nothing at all, one of them keeps a line of its own, so what the
++        // reader attached to the message is never invisible.
++        if (!hiding && shown === 0 && !keptOneRow && row.lines === 1) {
++            keptOneRow = true;
++            shown += 1;
++            continue;
+         }
++        hiding = true;
++        hidden.add(row.part);
+     }
+     return hidden;
+ };
