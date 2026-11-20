@@ -1331,7 +1331,7 @@ new file mode 100644
 index 000000000..8925fd844
 --- /dev/null
 +++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
-@@ -0,0 +1,326 @@
+@@ -0,0 +1,329 @@
 +import React, { act } from 'react';
 +import { createRoot } from 'react-dom/client';
 +import { expect, test } from 'bun:test';
@@ -1638,7 +1638,10 @@ index 000000000..8925fd844
 +    const dismissed = callIn({ status: 'error', error: 'The user dismissed this question', errorType: 'QuestionRejectedError', time: { start: 1, end: 2 } });
 +    useUIStore.setState({ stickyUserHeader: true });
 +    try {
-+        expect(await mount(card(ask([{ question: 'Ship it?', answer: 'Yes' }])))).toContain('data-turn-sticky-header');
++        const sticky = await mount(card(ask([{ question: 'Ship it?', answer: 'Yes' }])));
++        expect(sticky).toContain('data-turn-sticky-header');
++        // The fade sits in the wrapper's bottom reserve, clear of the card.
++        expect(sticky).toContain('pb-9');
 +        expect(await mount(card(dismissed))).not.toContain('data-turn-sticky-header');
 +        const open = await mount(card(dismissed, true));
 +        expect(container.textContent).toContain('Yes');
