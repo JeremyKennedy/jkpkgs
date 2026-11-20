@@ -192,7 +192,7 @@ index 0dc784ee6..fb5bbeb24 100644
  });
  
 diff --git a/packages/web/server/lib/gitea/provider.ts b/packages/web/server/lib/gitea/provider.ts
-index ede4cda85..164a580b1 100644
+index ede4cda85..f89c9ac70 100644
 --- a/packages/web/server/lib/gitea/provider.ts
 +++ b/packages/web/server/lib/gitea/provider.ts
 @@ -4,14 +4,16 @@ import { classifyGiteaFailure, createGiteaClient } from './client.js';
@@ -214,11 +214,23 @@ index ede4cda85..164a580b1 100644
  import type { BindingMutationTarget } from '../source-control/binding-service-contracts.js';
  import type { GiteaFetch } from './client.js';
  import type { GiteaResourceOptions } from './resources.js';
-@@ -309,7 +311,46 @@ export function createGiteaFamilyProvider(build: GiteaFamilyProviderOptions) {
+@@ -257,7 +259,11 @@ export function createGiteaFamilyProvider(build: GiteaFamilyProviderOptions) {
+     if (resolveRepos) options.resolveRepos = resolveRepos;
+     const service = createResourceService(options);
+     const identity = identityFor(session.instance, session.accountId);
+-    const methods: Record<string, (...args: never[]) => Promise<object>> = service;
++    // The wrapper table below only needs callables; the service's own typed
++    // methods are what the handlers use, so the record is narrowed here rather
++    // than every resource method being widened to Promise<object>.
++    const methods: Record<string, (...args: never[]) => Promise<object>> =
++      service as unknown as Record<string, (...args: never[]) => Promise<object>>;
+     for (const method of Object.keys(methods)) {
+       const operation = methods[method];
+       if (!(operation instanceof Function)) continue;
+@@ -309,6 +315,45 @@ export function createGiteaFamilyProvider(build: GiteaFamilyProviderOptions) {
        readChangeRequestFile: ({ session, directory, number, sourceRepo, remote, path, previousPath, status, binary, linked }: PatchRead & Pick<Parameters<Service['changeRequestFileContents']>[2], 'path' | 'previousPath' | 'status' | 'binary'>) => serviceFor(session)
          .changeRequestFileContents(directory, number, { project: projectSelector(sourceRepo), remote, path, previousPath, status, binary, linked }),
        liveSummaries: ({ session, refs, issueRefs }: { session: ProviderSession } & Parameters<Service['liveSummaries']>[0]) => serviceFor(session).liveSummaries({ refs, issueRefs }),
--      readChangeRequestHead: async ({ session, directory, remote, number }: NumberedRead) => {
 +      /**
 +       * The picker's search across a folder's repositories. One request spans
 +       * folders and so more than one session; each folder is validated and
@@ -258,10 +270,9 @@ index ede4cda85..164a580b1 100644
 +          },
 +        }) as Promise<object>;
 +      },
-+      readChangeRequestHead: async ({ session, directory, remote, number }) => {
+       readChangeRequestHead: async ({ session, directory, remote, number }: NumberedRead) => {
          const { request, headProject } = await serviceFor(session).findChangeRequest(directory, number, null, remote);
          const headSha = String(request.headSha || '').toLowerCase();
-         if (!/^[0-9a-f]{40}$/.test(headSha)) {
 diff --git a/packages/web/server/lib/gitea/resources.ts b/packages/web/server/lib/gitea/resources.ts
 index 542460a52..10c98ac84 100644
 --- a/packages/web/server/lib/gitea/resources.ts
@@ -458,7 +469,7 @@ index ee42d75b4..577b8d5e3 100644
          "reviewDrafts": true,
          "startThread": false,
 diff --git a/packages/web/server/lib/source-control/provider-routes.ts b/packages/web/server/lib/source-control/provider-routes.ts
-index 6ee84b39e..a2f26be1e 100644
+index 6ee84b39e..cf48c5614 100644
 --- a/packages/web/server/lib/source-control/provider-routes.ts
 +++ b/packages/web/server/lib/source-control/provider-routes.ts
 @@ -884,6 +884,9 @@ export function registerProviderRoutes(app: Router, {
@@ -467,7 +478,7 @@ index 6ee84b39e..a2f26be1e 100644
        try {
 +        // A kind the descriptor turns off is the shell's own answer, the same
 +        // 501 the single-repository list gives, not a provider failure.
-+        if (!discussions && req.body?.kind === 'discussion') return unsupportedCapability(res);
++        if (!discussions && (req.body as { kind?: unknown } | undefined)?.kind === 'discussion') return unsupportedCapability(res);
          impl = await loadImplementation(id);
          const read = requireResource(impl, 'referencesAcross');
          if (!(validateReadContext instanceof Function)) return res.status(501).json({ error: 'Bound source control read is unavailable' });
