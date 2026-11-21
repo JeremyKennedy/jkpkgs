@@ -74,6 +74,12 @@ let
       ./patches/mobile-voice-launch.patch
       ./patches/dictation-recovery.patch
       ./patches/instance-attention.patch
+      # The attention drawer applied the sidebar's folder rule to this
+      # instance's own sessions and to nothing else, so a saved server's
+      # sessions in folders it never registered appeared the moment the window
+      # switched to it. Both halves now read the same rule: a polled host says
+      # which folders it opens.
+      ./patches/attention-folder-filter.patch
       # The question tool writes a reply's quotes into its text without
       # escaping them, so the text parser cut an answer at the first quote the
       # reader typed. Read the answers the call recorded instead, and keep the
