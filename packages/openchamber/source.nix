@@ -80,6 +80,10 @@ let
       # switched to it. Both halves now read the same rule: a polled host says
       # which folders it opens.
       ./patches/attention-folder-filter.patch
+      # A host switch clears the global session list and the phone has no
+      # poller to refill it, so the instance on screen published no rows of its
+      # own until the sessions sheet was opened.
+      ./patches/attention-local-load.patch
       # The question tool writes a reply's quotes into its text without
       # escaping them, so the text parser cut an answer at the first quote the
       # reader typed. Read the answers the call recorded instead, and keep the
