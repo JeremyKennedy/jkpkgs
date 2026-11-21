@@ -1,5 +1,5 @@
 diff --git a/packages/ui/src/components/chat/DraftProjectName.tsx b/packages/ui/src/components/chat/DraftProjectName.tsx
-index 089b775cf..8466e728b 100644
+index 089b775..8466e72 100644
 --- a/packages/ui/src/components/chat/DraftProjectName.tsx
 +++ b/packages/ui/src/components/chat/DraftProjectName.tsx
 @@ -1,8 +1,32 @@
@@ -38,27 +38,83 @@ index 089b775cf..8466e728b 100644
 +    );
  };
 diff --git a/packages/ui/src/components/chat/column/DraftWelcome.tsx b/packages/ui/src/components/chat/column/DraftWelcome.tsx
-index ba8a42714..af2f23f48 100644
+index ba8a427..f8d6a1d 100644
 --- a/packages/ui/src/components/chat/column/DraftWelcome.tsx
 +++ b/packages/ui/src/components/chat/column/DraftWelcome.tsx
-@@ -1,5 +1,6 @@
+@@ -1,9 +1,12 @@
  import React from 'react';
  import { DraftProjectName } from '@/components/chat/DraftProjectName';
-+import { requestDraftProjectPicker } from '@/components/chat/composer/state/draftProjectPickerRequest';
++import { requestDraftProjectPicker, useDraftProjectPickerOpen } from '@/components/chat/composer/state/draftProjectPickerRequest';
  import { DraftPresetChips } from '../DraftPresetChips';
  import { useInputStore } from '@/sync/input-store';
  import { useSessionUIStore } from '@/sync/session-ui-store';
-@@ -20,7 +21,7 @@ const renderDraftTitle = (title: string, projectLabel: string | null): React.Rea
+ import { useProjectsStore } from '@/stores/useProjectsStore';
++import { useUIStore } from '@/stores/useUIStore';
++import { isVSCodeRuntime } from '@/lib/desktop';
+ import { cn, formatDirectoryName } from '@/lib/utils';
+ import { useDraftHeading } from '../useDraftHeading';
+ 
+@@ -12,7 +15,11 @@ const getProjectDisplayLabel = (project: { label?: string; path: string }): stri
+     return label || formatDirectoryName(project.path);
+ };
+ 
+-const renderDraftTitle = (title: string, projectLabel: string | null): React.ReactNode => {
++const renderDraftTitle = (
++    title: string,
++    projectLabel: string | null,
++    onOpenProjectPicker?: () => void,
++): React.ReactNode => {
+     if (!projectLabel) return title;
+     const projectIndex = title.indexOf(projectLabel);
+     if (projectIndex === -1) return title;
+@@ -20,7 +27,7 @@ const renderDraftTitle = (title: string, projectLabel: string | null): React.Rea
      return (
          <>
              {title.slice(0, projectIndex)}
 -            <DraftProjectName label={projectLabel} />
-+            <DraftProjectName label={projectLabel} onOpenPicker={requestDraftProjectPicker} />
++            <DraftProjectName label={projectLabel} onOpenPicker={onOpenProjectPicker} />
              {title.slice(projectIndex + projectLabel.length)}
          </>
      );
+@@ -38,6 +45,17 @@ export const DraftWelcome: React.FC<{ exiting?: boolean }> = ({ exiting = false
+         return project ? getProjectDisplayLabel(project) : null;
+     }, [draftTarget, selectedProjectId]));
+     const draftHeading = useDraftHeading(projectLabel);
++    const pickerOpen = useDraftProjectPickerOpen();
++    const isMobile = useUIStore((state) => state.isMobile);
++    // The picker the heading opens lives in the composer; VS Code shows no
++    // draft target selectors, so there the name stays plain text. While the
++    // draft fades out the name stops being a target: `pointer-events-none`
++    // keeps the mouse out but not the keyboard.
++    const openProjectPicker = isVSCodeRuntime() || exiting ? undefined : requestDraftProjectPicker;
++    // A phone taps the whole line, not a word inside it: the heading itself is
++    // the target there. Desktop keeps the project name as the entry, so the
++    // line around it stays plain text.
++    const wholeHeadingIsTarget = isMobile && Boolean(openProjectPicker);
+ 
+     return (
+         <div className={cn(
+@@ -45,7 +63,17 @@ export const DraftWelcome: React.FC<{ exiting?: boolean }> = ({ exiting = false
+             exiting && 'pointer-events-none opacity-0',
+         )}>
+             <h1 className="text-balance text-3xl font-normal tracking-tight text-foreground">
+-                {renderDraftTitle(draftHeading, projectLabel)}
++                {wholeHeadingIsTarget ? (
++                    <button
++                        type="button"
++                        onClick={openProjectPicker}
++                        aria-haspopup="dialog"
++                        aria-expanded={pickerOpen}
++                        className="-m-2 inline-block max-w-full cursor-pointer rounded-lg p-2 text-center hover:bg-[var(--interactive-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-focus-ring)]"
++                    >
++                        {renderDraftTitle(draftHeading, projectLabel)}
++                    </button>
++                ) : renderDraftTitle(draftHeading, projectLabel, openProjectPicker)}
+             </h1>
+             <DraftPresetChips
+                 onSubmit={(starter) => useInputStore.getState().requestPresetSubmit(starter.submitText, starter.ref.type)}
 diff --git a/packages/ui/src/components/chat/composer/DOCUMENTATION.md b/packages/ui/src/components/chat/composer/DOCUMENTATION.md
-index d81735733..46274a10f 100644
+index d817357..81feaba 100644
 --- a/packages/ui/src/components/chat/composer/DOCUMENTATION.md
 +++ b/packages/ui/src/components/chat/composer/DOCUMENTATION.md
 @@ -746,7 +746,7 @@ comment in the prompt and shows it all the same, and editing it moves it out.
@@ -70,7 +126,7 @@ index d81735733..46274a10f 100644
  | `comment/` | Mobile comment mode: quoted-selection state, its scope ownership, and the shell that replaces the composer while a comment is written |
  | `submit/` | Turning what the user has into what gets sent. `guestCommands.ts` routes an extension's slash command (`contributes.commands`) before anything is sent: `/name args` never reaches the model, the extension resolves it into a chip |
  | `attachments/` | Files: paths, drop payloads |
-@@ -1384,6 +1384,19 @@ command can leave the queue untouched and delivery can take only part of it.
+@@ -1384,6 +1384,20 @@ command can leave the queue untouched and delivery can take only part of it.
    draft target UI is mounted.
    Keyboard selection returns focus to the current form's composer, including
    when the selected value is unchanged.
@@ -78,10 +134,11 @@ index d81735733..46274a10f 100644
 +  larger touch target: it asks `state/draftProjectPickerRequest.ts` for the
 +  picker, and the surface that owns the popup or the mobile sheet answers and
 +  reports its open state back for the name's `aria-expanded`. The compact
-+  draft welcome renders the same name, so the phone reaches the sheet from the
-+  heading too; the rest of the line stays plain text. The request travels
-+  through a store rather than a callback because that welcome renders the
-+  heading in another component from the composer, and it is delivered from a
++  draft welcome renders the same name, so a phone reaches the sheet from the
++  heading too, and there the whole heading line is the target: the project
++  name alone is too small for a touch screen. The request travels through a
++  store rather than a callback because that welcome renders the heading in
++  another component from the composer, and it is delivered from a
 +  subscription rather than an effect so the picker's state lands in the same
 +  batch as the tap, before the mobile shell decides whether to fold the
 +  composer as the keyboard hides. VS Code shows no draft target selectors, so
@@ -91,7 +148,7 @@ index d81735733..46274a10f 100644
    mention picker after its IME guard.
  
 diff --git a/packages/ui/src/components/chat/composer/input/ComposerDraftTitle.tsx b/packages/ui/src/components/chat/composer/input/ComposerDraftTitle.tsx
-index b84e657f5..cc0dc0900 100644
+index b84e657..cc0dc09 100644
 --- a/packages/ui/src/components/chat/composer/input/ComposerDraftTitle.tsx
 +++ b/packages/ui/src/components/chat/composer/input/ComposerDraftTitle.tsx
 @@ -1,7 +1,11 @@
@@ -117,7 +174,7 @@ index b84e657f5..cc0dc0900 100644
          </>
      );
 diff --git a/packages/ui/src/components/chat/composer/input/renderComposerForm.tsx b/packages/ui/src/components/chat/composer/input/renderComposerForm.tsx
-index b74bb40d4..90a1e1d6f 100644
+index b74bb40..90a1e1d 100644
 --- a/packages/ui/src/components/chat/composer/input/renderComposerForm.tsx
 +++ b/packages/ui/src/components/chat/composer/input/renderComposerForm.tsx
 @@ -57,6 +57,7 @@ import { PermissionDock } from '@/components/chat/PermissionDock';
@@ -139,7 +196,7 @@ index b74bb40d4..90a1e1d6f 100644
              ) : null}
 diff --git a/packages/ui/src/components/chat/composer/state/__tests__/draftProjectPickerRequest.test.tsx b/packages/ui/src/components/chat/composer/state/__tests__/draftProjectPickerRequest.test.tsx
 new file mode 100644
-index 000000000..831026b5c
+index 0000000..831026b
 --- /dev/null
 +++ b/packages/ui/src/components/chat/composer/state/__tests__/draftProjectPickerRequest.test.tsx
 @@ -0,0 +1,77 @@
@@ -222,7 +279,7 @@ index 000000000..831026b5c
 +});
 diff --git a/packages/ui/src/components/chat/composer/state/draftProjectPickerRequest.ts b/packages/ui/src/components/chat/composer/state/draftProjectPickerRequest.ts
 new file mode 100644
-index 000000000..2b61e6745
+index 0000000..2b61e67
 --- /dev/null
 +++ b/packages/ui/src/components/chat/composer/state/draftProjectPickerRequest.ts
 @@ -0,0 +1,42 @@
@@ -269,7 +326,7 @@ index 000000000..2b61e6745
 +    }), []);
 +}
 diff --git a/packages/ui/src/components/chat/composer/ui/DraftTargetSelectors.tsx b/packages/ui/src/components/chat/composer/ui/DraftTargetSelectors.tsx
-index 516d9e0f4..959327196 100644
+index 516d9e0..9593271 100644
 --- a/packages/ui/src/components/chat/composer/ui/DraftTargetSelectors.tsx
 +++ b/packages/ui/src/components/chat/composer/ui/DraftTargetSelectors.tsx
 @@ -43,6 +43,7 @@ import type { Theme } from '@/types/theme';
