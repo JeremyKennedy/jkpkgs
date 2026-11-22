@@ -74,16 +74,13 @@ let
       ./patches/mobile-voice-launch.patch
       ./patches/dictation-recovery.patch
       ./patches/instance-attention.patch
-      # The attention drawer applied the sidebar's folder rule to this
-      # instance's own sessions and to nothing else, so a saved server's
-      # sessions in folders it never registered appeared the moment the window
-      # switched to it. Both halves now read the same rule: a polled host says
-      # which folders it opens.
-      ./patches/attention-folder-filter.patch
-      # A host switch clears the global session list and the phone has no
-      # poller to refill it, so the instance on screen published no rows of its
-      # own until the sessions sheet was opened.
-      ./patches/attention-local-load.patch
+      # Carries two fixes folded in rather than queued as patches of their own.
+      # The drawer applied the sidebar's folder rule to this instance's own
+      # sessions and to nothing else, so a saved server's sessions in folders it
+      # never registered appeared the moment the window switched to it; both
+      # halves now read the same rule. And a host switch clears the global
+      # session list with no phone poller to refill it, so the instance on screen
+      # published no rows of its own until the sessions sheet was opened.
       # The question tool writes a reply's quotes into its text without
       # escaping them, so the text parser cut an answer at the first quote the
       # reader typed. Read the answers the call recorded instead, and keep the
