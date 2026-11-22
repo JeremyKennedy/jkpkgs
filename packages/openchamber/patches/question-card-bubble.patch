@@ -165,3 +165,29 @@ index 53a62870f..c03622295 100644
    - The card is the **body of the message's own row**, not the row itself: `MessageList` passes it to `ChatMessage`'s body slot, so the message keeps its error banner, its hover actions and its `model · duration` facts under the card, and the row still carries `data-message-id` and its slice. A message that ends in a question therefore loses nothing that its other rows would have drawn; the card row is the slice end, and the banner or the footer appears under the card. The card no longer reserves a prompt's hover-action band, because those actions are drawn.
    - The row's open state has a single owner, `lib/questionExpandedState.ts`: the reader's own decision per part id, remembered across session switches until a reload or the 4000-entry trim, and `autoExpandAnsweredQuestions` only as the default. The transcript card, a closed fold's preview card and a `ToolPart` question row all read that one map, so a card the reader closed in the transcript cannot come back open in a preview. Turning the setting off closes rows the reader did not open themselves; a row they opened stays open.
    - Where a question stands is decided **per question**, not per call: `questionCardState` reads the call (answered, waiting, dismissed, stopped), and `questionEntryState` hands each question its own state from its own answer. A call that got an answer for one of its questions and left another blank is answered, and the blank one reads "Not answered", never "Stopped before an answer". The call's state still decides whether the card sticks and what the row estimate reads.
+diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
+index 8d3e98979..b3bfcf375 100644
+--- a/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
++++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
+@@ -324,6 +324,8 @@ test('the card fits its content, aligns right and uses transcript typography', (
+     // The prompt bubble's padding and radii, so the card lines up with a prompt.
+     expect(markup).toContain('px-5 py-3 shadow-none border border-primary/5');
+     expect(markup).toContain('border-radius:var(--radius-xl)');
++    // The APK build asserts this reaches the packaged bundle.
++    expect(markup).toContain('data-question-card-bubble');
+ });
+ 
+ test('text is selectable and expansion uses the native message link instead of a clickable card', () => {
+diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
+index baad1f910..695bedef4 100644
+--- a/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
++++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
+@@ -210,7 +210,7 @@ const QuestionCard: React.FC<QuestionCardProps> = ({
+     return (
+         <div className={cn('relative z-10 flex flex-col items-end', placement === 'preview' ? 'py-1.5' : undefined)} data-question-turn-header="">
+             <div className="max-w-[85%]">
+-                <div className={`select-text ${USER_BUBBLE_SHELL_CLASS}`} style={CARD_STYLE}>
++                <div className={`select-text ${USER_BUBBLE_SHELL_CLASS}`} style={CARD_STYLE} data-question-card-bubble="">
+                     <div
+                         className={cn(
+                             'space-y-2.5',
