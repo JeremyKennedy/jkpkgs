@@ -1,8 +1,8 @@
 diff --git a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-index 05c6a7416..44011bda8 100644
+index e2238ca80..55d892b50 100644
 --- a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
 +++ b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-@@ -784,7 +784,17 @@ the same Mark all as read.
+@@ -828,7 +828,17 @@ the same Mark all as read.
  Works in work render in their own `work` activity zone under Chats (and
  Pinned) and above the projects while `sessionWorkEnabled` is on and the
  display menu's In work toggle (`showWorkSection`, `sidebarShowWorkSection`,
@@ -21,7 +21,7 @@ index 05c6a7416..44011bda8 100644
  or a nested non-subagent session is (`metadata.openchamber.work.state ===
  'open'`, see `packages/web/server/lib/session-work/DOCUMENTATION.md`); a
  worktree work when any root session in it is, or, while it has no session
-@@ -792,9 +802,10 @@ yet, when a draft is begun in it (open in the composer or kept as a row): the
+@@ -836,9 +846,10 @@ yet, when a draft is begun in it (open in the composer or kept as a row): the
  user just made it for a task, so it opens the block. A worktree this client
  is removing keeps its place in the block until git is done
  (`useRemovingWorktreePaths`), though its sessions are archived first. A subagent's own state
@@ -36,7 +36,7 @@ index 05c6a7416..44011bda8 100644
  stays out of In work, Pinned and search until its folder is registered: by the
  user opening the session, or by `sync/session-admission.ts` after a move out of
 diff --git a/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx b/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx
-index 1290ef462..ae5000088 100644
+index de1f51ca0..8a893cce9 100644
 --- a/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx
 +++ b/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx
 @@ -61,12 +61,12 @@ import { buildSessionSidebarRowModel, PROJECTS_CAPTION_COLLAPSE_KEY, sidebarSect
@@ -55,7 +55,7 @@ index 1290ef462..ae5000088 100644
  import { getSessionLifecycleOrderValue } from '@/sync/session-ordering';
  import { useSessionDraftsStore, type SessionDraft } from '@/stores/useSessionDraftsStore';
  import { useSidebarGroupStatus } from './useSidebarGroupStatus';
-@@ -452,6 +452,13 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+@@ -451,6 +451,13 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
    const [heldProjectOrder, setHeldProjectOrder] = React.useState<readonly string[] | null>(null);
    const shownProjectOrderRef = React.useRef<readonly string[]>([]);
    const holdsProjectOrder = view.projectSortOrder === 'recent';
@@ -69,7 +69,7 @@ index 1290ef462..ae5000088 100644
    React.useEffect(() => {
      if (!holdsProjectOrder) setHeldProjectOrder(null);
    }, [holdsProjectOrder]);
-@@ -490,6 +497,11 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+@@ -489,6 +496,11 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
    const liveFacts = useSidebarLiveFacts(view.isVisible && visibleSections.some((section) => (
      section.kind === 'custom' && section.section.grouping === 'time' && sidebarSectionReadsLiveState(section.section.filter)
    )));
@@ -81,7 +81,7 @@ index 1290ef462..ae5000088 100644
    const planProjectIds = React.useMemo(() => {
      if (!view.isVisible) return null;
      const ids = new Set<string>();
-@@ -572,6 +584,35 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+@@ -571,6 +583,35 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
      return sessions.length > 0 ? sessions : NO_SESSIONS;
    }, [collection.orderedSessions, collection.pinnedSessionIds, isPinnedWork, sessionRootIndex, sessionWorkEnabled, workIndex]);
    useClosePinnedWork(pinnedSessionsInWork);
@@ -117,7 +117,7 @@ index 1290ef462..ae5000088 100644
    const { getTimeOrderedSessions } = collection;
    const sectionCandidates = React.useMemo(() => {
      const sessionRef = (session: Session): SidebarWorkRef => {
-@@ -592,8 +633,13 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+@@ -591,8 +632,13 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
          .filter((ref) => ref.group.worktree?.pinnedAt !== undefined && (ref.group.worktree.pinList ?? DEFAULT_PIN_LIST) === DEFAULT_PIN_LIST)
          .sort((left, right) => (right.group.worktree?.pinnedAt ?? 0) - (left.group.worktree?.pinnedAt ?? 0))
        : [];
@@ -132,7 +132,7 @@ index 1290ef462..ae5000088 100644
        : [];
      const begun = showWork
        ? workIndex.groupWorks.filter((ref) => ref.group.sessions.length === 0 && !isPinnedWork(ref) && !work.some((entry) => entry.key === ref.key) && (
-@@ -622,20 +668,20 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+@@ -621,20 +667,20 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
        const leads = (ref: SidebarWorkRef): boolean => ref.kind === 'group' && Boolean(ref.group.space && liveSpaceIds.has(ref.group.space.id));
        all = [...unstarted.filter(leads), ...all, ...unstarted.filter((ref) => !leads(ref))];
      }
@@ -165,7 +165,7 @@ index 1290ef462..ae5000088 100644
      const factsByKey = new Map<string, SidebarWorkFacts>();
      return resolveSidebarSectionMembership({
        sections: visibleSections,
-@@ -646,13 +692,14 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+@@ -645,13 +691,14 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
        factsOf: (ref) => {
          const cached = factsByKey.get(ref.key);
          if (cached) return cached;
@@ -182,7 +182,7 @@ index 1290ef462..ae5000088 100644
    React.useEffect(() => {
      if (!sectionDraft) return;
      const count = sectionDraft.grouping === 'project'
-@@ -1334,9 +1381,22 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+@@ -1331,9 +1378,22 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
        <div
          className="contents"
          onPointerEnter={(event) => {

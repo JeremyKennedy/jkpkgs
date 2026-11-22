@@ -1,5 +1,5 @@
 diff --git a/packages/ui/src/components/chat/DraftProjectName.tsx b/packages/ui/src/components/chat/DraftProjectName.tsx
-index 089b775..8466e72 100644
+index 089b775cf..8466e728b 100644
 --- a/packages/ui/src/components/chat/DraftProjectName.tsx
 +++ b/packages/ui/src/components/chat/DraftProjectName.tsx
 @@ -1,8 +1,32 @@
@@ -38,7 +38,7 @@ index 089b775..8466e72 100644
 +    );
  };
 diff --git a/packages/ui/src/components/chat/column/DraftWelcome.tsx b/packages/ui/src/components/chat/column/DraftWelcome.tsx
-index ba8a427..f8d6a1d 100644
+index ba8a42714..f8d6a1d9c 100644
 --- a/packages/ui/src/components/chat/column/DraftWelcome.tsx
 +++ b/packages/ui/src/components/chat/column/DraftWelcome.tsx
 @@ -1,9 +1,12 @@
@@ -114,10 +114,10 @@ index ba8a427..f8d6a1d 100644
              <DraftPresetChips
                  onSubmit={(starter) => useInputStore.getState().requestPresetSubmit(starter.submitText, starter.ref.type)}
 diff --git a/packages/ui/src/components/chat/composer/DOCUMENTATION.md b/packages/ui/src/components/chat/composer/DOCUMENTATION.md
-index d817357..7cb19d1 100644
+index 8b29f8840..f6d621d80 100644
 --- a/packages/ui/src/components/chat/composer/DOCUMENTATION.md
 +++ b/packages/ui/src/components/chat/composer/DOCUMENTATION.md
-@@ -746,7 +746,7 @@ comment in the prompt and shows it all the same, and editing it moves it out.
+@@ -887,7 +887,7 @@ the row's head states the file and line it anchors to.
  |---|---|
  | `language/` | What the text *means*: `@` references, `/` and `#` tokens, markdown, and which picker a caret asks for |
  | `editor/` | The CodeMirror view that renders the language and owns the caret |
@@ -126,7 +126,7 @@ index d817357..7cb19d1 100644
  | `comment/` | Mobile comment mode: quoted-selection state, its scope ownership, and the shell that replaces the composer while a comment is written |
  | `submit/` | Turning what the user has into what gets sent. `guestCommands.ts` routes an extension's slash command (`contributes.commands`) before anything is sent: `/name args` never reaches the model, the extension resolves it into a chip |
  | `attachments/` | Files: paths, drop payloads |
-@@ -1384,6 +1384,22 @@ command can leave the queue untouched and delivery can take only part of it.
+@@ -1652,6 +1652,22 @@ command can leave the queue untouched and delivery can take only part of it.
    draft target UI is mounted.
    Keyboard selection returns focus to the current form's composer, including
    when the selected value is unchanged.
@@ -150,7 +150,7 @@ index d817357..7cb19d1 100644
    mention picker after its IME guard.
  
 diff --git a/packages/ui/src/components/chat/composer/input/ComposerDraftTitle.tsx b/packages/ui/src/components/chat/composer/input/ComposerDraftTitle.tsx
-index b84e657..cc0dc09 100644
+index b84e657f5..cc0dc0900 100644
 --- a/packages/ui/src/components/chat/composer/input/ComposerDraftTitle.tsx
 +++ b/packages/ui/src/components/chat/composer/input/ComposerDraftTitle.tsx
 @@ -1,7 +1,11 @@
@@ -176,7 +176,7 @@ index b84e657..cc0dc09 100644
          </>
      );
 diff --git a/packages/ui/src/components/chat/composer/input/renderComposerForm.tsx b/packages/ui/src/components/chat/composer/input/renderComposerForm.tsx
-index b74bb40..90a1e1d 100644
+index bc3bca324..3275fcb47 100644
 --- a/packages/ui/src/components/chat/composer/input/renderComposerForm.tsx
 +++ b/packages/ui/src/components/chat/composer/input/renderComposerForm.tsx
 @@ -57,6 +57,7 @@ import { PermissionDock } from '@/components/chat/PermissionDock';
@@ -197,7 +197,7 @@ index b74bb40..90a1e1d 100644
                  </div>
              ) : null}
 diff --git a/packages/ui/src/components/chat/composer/input/useComposerDraftTarget.ts b/packages/ui/src/components/chat/composer/input/useComposerDraftTarget.ts
-index 2dd6bee..7859909 100644
+index 2dd6bee19..78599095b 100644
 --- a/packages/ui/src/components/chat/composer/input/useComposerDraftTarget.ts
 +++ b/packages/ui/src/components/chat/composer/input/useComposerDraftTarget.ts
 @@ -13,12 +13,13 @@ import { useDraftHeading } from '../../useDraftHeading';
@@ -246,7 +246,7 @@ index 2dd6bee..7859909 100644
      const [newSpaceProject, setNewSpaceProject] = React.useState<{ id: string; path: string } | null>(null);
 diff --git a/packages/ui/src/components/chat/composer/state/__tests__/draftProjectPickerRequest.test.tsx b/packages/ui/src/components/chat/composer/state/__tests__/draftProjectPickerRequest.test.tsx
 new file mode 100644
-index 0000000..831026b
+index 000000000..831026b5c
 --- /dev/null
 +++ b/packages/ui/src/components/chat/composer/state/__tests__/draftProjectPickerRequest.test.tsx
 @@ -0,0 +1,77 @@
@@ -329,7 +329,7 @@ index 0000000..831026b
 +});
 diff --git a/packages/ui/src/components/chat/composer/state/draftProjectPickerRequest.ts b/packages/ui/src/components/chat/composer/state/draftProjectPickerRequest.ts
 new file mode 100644
-index 0000000..2b61e67
+index 000000000..2b61e6745
 --- /dev/null
 +++ b/packages/ui/src/components/chat/composer/state/draftProjectPickerRequest.ts
 @@ -0,0 +1,42 @@
@@ -376,7 +376,7 @@ index 0000000..2b61e67
 +    }), []);
 +}
 diff --git a/packages/ui/src/components/chat/composer/ui/DraftTargetSelectors.tsx b/packages/ui/src/components/chat/composer/ui/DraftTargetSelectors.tsx
-index 516d9e0..9593271 100644
+index f5b83177a..051058e3a 100644
 --- a/packages/ui/src/components/chat/composer/ui/DraftTargetSelectors.tsx
 +++ b/packages/ui/src/components/chat/composer/ui/DraftTargetSelectors.tsx
 @@ -43,6 +43,7 @@ import type { Theme } from '@/types/theme';
@@ -385,9 +385,9 @@ index 516d9e0..9593271 100644
  import { getProjectDisplayLabel, type DraftTargetProject } from '../state/useDraftTarget';
 +import { useDraftProjectPickerRequest, setDraftProjectPickerOpen } from '../state/draftProjectPickerRequest';
  import { useProjectsInSidebarOrder } from '@/components/session/sidebar/list/useProjectsInSidebarOrder';
- import { DraftsHerePicker, MobileDraftsHerePicker } from './DraftsHerePicker';
+ import { DraftsHerePicker } from './DraftsHerePicker';
  import { sessionEvents } from '@/lib/sessionEvents';
-@@ -197,7 +198,10 @@ function DraftTargetSelectorsView(props: DraftTargetProps) {
+@@ -199,7 +200,10 @@ function DraftTargetSelectorsView(props: DraftTargetProps) {
          setOpenPicker(null);
      };
  
@@ -399,7 +399,7 @@ index 516d9e0..9593271 100644
          projectTriggerRef.current?.focus();
          setProjectFocusReturn(false);
          setProjectQuery('');
-@@ -205,7 +209,15 @@ function DraftTargetSelectorsView(props: DraftTargetProps) {
+@@ -207,7 +211,15 @@ function DraftTargetSelectorsView(props: DraftTargetProps) {
              projects.some((project) => project.id === selectedProject.id) ? selectedProject.id : null,
          );
          setOpenPicker('project');

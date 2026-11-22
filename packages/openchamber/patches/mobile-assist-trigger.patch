@@ -26,12 +26,12 @@ index 000000000..76f9b96bb
 +
 +Deferring would need the shell to hold the intent and replay it from a keyguard callback, and then the draft would open minutes after the gesture with recording already stale. Dropping it costs one keyguard check and leaves the app exactly as the user left it.
 diff --git a/packages/mobile/android/app/src/main/AndroidManifest.xml b/packages/mobile/android/app/src/main/AndroidManifest.xml
-index e27ec4b5b..645d82941 100644
+index a8c00aa83..b1fd676cf 100644
 --- a/packages/mobile/android/app/src/main/AndroidManifest.xml
 +++ b/packages/mobile/android/app/src/main/AndroidManifest.xml
-@@ -21,6 +21,13 @@
-                 <action android:name="android.intent.action.MAIN" />
-                 <category android:name="android.intent.category.LAUNCHER" />
+@@ -33,6 +33,13 @@
+                 <category android:name="android.intent.category.DEFAULT" />
+                 <data android:mimeType="*/*" />
              </intent-filter>
 +            <!-- The digital-assistant role: makes OpenChamber selectable in Settings → System →
 +                 Gestures → Press and hold power button → Digital assistant. MainActivity rewrites
@@ -42,22 +42,27 @@ index e27ec4b5b..645d82941 100644
 +            </intent-filter>
          </activity>
  
-         <provider
+         <!-- Not a toggle: the tile starts a session, like the iOS Control Center control. -->
 diff --git a/packages/mobile/android/app/src/main/java/com/openchamber/app/MainActivity.java b/packages/mobile/android/app/src/main/java/com/openchamber/app/MainActivity.java
-index 361e44951..19e4dc92d 100644
+index 76dac5903..6d1cef9b8 100644
 --- a/packages/mobile/android/app/src/main/java/com/openchamber/app/MainActivity.java
 +++ b/packages/mobile/android/app/src/main/java/com/openchamber/app/MainActivity.java
-@@ -1,9 +1,21 @@
+@@ -1,9 +1,11 @@
  package com.openchamber.app;
  
 +import android.app.KeyguardManager;
-+import android.content.Intent;
+ import android.content.ContentResolver;
+ import android.content.Context;
+ import android.content.Intent;
+ import android.content.pm.PackageManager;
 +import android.net.Uri;
  import android.os.Bundle;
- import com.getcapacitor.BridgeActivity;
+ import android.os.Process;
+ import android.util.Log;
+@@ -53,6 +55,14 @@ public class MainActivity extends BridgeActivity {
+         }
+     );
  
- public class MainActivity extends BridgeActivity {
-+
 +    /**
 +     * Long-pressing the power button (and the assistant button on headsets) reaches us as
 +     * ACTION_ASSIST with no data URI, which the Capacitor App plugin ignores. Rewriting it into
@@ -69,24 +74,37 @@ index 361e44951..19e4dc92d 100644
      @Override
      public void onCreate(Bundle savedInstanceState) {
          // App-local plugins must be registered before the bridge starts.
-@@ -15,6 +27,8 @@ public class MainActivity extends BridgeActivity {
+@@ -64,6 +74,8 @@ public class MainActivity extends BridgeActivity {
          registerPlugin(WindowLayoutPlugin.class);
          registerPlugin(RuntimeWebSocketPlugin.class);
          registerPlugin(WidgetBridgePlugin.class);
 +        // The bridge reads the launch intent while starting, so rewrite it first.
 +        setIntent(assistDeepLinkIntent(getIntent()));
          registerPlugin(MobileDevTunnelPlugin.class);
-         super.onCreate(savedInstanceState);
+         registerPlugin(SharedFilesPlugin.class);
+         if (savedInstanceState != null) {
+@@ -105,12 +117,13 @@ public class MainActivity extends BridgeActivity {
+ 
+     @Override
+     protected void onNewIntent(Intent intent) {
+-        super.onNewIntent(intent);
+-        setIntent(intent);
+-        String content = SharedIntentReader.contentSignature(intent);
++        Intent resolved = assistDeepLinkIntent(intent);
++        super.onNewIntent(resolved);
++        setIntent(resolved);
++        String content = SharedIntentReader.contentSignature(resolved);
+         if (content != null) {
+             // A new intent is a new share even when it carries the same link or file as an earlier one.
+-            readShare(intent, content, UUID.randomUUID().toString());
++            readShare(resolved, content, UUID.randomUUID().toString());
+         }
      }
-@@ -26,4 +40,22 @@ public class MainActivity extends BridgeActivity {
+ 
+@@ -177,4 +190,17 @@ public class MainActivity extends BridgeActivity {
          setContentView(R.layout.activity_main);
          super.load();
      }
-+
-+    @Override
-+    protected void onNewIntent(Intent intent) {
-+        super.onNewIntent(assistDeepLinkIntent(intent));
-+    }
 +
 +    private Intent assistDeepLinkIntent(Intent intent) {
 +        if (intent == null || !Intent.ACTION_ASSIST.equals(intent.getAction())) {

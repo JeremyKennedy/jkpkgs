@@ -1,8 +1,8 @@
 diff --git a/packages/mobile/android/app/src/main/AndroidManifest.xml b/packages/mobile/android/app/src/main/AndroidManifest.xml
-index 645d82941..2d15d9b27 100644
+index b1fd676cf..1aeb30e45 100644
 --- a/packages/mobile/android/app/src/main/AndroidManifest.xml
 +++ b/packages/mobile/android/app/src/main/AndroidManifest.xml
-@@ -28,6 +28,15 @@
+@@ -40,6 +40,15 @@
                  <action android:name="android.intent.action.ASSIST" />
                  <category android:name="android.intent.category.DEFAULT" />
              </intent-filter>
@@ -17,12 +17,12 @@ index 645d82941..2d15d9b27 100644
 +            </intent-filter>
          </activity>
  
-         <provider
+         <!-- Not a toggle: the tile starts a session, like the iOS Control Center control. -->
 diff --git a/packages/ui/src/apps/deepLinkNavigation.ts b/packages/ui/src/apps/deepLinkNavigation.ts
-index 3fb89e0d0..e6de84ba5 100644
+index b206995f1..c9c488c0c 100644
 --- a/packages/ui/src/apps/deepLinkNavigation.ts
 +++ b/packages/ui/src/apps/deepLinkNavigation.ts
-@@ -7,7 +7,7 @@ import { useProjectsStore } from '@/stores/useProjectsStore';
+@@ -15,7 +15,7 @@ import { createSessionDraftId } from '@/stores/useSessionDraftsStore';
  import { useQuotaStore } from '@/stores/useQuotaStore';
  import type { QuotaProviderId } from '@/types';
  import { useInputStore } from '@/sync/input-store';
@@ -31,7 +31,7 @@ index 3fb89e0d0..e6de84ba5 100644
  import { openSession } from '@/lib/router/openSessionFromRoute';
  
  import { parseDeepLink, type DeepLinkIntent, type SessionsFilter, type ViewTarget } from './deepLinks';
-@@ -56,13 +56,21 @@ const execute = (intent: NavigationIntent): boolean => {
+@@ -92,13 +92,21 @@ const execute = (intent: NavigationIntent): boolean => {
  
      case 'new-session': {
        const store = useSessionUIStore.getState();
@@ -100,13 +100,13 @@ index ce46d14f1..cd263caba 100644
 +  });
 +});
 diff --git a/packages/ui/src/apps/deepLinks.ts b/packages/ui/src/apps/deepLinks.ts
-index d18741fbf..025c5bc88 100644
+index b9ff4c1e4..bad578919 100644
 --- a/packages/ui/src/apps/deepLinks.ts
 +++ b/packages/ui/src/apps/deepLinks.ts
 @@ -8,7 +8,17 @@ export type ViewTarget = 'files' | 'mcp' | 'instances' | 'update';
  
  export type DeepLinkIntent =
-   | { type: 'session'; sessionId: string; directory?: string; messageId?: string }
+   | { type: 'session'; sessionId: string; directory?: string; messageId?: string; serverId?: string }
 -  | { type: 'new-session'; directory?: string; projectId?: string; agent?: string; model?: string }
 +  | {
 +      type: 'new-session';
@@ -150,10 +150,10 @@ index d18741fbf..025c5bc88 100644
      case 'sessions': {
        const filter = query.get('filter');
 diff --git a/packages/ui/src/components/chat/ChatInput.tsx b/packages/ui/src/components/chat/ChatInput.tsx
-index 842b32f81..f05ad5cc8 100644
+index e31fcd32f..a876bdae1 100644
 --- a/packages/ui/src/components/chat/ChatInput.tsx
 +++ b/packages/ui/src/components/chat/ChatInput.tsx
-@@ -12,6 +12,7 @@ import { useComposerAutocompleteState } from './composer/input/useComposerAutoco
+@@ -13,6 +13,7 @@ import { useComposerAutocompleteState } from './composer/input/useComposerAutoco
  import { useComposerColumn } from './composer/input/useComposerColumn';
  import { useComposerCompletions } from './composer/input/useComposerCompletions';
  import { useComposerControls } from './composer/input/useComposerControls';
@@ -161,7 +161,7 @@ index 842b32f81..f05ad5cc8 100644
  import { useComposerDictation } from './composer/input/useComposerDictation';
  import { useComposerDictationState } from './composer/input/useComposerDictationState';
  import { useComposerDraftHistory } from './composer/input/useComposerDraftHistory';
-@@ -176,6 +177,21 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+@@ -185,6 +186,21 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
          editorState, mobilePanels, draftText, i18n, preferences, expansion, permissionSettings,
          sessionScope, mobileShell, runtime, draftHistory,
      });
@@ -184,11 +184,11 @@ index 842b32f81..f05ad5cc8 100644
          largePasteState, editorState, draftText, autocompleteState, preferences, expansion,
          mobileActions, sessionScope, sessionLifecycle, editorActions, queueState, queueActions: sending,
 diff --git a/packages/ui/src/sync/input-store.test.ts b/packages/ui/src/sync/input-store.test.ts
-index d7d71cf3b..0456b7086 100644
+index 56fb6895f..3e8f21a16 100644
 --- a/packages/ui/src/sync/input-store.test.ts
 +++ b/packages/ui/src/sync/input-store.test.ts
-@@ -758,3 +758,26 @@ describe("input-store draft submit", () => {
-     expect(useInputStore.getState().pendingDraftSubmit).toBeNull()
+@@ -1095,3 +1095,26 @@ describe("input-store draft content", () => {
+     expect(useInputStore.getState().pendingDraftContent).toBeNull()
    })
  })
 +
@@ -215,13 +215,13 @@ index d7d71cf3b..0456b7086 100644
 +  })
 +})
 diff --git a/packages/ui/src/sync/input-store.ts b/packages/ui/src/sync/input-store.ts
-index 1cfa9135d..d12819a5c 100644
+index c2ebe2c8a..a2868d2fc 100644
 --- a/packages/ui/src/sync/input-store.ts
 +++ b/packages/ui/src/sync/input-store.ts
-@@ -218,6 +218,13 @@ export type InputState = {
-   pinnedSyntheticParts: Map<string, SyntheticContextPart[]>
+@@ -309,6 +309,13 @@ export type InputState = {
    pendingPresetSubmit: { text: string; type: "command" | "skill" } | null
    pendingDraftSubmit: { draftId: number; text: string } | null
+   pendingDraftContent: PendingDraftContent | null
 +  /**
 +   * A dictation a deep link asked for on a new-session draft. Bound to the
 +   * draft's id, so it never starts recording in another draft or session; a
@@ -232,26 +232,26 @@ index 1cfa9135d..d12819a5c 100644
    pendingGuestIssue: AttachIssueRequest | null
    pendingBtwComposerRequest: PendingBtwComposerRequest | null
    attachedFiles: AttachedFile[]
-@@ -236,6 +243,9 @@ export type InputState = {
-   consumePendingPresetSubmit: () => { text: string; type: "command" | "skill" } | null
-   requestDraftSubmit: (draftId: number, text: string) => void
+@@ -329,6 +336,9 @@ export type InputState = {
    consumePendingDraftSubmit: (draftId: number | null) => string | null
+   requestDraftContent: (draftId: number, content: { files: File[]; text?: string | null; rejected?: RejectedSharedFile[]; accept?: () => void }) => void
+   consumePendingDraftContent: (draftId: number | null) => Omit<PendingDraftContent, "draftId"> | null
 +  requestDraftDictation: (draftId: number) => void
 +  /** True when the request belonged to this draft; any other pending request is dropped. */
 +  consumePendingDraftDictation: (draftId: number | null) => boolean
    setPendingGuestIssue: (issue: AttachIssueRequest | null) => void
    consumePendingGuestIssue: () => AttachIssueRequest | null
    requestBtwComposer: (request: PendingBtwComposerRequest) => void
-@@ -281,6 +291,7 @@ export const useInputStore = create<InputState>()((set, get) => ({
-   pinnedSyntheticParts: new Map(),
+@@ -381,6 +391,7 @@ export const useInputStore = create<InputState>()((set, get) => ({
    pendingPresetSubmit: null,
    pendingDraftSubmit: null,
+   pendingDraftContent: null,
 +  pendingDraftDictation: null,
    pendingGuestIssue: null,
    pendingBtwComposerRequest: null,
    attachedFiles: [],
-@@ -355,6 +366,15 @@ export const useInputStore = create<InputState>()((set, get) => ({
-     return pendingDraftSubmit.draftId === draftId ? pendingDraftSubmit.text : null
+@@ -478,6 +489,15 @@ export const useInputStore = create<InputState>()((set, get) => ({
+     }
    },
  
 +  requestDraftDictation: (draftId) => set({ pendingDraftDictation: { draftId } }),
