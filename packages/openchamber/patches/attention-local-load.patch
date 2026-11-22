@@ -1,0 +1,92 @@
+diff --git a/packages/ui/src/hooks/useLocalInstanceAttention.test.tsx b/packages/ui/src/hooks/useLocalInstanceAttention.test.tsx
+index 860b5f194..222afb33f 100644
+--- a/packages/ui/src/hooks/useLocalInstanceAttention.test.tsx
++++ b/packages/ui/src/hooks/useLocalInstanceAttention.test.tsx
+@@ -113,6 +113,26 @@ test('the hook publishes this instance’s waiting sessions into the attention s
+   expect(useInstanceAttentionStore.getState().hosts[LOCAL_INSTANCE_ATTENTION_HOST_ID]?.status).toBe('ok');
+ });
+ 
++test('a host switch that cleared the list makes the hook read it again', async () => {
++  // A switch resets the global list to `hasLoaded: false` with no records. The
++  // phone mounts no global poller, so the instance on screen would publish no
++  // rows at all until the sessions sheet happens to be opened.
++  const after = session('ses_after_switch');
++  useGlobalSessionsStore.setState({
++    hasLoaded: false,
++    entityById: new Map<string, Session>(),
++    loadSessions: async () => {
++      useGlobalSessionsStore.setState({ hasLoaded: true, entityById: new Map([[after.id, after]]) });
++      return { activeSessions: [after], archivedSessions: [] };
++    },
++  });
++
++  await mount();
++  await act(async () => { await Promise.resolve(); });
++
++  expect(localItems().map((item) => item.sessionId)).toEqual(['ses_after_switch']);
++});
++
+ test('unmounting clears the local entry', async () => {
+   useGlobalSessionsStore.setState({ entityById: new Map([['ses_unread', session('ses_unread')]]) });
+   await mount();
+diff --git a/packages/ui/src/hooks/useLocalInstanceAttention.ts b/packages/ui/src/hooks/useLocalInstanceAttention.ts
+index 913830cef..6e2cc6324 100644
+--- a/packages/ui/src/hooks/useLocalInstanceAttention.ts
++++ b/packages/ui/src/hooks/useLocalInstanceAttention.ts
+@@ -10,7 +10,7 @@ import { collectOpenTurnSessionIds, useGlobalSessionStatusStore } from '@/sync/g
+ import { usePrWatchStore } from '@/sync/pr-watch';
+ import { isSessionAdmitted } from '@/sync/session-admission';
+ import { useWorkflowActivityStore } from '@/sync/workflow-activity';
+-import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
++import { useGlobalSessionsStore, ensureGlobalSessionsLoaded } from '@/stores/useGlobalSessionsStore';
+ import { useInstanceAttentionStore } from '@/stores/useInstanceAttentionStore';
+ import { useProjectsStore } from '@/stores/useProjectsStore';
+ import type { Session } from '@/lib/opencode/model';
+@@ -72,6 +72,14 @@ export const useLocalInstanceAttention = (enabled: boolean): void => {
+     (state) => (enabled ? admittedSessionSignature(state.entityById) : ''),
+     [enabled],
+   ));
++  const loaded = useGlobalSessionsStore((state) => state.hasLoaded);
++
++  React.useEffect(() => {
++    if (!enabled || loaded) return;
++    void ensureGlobalSessionsLoaded().catch((error) => {
++      console.warn('[instance-attention] could not read this instance\'s sessions:', error);
++    });
++  }, [enabled, loaded]);
+ 
+   React.useEffect(() => {
+     if (!enabled) return;
+diff --git a/packages/ui/src/lib/DOCUMENTATION.md b/packages/ui/src/lib/DOCUMENTATION.md
+index 08f8f1ff8..d443fcf10 100644
+--- a/packages/ui/src/lib/DOCUMENTATION.md
++++ b/packages/ui/src/lib/DOCUMENTATION.md
+@@ -183,6 +183,7 @@ Pairing and connection checks address a server before selecting it. Routing them
+ ### Invariants
+ 
+ - Both halves apply one folder rule, so the drawer cannot show a session the instance on screen hides. The local half filters with `isSessionAdmitted`; a polled half filters with the folders that host reports. A host that cannot answer (an unreadable settings or home route) leaves its rows standing rather than reading as "no folders", while a host that answers without any project is a real answer and admits only chats roots and spaces.
++- The local half reads this window's own session list when the store holds none. A host switch clears that list, and the phone has no global poller to refill it, so without the read the drawer showed only the other instances' rows until the sessions sheet was opened.
+ - The polled folders are the host's projects, the worktrees it lists under them, its chats roots, a `/spaces/<id>` folder and a deleted space's archived chats. A worktree outside every project path is the local half's normal case, so the poll reads `/api/git/project-worktrees` for it; when that read fails the project paths stand alone. A request whose session fell outside the 200-record page is resolved through its own detail route before the rule judges it, so a genuine request in a registered folder is kept and one in an unregistered folder is not shown.
+ - The app's own server is a poll target (`local`) only while the window shows a saved host and its page can reach that server (`pageReachesLocalOrigin`: the packaged UI, or a page already on the local origin). A page another instance served is cross-origin to the local server, so it has to be reloaded into the Local UI before it can read this machine; reading it anyway would report Local as unreachable. The read goes straight to the shell's local origin with the local client token and no shared probe, because the shell either runs that loopback server or reports none. The reserved `openchamber:this-instance` entry still names the instance on screen, so the two never describe the same server. The row label is the switcher's own key (`desktopHostSwitcher.instance.local`), so both surfaces name that server the same way in every locale.
+ - A jump to the app's own server goes through `activateLocalHost`, not the saved-host lookup, which does not hold Local. The endpoint switches in place on the app's own pages and the clicked session opens; the shell's reload branch is the fallback for a page that cannot switch in place.
+diff --git a/packages/ui/src/stores/DOCUMENTATION.md b/packages/ui/src/stores/DOCUMENTATION.md
+index c573d1b7f..77195dcdf 100644
+--- a/packages/ui/src/stores/DOCUMENTATION.md
++++ b/packages/ui/src/stores/DOCUMENTATION.md
+@@ -133,6 +133,16 @@ badge show one total. `retainHosts` keeps the reserved entry because it is never
+ in a poller's target list; the `local` entry leaves with the target list when the
+ window returns to it.
+ 
++#### Why the local half loads the session list itself
++
++A host switch resets the global session list (`hasLoaded: false`, no records),
++and the phone mounts no global poller: the list is read again only when the
++sessions sheet opens or the connection reconnects. `hooks/useLocalInstanceAttention.ts`
++therefore reads it when the store holds none, so the instance on screen
++publishes its own waiting sessions right after a switch. Without that read the
++drawer showed only the other saved instances' rows until the sheet was opened,
++which reads as one host having more waiting work than it does.
++
+ #### Why the local instance is a store entry and not a second list
+ 
+ A separate local list would make every surface merge two arrays and choose

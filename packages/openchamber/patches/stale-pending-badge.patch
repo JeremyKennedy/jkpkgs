@@ -54,7 +54,7 @@ index 07d6fe2be..945fb2e16 100644
                    active={session.id === currentSessionId}
                    onSelect={() => {
 diff --git a/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx b/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx
-index 6f2c4cbc6..1a9985e6d 100644
+index fae376da5..4e44f25c8 100644
 --- a/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx
 +++ b/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx
 @@ -20,7 +20,6 @@ import { normalizePath } from '@/lib/pathNormalization';
@@ -65,12 +65,10 @@ index 6f2c4cbc6..1a9985e6d 100644
  import { isChatDirectoryPath } from '@/lib/chatDirectories';
  import { useI18n } from '@/lib/i18n';
  import { isSessionPinned } from '@/lib/sessionPins';
-@@ -52,8 +51,13 @@ import { MOBILE_ACTIVE_ROW_CLASS, MobileRowChevron, MobileSlotChevron, MobileTwo
+@@ -56,9 +55,15 @@ import { MOBILE_ACTIVE_ROW_CLASS, MobileRowChevron, MobileSlotChevron, MobileTwo
  
  type SessionRowModel = Extract<SessionSidebarRow, { kind: 'session' }>;
  
--const collectDescendantIds = (node: SessionNode): string[] => node.children.flatMap((child) => [child.session.id, ...collectDescendantIds(child)]);
--
 +/**
 + * A session in the phone's list: the desktop row's content for a thumb. One
 + * line is a tree row, its subsession chevron in the slot left of the title
@@ -78,10 +76,13 @@ index 6f2c4cbc6..1a9985e6d 100644
 + * branch on the second, with the chevron as its first icon. Swiping reveals
 + * archive, pin, Track or Done, delete, rename and Copy ID.
 + */
- export const MobileSessionRow: React.FC<{
-   row: SessionRowModel;
-   geometry: MobileTreeGeometry;
-@@ -79,11 +83,11 @@ export const MobileSessionRow: React.FC<{
+ const collectDescendantIds = (node: SessionNode): string[] => node.children.flatMap((child) => [child.session.id, ...collectDescendantIds(child)]);
+ 
+-
+ const HandToLeadItems: React.FC<{ session: Session; projectId: string | null }> = ({ session, projectId }) => {
+   const { t } = useI18n();
+   const leads = useProjectLeads(projectId, session.id);
+@@ -95,11 +100,11 @@ export const MobileSessionRow: React.FC<{
    const showActivityDuration = (isStreaming || showUnread) && hasActivityDuration;
    const hasChildren = node.children.length > 0;
    const expanded = row.expanded === true;
@@ -413,10 +414,10 @@ index 5faef6d34..4880e077d 100644
    const timestamp = getSessionActivityTime(session) || Date.now();
    const timeLabel = formatSessionCompactDateLabel(timestamp);
 diff --git a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-index 3d6a3a45c..933aca0b5 100644
+index 898a59abd..ab8fcd44c 100644
 --- a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
 +++ b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-@@ -379,7 +379,7 @@ bootstrap work. Selection and activity subscriptions stay session-scoped so a
+@@ -392,7 +392,7 @@ bootstrap work. Selection and activity subscriptions stay session-scoped so a
  structural list update does not make every row observe unrelated streaming
  updates.
  
@@ -425,7 +426,7 @@ index 3d6a3a45c..933aca0b5 100644
  
  A session row's menu and the header's session menus (a tab's, the title's)
  are one component, `sessions/SessionActionsMenuItems.tsx`; each surface
-@@ -1554,6 +1554,14 @@ hover, keyboard focus, and always-visible action buttons move them left without
+@@ -1612,6 +1612,14 @@ hover, keyboard focus, and always-visible action buttons move them left without
  
  ## Decisions
  
@@ -773,7 +774,7 @@ index ba70b5102..1407df17b 100644
    });
  });
 diff --git a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityState.ts b/packages/ui/src/components/session/sidebar/sessions/collapsedActivityState.ts
-index 89713dd3f..a1cfbe5c0 100644
+index 89713dd3f..b7b478727 100644
 --- a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityState.ts
 +++ b/packages/ui/src/components/session/sidebar/sessions/collapsedActivityState.ts
 @@ -1,13 +1,14 @@
@@ -916,7 +917,7 @@ index 2d2112a92..6b49639ec 100644
  
  describe('nodeHasPinnedMembershipChange', () => {
 diff --git a/packages/ui/src/components/session/sidebar/sessions/sessionNodeItemUtils.ts b/packages/ui/src/components/session/sidebar/sessions/sessionNodeItemUtils.ts
-index 7587de20b..cc35d956b 100644
+index 7587de20b..e2093f54f 100644
 --- a/packages/ui/src/components/session/sidebar/sessions/sessionNodeItemUtils.ts
 +++ b/packages/ui/src/components/session/sidebar/sessions/sessionNodeItemUtils.ts
 @@ -64,7 +64,8 @@ export const nodeContainsSessionId = (node: SessionNode, sessionId: string | nul
@@ -1003,11 +1004,78 @@ index 7587de20b..cc35d956b 100644
  };
  
  export const selectFolderRootNodes = (
+diff --git a/packages/ui/src/components/session/sidebar/works/WorktreeWorkRow.marks.test.tsx b/packages/ui/src/components/session/sidebar/works/WorktreeWorkRow.marks.test.tsx
+index 36112e968..2b0d9f3e0 100644
+--- a/packages/ui/src/components/session/sidebar/works/WorktreeWorkRow.marks.test.tsx
++++ b/packages/ui/src/components/session/sidebar/works/WorktreeWorkRow.marks.test.tsx
+@@ -29,6 +29,7 @@ mock.module('@/lib/guests/open-url', () => ({
+   },
+ }));
+ const { WorktreeWorkRow } = await import('./WorktreeWorkRow');
++const { SyncRuntimeContext } = await import('@/sync/sync-runtime-context');
+ 
+ const WORKTREE = '/trees/app/feature-login';
+ 
+@@ -60,24 +61,37 @@ const group = (sessions: SessionGroup['sessions'] = []): SessionGroup => ({
+ });
+ 
+ const noop = () => undefined;
++// The row reads its blocking requests from the directory stores; this test
++// exercises only the guest marks, so a runtime whose child stores never exist
++// leaves the lookup on the cross-directory index and needs no real sync.
++const runtime = {
++  childStores: {
++    getChild: () => undefined,
++    pin: () => undefined,
++    unpin: () => undefined,
++    subscribeRegistry: () => () => undefined,
++  },
++} as unknown as import('@/sync/sync-runtime-context').SyncRuntime;
+ const row = (detailed: boolean, sessions?: SessionGroup['sessions']) => (
+-  <I18nProvider>
+-    <WorktreeWorkRow
+-      group={group(sessions)}
+-      groupKey="project-a:worktree:feature-login"
+-      projectId="project-a"
+-      depth={0}
+-      detailed={detailed}
+-      mixed={false}
+-      inPinnedZone={false}
+-      collapsed
+-      empty={!sessions?.length}
+-      alwaysShowActions={false}
+-      mobileVariant={false}
+-      onToggle={noop}
+-      setSessionSwitcherOpen={noop}
+-    />
+-  </I18nProvider>
++  <SyncRuntimeContext.Provider value={runtime}>
++    <I18nProvider>
++      <WorktreeWorkRow
++        group={group(sessions)}
++        groupKey="project-a:worktree:feature-login"
++        projectId="project-a"
++        depth={0}
++        detailed={detailed}
++        mixed={false}
++        inPinnedZone={false}
++        collapsed
++        empty={!sessions?.length}
++        alwaysShowActions={false}
++        mobileVariant={false}
++        onToggle={noop}
++        setSessionSwitcherOpen={noop}
++      />
++    </I18nProvider>
++  </SyncRuntimeContext.Provider>
+ );
+ 
+ let win: Window;
 diff --git a/packages/ui/src/sync/DOCUMENTATION.md b/packages/ui/src/sync/DOCUMENTATION.md
-index aca1e95ad..2b4b131d0 100644
+index b58f83fa8..5ba2d9881 100644
 --- a/packages/ui/src/sync/DOCUMENTATION.md
 +++ b/packages/ui/src/sync/DOCUMENTATION.md
-@@ -1060,7 +1060,16 @@ Per-directory snapshots only cover directories with a store, and on mobile that
+@@ -1080,7 +1080,16 @@ Per-directory snapshots only cover directories with a store, and on mobile that
  
  Directories that are not bootstrapped get their initial activity from the host instead: `host-session-status-seed.ts` fetches `/api/sessions/status`, the cross-project map the OpenChamber host keeps from its single upstream event stream, after each global session load. One request, no OpenCode instance creation. The seed is additive only. It adds busy entries (retry collapses to busy; the next live event restores details) for sessions the client has not observed itself, resolves each session's directory from the global session cache, skips entries the host last updated more than 30 minutes ago, and never clears anything: the host payload carries no directory, so absence proves nothing. A live event that arrived first wins. In VS Code the webview shim answers the same route from the extension host's activity watcher, whose phases collapse busy and retry and settle themselves, so every entry it reports is current. The host also reads OpenCode's running list each time its event stream connects and marks those sessions busy, so a turn that started before the host (an external OpenCode, or a host restarted mid-turn) is seeded too. The same read settles host sessions the map held busy that the list leaves out: their idle fell into the host's own stream gap, and without it every client started within the seed's age limit showed them running, a reopened phone included. Sessions of isolated spaces are left alone there, since the host's list never names them. The seed also applies the host's turn starts (`buildHostTurnStarts`): a busy entry's start is its running turn's; an idle entry's is its last turn's and is applied only to a session this device does not see running itself, which is a parent whose subagent or background command keeps that turn open here.
  
@@ -1025,7 +1093,7 @@ index aca1e95ad..2b4b131d0 100644
  
  ### Why page snapshots replace waits while form and permission seeds stay additive
  
-@@ -1799,7 +1808,9 @@ row's render. Their registry callback attaches the new store's subscription at
+@@ -1821,7 +1830,9 @@ row's render. Their registry callback attaches the new store's subscription at
  once, so no store update is missed, and defers only the reader's notification
  by one coalesced microtask. Plain `subscribeRegistry` stays synchronous:
  `SessionCacheRetention` must have attached a store before the loader's
@@ -1214,7 +1282,7 @@ index 05586d83b..bc81ad6ac 100644
    event: Extract<SyncEvent, { type: 'openchamber.page-waiting' | 'openchamber.page-settled' }>,
    resolveDirectory: (sessionId: string) => string | null,
 diff --git a/packages/ui/src/sync/session-actions.test.ts b/packages/ui/src/sync/session-actions.test.ts
-index 031648795..75cd071c8 100644
+index b9441d85b..102c6d2fc 100644
 --- a/packages/ui/src/sync/session-actions.test.ts
 +++ b/packages/ui/src/sync/session-actions.test.ts
 @@ -3,6 +3,11 @@ import type { PermissionRequest } from "@/types/permission"
@@ -1229,7 +1297,7 @@ index 031648795..75cd071c8 100644
  
  const transportErrors = await import("@/lib/relay/transport-error")
  
-@@ -5441,6 +5446,54 @@ describe("dismissPermission not-found handling", () => {
+@@ -5605,6 +5610,54 @@ describe("dismissPermission not-found handling", () => {
    })
  })
  
@@ -1285,10 +1353,10 @@ index 031648795..75cd071c8 100644
    beforeEach(() => {
      replyCalls.length = 0
 diff --git a/packages/ui/src/sync/session-actions.ts b/packages/ui/src/sync/session-actions.ts
-index 506fc3768..894e9f3b2 100644
+index 0242a4f0e..f5fe2391d 100644
 --- a/packages/ui/src/sync/session-actions.ts
 +++ b/packages/ui/src/sync/session-actions.ts
-@@ -9,6 +9,7 @@ import { dropSessionCaches } from "./session-cache"
+@@ -10,6 +10,7 @@ import { buildMetadataMergePatch, readForkMessages } from "./session-metadata-he
  import { forkAtTranscriptCut, isTurnBoundary, transcriptCutAfterMessage, transcriptCutForMessage } from "./transcript-cut"
  import { useSessionUIStore, type SentMessage } from "./session-ui-store"
  import { useSelectionStore } from "./selection-store"
@@ -1296,7 +1364,7 @@ index 506fc3768..894e9f3b2 100644
  import {
    DEFERRED_ANSWER_LEAD_IN,
    DEFERRED_QUESTION_NOTE,
-@@ -900,9 +901,19 @@ function recoverStaleBlockingRequest(sessionId: string): void {
+@@ -901,9 +902,19 @@ function recoverStaleBlockingRequest(sessionId: string): void {
    }
  }
  
@@ -1318,7 +1386,7 @@ index 506fc3768..894e9f3b2 100644
  
    let removed = false
    for (const [, store] of stores.children) {
-@@ -972,9 +983,15 @@ function isPermissionRequestNotFoundError(error: unknown): boolean {
+@@ -973,9 +984,15 @@ function isPermissionRequestNotFoundError(error: unknown): boolean {
    return /Permission(?:\.)?NotFoundError|Permission request not found/i.test(message)
  }
  
@@ -1336,7 +1404,7 @@ index 506fc3768..894e9f3b2 100644
  
    let removed = false
    for (const [, store] of stores.children) {
-@@ -2089,6 +2106,11 @@ export async function respondToPermission(
+@@ -2084,6 +2101,11 @@ export async function respondToPermission(
      if (await opencodeClient.replyToPermission(sessionId, requestId, response, { directory }) !== true) {
        throw new Error("Permission reply failed")
      }
@@ -1348,7 +1416,7 @@ index 506fc3768..894e9f3b2 100644
    } catch (error) {
      if (isPermissionRequestNotFoundError(error)) {
        removePermissionRequestFromChildStores(sessionId, requestId)
-@@ -2110,6 +2132,9 @@ export async function dismissPermission(
+@@ -2105,6 +2127,9 @@ export async function dismissPermission(
      if (await opencodeClient.replyToPermission(sessionId, requestId, "reject", { directory }) !== true) {
        throw new Error("Permission dismissal failed")
      }
@@ -1358,7 +1426,7 @@ index 506fc3768..894e9f3b2 100644
    } catch (error) {
      if (isPermissionRequestNotFoundError(error)) {
        removePermissionRequestFromChildStores(sessionId, requestId)
-@@ -2140,16 +2165,26 @@ export async function dismissOpenPermissionsForSession(sessionId: string): Promi
+@@ -2135,16 +2160,26 @@ export async function dismissOpenPermissionsForSession(sessionId: string): Promi
  
    if (toDismiss.length === 0) return false
  
@@ -1387,7 +1455,7 @@ index 506fc3768..894e9f3b2 100644
          console.error("[session-actions] Failed to dismiss open permission on send:", error)
          restorePermissionRequest(store, scopedSessionId, permission)
        }
-@@ -2462,8 +2497,11 @@ export async function dismissOpenFormsForSession(
+@@ -2457,8 +2492,11 @@ export async function dismissOpenFormsForSession(
    }
    if (toDismiss.length === 0) return { dismissed: false, deferred }
  
@@ -1400,7 +1468,7 @@ index 506fc3768..894e9f3b2 100644
    }
  
    await Promise.all(
-@@ -2471,8 +2509,14 @@ export async function dismissOpenFormsForSession(
+@@ -2466,8 +2504,14 @@ export async function dismissOpenFormsForSession(
        const [{ sessionId: scopedSessionId, form }] = copies
        try {
          await cancelForm(scopedSessionId, form.id)
@@ -1489,7 +1557,7 @@ index 9c4a56085..e5f671b0c 100644
 +  })
  })
 diff --git a/packages/ui/src/sync/session-request-hooks.ts b/packages/ui/src/sync/session-request-hooks.ts
-index 53bb434f9..8c3c6cda4 100644
+index d7d21b0e4..7e2d28324 100644
 --- a/packages/ui/src/sync/session-request-hooks.ts
 +++ b/packages/ui/src/sync/session-request-hooks.ts
 @@ -4,7 +4,8 @@ import type { FormRequest, PermissionRequest, Session } from "@/lib/opencode/mod

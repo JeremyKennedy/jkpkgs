@@ -74,10 +74,10 @@ index 9a7946353..1c242120d 100644
    useSessionStatusBootstrap();
  
 diff --git a/packages/ui/src/apps/DOCUMENTATION.md b/packages/ui/src/apps/DOCUMENTATION.md
-index 6bd06325f..455131ab7 100644
+index aaade1f82..ef91feb1c 100644
 --- a/packages/ui/src/apps/DOCUMENTATION.md
 +++ b/packages/ui/src/apps/DOCUMENTATION.md
-@@ -123,6 +123,21 @@
+@@ -135,6 +135,21 @@
  - Widgets consume display-only snapshots; network reads remain in the connected app and Android sync runs only with placed widgets. Unloaded stores and failed builders preserve native snapshots. Quota timestamps reflect provider answers, and failed refreshes cannot rewrite old data as fresh. Queued native refresh taps are acknowledged after fetching, including taps arriving during a fetch; bridge failure leaves them queued.
  - Widget session ordering, unread state and project ownership match the shared lifecycle and sidebar, including worktrees and isolated spaces. The iOS bridge returns a JSON primitive or null so failed construction cannot overwrite a good App Group snapshot. Widget quotas use the Usage page's selected providers, models, formatting and theme colors without copying credentials.
  
@@ -98,9 +98,9 @@ index 6bd06325f..455131ab7 100644
 +
  ## Decisions
  
- ### Why a visited extension tab keeps its frame and not a fresh load per visit
+ ### Why mobile push registers with every saved instance and not only the connected one
 diff --git a/packages/ui/src/apps/MobileApp.tsx b/packages/ui/src/apps/MobileApp.tsx
-index dcea9154a..2093352bc 100644
+index 45245ef05..be8b3334e 100644
 --- a/packages/ui/src/apps/MobileApp.tsx
 +++ b/packages/ui/src/apps/MobileApp.tsx
 @@ -31,6 +31,9 @@ import { usePushVisibilityBeacon } from '@/hooks/usePushVisibilityBeacon';
@@ -113,7 +113,7 @@ index dcea9154a..2093352bc 100644
  import { useUpdatePolling } from '@/hooks/useUpdatePolling';
  import { useWindowTitle } from '@/hooks/useWindowTitle';
  import { useEnterprisePolicySync } from '@/hooks/useEnterprisePolicySync';
-@@ -1198,6 +1201,12 @@ function MobileAppContent({ apis }: MobileAppProps) {
+@@ -1187,6 +1190,12 @@ function MobileAppContent({ apis }: MobileAppProps) {
    useGuestMarksSync();
    useBrowserProviderSync();
    useAgentMemorySync(currentDirectory || null);
@@ -127,7 +127,7 @@ index dcea9154a..2093352bc 100644
    useNativePushRegistration({ enabled: isNativeMobileApp && isConnected });
    useKeepScreenAwake(isConnected);
 diff --git a/packages/ui/src/apps/MobileConnectionsView.tsx b/packages/ui/src/apps/MobileConnectionsView.tsx
-index 8c7bf64d7..5593a74ed 100644
+index a687188c4..23bf979da 100644
 --- a/packages/ui/src/apps/MobileConnectionsView.tsx
 +++ b/packages/ui/src/apps/MobileConnectionsView.tsx
 @@ -7,10 +7,13 @@ import { MobileSheetRow, MobileSheetSection } from '@/components/ui/MobileSheetL
@@ -144,7 +144,7 @@ index 8c7bf64d7..5593a74ed 100644
  import { MobileConnectionDebugPanel } from './MobileConnectionDebugPanel';
  import { MobileConnectionHeaders } from './MobileConnectionHeaders';
  import { MobileConnectionHeartbeat } from './MobileConnectionHeartbeat';
-@@ -19,11 +22,13 @@ import { mobileConnectionInputClass, mobileInputKeyboardProps } from './mobileCo
+@@ -19,12 +22,14 @@ import { mobileConnectionInputClass, mobileInputKeyboardProps } from './mobileCo
  import {
    connectionDisplayUrl,
    isActiveRuntimeConnection,
@@ -153,12 +153,13 @@ index 8c7bf64d7..5593a74ed 100644
    useMobileConnection,
    type MobileSavedConnection,
  } from './mobileConnections';
+ import { forgetPushTokenForConnection } from './mobilePushTokens';
  import { isQrScanSupported, parseConnectionPayload, scanConnectionQr } from './mobileQrScan';
 +import { MobileInstanceAttentionBadge } from './MobileInstanceAttentionBadge';
  import { MobileQrConnectionLoading, MobileQrScannerOverlay } from './MobileQrScannerOverlay';
  import { buildMobileHeaderValues, createMobileHeaderDrafts, type MobileHeaderDraft } from './mobileRequestHeaders';
  
-@@ -38,9 +43,6 @@ type Props =
+@@ -39,9 +44,6 @@ type Props =
  
  type FormTarget = { kind: 'add' } | { kind: 'edit'; id: string };
  
@@ -168,7 +169,7 @@ index 8c7bf64d7..5593a74ed 100644
  const hasAnyHeader = (headers: MobileHeaderDraft[]): boolean =>
    headers.some(({ name, value }) => name.trim() || value.trim());
  
-@@ -53,6 +55,7 @@ export const MobileConnectionsView: React.FC<Props> = (props) => {
+@@ -54,6 +56,7 @@ export const MobileConnectionsView: React.FC<Props> = (props) => {
      connect, submitPassword, cancelPassword, saveConnection, removeConnection, setError,
    } = conn;
  
@@ -176,7 +177,7 @@ index 8c7bf64d7..5593a74ed 100644
    const [formTarget, setFormTarget] = React.useState<FormTarget | null>(null);
    const [url, setUrl] = React.useState('');
    const [label, setLabel] = React.useState('');
-@@ -237,6 +240,10 @@ export const MobileConnectionsView: React.FC<Props> = (props) => {
+@@ -239,6 +242,10 @@ export const MobileConnectionsView: React.FC<Props> = (props) => {
    const liveConnection = mode === 'instances' ? connections.find(isActiveRuntimeConnection) ?? null : null;
    const leadConnection = liveConnection ?? connections[0] ?? null;
    const otherConnections = connections.filter((connection) => connection !== leadConnection);
@@ -187,7 +188,7 @@ index 8c7bf64d7..5593a74ed 100644
    const addressOf = (connection: MobileSavedConnection): string =>
      isRelayOnly(connection) ? t('mobile.connect.relay.badge') : connectionDisplayUrl(connection);
    const actionsButton = (connection: MobileSavedConnection, className?: string) => (
-@@ -250,6 +257,8 @@ export const MobileConnectionsView: React.FC<Props> = (props) => {
+@@ -252,6 +259,8 @@ export const MobileConnectionsView: React.FC<Props> = (props) => {
      </button>
    );
  
@@ -196,7 +197,7 @@ index 8c7bf64d7..5593a74ed 100644
    const noticeBanner = mode === 'welcome' && props.notice ? (
      <div role="status" className="flex items-center gap-2.5 rounded-lg bg-[var(--status-warning-background)] px-3 py-2.5">
        <Icon name={props.notice.kind === 'auth-expired' ? 'lock' : 'cloud-off'} className="size-4 shrink-0 text-[var(--status-warning)]" />
-@@ -324,7 +333,10 @@ export const MobileConnectionsView: React.FC<Props> = (props) => {
+@@ -326,7 +335,10 @@ export const MobileConnectionsView: React.FC<Props> = (props) => {
        {liveConnection ? null : (
          <span className="pb-1 typography-micro text-muted-foreground">{t('mobile.connect.lastConnected')}</span>
        )}
@@ -208,7 +209,7 @@ index 8c7bf64d7..5593a74ed 100644
        <p dir="ltr" className="oc-ui-start-align truncate pe-8 typography-meta text-muted-foreground">{addressOf(leadConnection)}</p>
        {liveConnection ? (
          <MobileConnectionHeartbeat
-@@ -361,7 +373,10 @@ export const MobileConnectionsView: React.FC<Props> = (props) => {
+@@ -363,7 +375,10 @@ export const MobileConnectionsView: React.FC<Props> = (props) => {
              onClick={() => connectTo(connection)}
            >
              <span className="block py-1.5">
@@ -1124,22 +1125,21 @@ index 000000000..40bedc10a
 +  );
 +};
 diff --git a/packages/ui/src/apps/mobileConnections.ts b/packages/ui/src/apps/mobileConnections.ts
-index adc5b7ac8..17f773a1b 100644
+index 682b39083..eda6a9044 100644
 --- a/packages/ui/src/apps/mobileConnections.ts
 +++ b/packages/ui/src/apps/mobileConnections.ts
-@@ -12,6 +12,7 @@ import { createRelayTunnelClient, isRelayLimitReached } from '@/lib/relay/tunnel
+@@ -11,6 +11,7 @@ import { createRelayTunnelClient, isRelayLimitReached } from '@/lib/relay/tunnel
  import { addRuntimeProxyHeaders, fetchBypassingRuntimeBridge, runtimeFetch } from '@/lib/runtime-fetch';
  import { getRuntimeBearerTokenSync } from '@/lib/runtime-auth';
  import { getRuntimeApiBaseUrl, getRuntimeKey, switchRuntimeEndpoint } from '@/lib/runtime-switch';
 +import { useInstanceAttentionStore } from '@/stores/useInstanceAttentionStore';
  
  import { recordMobileConnectDebug } from './mobileConnectionDebug';
- import { fetchThroughRelayOnce, fetchThroughRelayWithRetry } from './mobileRelayFetch';
-@@ -47,7 +48,11 @@ const mobileDevicePlatform = (): string | undefined => {
+ import { KEYCHAIN_ACCESS_WHEN_UNLOCKED, MOBILE_SECURE_STORAGE_PREFIX, deleteSecureHeaders, deleteSecureToken, logDetail, logStorage, nativeSecure, readSecureToken, withTimeout, writeSecureToken } from './mobileSecureStorage';
+@@ -51,6 +52,11 @@ const mobileDevicePlatform = (): string | undefined => {
  const MOBILE_CONNECTIONS_LIMIT = 12;
  const MOBILE_CONNECT_TIMEOUT_MS = 8000;
  const MOBILE_NATIVE_HTTP_TIMEOUT_MS = 2500;
--const MOBILE_SECURE_TIMEOUT_MS = 3000;
 +export const MOBILE_SECURE_TIMEOUT_MS = 3000;
 +// Resume re-probe budget: on app wake we only need a quick "is this transport
 +// reachable right now?" answer, not the full 8s connect budget. A dead LAN
@@ -1148,7 +1148,7 @@ index adc5b7ac8..17f773a1b 100644
  const MOBILE_FAST_PROBE_TIMEOUT_MS = 2500;
  
  export const createMobilePasswordOperationTracker = () => {
-@@ -172,6 +177,12 @@ const relayCandidateOf = (connection: { candidates: MobileTransportCandidate[] }
+@@ -176,6 +182,12 @@ export const relayCandidateOf = (connection: { candidates: MobileTransportCandid
    return found && found.kind === 'relay' ? found.relay : null;
  };
  
@@ -1161,7 +1161,7 @@ index adc5b7ac8..17f773a1b 100644
  export const connectionDisplayUrl = (connection: { candidates: MobileTransportCandidate[] }): string => {
    const direct = directCandidates(connection)[0];
    if (direct) return direct.url;
-@@ -380,6 +391,48 @@ const readHealthServerId = async (response: MobileFetchResponse): Promise<string
+@@ -373,6 +385,48 @@ export const readHealthServerId = async (response: MobileFetchResponse): Promise
    return typeof reported === 'string' && reported ? reported : undefined;
  };
  
@@ -1208,9 +1208,9 @@ index adc5b7ac8..17f773a1b 100644
 +// Relay connect helpers
 +// ---------------------------------------------------------------------------
  
- const RELAY_CONNECT_TIMEOUT_MS = 15_000;
+ export const RELAY_CONNECT_TIMEOUT_MS = 15_000;
  
-@@ -675,6 +728,17 @@ const readConnectionHeaders = async (connection?: MobileSavedConnection): Promis
+@@ -603,6 +657,17 @@ export const readConnectionHeaders = async (connection?: MobileSavedConnection):
  export const loadMobileConnectionHeaders = async (id: string): Promise<MobileRequestHeaders | undefined> =>
    readConnectionHeaders(readConnections().find((connection) => connection.id === id));
  
@@ -1225,29 +1225,10 @@ index adc5b7ac8..17f773a1b 100644
 +  return readSecureToken(secureTokenKeyOf(connection));
 +};
 +
- const deleteSecureHeaders = async (prefixedKey: string): Promise<void> => {
-   await withTimeout(nativeSecure.internalRemoveItem({ prefixedKey, sync: false }), null);
- };
-@@ -867,13 +931,11 @@ const probeConnectionCandidates = async (
-       if (token) headers.Authorization = `Bearer ${token}`;
-       const health = await probe.health;
-       logConnect('probe:direct:health', { url, ok: health?.ok === true, status: health?.status ?? null, source: health?.source ?? null });
--      if (!health?.ok) continue;
--      if (expectedServerId) {
--        const reported = await readHealthServerId(health);
--        if (reported && reported !== expectedServerId) {
--          logConnect('probe:server-id-mismatch', { url });
--          continue;
--        }
-+      const identity = await identityOfHealth(health, expectedServerId);
-+      if (identity === 'unreachable') continue;
-+      if (identity === 'mismatch') {
-+        logConnect('probe:server-id-mismatch', { url });
-+        continue;
-       }
-       const session = await requestWithTimeout(`${url}/auth/session`, { method: 'GET', credentials: token ? 'omit' : 'include', headers, redirect }, requestOptions);
-       logConnect('probe:direct:session', { url, ok: session?.ok === true, status: session?.status ?? null, source: session?.source ?? null, hasToken: Boolean(token) });
-@@ -1686,6 +1748,10 @@ export const useMobileConnection = (onConnected: () => void): UseMobileConnectio
+ const resolveConnectionHeaders = async (
+   input: MobileConnectInput,
+   candidates: MobileTransportCandidate[],
+@@ -1685,6 +1750,10 @@ export const useMobileConnection = (onConnected: () => void): UseMobileConnectio
      try {
        const next = await deleteMobileConnection(id);
        applyConnections(next);
@@ -1857,7 +1838,7 @@ index 000000000..8953ca878
 +  }
 +});
 diff --git a/packages/ui/src/components/desktop/DesktopHostSwitcher.tsx b/packages/ui/src/components/desktop/DesktopHostSwitcher.tsx
-index 10f227127..f4a45ae9d 100644
+index f40db6035..ebb710980 100644
 --- a/packages/ui/src/components/desktop/DesktopHostSwitcher.tsx
 +++ b/packages/ui/src/components/desktop/DesktopHostSwitcher.tsx
 @@ -53,6 +53,7 @@ import { scheduleDesktopHostCandidateRefresh } from '@/lib/desktopRelayRestore';
@@ -1868,7 +1849,7 @@ index 10f227127..f4a45ae9d 100644
  import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
  import {
    desktopSshConnect,
-@@ -259,6 +260,8 @@ export function DesktopHostSwitcherDialog({
+@@ -228,6 +229,8 @@ export function DesktopHostSwitcherDialog({
    const statusSnapshot = React.useSyncExternalStore(subscribeDesktopHostStatuses, getDesktopHostStatusSnapshot, getDesktopHostStatusSnapshot);
    const statusById = statusSnapshot.byHostId;
    const isProbing = statusSnapshot.isProbing;
@@ -1877,7 +1858,7 @@ index 10f227127..f4a45ae9d 100644
    const [isLoading, setIsLoading] = React.useState(false);
    const [isSaving, setIsSaving] = React.useState(false);
    const [switchingHostId, setSwitchingHostId] = React.useState<string | null>(null);
-@@ -376,6 +379,22 @@ export function DesktopHostSwitcherDialog({
+@@ -348,6 +351,22 @@ export function DesktopHostSwitcherDialog({
      await probeDesktopHosts(hosts);
    }, []);
  
@@ -1900,7 +1881,7 @@ index 10f227127..f4a45ae9d 100644
    React.useEffect(() => {
      if (!open) {
        selectionTokenRef.current += 1;
-@@ -396,6 +415,13 @@ export function DesktopHostSwitcherDialog({
+@@ -368,6 +387,13 @@ export function DesktopHostSwitcherDialog({
      void probeAll(allHosts);
    }, [open, allHosts, probeAll]);
  
@@ -1914,7 +1895,7 @@ index 10f227127..f4a45ae9d 100644
    React.useEffect(() => {
      if (!open || !isDesktopShell()) {
        return;
-@@ -841,11 +867,11 @@ export function DesktopHostSwitcherDialog({
+@@ -831,11 +857,11 @@ export function DesktopHostSwitcherDialog({
                  'hover:text-foreground hover:bg-interactive-hover',
                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
                )}
@@ -1928,7 +1909,7 @@ index 10f227127..f4a45ae9d 100644
              </button>
            </div>
          </div>
-@@ -878,10 +904,10 @@ export function DesktopHostSwitcherDialog({
+@@ -868,10 +894,10 @@ export function DesktopHostSwitcherDialog({
                type="button"
                size="sm"
                variant="ghost"
@@ -4146,10 +4127,10 @@ index 000000000..cd6ee263b
 +};
 diff --git a/packages/ui/src/hooks/useLocalInstanceAttention.test.tsx b/packages/ui/src/hooks/useLocalInstanceAttention.test.tsx
 new file mode 100644
-index 000000000..222afb33f
+index 000000000..860b5f194
 --- /dev/null
 +++ b/packages/ui/src/hooks/useLocalInstanceAttention.test.tsx
-@@ -0,0 +1,209 @@
+@@ -0,0 +1,189 @@
 +import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 +import React, { act } from 'react';
 +import type { Root } from 'react-dom/client';
@@ -4265,26 +4246,6 @@ index 000000000..222afb33f
 +  expect(useInstanceAttentionStore.getState().hosts[LOCAL_INSTANCE_ATTENTION_HOST_ID]?.status).toBe('ok');
 +});
 +
-+test('a host switch that cleared the list makes the hook read it again', async () => {
-+  // A switch resets the global list to `hasLoaded: false` with no records. The
-+  // phone mounts no global poller, so the instance on screen would publish no
-+  // rows at all until the sessions sheet happens to be opened.
-+  const after = session('ses_after_switch');
-+  useGlobalSessionsStore.setState({
-+    hasLoaded: false,
-+    entityById: new Map<string, Session>(),
-+    loadSessions: async () => {
-+      useGlobalSessionsStore.setState({ hasLoaded: true, entityById: new Map([[after.id, after]]) });
-+      return { activeSessions: [after], archivedSessions: [] };
-+    },
-+  });
-+
-+  await mount();
-+  await act(async () => { await Promise.resolve(); });
-+
-+  expect(localItems().map((item) => item.sessionId)).toEqual(['ses_after_switch']);
-+});
-+
 +test('unmounting clears the local entry', async () => {
 +  useGlobalSessionsStore.setState({ entityById: new Map([['ses_unread', session('ses_unread')]]) });
 +  await mount();
@@ -4361,10 +4322,10 @@ index 000000000..222afb33f
 +});
 diff --git a/packages/ui/src/hooks/useLocalInstanceAttention.ts b/packages/ui/src/hooks/useLocalInstanceAttention.ts
 new file mode 100644
-index 000000000..6e2cc6324
+index 000000000..913830cef
 --- /dev/null
 +++ b/packages/ui/src/hooks/useLocalInstanceAttention.ts
-@@ -0,0 +1,136 @@
+@@ -0,0 +1,128 @@
 +import React from 'react';
 +
 +import { useI18n } from '@/lib/i18n';
@@ -4377,7 +4338,7 @@ index 000000000..6e2cc6324
 +import { usePrWatchStore } from '@/sync/pr-watch';
 +import { isSessionAdmitted } from '@/sync/session-admission';
 +import { useWorkflowActivityStore } from '@/sync/workflow-activity';
-+import { useGlobalSessionsStore, ensureGlobalSessionsLoaded } from '@/stores/useGlobalSessionsStore';
++import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 +import { useInstanceAttentionStore } from '@/stores/useInstanceAttentionStore';
 +import { useProjectsStore } from '@/stores/useProjectsStore';
 +import type { Session } from '@/lib/opencode/model';
@@ -4439,14 +4400,6 @@ index 000000000..6e2cc6324
 +    (state) => (enabled ? admittedSessionSignature(state.entityById) : ''),
 +    [enabled],
 +  ));
-+  const loaded = useGlobalSessionsStore((state) => state.hasLoaded);
-+
-+  React.useEffect(() => {
-+    if (!enabled || loaded) return;
-+    void ensureGlobalSessionsLoaded().catch((error) => {
-+      console.warn('[instance-attention] could not read this instance\'s sessions:', error);
-+    });
-+  }, [enabled, loaded]);
 +
 +  React.useEffect(() => {
 +    if (!enabled) return;
@@ -4565,10 +4518,10 @@ index 000000000..aeae23569
 +  }, [enabled]);
 +};
 diff --git a/packages/ui/src/lib/DOCUMENTATION.md b/packages/ui/src/lib/DOCUMENTATION.md
-index 212330bb3..bbea86036 100644
+index d32124b21..ed5ecb48d 100644
 --- a/packages/ui/src/lib/DOCUMENTATION.md
 +++ b/packages/ui/src/lib/DOCUMENTATION.md
-@@ -171,3 +171,25 @@ The library owns shared session metadata readers, runtime transport and credenti
+@@ -173,3 +173,22 @@ The library owns shared session metadata readers, runtime transport and credenti
  ### Why candidate and asset reads bypass the runtime bridge
  
  Pairing and connection checks address a server before selecting it. Routing them through the active runtime could redeem a secret on the wrong server or attach that runtime's credentials. Bundled assets belong to the local UI build, while external and data/blob URLs retain their own destination. `fetchBypassingRuntimeBridge` preserves these requests without active-runtime URL rewriting or auth injection.
@@ -4577,13 +4530,10 @@ index 212330bb3..bbea86036 100644
 +
 +### Ownership
 +
-+`lib/instanceAttention.ts` owns the global wire reads (`/api/session`, `/api/sessions/status`, `/api/config/settings` and `/api/fs/home` for the folders a host opens, `/api/git/project-worktrees` for the worktrees outside them, and a session's own detail route for a request that fell outside the page), the ordering and subagent attribution, and the relay transport. `lib/attentionDirectories.ts` owns the folder rule both halves apply. `hooks/useInstanceAttentionPolling.ts` owns the desktop poller and its reachability decisions; `hooks/useLocalInstanceAttention.ts` publishes this window's own instance from the live stores. `stores/useInstanceAttentionStore.ts` holds the one sorted list every surface reads. `lib/instanceAttentionJump.ts` owns the shared switch-and-open path, and `lib/desktopHostActions.ts` owns the saved-host switch and the return to the app's own server.
++`lib/instanceAttention.ts` owns the two global wire reads (`/api/session`, `/api/sessions/status`), the ordering and subagent attribution, and the relay transport. `hooks/useInstanceAttentionPolling.ts` owns the desktop poller and its reachability decisions; `hooks/useLocalInstanceAttention.ts` publishes this window's own instance from the live stores. `stores/useInstanceAttentionStore.ts` holds the one sorted list every surface reads. `lib/instanceAttentionJump.ts` owns the shared switch-and-open path, and `lib/desktopHostActions.ts` owns the saved-host switch and the return to the app's own server.
 +
 +### Invariants
 +
-+- Both halves apply one folder rule, so the drawer cannot show a session the instance on screen hides. The local half filters with `isSessionAdmitted`; a polled half filters with the folders that host reports. A host that cannot answer (an unreadable settings or home route) leaves its rows standing rather than reading as "no folders", while a host that answers without any project is a real answer and admits only chats roots and spaces.
-+- The local half reads this window's own session list when the store holds none. A host switch clears that list, and the phone has no global poller to refill it, so without the read the drawer showed only the other instances' rows until the sessions sheet was opened.
-+- The polled folders are the host's projects, the worktrees it lists under them, its chats roots, a `/spaces/<id>` folder and a deleted space's archived chats. A worktree outside every project path is the local half's normal case, so the poll reads `/api/git/project-worktrees` for it; when that read fails the project paths stand alone. A request whose session fell outside the 200-record page is resolved through its own detail route before the rule judges it, so a genuine request in a registered folder is kept and one in an unregistered folder is not shown.
 +- The app's own server is a poll target (`local`) only while the window shows a saved host and its page can reach that server (`pageReachesLocalOrigin`: the packaged UI, or a page already on the local origin). A page another instance served is cross-origin to the local server, so it has to be reloaded into the Local UI before it can read this machine; reading it anyway would report Local as unreachable. The read goes straight to the shell's local origin with the local client token and no shared probe, because the shell either runs that loopback server or reports none. The reserved `openchamber:this-instance` entry still names the instance on screen, so the two never describe the same server. The row label is the switcher's own key (`desktopHostSwitcher.instance.local`), so both surfaces name that server the same way in every locale.
 +- A jump to the app's own server goes through `activateLocalHost`, not the saved-host lookup, which does not hold Local. The endpoint switches in place on the app's own pages and the clicked session opens; the shell's reload branch is the fallback for a page that cannot switch in place.
 +- A poll names no directory, so it never starts an OpenCode location or an MCP server. It uses the saved host's own address, client token and request headers.
@@ -4594,124 +4544,6 @@ index 212330bb3..bbea86036 100644
 +- A failed poll keeps the host's last known items and marks it unreachable; a partial answer keeps the half that answered. Offline reads nothing and waits at the retry cap. A failed host backs off, and a hidden window schedules no further cycle.
 +- Removing a saved instance drops its rows; a tap on an unreachable host, or one no longer saved, keeps the surface open instead of switching blind.
 +- The runtime gate is deliberate: desktop and mobile run the pollers, while web and VS Code do not show cross-instance attention because neither owns a saved-instance switcher.
-diff --git a/packages/ui/src/lib/attentionDirectories.test.ts b/packages/ui/src/lib/attentionDirectories.test.ts
-new file mode 100644
-index 000000000..a6d864b12
---- /dev/null
-+++ b/packages/ui/src/lib/attentionDirectories.test.ts
-@@ -0,0 +1,73 @@
-+import { describe, expect, test } from 'bun:test';
-+
-+import { isAttentionDirectoryAdmitted, legacyChatsRootForHome } from './attentionDirectories';
-+
-+const directories = (overrides: Partial<Parameters<typeof isAttentionDirectoryAdmitted>[1]> = {}) => ({
-+  roots: ['/home/me/dev', '/home/me/dev/deadlock'],
-+  chatRoots: ['/home/me/.local/share/openchamber/chats', '/home/me/.config/openchamber/chats'],
-+  ...overrides,
-+});
-+
-+describe('the attention directory rule', () => {
-+  test('a session anywhere under a project is admitted, not only at its root', () => {
-+    const project = directories();
-+    expect(isAttentionDirectoryAdmitted('/home/me/dev/deadlock', project)).toBe(true);
-+    expect(isAttentionDirectoryAdmitted('/home/me/dev/deadlock/.worktrees/repair', project)).toBe(true);
-+    expect(isAttentionDirectoryAdmitted('/home/me/dev/scoredo', project)).toBe(true);
-+  });
-+
-+  test('a folder no project holds is left out, which is the sidebar rule', () => {
-+    const project = directories();
-+    expect(isAttentionDirectoryAdmitted('/tmp/opencode/qcards-proj', project)).toBe(false);
-+    expect(isAttentionDirectoryAdmitted('/Users/me/dev', project)).toBe(false);
-+    // A sibling whose name merely starts with a project's does not belong to it.
-+    expect(isAttentionDirectoryAdmitted('/home/me/dev-other', project)).toBe(false);
-+  });
-+
-+  test('the chat roots are admitted, both the configured and the legacy one', () => {
-+    const project = directories({ roots: [] });
-+    expect(isAttentionDirectoryAdmitted('/home/me/.local/share/openchamber/chats/2026-11-21/session-a', project)).toBe(true);
-+    expect(isAttentionDirectoryAdmitted('/home/me/.config/openchamber/chats/2026-11-12/session-b', project)).toBe(true);
-+  });
-+
-+  test('an isolated space is admitted by its own folder name', () => {
-+    expect(isAttentionDirectoryAdmitted('/spaces/0123456789ab/app', directories({ roots: [] }))).toBe(true);
-+    // A path that only looks like a space is still judged by the roots.
-+    expect(isAttentionDirectoryAdmitted('/spaces/not-a-space/app', directories({ roots: [] }))).toBe(false);
-+  });
-+
-+  test('a project registered at a filesystem root admits everything under it', () => {
-+    expect(isAttentionDirectoryAdmitted('/home/me/dev/x', directories({ roots: ['/'], chatRoots: [] }))).toBe(true);
-+    expect(isAttentionDirectoryAdmitted('D:/dev/x', directories({ roots: ['D:/'], chatRoots: [] }))).toBe(true);
-+    expect(isAttentionDirectoryAdmitted('C:/dev/x', directories({ roots: ['C:'], chatRoots: [] }))).toBe(true);
-+  });
-+
-+  test('a chat archived from a deleted space is admitted', () => {
-+    expect(isAttentionDirectoryAdmitted('/home/me/.local/share/openchamber/spaces/archive/0123456789ab', directories())).toBe(true);
-+    expect(isAttentionDirectoryAdmitted('/data/spaces/archive/0123456789ab/app', directories({ roots: [] }))).toBe(true);
-+  });
-+
-+  test('a reported path cannot climb out of a root it names', () => {
-+    expect(isAttentionDirectoryAdmitted('/home/me/dev/deadlock/../../secret', directories())).toBe(false);
-+    expect(isAttentionDirectoryAdmitted('/home/me/dev/../../../etc', directories())).toBe(false);
-+  });
-+
-+  test('an unreadable folder is not admitted, and no answer admits everything', () => {
-+    expect(isAttentionDirectoryAdmitted(null, directories())).toBe(false);
-+    expect(isAttentionDirectoryAdmitted('', directories())).toBe(false);
-+    // Absent means the server did not say; the rows keep standing.
-+    expect(isAttentionDirectoryAdmitted('/tmp/anything', undefined)).toBe(true);
-+  });
-+
-+  test('a trailing slash and a Windows spelling still match their root', () => {
-+    expect(isAttentionDirectoryAdmitted('/home/me/dev/deadlock/', directories())).toBe(true);
-+    expect(isAttentionDirectoryAdmitted('C:\\dev\\app', directories({ roots: ['C:/dev'] }))).toBe(true);
-+  });
-+
-+  test('the legacy chats root comes from the home folder the server reported', () => {
-+    expect(legacyChatsRootForHome('/home/me')).toBe('/home/me/.config/openchamber/chats');
-+    expect(legacyChatsRootForHome('/home/me/')).toBe('/home/me/.config/openchamber/chats');
-+    expect(legacyChatsRootForHome(null)).toBeNull();
-+    expect(legacyChatsRootForHome('')).toBeNull();
-+  });
-+});
-diff --git a/packages/ui/src/lib/attentionDirectories.ts b/packages/ui/src/lib/attentionDirectories.ts
-new file mode 100644
-index 000000000..6270a26cb
---- /dev/null
-+++ b/packages/ui/src/lib/attentionDirectories.ts
-@@ -0,0 +1,33 @@
-+import { normalizePath } from '@/lib/pathNormalization';
-+
-+export type AttentionDirectories = {
-+  roots: readonly string[];
-+  chatRoots: readonly string[];
-+};
-+
-+const SPACE_DIRECTORY = /^\/spaces\/[0-9a-f]{12}(?:\/|$)/;
-+const SPACE_ARCHIVE_DIRECTORY = /\/spaces\/archive\/[0-9a-f]{12}(?:\/|$)/;
-+const DROPS_OUT_OF_ROOT = /\/\.\.(?:\/|$)/;
-+
-+const holds = (directory: string, root: string): boolean => (
-+  directory === root
-+  || directory.startsWith(root.endsWith('/') ? root : `${root}/`)
-+);
-+
-+export const legacyChatsRootForHome = (home: string | null | undefined): string | null => {
-+  const normalized = normalizePath(home);
-+  return normalized ? `${normalized}/.config/openchamber/chats` : null;
-+};
-+
-+export const isAttentionDirectoryAdmitted = (
-+  directory: string | null | undefined,
-+  directories: AttentionDirectories | undefined,
-+): boolean => {
-+  if (!directories) return true;
-+  const normalized = normalizePath(directory);
-+  if (!normalized) return false;
-+  if (SPACE_DIRECTORY.test(normalized) || SPACE_ARCHIVE_DIRECTORY.test(normalized)) return true;
-+  if (DROPS_OUT_OF_ROOT.test(normalized)) return false;
-+  return directories.chatRoots.some((root) => holds(normalized, root))
-+    || directories.roots.some((root) => holds(normalized, root));
-+};
 diff --git a/packages/ui/src/lib/desktopCurrentHost.ts b/packages/ui/src/lib/desktopCurrentHost.ts
 index 4de7b840c..a118eae2d 100644
 --- a/packages/ui/src/lib/desktopCurrentHost.ts
@@ -4871,10 +4703,10 @@ index 2fd918be1..dfeff2703 100644
    };
  
 diff --git a/packages/ui/src/lib/i18n/messages/ar.ts b/packages/ui/src/lib/i18n/messages/ar.ts
-index 3c9a819ac..1d862375a 100644
+index 7bc4615dd..28d24eb8a 100644
 --- a/packages/ui/src/lib/i18n/messages/ar.ts
 +++ b/packages/ui/src/lib/i18n/messages/ar.ts
-@@ -42,6 +42,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
+@@ -43,6 +43,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
  import { selectionApprovalI18n } from './selection-approval.i18n';
  import { snippetsI18n } from './snippets.i18n';
  import { sidebarWorkI18n } from './sidebar-work.i18n';
@@ -4882,7 +4714,7 @@ index 3c9a819ac..1d862375a 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -3960,6 +3961,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -3993,6 +3994,7 @@ export const dict: Record<I18nKey, string> = {
    ...androidWidgetsI18n.ar,
    ...snippetsI18n.ar,
    ...sidebarWorkI18n.ar,
@@ -4891,49 +4723,9 @@ index 3c9a819ac..1d862375a 100644
    ...worktreeArchiveI18n.ar,
    ...operatorChildrenI18n.ar,
 diff --git a/packages/ui/src/lib/i18n/messages/de.ts b/packages/ui/src/lib/i18n/messages/de.ts
-index 0b8b4be54..fcc9bcca9 100644
+index 47a837de2..9e2429c76 100644
 --- a/packages/ui/src/lib/i18n/messages/de.ts
 +++ b/packages/ui/src/lib/i18n/messages/de.ts
-@@ -41,6 +41,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
- import { selectionApprovalI18n } from './selection-approval.i18n';
- import { snippetsI18n } from './snippets.i18n';
- import { sidebarWorkI18n } from './sidebar-work.i18n';
-+import { instanceAttentionI18n } from './instance-attention.i18n';
- import { sidebarSectionsI18n } from './sidebar-sections.i18n';
- import { worktreeArchiveI18n } from './worktree-archive.i18n';
- import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -232,6 +233,7 @@ export const dict = {
-   ...androidWidgetsI18n.de,
-   ...snippetsI18n.de,
-   ...sidebarWorkI18n.de,
-+  ...instanceAttentionI18n['de'],
-   ...sidebarSectionsI18n.de,
-   ...worktreeArchiveI18n.de,
-   ...operatorChildrenI18n.de,
-diff --git a/packages/ui/src/lib/i18n/messages/en.ts b/packages/ui/src/lib/i18n/messages/en.ts
-index c8981c027..3f2952e59 100644
---- a/packages/ui/src/lib/i18n/messages/en.ts
-+++ b/packages/ui/src/lib/i18n/messages/en.ts
-@@ -41,6 +41,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
- import { selectionApprovalI18n } from './selection-approval.i18n';
- import { snippetsI18n } from './snippets.i18n';
- import { sidebarWorkI18n } from './sidebar-work.i18n';
-+import { instanceAttentionI18n } from './instance-attention.i18n';
- import { sidebarSectionsI18n } from './sidebar-sections.i18n';
- import { worktreeArchiveI18n } from './worktree-archive.i18n';
- import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -232,6 +233,7 @@ export const dict = {
-   ...androidWidgetsI18n.en,
-   ...snippetsI18n.en,
-   ...sidebarWorkI18n.en,
-+  ...instanceAttentionI18n['en'],
-   ...sidebarSectionsI18n.en,
-   ...worktreeArchiveI18n.en,
-   ...operatorChildrenI18n.en,
-diff --git a/packages/ui/src/lib/i18n/messages/es.ts b/packages/ui/src/lib/i18n/messages/es.ts
-index 74f82f954..3aff16d02 100644
---- a/packages/ui/src/lib/i18n/messages/es.ts
-+++ b/packages/ui/src/lib/i18n/messages/es.ts
 @@ -42,6 +42,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
  import { selectionApprovalI18n } from './selection-approval.i18n';
  import { snippetsI18n } from './snippets.i18n';
@@ -4942,7 +4734,47 @@ index 74f82f954..3aff16d02 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -243,6 +244,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -238,6 +239,7 @@ export const dict = {
+   ...androidWidgetsI18n.de,
+   ...snippetsI18n.de,
+   ...sidebarWorkI18n.de,
++  ...instanceAttentionI18n['de'],
+   ...sidebarSectionsI18n.de,
+   ...worktreeArchiveI18n.de,
+   ...operatorChildrenI18n.de,
+diff --git a/packages/ui/src/lib/i18n/messages/en.ts b/packages/ui/src/lib/i18n/messages/en.ts
+index 3b3b6ea8a..a081f31ad 100644
+--- a/packages/ui/src/lib/i18n/messages/en.ts
++++ b/packages/ui/src/lib/i18n/messages/en.ts
+@@ -42,6 +42,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
+ import { selectionApprovalI18n } from './selection-approval.i18n';
+ import { snippetsI18n } from './snippets.i18n';
+ import { sidebarWorkI18n } from './sidebar-work.i18n';
++import { instanceAttentionI18n } from './instance-attention.i18n';
+ import { sidebarSectionsI18n } from './sidebar-sections.i18n';
+ import { worktreeArchiveI18n } from './worktree-archive.i18n';
+ import { operatorChildrenI18n } from './operator-children.i18n';
+@@ -238,6 +239,7 @@ export const dict = {
+   ...androidWidgetsI18n.en,
+   ...snippetsI18n.en,
+   ...sidebarWorkI18n.en,
++  ...instanceAttentionI18n['en'],
+   ...sidebarSectionsI18n.en,
+   ...worktreeArchiveI18n.en,
+   ...operatorChildrenI18n.en,
+diff --git a/packages/ui/src/lib/i18n/messages/es.ts b/packages/ui/src/lib/i18n/messages/es.ts
+index 6e043adbc..cdfe2b30f 100644
+--- a/packages/ui/src/lib/i18n/messages/es.ts
++++ b/packages/ui/src/lib/i18n/messages/es.ts
+@@ -43,6 +43,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
+ import { selectionApprovalI18n } from './selection-approval.i18n';
+ import { snippetsI18n } from './snippets.i18n';
+ import { sidebarWorkI18n } from './sidebar-work.i18n';
++import { instanceAttentionI18n } from './instance-attention.i18n';
+ import { sidebarSectionsI18n } from './sidebar-sections.i18n';
+ import { worktreeArchiveI18n } from './worktree-archive.i18n';
+ import { operatorChildrenI18n } from './operator-children.i18n';
+@@ -249,6 +250,7 @@ export const dict: Record<I18nKey, string> = {
    ...androidWidgetsI18n.es,
    ...snippetsI18n.es,
    ...sidebarWorkI18n.es,
@@ -4951,10 +4783,10 @@ index 74f82f954..3aff16d02 100644
    ...worktreeArchiveI18n.es,
    ...operatorChildrenI18n.es,
 diff --git a/packages/ui/src/lib/i18n/messages/fr.ts b/packages/ui/src/lib/i18n/messages/fr.ts
-index c868875a3..dbbd1b516 100644
+index 42269e2df..574e93c50 100644
 --- a/packages/ui/src/lib/i18n/messages/fr.ts
 +++ b/packages/ui/src/lib/i18n/messages/fr.ts
-@@ -41,6 +41,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
+@@ -42,6 +42,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
  import { selectionApprovalI18n } from './selection-approval.i18n';
  import { snippetsI18n } from './snippets.i18n';
  import { sidebarWorkI18n } from './sidebar-work.i18n';
@@ -4962,7 +4794,7 @@ index c868875a3..dbbd1b516 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -232,6 +233,7 @@ export const dict = {
+@@ -238,6 +239,7 @@ export const dict = {
    ...androidWidgetsI18n.fr,
    ...snippetsI18n.fr,
    ...sidebarWorkI18n.fr,
@@ -4971,10 +4803,10 @@ index c868875a3..dbbd1b516 100644
    ...worktreeArchiveI18n.fr,
    ...operatorChildrenI18n.fr,
 diff --git a/packages/ui/src/lib/i18n/messages/he.ts b/packages/ui/src/lib/i18n/messages/he.ts
-index 0d35def2e..9768bbb42 100644
+index 963c8e95d..030c050e1 100644
 --- a/packages/ui/src/lib/i18n/messages/he.ts
 +++ b/packages/ui/src/lib/i18n/messages/he.ts
-@@ -41,6 +41,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
+@@ -42,6 +42,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
  import { selectionApprovalI18n } from './selection-approval.i18n';
  import { snippetsI18n } from './snippets.i18n';
  import { sidebarWorkI18n } from './sidebar-work.i18n';
@@ -4982,7 +4814,7 @@ index 0d35def2e..9768bbb42 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -3959,6 +3960,7 @@ export const dict = {
+@@ -3992,6 +3993,7 @@ export const dict = {
    ...androidWidgetsI18n.he,
    ...snippetsI18n.he,
    ...sidebarWorkI18n.he,
@@ -5236,10 +5068,10 @@ index 000000000..757697858
 +  },
 +} as const;
 diff --git a/packages/ui/src/lib/i18n/messages/ja.ts b/packages/ui/src/lib/i18n/messages/ja.ts
-index 0a6eac979..f3265b338 100644
+index 22edf4a6f..1b242012c 100644
 --- a/packages/ui/src/lib/i18n/messages/ja.ts
 +++ b/packages/ui/src/lib/i18n/messages/ja.ts
-@@ -42,6 +42,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
+@@ -43,6 +43,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
  import { selectionApprovalI18n } from './selection-approval.i18n';
  import { snippetsI18n } from './snippets.i18n';
  import { sidebarWorkI18n } from './sidebar-work.i18n';
@@ -5247,7 +5079,7 @@ index 0a6eac979..f3265b338 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -233,6 +234,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -239,6 +240,7 @@ export const dict: Record<I18nKey, string> = {
    ...androidWidgetsI18n.ja,
    ...snippetsI18n.ja,
    ...sidebarWorkI18n.ja,
@@ -5256,10 +5088,10 @@ index 0a6eac979..f3265b338 100644
    ...worktreeArchiveI18n.ja,
    ...operatorChildrenI18n.ja,
 diff --git a/packages/ui/src/lib/i18n/messages/ko.ts b/packages/ui/src/lib/i18n/messages/ko.ts
-index fcfa6d3b4..767f908e8 100644
+index f96d9700a..e1c944abe 100644
 --- a/packages/ui/src/lib/i18n/messages/ko.ts
 +++ b/packages/ui/src/lib/i18n/messages/ko.ts
-@@ -42,6 +42,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
+@@ -43,6 +43,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
  import { selectionApprovalI18n } from './selection-approval.i18n';
  import { snippetsI18n } from './snippets.i18n';
  import { sidebarWorkI18n } from './sidebar-work.i18n';
@@ -5267,7 +5099,7 @@ index fcfa6d3b4..767f908e8 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -233,6 +234,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -239,6 +240,7 @@ export const dict: Record<I18nKey, string> = {
    ...androidWidgetsI18n.ko,
    ...snippetsI18n.ko,
    ...sidebarWorkI18n.ko,
@@ -5276,10 +5108,10 @@ index fcfa6d3b4..767f908e8 100644
    ...worktreeArchiveI18n.ko,
    ...operatorChildrenI18n.ko,
 diff --git a/packages/ui/src/lib/i18n/messages/nl.ts b/packages/ui/src/lib/i18n/messages/nl.ts
-index c557c9981..cbc9fae17 100644
+index eadca8b08..98734dd1a 100644
 --- a/packages/ui/src/lib/i18n/messages/nl.ts
 +++ b/packages/ui/src/lib/i18n/messages/nl.ts
-@@ -41,6 +41,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
+@@ -42,6 +42,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
  import { selectionApprovalI18n } from './selection-approval.i18n';
  import { snippetsI18n } from './snippets.i18n';
  import { sidebarWorkI18n } from './sidebar-work.i18n';
@@ -5287,7 +5119,7 @@ index c557c9981..cbc9fae17 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -232,6 +233,7 @@ export const dict = {
+@@ -238,6 +239,7 @@ export const dict = {
    ...androidWidgetsI18n.nl,
    ...snippetsI18n.nl,
    ...sidebarWorkI18n.nl,
@@ -5296,10 +5128,10 @@ index c557c9981..cbc9fae17 100644
    ...worktreeArchiveI18n.nl,
    ...operatorChildrenI18n.nl,
 diff --git a/packages/ui/src/lib/i18n/messages/pl.ts b/packages/ui/src/lib/i18n/messages/pl.ts
-index e0ca9cd7c..2b7f815c6 100644
+index da8edf31d..23fd5006f 100644
 --- a/packages/ui/src/lib/i18n/messages/pl.ts
 +++ b/packages/ui/src/lib/i18n/messages/pl.ts
-@@ -42,6 +42,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
+@@ -43,6 +43,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
  import { selectionApprovalI18n } from './selection-approval.i18n';
  import { snippetsI18n } from './snippets.i18n';
  import { sidebarWorkI18n } from './sidebar-work.i18n';
@@ -5307,7 +5139,7 @@ index e0ca9cd7c..2b7f815c6 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -233,6 +234,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -239,6 +240,7 @@ export const dict: Record<I18nKey, string> = {
    ...androidWidgetsI18n.pl,
    ...snippetsI18n.pl,
    ...sidebarWorkI18n.pl,
@@ -5316,10 +5148,10 @@ index e0ca9cd7c..2b7f815c6 100644
    ...worktreeArchiveI18n.pl,
    ...operatorChildrenI18n.pl,
 diff --git a/packages/ui/src/lib/i18n/messages/pt-BR.ts b/packages/ui/src/lib/i18n/messages/pt-BR.ts
-index 55c6c5e45..ca07709e6 100644
+index 60b9c2486..c4af1ce67 100644
 --- a/packages/ui/src/lib/i18n/messages/pt-BR.ts
 +++ b/packages/ui/src/lib/i18n/messages/pt-BR.ts
-@@ -42,6 +42,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
+@@ -43,6 +43,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
  import { selectionApprovalI18n } from './selection-approval.i18n';
  import { snippetsI18n } from './snippets.i18n';
  import { sidebarWorkI18n } from './sidebar-work.i18n';
@@ -5327,7 +5159,7 @@ index 55c6c5e45..ca07709e6 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -243,6 +244,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -249,6 +250,7 @@ export const dict: Record<I18nKey, string> = {
    ...androidWidgetsI18n['pt-BR'],
    ...snippetsI18n['pt-BR'],
    ...sidebarWorkI18n['pt-BR'],
@@ -5336,10 +5168,10 @@ index 55c6c5e45..ca07709e6 100644
    ...worktreeArchiveI18n['pt-BR'],
    ...operatorChildrenI18n['pt-BR'],
 diff --git a/packages/ui/src/lib/i18n/messages/tr.ts b/packages/ui/src/lib/i18n/messages/tr.ts
-index 0758f9fab..0c690bc70 100644
+index e1a111b69..3abf04c0e 100644
 --- a/packages/ui/src/lib/i18n/messages/tr.ts
 +++ b/packages/ui/src/lib/i18n/messages/tr.ts
-@@ -41,6 +41,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
+@@ -42,6 +42,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
  import { selectionApprovalI18n } from './selection-approval.i18n';
  import { snippetsI18n } from './snippets.i18n';
  import { sidebarWorkI18n } from './sidebar-work.i18n';
@@ -5347,7 +5179,7 @@ index 0758f9fab..0c690bc70 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -171,6 +172,7 @@ export const dict = {
+@@ -177,6 +178,7 @@ export const dict = {
    ...androidWidgetsI18n.tr,
    ...snippetsI18n.tr,
    ...sidebarWorkI18n.tr,
@@ -5356,10 +5188,10 @@ index 0758f9fab..0c690bc70 100644
    ...worktreeArchiveI18n.tr,
    ...operatorChildrenI18n.tr,
 diff --git a/packages/ui/src/lib/i18n/messages/uk.ts b/packages/ui/src/lib/i18n/messages/uk.ts
-index 1a8c6782d..a717ff6bc 100644
+index 39e659d14..3c3669823 100644
 --- a/packages/ui/src/lib/i18n/messages/uk.ts
 +++ b/packages/ui/src/lib/i18n/messages/uk.ts
-@@ -42,6 +42,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
+@@ -43,6 +43,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
  import { selectionApprovalI18n } from './selection-approval.i18n';
  import { snippetsI18n } from './snippets.i18n';
  import { sidebarWorkI18n } from './sidebar-work.i18n';
@@ -5367,7 +5199,7 @@ index 1a8c6782d..a717ff6bc 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -243,6 +244,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -249,6 +250,7 @@ export const dict: Record<I18nKey, string> = {
    ...androidWidgetsI18n.uk,
    ...snippetsI18n.uk,
    ...sidebarWorkI18n.uk,
@@ -5376,10 +5208,10 @@ index 1a8c6782d..a717ff6bc 100644
    ...worktreeArchiveI18n.uk,
    ...operatorChildrenI18n.uk,
 diff --git a/packages/ui/src/lib/i18n/messages/zh-CN.ts b/packages/ui/src/lib/i18n/messages/zh-CN.ts
-index 19a08d9ef..53c300ae4 100644
+index 7a91ed3b2..ee8694853 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-CN.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-CN.ts
-@@ -42,6 +42,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
+@@ -43,6 +43,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
  import { selectionApprovalI18n } from './selection-approval.i18n';
  import { snippetsI18n } from './snippets.i18n';
  import { sidebarWorkI18n } from './sidebar-work.i18n';
@@ -5387,7 +5219,7 @@ index 19a08d9ef..53c300ae4 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -233,6 +234,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -239,6 +240,7 @@ export const dict: Record<I18nKey, string> = {
    ...androidWidgetsI18n['zh-CN'],
    ...snippetsI18n['zh-CN'],
    ...sidebarWorkI18n['zh-CN'],
@@ -5396,10 +5228,10 @@ index 19a08d9ef..53c300ae4 100644
    ...worktreeArchiveI18n['zh-CN'],
    ...operatorChildrenI18n['zh-CN'],
 diff --git a/packages/ui/src/lib/i18n/messages/zh-TW.ts b/packages/ui/src/lib/i18n/messages/zh-TW.ts
-index f23fc9504..c11ce0989 100644
+index 801bf74df..117d4abae 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-TW.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-TW.ts
-@@ -42,6 +42,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
+@@ -43,6 +43,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
  import { selectionApprovalI18n } from './selection-approval.i18n';
  import { snippetsI18n } from './snippets.i18n';
  import { sidebarWorkI18n } from './sidebar-work.i18n';
@@ -5407,7 +5239,7 @@ index f23fc9504..c11ce0989 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -233,6 +234,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -239,6 +240,7 @@ export const dict: Record<I18nKey, string> = {
    ...androidWidgetsI18n['zh-TW'],
    ...snippetsI18n['zh-TW'],
    ...sidebarWorkI18n['zh-TW'],
@@ -5417,10 +5249,10 @@ index f23fc9504..c11ce0989 100644
    ...operatorChildrenI18n['zh-TW'],
 diff --git a/packages/ui/src/lib/instanceAttention.test.ts b/packages/ui/src/lib/instanceAttention.test.ts
 new file mode 100644
-index 000000000..ea75bc58a
+index 000000000..c92731593
 --- /dev/null
 +++ b/packages/ui/src/lib/instanceAttention.test.ts
-@@ -0,0 +1,482 @@
+@@ -0,0 +1,321 @@
 +import { describe, expect, test } from 'bun:test';
 +
 +import type { JsonValue } from '@opencode/client';
@@ -5449,8 +5281,7 @@ index 000000000..ea75bc58a
 +  sessions: InstanceSessionSummary[],
 +  pending: Map<string, InstancePendingCounts> = new Map(),
 +  busy: ReadonlySet<string> = new Set(),
-+  directories?: InstanceAttentionSnapshot['directories'],
-+): InstanceAttentionSnapshot => ({ hostId, hostLabel: `host ${hostId}`, sessions, pending, busy, directories });
++): InstanceAttentionSnapshot => ({ hostId, hostLabel: `host ${hostId}`, sessions, pending, busy });
 +
 +describe('cross-instance attention aggregation', () => {
 +  test('orders a pending permission above a question, a failed turn and an unseen turn', () => {
@@ -5482,44 +5313,7 @@ index 000000000..ea75bc58a
 +    expect(items.map((item) => item.sessionId)).toEqual(['ses_root']);
 +  });
 +
-+  test('a polled host shows only the sessions in folders it opens', () => {
-+    const hostDirectories = {
-+      roots: ['/repo'],
-+      chatRoots: ['/home/me/.local/share/openchamber/chats'],
-+    };
-+    const items = collectInstanceAttention([snapshot('host-b', [
-+      session({ id: 'ses_project', directory: '/repo', idle: 10 }),
-+      session({ id: 'ses_worktree', directory: '/repo/.worktrees/repair', idle: 20 }),
-+      session({ id: 'ses_chat', directory: '/home/me/.local/share/openchamber/chats/2026-11-21/session-a', idle: 30 }),
-+      session({ id: 'ses_outside', directory: '/tmp/opencode/qcards-proj', idle: 40 }),
-+      session({ id: 'ses_archived', directory: '/tmp/opencode/qcards-proj', idle: 50, archived: true }),
-+    ], new Map(), new Set(), hostDirectories)]);
-+
-+    expect(items.map((item) => item.sessionId).sort()).toEqual(['ses_chat', 'ses_project', 'ses_worktree']);
-+  });
-+
-+  test('a pending request in a folder the host does not open is left out too', () => {
-+    const hostDirectories = { roots: ['/repo'], chatRoots: [] };
-+    const items = collectInstanceAttention([snapshot('host-b', [
-+      session({ id: 'ses_outside', directory: '/tmp/opencode/qcards-proj', idle: 10 }),
-+      session({ id: 'ses_inside', directory: '/repo', idle: 20 }),
-+    ], new Map([
-+      ['ses_outside', { permissions: 1, forms: 0, pages: 0 }],
-+      ['ses_inside', { permissions: 0, forms: 1, pages: 0 }],
-+    ]), new Set(), hostDirectories)]);
-+
-+    expect(items.map((item) => [item.sessionId, item.kind])).toEqual([['ses_inside', 'question']]);
-+  });
-+
-+  test('a host that did not say which folders it opens keeps every row', () => {
-+    const items = collectInstanceAttention([snapshot('host-b', [
-+      session({ id: 'ses_anywhere', directory: '/tmp/opencode/qcards-proj', idle: 10 }),
-+    ], new Map(), new Set(), undefined)]);
-+
-+    expect(items.map((item) => item.sessionId)).toEqual(['ses_anywhere']);
-+  });
-+
-+  test('a child\'s pending request is attributed to its parent', () => {
++  test('a child session\'s pending request is attributed to its parent', () => {
 +    const items = collectInstanceAttention([snapshot('host-b', [
 +      session({ id: 'ses_parent', title: 'Parent task', idle: 10 }),
 +      session({ id: 'ses_child', parentID: 'ses_parent', title: 'Subagent', idle: 20 }),
@@ -5632,19 +5426,6 @@ index 000000000..ea75bc58a
 +    },
 +    serverTime: 1_000,
 +  };
-+  const settingsPayload: JsonValue = {
-+    projects: [{ id: 'proj', path: '/repo' }],
-+  };
-+  const homePayload: JsonValue = {
-+    home: '/home/me',
-+    chatsRoot: '/home/me/.local/share/openchamber/chats',
-+  };
-+  const worktreesPayload: JsonValue = {
-+    projects: [{
-+      directory: '/repo',
-+      worktrees: [{ path: '/repo' }, { path: '/repo/.worktrees/elsewhere' }],
-+    }],
-+  };
 +  const sessionPayload: JsonValue = {
 +    data: [
 +      {
@@ -5677,7 +5458,7 @@ index 000000000..ea75bc58a
 +
 +  test('reads both global routes with the host own credentials and projects the answers', async () => {
 +    const requests: { url: string; authorization: string | null; workspace: string | null }[] = [];
-+    // SAFETY: the stub answers exactly the GETs `readJson` makes, each with
++    // SAFETY: the stub answers exactly the two GETs `readJson` makes, each with
 +    // a JSON Response; the rest of `fetch`'s surface is unused here.
 +    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
 +      const url = String(input);
@@ -5688,125 +5469,22 @@ index 000000000..ea75bc58a
 +        workspace: headers.get('X-Workspace'),
 +      });
 +      if (url.includes('/api/sessions/status')) return response(statusPayload);
-+      if (url.includes('/api/config/settings')) return response(settingsPayload);
-+      if (url.includes('/api/fs/home')) return response(homePayload);
-+      if (url.includes('/api/git/project-worktrees')) return response(worktreesPayload);
 +      return response(sessionPayload);
 +    }) as typeof fetch;
 +
 +    const poll = await readInstanceAttention({ ...transport, fetchImpl });
 +
-+    expect(requests).toHaveLength(5);
++    expect(requests).toHaveLength(2);
 +    expect(requests.every((request) => request.authorization === 'Bearer client-token')).toBe(true);
 +    expect(requests.every((request) => request.workspace === 'team')).toBe(true);
 +    expect(requests.some((request) => request.url === `http://build-box.test/api/session?limit=${INSTANCE_ATTENTION_SESSION_LIMIT}`)).toBe(true);
 +    expect(requests.some((request) => request.url === 'http://build-box.test/api/sessions/status')).toBe(true);
-+    expect(requests.some((request) => request.url === 'http://build-box.test/api/config/settings')).toBe(true);
-+    expect(requests.some((request) => request.url === 'http://build-box.test/api/fs/home')).toBe(true);
-+    expect(requests.some((request) => request.url === 'http://build-box.test/api/git/project-worktrees')).toBe(true);
 +    expect(poll.sessions?.map((entry) => [entry.id, entry.directory, entry.idle, entry.archived])).toEqual([
 +      ['ses_waiting', '/repo', 2, false],
 +      ['ses_seen', '/repo', 2, false],
 +    ]);
 +    expect(poll.pending?.get('ses_waiting')).toEqual({ permissions: 1, forms: 0, pages: 0 });
 +    expect(poll.busy).toEqual(new Set());
-+    expect(poll.directories).toEqual({
-+      roots: ['/repo', '/repo/.worktrees/elsewhere'],
-+      chatRoots: [
-+        '/home/me/.local/share/openchamber/chats',
-+        '/home/me/.config/openchamber/chats',
-+      ],
-+    });
-+  });
-+
-+  test('a host with no projects at all answers with an empty list, not "did not say"', async () => {
-+    // SAFETY: the stub answers a settings body that has no projects key, as a
-+    // fresh host does; the reader must read it as "no projects", not as a
-+    // failed read that leaves every folder admitted.
-+    const fetchImpl = (async (input: string | URL | Request) => {
-+      const url = String(input);
-+      if (url.includes('/api/sessions/status')) return response({ sessions: {}, pending: {}, serverTime: 1_000 });
-+      if (url.includes('/api/config/settings')) return response({});
-+      if (url.includes('/api/fs/home')) return response(homePayload);
-+      if (url.includes('/api/git/project-worktrees')) return response({ projects: [] });
-+      return response({ data: [] });
-+    }) as typeof fetch;
-+
-+    const poll = await readInstanceAttention({ ...transport, fetchImpl });
-+
-+    expect(poll.directories).toEqual({
-+      roots: [],
-+      chatRoots: [
-+        '/home/me/.local/share/openchamber/chats',
-+        '/home/me/.config/openchamber/chats',
-+      ],
-+    });
-+  });
-+
-+  test('a worktree the host lists outside its projects is admitted', async () => {
-+    const items = collectInstanceAttention([snapshot('host-b', [
-+      session({ id: 'ses_worktree', directory: '/elsewhere/repair', idle: 10 }),
-+      session({ id: 'ses_outside', directory: '/tmp/opencode/qcards-proj', idle: 20 }),
-+    ], new Map(), new Set(), {
-+      roots: ['/repo', '/elsewhere/repair'],
-+      chatRoots: [],
-+    })]);
-+
-+    expect(items.map((item) => item.sessionId)).toEqual(['ses_worktree']);
-+  });
-+
-+  test('a pending request whose session fell outside the page is resolved, then judged', async () => {
-+    // SAFETY: the session list answers one session; the status route names
-+    // another. The detail route says where that one lives.
-+    const fetchImpl = (async (input: string | URL | Request) => {
-+      const url = String(input);
-+      if (url.includes('/api/sessions/status')) {
-+        return response({
-+          sessions: {},
-+          pending: {
-+            ses_offpage_inside: { permissions: [{ id: 'per_a', sessionID: 'ses_offpage_inside', action: 'edit', resources: ['file'] }], forms: [], pages: [] },
-+            ses_offpage_outside: { permissions: [{ id: 'per_b', sessionID: 'ses_offpage_outside', action: 'edit', resources: ['file'] }], forms: [], pages: [] },
-+          },
-+          serverTime: 1_000,
-+        });
-+      }
-+      if (url.includes('/api/config/settings')) return response(settingsPayload);
-+      if (url.includes('/api/fs/home')) return response(homePayload);
-+      if (url.includes('/api/git/project-worktrees')) return response({ projects: [] });
-+      if (url.includes('/api/session/ses_offpage_inside')) return response({ data: { location: { directory: '/repo' } } });
-+      if (url.includes('/api/session/ses_offpage_outside')) return response({ data: { location: { directory: '/tmp/opencode/qcards-proj' } } });
-+      return response({ data: [] });
-+    }) as typeof fetch;
-+
-+    const poll = await readInstanceAttention({ ...transport, fetchImpl });
-+    const items = collectInstanceAttention([{
-+      hostId: 'host-b',
-+      hostLabel: 'Build box',
-+      sessions: poll.sessions ?? [],
-+      pending: poll.pending ?? new Map(),
-+      busy: poll.busy ?? undefined,
-+      directories: poll.directories,
-+    }]);
-+
-+    expect(items.map((item) => item.sessionId)).toEqual(['ses_offpage_inside']);
-+  });
-+
-+  test('a host that cannot say which folders it opens leaves the rows unjudged', async () => {
-+    // SAFETY: the stub answers with a settings body this version does not
-+    // know and a home route that failed; the reader must not read either as
-+    // "no folders at all".
-+    const fetchImpl = (async (input: string | URL | Request) => {
-+      const url = String(input);
-+      if (url.includes('/api/sessions/status')) return response(statusPayload);
-+      if (url.includes('/api/config/settings')) return response({ settings: {} });
-+      if (url.includes('/api/fs/home')) return new Response(null, { status: 404 });
-+      return response(sessionPayload);
-+    }) as typeof fetch;
-+
-+    const poll = await readInstanceAttention({ ...transport, fetchImpl });
-+
-+    expect(poll.directories).toBeUndefined();
-+    expect(poll.sessions).toHaveLength(2);
 +  });
 +
 +  test('reports sessions the host says are in an open turn', async () => {
@@ -5875,16 +5553,12 @@ index 000000000..ea75bc58a
 +
 +  test('a relay transport reads through its own fetch adapter', async () => {
 +    const paths: string[] = [];
-+    // SAFETY: the stub answers the GETs the reader makes with JSON
++    // SAFETY: the stub answers the two GETs the reader makes with JSON
 +    // responses; it is cast to the global fetch shape it partially implements.
 +    const fetchImpl = (async (input: string | URL | Request) => {
 +      const url = new URL(String(input));
 +      paths.push(`${url.pathname}${url.search}`);
-+      if (url.pathname === '/api/sessions/status') return response(statusPayload);
-+      if (url.pathname === '/api/config/settings') return response(settingsPayload);
-+      if (url.pathname === '/api/fs/home') return response(homePayload);
-+      if (url.pathname === '/api/git/project-worktrees') return response(worktreesPayload);
-+      return response(sessionPayload);
++      return url.pathname === '/api/sessions/status' ? response(statusPayload) : response(sessionPayload);
 +    }) as typeof fetch;
 +
 +    const poll = await readInstanceAttention({
@@ -5894,9 +5568,6 @@ index 000000000..ea75bc58a
 +    });
 +
 +    expect(paths.sort()).toEqual([
-+      '/api/config/settings',
-+      '/api/fs/home',
-+      '/api/git/project-worktrees',
 +      `/api/session?limit=${INSTANCE_ATTENTION_SESSION_LIMIT}`,
 +      '/api/sessions/status',
 +    ]);
@@ -5905,16 +5576,14 @@ index 000000000..ea75bc58a
 +});
 diff --git a/packages/ui/src/lib/instanceAttention.ts b/packages/ui/src/lib/instanceAttention.ts
 new file mode 100644
-index 000000000..97b69674a
+index 000000000..e0c4f4938
 --- /dev/null
 +++ b/packages/ui/src/lib/instanceAttention.ts
-@@ -0,0 +1,677 @@
+@@ -0,0 +1,549 @@
 +import type { JsonValue } from '@opencode/client';
 +import { z } from 'zod';
 +
 +import { normalizeHostUrl } from '@/lib/desktopHosts';
-+import { isAttentionDirectoryAdmitted, legacyChatsRootForHome, type AttentionDirectories } from '@/lib/attentionDirectories';
-+import { normalizePath } from '@/lib/pathNormalization';
 +import {
 +  hostSessionStatusSnapshotSchema,
 +  HOST_STATUS_SEED_MAX_AGE_MS,
@@ -5923,7 +5592,6 @@ index 000000000..97b69674a
 +import { descriptorsEqual, getActiveRelayDescriptor, getActiveRelayTunnel } from '@/lib/relay/runtime-tunnel';
 +import { createRelayTunnelClient, type RelayTunnelClient } from '@/lib/relay/tunnel-client';
 +import { addRuntimeProxyHeaders, fetchBypassingRuntimeBridge, sanitizeHeadersForBrowser } from '@/lib/runtime-fetch';
-+import { isUnreadSessionFields } from '@/sync/session-unread';
 +
 +// Cross-instance attention: what a saved desktop instance needs from the user
 +// while this window shows another one. The sidebar already reports the active
@@ -5967,7 +5635,6 @@ index 000000000..97b69674a
 +  pending: ReadonlyMap<string, InstancePendingCounts>;
 +  /** Sessions whose turn is still open on that host, so they are not unread. */
 +  busy?: ReadonlySet<string>;
-+  directories?: AttentionDirectories;
 +};
 +
 +export type InstanceAttentionItem = {
@@ -6004,7 +5671,6 @@ index 000000000..97b69674a
 +   * the previous answer stands instead of every session reading as finished.
 +   */
 +  busy: ReadonlySet<string> | null;
-+  directories?: AttentionDirectories;
 +};
 +
 +export const instanceAttentionKey = (hostId: string, sessionId: string): string => `${hostId}:${sessionId}`;
@@ -6022,7 +5688,14 @@ index 000000000..97b69674a
 + * OpenCode owns `time.idle`/`time.viewed`, and a child session reports to its
 + * parent instead of to the user.
 + */
-+const isFinishedUnseen = (session: InstanceSessionSummary): boolean => isUnreadSessionFields(session);
++// The unread rule over the bare fields, kept here rather than imported from
++// session-unread.ts: that module pulls the session stores and the OpenCode
++// client into every consumer, including the mobile connection and desktop
++// switcher paths that only need this four-line predicate.
++const isFinishedUnseen = (session: InstanceSessionSummary): boolean => (
++  !session.parentID && !session.archived
++  && session.idle !== undefined && (session.viewed === undefined || session.viewed < session.idle)
++);
 +
 +/**
 + * The reason a top-level session asks for the user. Pending requests are read
@@ -6143,7 +5816,6 @@ index 000000000..97b69674a
 +    const busy = busyWithAncestors(snapshot.busy, sessionsById);
 +    for (const session of snapshot.sessions) {
 +      if (session.archived) continue;
-+      if (!isAttentionDirectoryAdmitted(session.directory, snapshot.directories)) continue;
 +      const pendingKind = pendingKindOf(snapshot.pending.get(session.id));
 +      if (session.parentID) {
 +        if (!pendingKind) continue;
@@ -6205,17 +5877,6 @@ index 000000000..97b69674a
 +  z.array(sessionListRecordSchema),
 +]);
 +
-+const settingsSchema = z.object({
-+  projects: z.array(z.object({ path: z.string() }).passthrough()).optional(),
-+}).passthrough();
-+
-+const homeSchema = z.object({
-+  home: z.string(),
-+  chatsRoot: z.string().optional(),
-+  canonicalChatsRoot: z.string().optional(),
-+  canonicalLegacyChatsRoot: z.string().optional(),
-+}).passthrough();
-+
 +const projectSessionSummary = (record: z.infer<typeof sessionListRecordSchema>): InstanceSessionSummary => ({
 +  id: record.id,
 +  parentID: record.parentID,
@@ -6228,7 +5889,8 @@ index 000000000..97b69674a
 +  outcome: record.outcome,
 +});
 +
-+const pendingCounts = (snapshot: HostSessionStatusSnapshot): ReadonlyMap<string, InstancePendingCounts> => {  const pending = new Map<string, InstancePendingCounts>();
++const pendingCounts = (snapshot: HostSessionStatusSnapshot): ReadonlyMap<string, InstancePendingCounts> => {
++  const pending = new Map<string, InstancePendingCounts>();
 +  for (const [sessionId, entry] of Object.entries(snapshot.pending ?? {})) {
 +    pending.set(sessionId, {
 +      permissions: entry.permissions.length,
@@ -6302,112 +5964,12 @@ index 000000000..97b69674a
 +  }
 +};
 +
-+const worktreeListSchema = z.array(z.object({ path: z.string() }).passthrough());
-+
-+const readHostWorktrees = async (
-+  url: string,
-+  directories: readonly string[],
-+  headers: Headers,
-+  fetchImpl: typeof fetch,
-+  signal: AbortSignal | undefined,
-+): Promise<readonly string[]> => {
-+  if (directories.length === 0) return directories;
-+  let projects: unknown;
-+  try {
-+    addRuntimeProxyHeaders(url, headers);
-+    const response = await fetchImpl(url, {
-+      method: 'POST',
-+      headers: new Headers({ ...Object.fromEntries(headers), 'Content-Type': 'application/json' }),
-+      body: JSON.stringify({ directories }),
-+      signal,
-+    });
-+    if (!response.ok) return directories;
-+    const body = await response.json().catch(() => null);
-+    projects = z.object({ projects: z.unknown() }).passthrough().safeParse(body).data?.projects;
-+  } catch {
-+    return directories;
-+  }
-+  const parsed = z.array(z.object({ worktrees: worktreeListSchema.nullable().optional() }).passthrough()).safeParse(projects);
-+  if (!parsed.success) return directories;
-+  const roots = new Set<string>(directories);
-+  for (const project of parsed.data) {
-+    for (const worktree of project.worktrees ?? []) {
-+      const normalized = normalizePath(worktree.path);
-+      if (normalized) roots.add(normalized);
-+    }
-+  }
-+  return [...roots];
-+};
-+
-+const readInstanceDirectories = async (
-+  read: (path: string) => Promise<JsonValue | null>,
-+  readWorktrees: (directories: readonly string[]) => Promise<readonly string[]>,
-+): Promise<AttentionDirectories | undefined> => {
-+  const [settingsPayload, homePayload] = await Promise.all([
-+    read('/api/config/settings'),
-+    read('/api/fs/home'),
-+  ]);
-+  const settings = settingsSchema.safeParse(settingsPayload);
-+  const home = homeSchema.safeParse(homePayload);
-+  if (!settings.success || !home.success) return undefined;
-+  const chatRoots = [
-+    home.data.chatsRoot,
-+    home.data.canonicalChatsRoot,
-+    home.data.canonicalLegacyChatsRoot,
-+    legacyChatsRootForHome(home.data.home),
-+  ].flatMap((root) => {
-+    const normalized = normalizePath(root);
-+    return normalized ? [normalized] : [];
-+  });
-+  const projectRoots = (settings.data.projects ?? []).flatMap((project) => {
-+    const normalized = normalizePath(project.path);
-+    return normalized ? [normalized] : [];
-+  });
-+  return {
-+    roots: await readWorktrees(projectRoots),
-+    chatRoots,
-+  };
-+};
-+
-+const sessionDetailSchema = z.object({
-+  data: z.object({ location: z.object({ directory: z.string() }).passthrough().optional() }).passthrough(),
-+}).passthrough();
-+
-+const readSessionDirectory = async (
-+  url: string,
-+  headers: Headers,
-+  fetchImpl: typeof fetch,
-+  signal: AbortSignal | undefined,
-+): Promise<string | null> => {
-+  try {
-+    addRuntimeProxyHeaders(url, headers);
-+    const response = await fetchImpl(url, { method: 'GET', headers, signal });
-+    if (!response.ok) return null;
-+    const detail = sessionDetailSchema.safeParse(await response.json().catch(() => null));
-+    return detail.success ? (detail.data.data.location?.directory ?? null) : null;
-+  } catch {
-+    return null;
-+  }
-+};
-+
-+const withPendingSessions = async (
-+  sessions: readonly InstanceSessionSummary[],
-+  pending: ReadonlyMap<string, InstancePendingCounts>,
-+  readDirectory: (sessionId: string) => Promise<string | null>,
-+): Promise<readonly InstanceSessionSummary[]> => {
-+  const known = new Set(sessions.map((session) => session.id));
-+  const missing = [...pending.keys()].filter((sessionId) => !known.has(sessionId));
-+  if (missing.length === 0) return sessions;
-+  const resolved = await Promise.all(missing.map(async (sessionId) => ({
-+    sessionId,
-+    directory: await readDirectory(sessionId),
-+  })));
-+  const additions = resolved.flatMap(({ sessionId, directory }): InstanceSessionSummary[] => (
-+    directory === null ? [] : [{ id: sessionId, directory, title: '', archived: false }]
-+  ));
-+  return additions.length === 0 ? sessions : [...sessions, ...additions];
-+};
-+
++/**
++ * Reads one saved instance's sessions and pending requests with that server's
++ * own credentials. Each half fails independently: a session list that answered
++ * still yields unread turns when the status route did not. A relay transport
++ * supplies its own fetch, so its pseudo-URL only has to build the two paths.
++ */
 +export const readInstanceAttention = async (
 +  transport: InstanceAttentionTransport,
 +  options: { signal?: AbortSignal } = {},
@@ -6419,19 +5981,10 @@ index 000000000..97b69674a
 +  const headers = buildTransportHeaders(transport);
 +  const fetchImpl = transport.fetchImpl ?? fetchBypassingRuntimeBridge;
 +  const root = baseUrl.replace(/\/+$/, '');
-+  const read = (path: string): Promise<JsonValue | null> => readJson(`${root}${path}`, headers, fetchImpl, options.signal);
-+  const readWorktrees = (directories: readonly string[]): Promise<readonly string[]> => readHostWorktrees(
-+    `${root}/api/git/project-worktrees`,
-+    directories,
-+    headers,
-+    fetchImpl,
-+    options.signal,
-+  );
 +
-+  const [sessionsPayload, statusPayload, directories] = await Promise.all([
++  const [sessionsPayload, statusPayload] = await Promise.all([
 +    readJson(`${root}/api/session?limit=${INSTANCE_ATTENTION_SESSION_LIMIT}`, headers, fetchImpl, options.signal),
 +    readJson(`${root}/api/sessions/status`, headers, fetchImpl, options.signal),
-+    readInstanceDirectories(read, readWorktrees),
 +  ]);
 +
 +  const sessionList = sessionListSchema.safeParse(sessionsPayload);
@@ -6439,20 +5992,10 @@ index 000000000..97b69674a
 +  const records = sessionList.success
 +    ? (Array.isArray(sessionList.data) ? sessionList.data : sessionList.data.data)
 +    : null;
-+  const sessions = records ? records.map(projectSessionSummary) : null;
-+  const pending = status.success ? pendingCounts(status.data) : null;
 +  return {
-+    sessions: sessions && pending && directories
-+      ? await withPendingSessions(sessions, pending, (sessionId) => readSessionDirectory(
-+        `${root}/api/session/${encodeURIComponent(sessionId)}`,
-+        headers,
-+        fetchImpl,
-+        options.signal,
-+      ))
-+      : sessions,
-+    pending,
++    sessions: records ? records.map(projectSessionSummary) : null,
++    pending: status.success ? pendingCounts(status.data) : null,
 +    busy: status.success ? busySessionIds(status.data) : null,
-+    directories,
 +  };
 +};
 +
@@ -7237,10 +6780,10 @@ index a5e6234c5..f02ca5d05 100644
    a.serverId === b.serverId &&
    a.grant === b.grant &&
 diff --git a/packages/ui/src/stores/DOCUMENTATION.md b/packages/ui/src/stores/DOCUMENTATION.md
-index cc0184047..45879dff4 100644
+index 808cdb0d5..c2b8b6a43 100644
 --- a/packages/ui/src/stores/DOCUMENTATION.md
 +++ b/packages/ui/src/stores/DOCUMENTATION.md
-@@ -114,6 +114,45 @@ owner cannot replace the catalog or finish the current owner's loading state.
+@@ -114,6 +114,32 @@ owner cannot replace the catalog or finish the current owner's loading state.
  
  ### Feature cache / query stores
  
@@ -7249,29 +6792,16 @@ index cc0184047..45879dff4 100644
 +`useInstanceAttentionStore.ts` holds one list for every session that needs the
 +user, strongest reason first and newest within that. The saved instances the
 +poller reads answer from their `/api/session` and `/api/sessions/status` routes,
-+plus the routes that say which folders each host opens (`/api/config/settings`,
-+`/api/fs/home`, `/api/git/project-worktrees`); while one of them is on screen the
-+app's own server answers the same routes under the `local` id. The instance this
-+window shows is published by `hooks/useLocalInstanceAttention.ts` as the reserved
++and while one of them is on screen the app's own server answers the same two
++routes under the `local` id. The instance this window shows is published by
++`hooks/useLocalInstanceAttention.ts` as the reserved
 +`openchamber:this-instance` entry, derived from
 +`sync/global-blocking-requests.ts`, `useGlobalSessionsStore` and
 +`sync/session-unread.ts`; a subagent request attributes to its top-level parent.
-+A host's folder answer is kept beside its sessions, so a poll that answered its
-+sessions but not the folders keeps judging them as before. Every surface reads
-+the same `items` array, so the switcher, the phone bell and the collapsed-sidebar
-+badge show one total. `retainHosts` keeps the reserved entry because it is never
-+in a poller's target list; the `local` entry leaves with the target list when the
-+window returns to it.
-+
-+#### Why the local half loads the session list itself
-+
-+A host switch resets the global session list (`hasLoaded: false`, no records),
-+and the phone mounts no global poller: the list is read again only when the
-+sessions sheet opens or the connection reconnects. `hooks/useLocalInstanceAttention.ts`
-+therefore reads it when the store holds none, so the instance on screen
-+publishes its own waiting sessions right after a switch. Without that read the
-+drawer showed only the other saved instances' rows until the sheet was opened,
-+which reads as one host having more waiting work than it does.
++Every surface reads the same `items` array, so the switcher, the phone bell and
++the collapsed-sidebar badge show one total. `retainHosts` keeps the reserved
++entry because it is never in a poller's target list; the `local` entry leaves
++with the target list when the window returns to it.
 +
 +#### Why the local instance is a store entry and not a second list
 +
@@ -7288,10 +6818,10 @@ index cc0184047..45879dff4 100644
  `useQuotaAutoRefresh(visible, allProviders)` registers demand only for a mounted,
 diff --git a/packages/ui/src/stores/useInstanceAttentionStore.test.ts b/packages/ui/src/stores/useInstanceAttentionStore.test.ts
 new file mode 100644
-index 000000000..b1817e859
+index 000000000..12b06193d
 --- /dev/null
 +++ b/packages/ui/src/stores/useInstanceAttentionStore.test.ts
-@@ -0,0 +1,206 @@
+@@ -0,0 +1,154 @@
 +import { beforeEach, describe, expect, test } from 'bun:test';
 +
 +import {
@@ -7314,8 +6844,7 @@ index 000000000..b1817e859
 +  sessions: InstanceSessionSummary[] | null,
 +  pending: Map<string, InstancePendingCounts> | null,
 +  busy: ReadonlySet<string> | null = new Set(),
-+  directories?: InstanceAttentionPoll['directories'],
-+): InstanceAttentionPoll => ({ sessions, pending, busy, directories });
++): InstanceAttentionPoll => ({ sessions, pending, busy });
 +
 +beforeEach(() => {
 +  useInstanceAttentionStore.getState().reset();
@@ -7386,57 +6915,6 @@ index 000000000..b1817e859
 +    expect(state.items.map((item) => item.sessionId)).toEqual(['ses_a']);
 +  });
 +
-+  test('a polled host shows only the sessions in folders it says it opens', () => {
-+    const store = useInstanceAttentionStore.getState();
-+    store.applyPoll('host-b', 'Build box', poll(
-+      [
-+        session({ id: 'ses_inside', directory: '/repo', idle: 10 }),
-+        session({ id: 'ses_outside', directory: '/tmp/opencode/qcards-proj', idle: 20 }),
-+      ],
-+      new Map(),
-+      new Set(),
-+      { roots: ['/repo'], chatRoots: [] },
-+    ), 100);
-+
-+    expect(useInstanceAttentionStore.getState().items.map((item) => item.sessionId)).toEqual(['ses_inside']);
-+  });
-+
-+  test('a directory answer that failed keeps the one before it', () => {
-+    const store = useInstanceAttentionStore.getState();
-+    store.applyPoll('host-b', 'Build box', poll(
-+      [session({ id: 'ses_inside', directory: '/repo', idle: 10 })],
-+      new Map(),
-+      new Set(),
-+      { roots: ['/repo'], chatRoots: [] },
-+    ), 100);
-+    // The next poll answered its sessions but not the folder list.
-+    store.applyPoll('host-b', 'Build box', poll(
-+      [session({ id: 'ses_inside', directory: '/repo', idle: 10 })],
-+      new Map(),
-+      new Set(),
-+      undefined,
-+    ), 200);
-+
-+    expect(useInstanceAttentionStore.getState().items.map((item) => item.sessionId)).toEqual(['ses_inside']);
-+    expect(useInstanceAttentionStore.getState().hosts['host-b']?.directories).toEqual({ roots: ['/repo'], chatRoots: [] });
-+  });
-+
-+  test('an unreachable host keeps the folders it last answered', () => {
-+    const store = useInstanceAttentionStore.getState();
-+    store.applyPoll('host-b', 'Build box', poll(
-+      [
-+        session({ id: 'ses_inside', directory: '/repo', idle: 10 }),
-+        session({ id: 'ses_outside', directory: '/tmp/opencode/qcards-proj', idle: 20 }),
-+      ],
-+      new Map(),
-+      new Set(),
-+      { roots: ['/repo'], chatRoots: [] },
-+    ), 100);
-+    store.markUnreachable('host-b', 'Build box', 200);
-+
-+    expect(useInstanceAttentionStore.getState().items.map((item) => item.sessionId)).toEqual(['ses_inside']);
-+  });
-+
 +  test('retaining hosts drops instances that were removed or became active', () => {
 +    const store = useInstanceAttentionStore.getState();
 +    store.applyPoll('host-b', 'Build box', poll([session({ id: 'ses_a', idle: 10 })], new Map()), 100);
@@ -7500,13 +6978,12 @@ index 000000000..b1817e859
 +});
 diff --git a/packages/ui/src/stores/useInstanceAttentionStore.ts b/packages/ui/src/stores/useInstanceAttentionStore.ts
 new file mode 100644
-index 000000000..079bb4ccc
+index 000000000..247603bc2
 --- /dev/null
 +++ b/packages/ui/src/stores/useInstanceAttentionStore.ts
-@@ -0,0 +1,127 @@
+@@ -0,0 +1,122 @@
 +import { create } from 'zustand';
 +
-+import type { AttentionDirectories } from '@/lib/attentionDirectories';
 +import {
 +  collectInstanceAttention,
 +  LOCAL_INSTANCE_ATTENTION_HOST_ID,
@@ -7527,7 +7004,6 @@ index 000000000..079bb4ccc
 +  sessions: readonly InstanceSessionSummary[] | null;
 +  pending: ReadonlyMap<string, InstancePendingCounts> | null;
 +  busy: ReadonlySet<string> | null;
-+  directories?: AttentionDirectories;
 +};
 +
 +type InstanceAttentionStoreState = {
@@ -7554,7 +7030,6 @@ index 000000000..079bb4ccc
 +    sessions: record.sessions ?? [],
 +    pending: record.pending ?? new Map(),
 +    busy: record.busy ?? undefined,
-+    directories: record.directories,
 +  })),
 +);
 +
@@ -7590,10 +7065,9 @@ index 000000000..079bb4ccc
 +    // Pending and busy come from the same status route; a failed status read
 +    // keeps the last open turns instead of treating every session as finished.
 +    const busy = poll.pending === null ? previous?.busy ?? null : poll.busy;
-+    const directories = poll.directories ?? previous?.directories;
 +    const hosts = {
 +      ...get().hosts,
-+      [hostId]: { label, status: 'ok' as const, checkedAt, sessions, pending, busy, directories },
++      [hostId]: { label, status: 'ok' as const, checkedAt, sessions, pending, busy },
 +    };
 +    set({ hosts, items: rebuild(hosts) });
 +  },
@@ -7609,7 +7083,6 @@ index 000000000..079bb4ccc
 +        sessions: previous?.sessions ?? null,
 +        pending: previous?.pending ?? null,
 +        busy: previous?.busy ?? null,
-+        directories: previous?.directories,
 +      },
 +    };
 +    // The last known items stay: an unreachable host did not answer "nothing".

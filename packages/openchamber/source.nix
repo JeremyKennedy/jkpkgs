@@ -62,11 +62,11 @@ let
       # It builds only on top of the resolver above.
       ./patches/question-indicator.patch
       ./patches/reply-start-scroll.patch
-      # The rest of the local queue, rebased onto v2.7.2. Upstream absorbed
-      # the chat width, notification-dismiss, guest-extension and
-      # send-past-open-question patches (maintainer and contributor work, not
-      # these PRs), so those are gone; what remains changes behaviour upstream
-      # does not have yet.
+      # The rest of the local queue. Upstream absorbed the chat width,
+      # notification-dismiss, guest-extension and send-past-open-question
+      # patches at v2.7.2 (maintainer and contributor work, not these PRs), so
+      # those are gone; what remains changes behaviour upstream does not have
+      # yet.
       ./patches/draft-heading-project-picker.patch
       ./patches/recap-full-note.patch
       ./patches/image-viewer-zoom.patch
@@ -81,11 +81,6 @@ let
       # halves now read the same rule. And a host switch clears the global
       # session list with no phone poller to refill it, so the instance on screen
       # published no rows of its own until the sessions sheet was opened.
-      # The question tool writes a reply's quotes into its text without
-      # escaping them, so the text parser cut an answer at the first quote the
-      # reader typed. Read the answers the call recorded instead, and keep the
-      # text parse for a call that carries none.
-      ./patches/question-recorded-answers.patch
       # Only the attention ranking of In work: v2.7.2's
       # `sidebarSessionBatchSize` already pages the block.
       ./patches/in-work-paging.patch

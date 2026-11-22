@@ -1,8 +1,8 @@
 diff --git a/packages/ui/src/components/chat/ChatInput.tsx b/packages/ui/src/components/chat/ChatInput.tsx
-index f05ad5cc8..1a80da377 100644
+index a876bdae1..9cfac9451 100644
 --- a/packages/ui/src/components/chat/ChatInput.tsx
 +++ b/packages/ui/src/components/chat/ChatInput.tsx
-@@ -12,7 +12,6 @@ import { useComposerAutocompleteState } from './composer/input/useComposerAutoco
+@@ -13,7 +13,6 @@ import { useComposerAutocompleteState } from './composer/input/useComposerAutoco
  import { useComposerColumn } from './composer/input/useComposerColumn';
  import { useComposerCompletions } from './composer/input/useComposerCompletions';
  import { useComposerControls } from './composer/input/useComposerControls';
@@ -10,7 +10,7 @@ index f05ad5cc8..1a80da377 100644
  import { useComposerDictation } from './composer/input/useComposerDictation';
  import { useComposerDictationState } from './composer/input/useComposerDictationState';
  import { useComposerDraftHistory } from './composer/input/useComposerDraftHistory';
-@@ -129,8 +128,18 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+@@ -130,8 +129,18 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
          inlineContext, sendAvailability, sendHandlers: sending, sessionScope, sessionLifecycle,
          queueState, queueActions: sending, editorState, draftText,
      });
@@ -30,7 +30,7 @@ index f05ad5cc8..1a80da377 100644
      });
      useComposerExternalSubmits({ draftText, column, sendHandlers: sending, sendAvailability, sessionScope, submission: sending, sendActions, selection });
      const editorActions = useComposerEditorActions({
-@@ -177,21 +186,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+@@ -186,21 +195,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
          editorState, mobilePanels, draftText, i18n, preferences, expansion, permissionSettings,
          sessionScope, mobileShell, runtime, draftHistory,
      });
@@ -53,18 +53,17 @@ index f05ad5cc8..1a80da377 100644
          largePasteState, editorState, draftText, autocompleteState, preferences, expansion,
          mobileActions, sessionScope, sessionLifecycle, editorActions, queueState, queueActions: sending,
 diff --git a/packages/ui/src/components/chat/composer/DOCUMENTATION.md b/packages/ui/src/components/chat/composer/DOCUMENTATION.md
-index 7a95434ec..a049c57fd 100644
+index cc8993874..df091b7ae 100644
 --- a/packages/ui/src/components/chat/composer/DOCUMENTATION.md
 +++ b/packages/ui/src/components/chat/composer/DOCUMENTATION.md
-@@ -1329,6 +1329,11 @@ command can leave the queue untouched and delivery can take only part of it.
-   origin is no longer the rendered draft is appended to the origin's draft
-   through `restoreDraft`. It is not inserted or sent in the visible session,
-   including for **Insert and send**, and a toast says where it went.
+@@ -1597,6 +1597,10 @@ command can leave the queue untouched and delivery can take only part of it.
+   just opened must render in the same commit
+   (`useShownSessionSelection`, see `sync/DOCUMENTATION.md`, "Session switch
+   commit"): a deferred draft recorded the session still on screen (#6927).
 +  A deep link that asks a new-session draft to start dictation
 +  (`openchamber://new-session?dictate=1`) waits until the composer renders
-+  that draft, not merely until the store has opened it: the column keeps the
-+  previous session for a commit, so starting earlier records the session as
-+  the origin and its transcript lands in that session's draft.
++  that draft, not merely until the store has opened it, so the draft and not
++  the session still on screen is the origin.
    The dictation shortcut starts in the focused composer's form, falling back
    to the main chat when no form has focus. Mobile mic triggers explicitly
    address their own form. One mounted dictation engine owns capture and
@@ -483,12 +482,55 @@ index 9cffd1457..6f73859e1 100644
    title: "typography-ui-label font-medium text-foreground py-[calc((2.25rem-1lh)/2)]",
    icon: "relative me-0.5 flex h-9 w-5 shrink-0 items-center justify-center text-muted-foreground [&>svg]:size-5",
  }
+diff --git a/packages/ui/src/hooks/useDictation.capture.test.tsx b/packages/ui/src/hooks/useDictation.capture.test.tsx
+index 37c2f1f70..b4090ca0b 100644
+--- a/packages/ui/src/hooks/useDictation.capture.test.tsx
++++ b/packages/ui/src/hooks/useDictation.capture.test.tsx
+@@ -97,16 +97,19 @@ const startWhilePromptOpen = () => {
+     return started;
+ };
+ 
+-for (const [ending, end] of [
+-    ['Cancel', () => dictation.cancelDictation()],
+-    ['Finish', () => dictation.confirmDictation()],
++for (const [ending, end, settled] of [
++    ['Cancel', () => dictation.cancelDictation(), 'idle'],
++    // Finish with no audio reached the sender is the failure the recovery
++    // patch surfaces, not a silent return to idle; the next recording starts
++    // after the failure is dismissed.
++    ['Finish', () => dictation.confirmDictation(), 'failed'],
+ ] as const) {
+     test(`a microphone granted after ${ending} starts no timer or stream and leaves the next recording intact`, async () => {
+         const started = startWhilePromptOpen();
+         await act(async () => {
+             await end();
+         });
+-        expect(dictation.status).toBe('idle');
++        expect(dictation.status).toBe(settled);
+ 
+         await act(async () => {
+             prompts[0].grant();
+@@ -116,9 +119,13 @@ for (const [ending, end] of [
+         expect(stoppedTracks).toEqual(['track']);
+         expect(durationTimers()).toBe(0);
+         expect(restartStream).not.toHaveBeenCalled();
+-        expect(dictation.status).toBe('idle');
++        expect(dictation.status).toBe(settled);
+         expect(errors).toEqual([]);
+ 
++        if (settled === 'failed') {
++            await act(async () => dictation.discardFailedDictation());
++        }
++
+         await act(async () => {
+             const next = dictation.startDictation();
+             prompts[1].grant();
 diff --git a/packages/ui/src/hooks/useDictation.empty-result.test.tsx b/packages/ui/src/hooks/useDictation.empty-result.test.tsx
 new file mode 100644
-index 000000000..8315fbb87
+index 000000000..000b477dd
 --- /dev/null
 +++ b/packages/ui/src/hooks/useDictation.empty-result.test.tsx
-@@ -0,0 +1,185 @@
+@@ -0,0 +1,187 @@
 +import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 +import * as bunTest from 'bun:test';
 +
@@ -518,6 +560,8 @@ index 000000000..8315fbb87
 +        isConnected: false,
 +        onPartial: () => () => {},
 +        subscribeConnectionStatus: () => () => {},
++        subscribeStreamError: () => () => {},
++        abandonDictationStream: () => {},
 +    },
 +}));
 +
@@ -675,7 +719,7 @@ index 000000000..8315fbb87
 +    });
 +});
 diff --git a/packages/ui/src/hooks/useDictation.ts b/packages/ui/src/hooks/useDictation.ts
-index 730df9fce..583a9a7f5 100644
+index 004c6ebc3..04a3a1799 100644
 --- a/packages/ui/src/hooks/useDictation.ts
 +++ b/packages/ui/src/hooks/useDictation.ts
 @@ -1,3 +1,19 @@
@@ -698,7 +742,7 @@ index 730df9fce..583a9a7f5 100644
  
  import { useCallback, useEffect, useRef, useState } from 'react';
  
-@@ -8,6 +24,33 @@ import { useConfigStore } from '@/stores/useConfigStore';
+@@ -9,6 +25,33 @@ import { readTranscriptionPrompt } from '@/stores/useTranscriptionPromptStore';
  
  export type DictationStatus = 'idle' | 'recording' | 'uploading' | 'failed';
  
@@ -732,7 +776,7 @@ index 730df9fce..583a9a7f5 100644
  export interface UseDictationOptions {
      onTranscript?: (text: string) => void;
      onError?: (error: Error) => void;
-@@ -166,28 +209,74 @@ export function useDictation(options: UseDictationOptions = {}): UseDictationRes
+@@ -172,28 +215,74 @@ export function useDictation(options: UseDictationOptions = {}, client: Dictatio
          audioStopRef.current = audio.stop;
      }, [audio.stop]);
  
@@ -816,7 +860,7 @@ index 730df9fce..583a9a7f5 100644
              reportError(failure);
          },
          [reportError],
-@@ -224,9 +313,14 @@ export function useDictation(options: UseDictationOptions = {}): UseDictationRes
+@@ -257,9 +346,14 @@ export function useDictation(options: UseDictationOptions = {}, client: Dictatio
          } catch (err) {
              await audio.stop().catch(() => undefined);
              stopDurationTracking();
@@ -833,7 +877,16 @@ index 730df9fce..583a9a7f5 100644
          } finally {
              gate.starting = false;
          }
-@@ -283,7 +377,7 @@ export function useDictation(options: UseDictationOptions = {}): UseDictationRes
+@@ -270,7 +364,7 @@ export function useDictation(options: UseDictationOptions = {}, client: Dictatio
+         if (gate.cancelling) {
+             return;
+         }
+-        if (statusRef.current !== 'recording' && statusRef.current !== 'uploading') {
++        if (statusRef.current !== 'recording' && statusRef.current !== 'uploading' && statusRef.current !== 'failed') {
+             return;
+         }
+         gate.cancelling = true;
+@@ -316,7 +410,7 @@ export function useDictation(options: UseDictationOptions = {}, client: Dictatio
  
              const finalSeq = senderRef.current?.getFinalSeq() ?? -1;
              if (finalSeq < 0) {
@@ -842,7 +895,7 @@ index 730df9fce..583a9a7f5 100644
              }
  
              const result = await senderRef.current!.finish(finalSeq);
-@@ -294,7 +388,7 @@ export function useDictation(options: UseDictationOptions = {}): UseDictationRes
+@@ -329,7 +423,7 @@ export function useDictation(options: UseDictationOptions = {}, client: Dictatio
          } finally {
              gate.confirming = false;
          }
@@ -850,4 +903,4 @@ index 730df9fce..583a9a7f5 100644
 +    }, [audio, clearError, handleEmptyTranscript, handleFailure, handleSuccess, stopDurationTracking]);
  
      const retryFailedDictation = useCallback(async (): Promise<string | null> => {
-         if (statusRef.current !== 'failed' || !senderRef.current?.hasSegments()) {
+         const gate = actionGateRef.current;
