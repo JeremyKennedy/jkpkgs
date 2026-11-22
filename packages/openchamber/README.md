@@ -35,6 +35,46 @@ the patched tree, after a fresh frozen install, and compare the count against
 the same check on the bare tag. The tag is the baseline, and a bump is clean
 when the count matches it rather than when it is zero.
 
+### Measuring a bump
+
+Four things that read as failures but are not, all of them hit during the
+v2.7.3 port and each costing time to re-diagnose:
+
+- **A fresh worktree with its own frozen install, every time.** Never copy
+  `node_modules` between worktrees to save an install: the typecheck resolves
+  typescript through the tree it runs in and then reports errors that belong to
+  the copy. That produced a "164 pre-existing errors" report on a tag that is
+  actually clean.
+- **The tag is the baseline, not a zero target.** Measure the bare tag first and
+  record the number, then compare. A lower count is not automatically a pass
+  either: say so when the port incidentally fixes an upstream error rather than
+  banking it as progress.
+- **Server tests are vitest, not `bun test`.** `bun test` on
+  `server/lib/notifications` reports around eighty failures per file because
+  vitest's API (`vi.unstubAllGlobals`) is absent. Run
+  `bunx vitest run <paths>` from `packages/web`.
+- **Batch runs lie about UI suites.** The full `bun test` in `packages/ui`
+  fails hundreds of tests in both trees (641 on the v2.7.3 port, 990 on the
+  bare tag), so the raw count says nothing. Compare the failing-name sets
+  between the two trees and re-run each name that differs on its own; on that
+  bump 16 names differed and every one passed individually. Batch contamination
+  is the cause: the files share process state.
+
+And one habit worth keeping: before describing a code change as a behaviour fix,
+revert it and watch the tests. A fix whose reversal leaves the suite green was
+arity or naming, not behaviour, and the commit message should say so.
+
+### Landing a bump
+
+- Open the pull request, then merge with an explicit `--head <full sha>`.
+  `dotman forgejo pr merge` refuses a short sha.
+- An amend on a branch someone else is working from needs
+  `--force-with-lease=<branch>:<sha>` pinned to the exact sha you believe is
+  there. It refuses rather than clobbers, which is the whole point.
+- Not all patches are the tag's shape: a patch written for a commit may carry
+  `.js` paths where the tag has `.ts`, or the reverse. Check which one the
+  target actually has before treating a rejection as a port.
+
 ## `upstream.json`
 
 One record per patch, and the reason each patch exists:
