@@ -114,7 +114,7 @@ index ba8a427..f8d6a1d 100644
              <DraftPresetChips
                  onSubmit={(starter) => useInputStore.getState().requestPresetSubmit(starter.submitText, starter.ref.type)}
 diff --git a/packages/ui/src/components/chat/composer/DOCUMENTATION.md b/packages/ui/src/components/chat/composer/DOCUMENTATION.md
-index d817357..81feaba 100644
+index d817357..7cb19d1 100644
 --- a/packages/ui/src/components/chat/composer/DOCUMENTATION.md
 +++ b/packages/ui/src/components/chat/composer/DOCUMENTATION.md
 @@ -746,7 +746,7 @@ comment in the prompt and shows it all the same, and editing it moves it out.
@@ -126,7 +126,7 @@ index d817357..81feaba 100644
  | `comment/` | Mobile comment mode: quoted-selection state, its scope ownership, and the shell that replaces the composer while a comment is written |
  | `submit/` | Turning what the user has into what gets sent. `guestCommands.ts` routes an extension's slash command (`contributes.commands`) before anything is sent: `/name args` never reaches the model, the extension resolves it into a chip |
  | `attachments/` | Files: paths, drop payloads |
-@@ -1384,6 +1384,20 @@ command can leave the queue untouched and delivery can take only part of it.
+@@ -1384,6 +1384,22 @@ command can leave the queue untouched and delivery can take only part of it.
    draft target UI is mounted.
    Keyboard selection returns focus to the current form's composer, including
    when the selected value is unchanged.
@@ -141,7 +141,9 @@ index d817357..81feaba 100644
 +  another component from the composer, and it is delivered from a
 +  subscription rather than an effect so the picker's state lands in the same
 +  batch as the tap, before the mobile shell decides whether to fold the
-+  composer as the keyboard hides. VS Code shows no draft target selectors, so
++  composer as the keyboard hides. On a phone the composer's draft-target hook
++  answers the request and reports the sheet's state, since the desktop
++  selectors are not mounted there; desktop answers through the selectors. VS Code shows no draft target selectors, so
 +  there the heading stays plain text, and it stops being a target while the
 +  draft fades out.
  - `input/createComposerKeyHandler.ts` maps Ctrl+N/P to the active command, skill, snippet, or
@@ -194,6 +196,54 @@ index b74bb40..90a1e1d 100644
                      </h1>
                  </div>
              ) : null}
+diff --git a/packages/ui/src/components/chat/composer/input/useComposerDraftTarget.ts b/packages/ui/src/components/chat/composer/input/useComposerDraftTarget.ts
+index 2dd6bee..7859909 100644
+--- a/packages/ui/src/components/chat/composer/input/useComposerDraftTarget.ts
++++ b/packages/ui/src/components/chat/composer/input/useComposerDraftTarget.ts
+@@ -13,12 +13,13 @@ import { useDraftHeading } from '../../useDraftHeading';
+ import { useDraftTarget } from '../../composer/state/useDraftTarget';
+ import { isSpaceCreationRequest } from '@/lib/spaces/space-creation-requests';
+ import { isDraftSendWaiting, subscribeDraftSendWaiting } from '@/lib/worktrees/pendingDraftWorktree';
++import { setDraftProjectPickerOpen, useDraftProjectPickerRequest } from '../state/draftProjectPickerRequest';
+ import type { ChatInputProps } from './chatInputProps';
+ 
+ type Dependencies = {
+     sessionScope: Pick<ReturnType<typeof useComposerSessionScope>, 'newSessionDraftOpen' | 'newSessionDraft' | 'setNewSessionDraftTarget'>;
+     runtime: Pick<ReturnType<typeof useComposerRuntime>, 'isVSCode'>;
+-    mobilePanels: Pick<ReturnType<typeof useComposerMobilePanels>, 'setMobileDraftPicker'>;
++    mobilePanels: Pick<ReturnType<typeof useComposerMobilePanels>, 'mobileDraftPicker' | 'setMobileDraftPicker'>;
+     preferences: Pick<ReturnType<typeof useComposerPreferences>, 'isMobile'>;
+     expansion: Pick<ReturnType<typeof useComposerExpansion>, 'isDesktopExpanded'>;
+     props: Pick<ChatInputProps, 'draftPresentationExiting'>;
+@@ -29,7 +30,7 @@ export function useComposerDraftTarget({
+ }: Dependencies) {
+     const { newSessionDraftOpen, newSessionDraft, setNewSessionDraftTarget } = sessionScope;
+     const { isVSCode } = runtime;
+-    const { setMobileDraftPicker } = mobilePanels;
++    const { mobileDraftPicker, setMobileDraftPicker } = mobilePanels;
+     const { isMobile } = preferences;
+     const { isDesktopExpanded } = expansion;
+     const { draftPresentationExiting } = props;
+@@ -63,6 +64,19 @@ export function useComposerDraftTarget({
+         setMobileDraftPicker(picker);
+     }, [refreshDraftTarget, setMobileDraftPicker]);
+ 
++    // The compact draft welcome's heading is a second way into the picker on a
++    // phone, where the desktop selectors are not mounted. It asks through the
++    // same store and the sheet answers; the heading reads its open state back.
++    useDraftProjectPickerRequest(React.useCallback(() => {
++        if (!isMobile || !showDraftTargetSelectors || !selectedDraftProject) return;
++        setMobileDraftPicker('project');
++    }, [isMobile, selectedDraftProject, setMobileDraftPicker, showDraftTargetSelectors]));
++    React.useEffect(() => {
++        if (!isMobile) return;
++        setDraftProjectPickerOpen(mobileDraftPicker === 'project');
++        return () => setDraftProjectPickerOpen(false);
++    }, [isMobile, mobileDraftPicker]);
++
+     const isolatedSpacesEnabled = useUIStore((state) => state.isolatedSpacesEnabled);
+ 
+     const [newSpaceProject, setNewSpaceProject] = React.useState<{ id: string; path: string } | null>(null);
 diff --git a/packages/ui/src/components/chat/composer/state/__tests__/draftProjectPickerRequest.test.tsx b/packages/ui/src/components/chat/composer/state/__tests__/draftProjectPickerRequest.test.tsx
 new file mode 100644
 index 0000000..831026b
