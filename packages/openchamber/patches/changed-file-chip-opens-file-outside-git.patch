@@ -1,96 +1,44 @@
 diff --git a/packages/ui/src/components/views/DOCUMENTATION.md b/packages/ui/src/components/views/DOCUMENTATION.md
-index b32303400..ceb3ec587 100644
+index 325fd7744..0a6bec84d 100644
 --- a/packages/ui/src/components/views/DOCUMENTATION.md
 +++ b/packages/ui/src/components/views/DOCUMENTATION.md
-@@ -629,15 +629,18 @@ current state the view shows loading; a failed read keeps its error and retry.
- A file that is there is expanded and scrolled to, on every click, since the
- chip's absolute path only matches the relative list through this request.
- A file that is not there opens Changed instead, in the repository holding the
--file, read afresh, expanded. A repository the picker drops again ends the
--attempt on the repository left on screen. Picking Last turn by hand asks
--nothing and stays there, empty or not. The phone's Changes surface
--(`apps/MobileChangesSurface.tsx`) answers the same way and opens the file's own
--diff screen, since it has no expanded list to scroll. VS Code has no Diff view
--panel: the chip reads the turn's diff once and opens the file's patch in the
--editor's own diff (`editor.openDiff` with `patch`; a file the turn deleted shows
--its old content against an empty side). A file the list does not hold opens as
--it is, and a failed read shows an error toast.
-+file, read afresh, expanded. A file no repository lists, in a project that is
-+not a repository or outside every repository it knows, opens in the editor
-+instead: there is no working-tree diff for it. A repository the picker drops
-+again ends the attempt on the repository left on screen. Picking Last turn by
-+hand asks nothing and stays there, empty or not. The phone's Changes surface
-+(`apps/MobileChangesSurface.tsx`) answers the same way when a repository holds
-+the file and opens its own diff screen, since it has no expanded list to
-+scroll; when no repository holds it, the phone stays on the Changes list. VS
-+Code has no Diff view panel: the chip reads the turn's diff once and opens the
-+file's patch in the editor's own diff (`editor.openDiff` with `patch`; a file
-+the turn deleted shows its old content against an empty side). A file the list
-+does not hold opens as it is, and a failed read shows an error toast.
+@@ -654,17 +654,16 @@ and retry. A listed file is expanded and scrolled to on every click, since
+ the chip's absolute path only matches the relative list through this request.
  
- ### Why the click is a one-shot request and not derived from the tab
+ A file missing from the turn diff opens Changed in the repository holding it,
+-read afresh and expanded. Only a file inside a project that is not a repository,
+-once discovery finds no repository in the project holding it, opens in the
+-editor instead (`files/openChangedFileWithoutRepository.ts`): there is no
+-working-tree diff for it. Unknown or failed discovery, a file outside the
+-project and a repository-owned file the list misses (a staged-only entry) keep
+-the Changed path. The open checks the file with a stat first, since the
+-optional read answers a deleted file with an empty success: a deleted file
+-shows the not-found toast, an empty one opens. The read belongs to the click
+-that started it, from the click through discovery to the read: a newer chip
+-click, leaving the session or the runtime (even to return) drops it without
+-a tab, focus change or toast. A repository the picker drops again ends the
++read afresh and expanded. A file no repository lists, in a project that is not a
++repository or outside every repository it knows, opens in the editor instead
++(`files/openChangedFileWithoutRepository.ts`): there is no working-tree diff
++for it. Unknown or failed discovery and a repository-owned file the list misses
++(a staged-only entry) keep the Changed path. The open checks the file with a
++stat first, since the optional read answers a deleted file with an empty
++success: a deleted file shows the not-found toast, an empty one opens. The read
++belongs to the click that started it, from the click through discovery to the
++read: a newer chip click, leaving the session or the runtime (even to return)
++drops it without a tab, focus change or toast. A repository the picker drops again ends the
+ attempt on the repository left on screen.
  
-diff --git a/packages/ui/src/components/views/DiffView.tsx b/packages/ui/src/components/views/DiffView.tsx
-index 765157c5b..037c07c37 100644
---- a/packages/ui/src/components/views/DiffView.tsx
-+++ b/packages/ui/src/components/views/DiffView.tsx
-@@ -119,6 +119,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
-     const setDiffHideWhitespace = useUIStore((state) => state.setDiffHideWhitespace);
-     const diffFileListMode = useUIStore((state) => state.diffFileListMode);
-     const setDiffFileListMode = useUIStore((state) => state.setDiffFileListMode);
-+    const openContextFile = useUIStore((state) => state.openContextFile);
-     const openContextFileAtLine = useUIStore((state) => state.openContextFileAtLine);
-     const panelSessionId = useSessionUIStore((state) => state.currentSessionId);
-     const currentSessionId = foreign ? null : panelSessionId;
-@@ -195,7 +196,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
-         pendingTurnDiffFile, diffScope, currentSessionId, setPendingTurnDiffFile, turnDiffSettled, rootDirectory,
-         lastTurnDiffs, onDiffScopeChange,
-         effectiveDirectory, repositoriesKnown, rootIsGitRepo, repositoryOptions, selectNestedRepo, fetchStatus, git,
--        changedFiles,
-+        changedFiles, files,
-     });
-     React.useEffect(() => {
-         if (!displayFile) {
+ Picking Last turn by hand clears the historical selection and shows the newest
 diff --git a/packages/ui/src/components/views/diffView/useDiffViewTurnNavigation.ts b/packages/ui/src/components/views/diffView/useDiffViewTurnNavigation.ts
-index eaa677ece..2827df9c9 100644
+index 1ee92c48d..4f4705afe 100644
 --- a/packages/ui/src/components/views/diffView/useDiffViewTurnNavigation.ts
 +++ b/packages/ui/src/components/views/diffView/useDiffViewTurnNavigation.ts
-@@ -1,8 +1,9 @@
- import React from 'react';
- import { findRepoFile, toAbsoluteFilePath } from '@/lib/path-utils';
- import { findFileRepository } from '@/lib/nestedRepositories';
--import type { GitAPI } from '@/lib/api/types';
--import type { useUIStore } from '@/stores/useUIStore';
-+import type { GitAPI, RuntimeAPIs } from '@/lib/api/types';
-+import { useUIStore } from '@/stores/useUIStore';
-+import { toastContextFileOpenFailure, validateContextFileOpen } from '@/lib/contextFileOpenGuard';
- import type { useGitStore } from '@/stores/useGitStore';
- import type { TurnSnapshotDiff } from '../turnSnapshotDiff';
- import type { DiffScope, DiffViewProps, FileEntry } from './types';
-@@ -33,14 +34,16 @@ interface DiffViewTurnNavigationOptions {
-     fetchStatus: ReturnType<typeof useGitStore.getState>['fetchStatus'];
-     git: GitAPI;
-     changedFiles: FileEntry[];
-+    files: RuntimeAPIs['files'];
- }
- 
- export function useDiffViewTurnNavigation({
-     visible, activeDiffScope, setActiveDiffScope, setDisplayFile, setDisplayFileStaged, shouldPinAfterAlignRef,
-     pendingScrollTargetRef, expandStackedFile, setScrollRequestNonce, pendingTurnDiffFile, diffScope, currentSessionId,
-     setPendingTurnDiffFile, turnDiffSettled, rootDirectory, lastTurnDiffs, onDiffScopeChange, effectiveDirectory,
--    repositoriesKnown, rootIsGitRepo, repositoryOptions, selectNestedRepo, fetchStatus, git, changedFiles,
-+    repositoriesKnown, rootIsGitRepo, repositoryOptions, selectNestedRepo, fetchStatus, git, changedFiles, files,
- }: DiffViewTurnNavigationOptions) {
-+    const openContextFile = useUIStore((state) => state.openContextFile);
-     const [changedFallback, setChangedFallback] = React.useState<{ file: string; picked: boolean; statusReadFor: string | null } | null>(null);
-     const fallbackStatusRequestRef = React.useRef<string | null>(null);
-     const revealListedFile = React.useCallback((path: string) => {
-@@ -102,6 +105,22 @@ export function useDiffViewTurnNavigation({
+@@ -127,6 +127,15 @@ export function useDiffViewTurnNavigation({
          }
          setChangedFallback(null);
          const listed = findRepoFile(changedFallback.file, effectiveDirectory, changedFiles.map((file) => file.path));
 -        if (listed) revealListedFile(listed);
--    }, [activeDiffScope, changedFallback, changedFiles, effectiveDirectory, fetchStatus, git, repositoriesKnown, repositoryOptions, revealListedFile, rootDirectory, rootIsGitRepo, selectNestedRepo, visible]);
 +        if (listed) {
 +            revealListedFile(listed);
 +            return;
@@ -99,14 +47,7 @@ index eaa677ece..2827df9c9 100644
 +        // status entry for it, and a file outside every repository it knows
 +        // has no diff there either. Open the file itself rather than an empty
 +        // list; a file the turn deleted opens the editor's not-found state.
-+        void (async () => {
-+            const validation = await validateContextFileOpen(files, changedFallback.file, { directory: effectiveDirectory });
-+            if (!validation.ok) {
-+                toastContextFileOpenFailure(changedFallback.file, validation);
-+                return;
-+            }
-+            if (!rootDirectory) return;
-+            openContextFile(rootDirectory, changedFallback.file);
-+        })();
-+    }, [activeDiffScope, changedFallback, changedFiles, effectiveDirectory, fetchStatus, files, git, openContextFile, repositoriesKnown, repositoryOptions, revealListedFile, rootDirectory, rootIsGitRepo, selectNestedRepo, visible]);
++        if (!rootDirectory) return;
++        void openChangedFileWithoutRepository(changedFallback.file, rootDirectory, files, changedFallback.isCurrent);
+     }, [activeDiffScope, changedFallback, changedFiles, editorOpenGate, effectiveDirectory, fetchStatus, files, git, nestedRepos, repositoriesKnown, repositoryOptions, revealListedFile, rootDirectory, rootIsGitRepo, panelSessionId, selectNestedRepo, visible]);
  }

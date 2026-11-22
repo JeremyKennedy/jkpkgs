@@ -51,10 +51,10 @@ index 360b650cf..abce253aa 100644
 +    }
  }
 diff --git a/packages/ui/src/apps/DOCUMENTATION.md b/packages/ui/src/apps/DOCUMENTATION.md
-index 6c33d0f05..1b7f18876 100644
+index 9eb1911a1..aaade1f82 100644
 --- a/packages/ui/src/apps/DOCUMENTATION.md
 +++ b/packages/ui/src/apps/DOCUMENTATION.md
-@@ -41,6 +41,7 @@
+@@ -43,6 +43,7 @@
  - The tablet composer stays expanded except in the one-panel class, which keeps the phone's pill; a hardware keyboard expands it everywhere.
  - The keyboard hold in `readTabletLayout` needs a focused text field. A keyboard class left on the root without one (a foldable switching screens can take the keyboard without the hide event) holds no layout, and a WebView resize with no field focused runs the hide (`mobileNativeChrome.ts`).
  - Side safe-area insets (a landscape notch, the status bar column on the right of iPhone Duo) are cleared by `.oc-side-safe-area` on the shell and on every surface that covers the screen from outside it, and by the side paddings of sheets, dialogs and toasts. The Capacitor WebView does not match `display-mode: standalone`, so the PWA's `.main-content-safe-area` padding never applies there.
@@ -63,10 +63,10 @@ index 6c33d0f05..1b7f18876 100644
  - The connection heartbeat in the live connection's card on Instances (`MobileConnectionHeartbeat`) asks `/health` through `runtimeFetch` every 4 s, only while it is mounted and the app is in the foreground. On Capacitor the foreground comes from the native app state, since the WebView's page visibility is unreliable there. Going to the background or unmounting clears the pending ping, aborts the one in flight and stops its clock subscription. A ping with no answer within 5 s shows as "No answer", never as the last latency. Its trace steps on the shared clock's beat, four frames a second, like a spinner.
  - Keep screen awake (`mobileKeepScreenAwake`, device-local) keeps the display on in the native app always, or while the open session or a subagent below it is active in the global status store (`useKeepScreenAwake`). "While working" also needs `isConnected`, because the store keeps a lost server's last busy state; a dead server therefore releases the screen, and a reconnect holds it again only while the turn still runs. A permission request keeps the turn running, so it keeps the screen on. Android holds a screen wake lock, which the system drops when the app leaves the screen, so the hook asks again on each return. iOS turns off the idle timer through the app-local `KeepAwake` plugin, and every mount writes the current choice so a reloaded page clears what the last one set. The setting renders, and the hook acts, only where `canKeepScreenAwake` holds: the iOS app, or the Android app on a WebView that exposes `navigator.wakeLock`. The hosted mobile page never keeps the screen on.
 diff --git a/packages/ui/src/apps/mobileNativeChrome.ts b/packages/ui/src/apps/mobileNativeChrome.ts
-index c11c2e7f4..a4aaf5e3c 100644
+index df25a99f5..e6b230bc5 100644
 --- a/packages/ui/src/apps/mobileNativeChrome.ts
 +++ b/packages/ui/src/apps/mobileNativeChrome.ts
-@@ -18,10 +18,27 @@ export const isCapacitorMobileApp = (): boolean => {
+@@ -19,10 +19,27 @@ export const isCapacitorMobileApp = (): boolean => {
  
  interface WindowLayoutPlugin {
    get(): Promise<{ edgeToEdge: boolean }>;
@@ -94,7 +94,7 @@ index c11c2e7f4..a4aaf5e3c 100644
  export const useNativeMobileChrome = (): void => {
    React.useEffect(() => {
      if (!isCapacitorMobileApp()) return;
-@@ -58,11 +75,17 @@ export const useNativeMobileChrome = (): void => {
+@@ -59,11 +76,17 @@ export const useNativeMobileChrome = (): void => {
            await StatusBar.setBackgroundColor({ color: themeBg }).catch(() => undefined);
            await StatusBar.setStyle({ style: isDark ? Style.Dark : Style.Light }).catch(() => undefined);
            await StatusBar.show().catch(() => undefined);
@@ -112,7 +112,7 @@ index c11c2e7f4..a4aaf5e3c 100644
        };
        await applyStatusBar();
        const retry = window.setTimeout(() => void applyStatusBar(), 400);
-@@ -383,7 +406,7 @@ export const useNativeMobileChrome = (): void => {
+@@ -384,7 +407,7 @@ export const useNativeMobileChrome = (): void => {
        disposed = true;
        cleanup.forEach((remove) => remove());
        resetHardwareKeyboardDetection();
@@ -956,10 +956,10 @@ index 000000000..bb422390a
 +    };
 +};
 diff --git a/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md b/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
-index 08741e7af..1d1a7d495 100644
+index 6b4c3a3d8..509b161c5 100644
 --- a/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
 +++ b/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
-@@ -761,7 +761,24 @@ update, with the `shellID`, when the command starts.
+@@ -834,7 +834,24 @@ native, unusable-patch and long-diagnostic cases.
    fetched page cannot learn when the user read the message. Documents and
    references retain their explicit inline-image policy. A click on loaded
    assistant media opens the shared attachment preview overlay
@@ -986,10 +986,10 @@ index 08741e7af..1d1a7d495 100644
    message's local image reads the whole file through its grant with
    `runtimeFetch` (`loadMessageImageBlob`), never by fetching the asset URL;
 diff --git a/packages/ui/src/components/views/files/DOCUMENTATION.md b/packages/ui/src/components/views/files/DOCUMENTATION.md
-index 2bee3433c..d375e5291 100644
+index ee3fe933f..3346a2ff0 100644
 --- a/packages/ui/src/components/views/files/DOCUMENTATION.md
 +++ b/packages/ui/src/components/views/files/DOCUMENTATION.md
-@@ -240,13 +240,16 @@ folders.
+@@ -248,13 +248,16 @@ folders.
  ## Artifact previews
  
  `previews/` holds what the viewer shows instead of text: `ImageArtifact`
@@ -1012,16 +1012,10 @@ index 2bee3433c..d375e5291 100644
  drawn by pdf.js, see below), `MediaArtifact` (native audio/video
  element, duration and dimensions once metadata loads, a stated failure when
 diff --git a/packages/ui/src/components/views/files/previews/ImageArtifact.tsx b/packages/ui/src/components/views/files/previews/ImageArtifact.tsx
-index 0c0798638..58a472638 100644
+index 843ff3381..2aab54473 100644
 --- a/packages/ui/src/components/views/files/previews/ImageArtifact.tsx
 +++ b/packages/ui/src/components/views/files/previews/ImageArtifact.tsx
-@@ -6,12 +6,12 @@ import { Button } from '@/components/ui/button';
- import { ContentLoadingState, ContentState } from '@/components/ui/content-state';
- import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
- import { isEditableEventTarget } from '@/hooks/keyboard-shortcut-dom';
--import { ButtonTooltip } from '@/components/ui/action-toolbar';
- import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
- import { useI18n } from '@/lib/i18n';
+@@ -12,6 +12,7 @@ import { useI18n } from '@/lib/i18n';
  import { cn } from '@/lib/utils';
  import { ArtifactMetaBar } from './ArtifactMetaBar';
  import { formatArtifactDimensions, formatArtifactSize } from './artifactMeta';
@@ -1029,11 +1023,10 @@ index 0c0798638..58a472638 100644
  import {
    IMAGE_VIEWPORT_PADDING,
    clampImageScale,
-@@ -268,53 +268,15 @@ const ImageArtifactView: React.FC<ImageArtifactProps> = ({ src, name, sizeBytes,
-       <ArtifactMetaBar
+@@ -295,51 +296,15 @@ const ImageArtifactView: React.FC<ImageArtifactProps> = ({ src, name, sizeBytes,
          items={[formatArtifactDimensions(natural), formatArtifactSize(sizeBytes)]}
          actions={(
--          <>
+           <>
 -            <ButtonTooltip side="bottom" label={t('filesView.artifact.image.zoomOut')}>
 -              <Button
 -                variant="ghost"
@@ -1079,19 +1072,18 @@ index 0c0798638..58a472638 100644
 -                {t('filesView.artifact.image.fit')}
 -              </Button>
 -            </ButtonTooltip>
--          </>
-+          <ImageZoomControls
-+            percent={shownScale * 100}
-+            atFit={scale === null}
-+            disabled={!natural}
-+            onZoomOut={() => zoomAtCenter(stepImageScale(shownScale, -1))}
-+            onZoomIn={() => zoomAtCenter(stepImageScale(shownScale, 1))}
-+            onActualSize={() => zoomAtCenter(1)}
-+            onFit={() => setScale(null)}
-+          />
++            <ImageZoomControls
++              percent={shownScale * 100}
++              atFit={scale === null}
++              disabled={!natural}
++              onZoomOut={() => zoomAtCenter(stepImageScale(shownScale, -1))}
++              onZoomIn={() => zoomAtCenter(stepImageScale(shownScale, 1))}
++              onActualSize={() => zoomAtCenter(1)}
++              onFit={() => setScale(null)}
++            />
+             {fullscreen ? <ImageFullscreenButton {...fullscreen} /> : null}
+           </>
          )}
-       />
-       <div ref={viewerRef} className="relative flex min-h-0 flex-1 flex-col">
 diff --git a/packages/ui/src/components/views/files/previews/ImageZoomControls.tsx b/packages/ui/src/components/views/files/previews/ImageZoomControls.tsx
 new file mode 100644
 index 000000000..3cd1f59cc

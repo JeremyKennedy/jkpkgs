@@ -1,8 +1,8 @@
 diff --git a/packages/ui/src/apps/DOCUMENTATION.md b/packages/ui/src/apps/DOCUMENTATION.md
-index 30cfe8593..6c33d0f05 100644
+index ef91feb1c..977ed8ec3 100644
 --- a/packages/ui/src/apps/DOCUMENTATION.md
 +++ b/packages/ui/src/apps/DOCUMENTATION.md
-@@ -31,6 +31,7 @@
+@@ -34,6 +34,7 @@
  - Settings uses the existing persistence and broadcast protocol. Moving its host changes no stored format, registry key or runtime availability.
  - The tablet shell's side panels follow the size class from `useTabletLayout` (`lib/device.ts`), never the device model. Where both fit (`roomyForPanels`, 1000 px wide and landscape) the sessions sidebar and the workspace panel can be open together. Where one fits (`roomyForOnePanel`, from 900 px: an unfolded iPhone Duo, a 13-inch iPad in portrait) both are side panels, but opening one puts the other away and closing it brings the displaced one back. In both classes the sidebar stays open after a session or page is picked. Narrower tablets keep the sidebar as a guest that closes after a pick, and the workspace as a full-cover drawer.
  - The workspace drawer's tabs (and the tablet's workspace panel, the same component) are the built-in five (six in the native app, with Browser) plus one per extension that opted its panel into the phone (`phoneGuestPanelModes`, id `plugin:<id>`). One per-device order and hidden set covers both kinds (`lib/mobileWorkspaceTabs.ts`): a new extension tab goes last, one whose extension left the catalog drops out of the strip, the drawer and Settings, and its saved place stays in the stored order for when it comes back. An open extension tab whose extension leaves falls back to the user's first tab.
@@ -44,7 +44,7 @@ index d538a144e..2ae66fe82 100644
            {layout.allSectionsHidden ? (
              <Button variant="link" size="sm" onClick={() => onSectionsDialogOpenChange(true)} className="mt-2 normal-case text-muted-foreground hover:text-foreground">
 diff --git a/packages/ui/src/apps/MobileWorkspaceDrawer.tsx b/packages/ui/src/apps/MobileWorkspaceDrawer.tsx
-index 3e6cca23c..3e6f6569c 100644
+index 38bba3a06..37f99702f 100644
 --- a/packages/ui/src/apps/MobileWorkspaceDrawer.tsx
 +++ b/packages/ui/src/apps/MobileWorkspaceDrawer.tsx
 @@ -16,7 +16,7 @@ import { GuestIcon } from '@/components/layout/GuestRailIcon';
@@ -56,7 +56,7 @@ index 3e6cca23c..3e6f6569c 100644
  import { guestHasSharedSurface, guestSurfaceDocking } from '@/lib/guests/surfaces';
  import { getRuntimeUrlResolver } from '@/lib/runtime-url';
  import { isPluginContextPanelMode, pluginIdFromMode, type PluginContextPanelMode } from '@/lib/surfaces/modes';
-@@ -67,6 +67,7 @@ export const MobileWorkspaceDrawer: React.FC<{
+@@ -68,6 +68,7 @@ export const MobileWorkspaceDrawer: React.FC<{
    const extensionTabs = usePhoneGuestPanelModes();
    const receivedPagesShown = hasReceivedPages(useReceivedPages());
    const guests = useGuestsStore((state) => state.guests);
@@ -64,7 +64,7 @@ index 3e6cca23c..3e6f6569c 100644
    const guestBadges = useGuestBadgeStore((state) => state.countByGuest);
    const [statusSectionsOpen, setStatusSectionsOpen] = React.useState(false);
    const tabRef = React.useRef(tab);
-@@ -240,6 +241,11 @@ export const MobileWorkspaceDrawer: React.FC<{
+@@ -241,6 +242,11 @@ export const MobileWorkspaceDrawer: React.FC<{
            <Icon name="close" className="size-5" />
          </button>
        </div>
@@ -77,7 +77,7 @@ index 3e6cca23c..3e6f6569c 100644
          {visitedTabs.has('status') ? (
            <div className={cn('h-full', tab !== 'status' && 'hidden')}>
 diff --git a/packages/ui/src/lib/guests/DOCUMENTATION.md b/packages/ui/src/lib/guests/DOCUMENTATION.md
-index ebf0835bd..d1ef09cd3 100644
+index 0309899f4..95ee1092e 100644
 --- a/packages/ui/src/lib/guests/DOCUMENTATION.md
 +++ b/packages/ui/src/lib/guests/DOCUMENTATION.md
 @@ -8,6 +8,7 @@ This module is the client half of installed extensions: the catalog and its pars

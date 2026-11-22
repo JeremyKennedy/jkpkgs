@@ -54,19 +54,9 @@ let
     src = openchamberSource;
     patches = [
       ./patches/commandcode-quota.patch
-      # Behaviour first: the node-based request resolver and the readiness
-      # gate. It renders with upstream's own marks, so the bug fix is
-      # reviewable without the feature it shares files with.
       ./patches/stale-pending-badge.patch
-      # Then the visuals: the question-chip tokens and the switcher marks.
-      # It builds only on top of the resolver above.
       ./patches/question-indicator.patch
       ./patches/reply-start-scroll.patch
-      # The rest of the local queue, rebased onto v2.7.2. Upstream absorbed
-      # the chat width, notification-dismiss, guest-extension and
-      # send-past-open-question patches (maintainer and contributor work, not
-      # these PRs), so those are gone; what remains changes behaviour upstream
-      # does not have yet.
       ./patches/draft-heading-project-picker.patch
       ./patches/recap-full-note.patch
       ./patches/image-viewer-zoom.patch
@@ -74,56 +64,17 @@ let
       ./patches/mobile-voice-launch.patch
       ./patches/dictation-recovery.patch
       ./patches/instance-attention.patch
-      # Carries two fixes folded in rather than queued as patches of their own.
-      # The drawer applied the sidebar's folder rule to this instance's own
-      # sessions and to nothing else, so a saved server's sessions in folders it
-      # never registered appeared the moment the window switched to it; both
-      # halves now read the same rule. And a host switch clears the global
-      # session list with no phone poller to refill it, so the instance on screen
-      # published no rows of its own until the sessions sheet was opened.
-      # The question tool writes a reply's quotes into its text without
-      # escaping them, so the text parser cut an answer at the first quote the
-      # reader typed. Read the answers the call recorded instead, and keep the
-      # text parse for a call that carries none.
-      ./patches/question-recorded-answers.patch
-      # Only the attention ranking of In work: v2.7.2's
-      # `sidebarSessionBatchSize` already pages the block.
       ./patches/in-work-paging.patch
       ./patches/hide-empty-worktrees.patch
-      # Gitea/Forgejo across-repository listing; upstream still gates
-      # `referencesAcross` off for Gitea (#6345 is closed).
-      # Restored after the v2.7.2 port retired them on a wrong "upstream has
-      # it" reading: a send with an open question steers into its turn
-      # (upstream main's #6960 defers instead; reconcile on upgrade), and
-      # viewing a session clears its subagents' phone banners on top of
-      # upstream's server-side clearing.
-      # The composer half above steers into the waiting turn; this is the
-      # release half, where the queue delivered a held send into the ask.
-      # The phone removes its own delivered banners when the session is opened
-      # or marked seen; the server's clearing push alone leaves a banner whose
-      # push was missed.
       ./patches/android-notification-dismiss.patch
       ./patches/notification-family-clear.patch
-      # Chat width levels the retired chat-width patch stored (and its
-      # version-2 preferences.json) read as v2.7.2's levels.
-      # An 80rem level between Wider and Full, for messages and composer. It
-      # edits the same level maps as the remap above, so it must follow it.
       ./patches/chat-width-80.patch
-      # In work paging and its page-size setting; v2.7.2 lists every work.
       ./patches/in-work-paging-show-more.patch
       ./patches/mobile-guest-catalog-failure.patch
-      # A changed-file chip whose file no repository lists (a project that is
-      # not a git repository, or a file outside the repository) opens the file
-      # in the editor instead of an empty Changed list.
       ./patches/changed-file-chip-opens-file-outside-git.patch
       ./patches/question-rows.patch
       ./patches/question-cards.patch
-      # The card draws the prompt bubble itself with the question colour mixed
-      # into that bubble's fill, so it is the same shape as the prompt above it
-      # and stays opaque. Behaviour of its own: none.
       ./patches/question-card-bubble.patch
-      # A collapsed prompt that fills both lines used to take its attached quote
-      # with it, leaving the row behind show more.
       ./patches/collapsed-quote-row.patch
       ./patches/gitea-references-across.patch
     ];

@@ -46,7 +46,7 @@ index b738f6eab..76945bb56 100644
  
    it('maps a 1.21 pull request, which has no draft flag, by its title', () => {
 diff --git a/packages/web/server/lib/gitea/mappers.ts b/packages/web/server/lib/gitea/mappers.ts
-index 16231c4ca..d4301b1df 100644
+index a4780fe3c..a66a6c2a7 100644
 --- a/packages/web/server/lib/gitea/mappers.ts
 +++ b/packages/web/server/lib/gitea/mappers.ts
 @@ -124,12 +124,24 @@ const pullState = (value: JsonObject) => {
@@ -192,7 +192,7 @@ index 0dc784ee6..fb5bbeb24 100644
  });
  
 diff --git a/packages/web/server/lib/gitea/provider.ts b/packages/web/server/lib/gitea/provider.ts
-index ede4cda85..f89c9ac70 100644
+index 0f9cda95b..59eecd1d6 100644
 --- a/packages/web/server/lib/gitea/provider.ts
 +++ b/packages/web/server/lib/gitea/provider.ts
 @@ -4,14 +4,16 @@ import { classifyGiteaFailure, createGiteaClient } from './client.js';
@@ -273,215 +273,6 @@ index ede4cda85..f89c9ac70 100644
        readChangeRequestHead: async ({ session, directory, remote, number }: NumberedRead) => {
          const { request, headProject } = await serviceFor(session).findChangeRequest(directory, number, null, remote);
          const headSha = String(request.headSha || '').toLowerCase();
-diff --git a/packages/web/server/lib/gitea/resources.ts b/packages/web/server/lib/gitea/resources.ts
-index 542460a52..10c98ac84 100644
---- a/packages/web/server/lib/gitea/resources.ts
-+++ b/packages/web/server/lib/gitea/resources.ts
-@@ -31,6 +31,19 @@ type Remote = string | null | undefined;
- type Selector = Repository | null | undefined;
- type NetworkOptions = { requireComplete?: boolean; linked?: boolean | undefined };
- type ReadOptions = { remote?: Remote; linked?: boolean | undefined; project?: Selector };
-+
-+/** What the picker's across-repository search asks one folder's repository. */
-+type ReferenceCandidateOptions = {
-+  kind?: 'issue' | 'pull';
-+  state?: 'open' | 'closed' | 'merged' | 'all' | 'unanswered';
-+  people?: 'any' | 'assigned' | 'created' | 'reviewRequested';
-+  query?: string;
-+  page?: number;
-+  remote?: Remote;
-+};
-+
-+/** The picker's single-item lookup: a link or `#number`. */
-+type ReferenceItemOptions = { kind?: 'issue' | 'pull'; number: number; remote?: Remote };
- type Ref = { owner: string; repo: string; number: number };
- type ListOptions = {
-   labels?: string[] | undefined;
-@@ -133,11 +146,28 @@ export function createGiteaResourceService({
-     const resolved = await resolveRepos(directory, origin, remote, { sshUrl });
-     const repos: Repo[] = [];
-     for (const candidate of resolved.repos) {
--      const item = await showRepo({ owner: candidate.owner, name: candidate.name }, candidate.remoteName);
-+      let item: Repo;
-+      try {
-+        item = await showRepo({ owner: candidate.owner, name: candidate.name }, candidate.remoteName);
-+      } catch (error) {
-+        // A repository deleted or renamed on the instance is a remote this
-+        // account can no longer read, not a read that broke: the folder reads
-+        // as having no repository, as the module's documentation says.
-+        const status = statusOf(error as Failure);
-+        if (status === 404 || status === 410) continue;
-+        throw error;
-+      }
-       if (!repos.some((known) => known.project.id === item.project.id)) repos.push(item);
-     }
-     const [first, ...rest] = repos;
--    if (!first) throw malformed(`No ${providerLabel} repository found for the repository remotes`);
-+    if (!first) {
-+      throw Object.assign(new Error(`No ${providerLabel} repository found for the repository remotes`), {
-+        code: 'SOURCE_CONTROL_NO_REPOSITORY',
-+        // `no repository` is a missing target, not a stale one (the shell's
-+        // generic mutation answer for a coded error is 409).
-+        status: 404,
-+      });
-+    }
-     return [first, ...rest];
-   };
- 
-@@ -514,6 +544,98 @@ export function createGiteaResourceService({
-       return { items, page, hasMore: result.hasMore };
-     },
- 
-+    /**
-+     * One page of raw issues or pull requests of the folder's repository, for
-+     * the reference picker's search across repositories. Unlike the neutral
-+     * lists above this keeps the host's own fields, so the picker's rows and
-+     * preview get their branches, draft flag and comment count.
-+     *
-+     * Pull requests read the network's upstream, the repository
-+     * `listChangeRequests` lists, while issues stay on the folder's own
-+     * repository. A review request lives on the upstream's pull requests, so
-+     * the owner-wide search is narrowed to that repository's id.
-+     *
-+     * Gitea's issue search answers a pull request without its head or base;
-+     * `needsDetail` says the page has to read those pull requests before
-+     * mapping them. The unfiltered pull list already carries them.
-+     */
-+    async listReferenceCandidates(directory: string, options: ReferenceCandidateOptions = {}) {
-+      const page = options.page ?? 1;
-+      const { primary, targets } = await network(directory, null, options.remote);
-+      const target = options.kind === 'issue' ? primary : targets.at(-1);
-+      if (!target) return { repo: null, items: [], hasMore: false };
-+      const repo = target.project;
-+      const state: string = (options.state && LIST_STATES[options.state]) ?? 'open';
-+      if (options.kind === 'issue') {
-+        const query: { type: string; state: string; q?: string | undefined; created_by?: string | null; assigned_by?: string | null } = { type: 'issues', state, q: options.query };
-+        if (options.people === 'created') query.created_by = await readCurrentLogin();
-+        if (options.people === 'assigned') query.assigned_by = await readCurrentLogin();
-+        const result = await client.page(`${repoPath(repo)}/issues`, query, { page, limit: PAGE_LIMIT });
-+        return {
-+          repo,
-+          items: result.items.filter((raw) => isPlainObject(raw) && raw.pull_request == null),
-+          hasMore: result.hasMore,
-+        };
-+      }
-+      if (options.people === 'any' && !options.query && options.state !== 'merged') {
-+        const result = await client.page(`${repoPath(repo)}/pulls`, { state, sort: 'recentupdate' }, { page, limit: PAGE_LIMIT });
-+        return { repo, items: result.items.filter(isPlainObject), hasMore: result.hasMore };
-+      }
-+      let result: { items: unknown[]; hasMore: boolean };
-+      if (options.people === 'reviewRequested') {
-+        // Only the cross-repository search filters on review requests; it is
-+        // narrowed to the owner here and to the repository below.
-+        result = await client.page('/repos/issues/search', {
-+          type: 'pulls', state, q: options.query, owner: repo.owner, review_requested: true,
-+        }, { page, limit: PAGE_LIMIT });
-+        result.items = result.items.filter((item) => isPlainObject(item)
-+          && isPlainObject((item as { repository?: unknown }).repository)
-+          && Number(((item as { repository: { id?: unknown } }).repository).id) === target.raw.id);
-+      } else {
-+        const query: { type: string; state: string; q?: string | undefined; created_by?: string | null; assigned_by?: string | null } = { type: 'pulls', state, q: options.query };
-+        if (options.people === 'created') query.created_by = await readCurrentLogin();
-+        if (options.people === 'assigned') query.assigned_by = await readCurrentLogin();
-+        result = await client.page(`${repoPath(repo)}/issues`, query, { page, limit: PAGE_LIMIT });
-+        result.items = result.items.filter((raw) => isPlainObject(raw) && raw.pull_request != null);
-+      }
-+      if (options.state === 'merged') {
-+        result.items = result.items.filter((raw) => isPlainObject(raw)
-+          && isPlainObject(raw.pull_request) && raw.pull_request.merged === true);
-+      }
-+      return { repo, items: result.items, hasMore: result.hasMore, needsDetail: true };
-+    },
-+
-+    /** One pull request of the folder's repository, for a search hit that needs its head and base. */
-+    async readPullDetail(directory: string, number: number, remote?: Remote) {
-+      const { targets } = await network(directory, null, remote);
-+      const target = targets.at(-1);
-+      if (!target) return null;
-+      return client.get(`${repoPath(target.project)}/pulls/${number}`);
-+    },
-+
-+    /**
-+     * One issue or pull request by number, for the picker's link or `#number`
-+     * lookup. A number the repository does not have is `item: null` with the
-+     * repository it was looked up in, so a link that names another repository
-+     * is told apart from a read that failed.
-+     */
-+    async readReferenceItem(directory: string, options: ReferenceItemOptions) {
-+      const { primary, targets } = await network(directory, null, options.remote);
-+      const target = options.kind === 'issue' ? primary : targets.at(-1);
-+      if (!target) return { repo: null, item: null };
-+      const path = options.kind === 'issue' ? 'issues' : 'pulls';
-+      try {
-+        return {
-+          repo: target.project,
-+          item: await client.get(`${repoPath(target.project)}/${path}/${options.number}`),
-+        };
-+      } catch (error) {
-+        const status = statusOf(error as Failure);
-+        if (status === 404 || status === 410) return { repo: target.project, item: null };
-+        throw error;
-+      }
-+    },
-+
-     async getIssue(directory: string, number: number, selector?: Selector, remote?: Remote, { linked }: ReadOptions = {}) {
-       const { target } = await network(directory, selector, remote, { linked });
-       return requireIssue(await client.get(`${repoPath(target.project)}/issues/${number}`), target.project);
-diff --git a/packages/web/server/lib/source-control/provider-descriptors.test.js b/packages/web/server/lib/source-control/provider-descriptors.test.js
-index fbdb2e56d..690498378 100644
---- a/packages/web/server/lib/source-control/provider-descriptors.test.js
-+++ b/packages/web/server/lib/source-control/provider-descriptors.test.js
-@@ -76,13 +76,22 @@ describe('source control provider descriptors', () => {
-     expect(gitea.capabilities).toMatchObject({
-       merge: { methods: ['merge', 'squash', 'rebase'] },
-       reviewThreads: { start: false, reply: false, resolve: false },
--      uploads: false, stacks: false, referencePicker: false,
-+      uploads: false, stacks: false, referencePicker: true,
-     });
-     const published = publicProviderDescriptor(gitea, 2);
-     expect(published).toMatchObject({ id: 'gitea', auth: { methods: ['pat', 'cli'], cliName: 'gt', cliTransport: false }, instances: { defaultInstance: null } });
-     expect(published.icon.path).toMatch(/^[MmLlHhVvCcSsQqTtAaZz0-9eE.,\s+-]+$/);
-   });
- 
-+  it('lets Forgejo inherit the reference picker and the search across repositories', () => {
-+    const forgejo = sourceControlProviderDescriptors.get('forgejo');
-+
-+    expect(forgejo.capabilities.referencePicker).toBe(true);
-+    expect(publicProviderDescriptor(forgejo, 4).features).toMatchObject({
-+      referenceSearch: false, referenceDetail: false, listStatuses: false, referencesAcross: true,
-+    });
-+  });
-+
-   it('builds the origin every caller used to spell out per provider', () => {
-     expect(github.instance.origin('github.com').origin).toBe('https://github.com');
-     expect(github.instance.origin('ghe.example.com').origin).toBe('https://ghe.example.com');
-diff --git a/packages/web/server/lib/source-control/provider-publication-freeze.json b/packages/web/server/lib/source-control/provider-publication-freeze.json
-index ee42d75b4..577b8d5e3 100644
---- a/packages/web/server/lib/source-control/provider-publication-freeze.json
-+++ b/packages/web/server/lib/source-control/provider-publication-freeze.json
-@@ -285,7 +285,7 @@
-         "referenceSearch": false,
-         "referenceDetail": false,
-         "listStatuses": false,
--        "referencesAcross": false,
-+        "referencesAcross": true,
-         "reviewDraftFileComments": false,
-         "reviewDrafts": true,
-         "startThread": false,
-diff --git a/packages/web/server/lib/source-control/provider-routes.ts b/packages/web/server/lib/source-control/provider-routes.ts
-index 6ee84b39e..cf48c5614 100644
---- a/packages/web/server/lib/source-control/provider-routes.ts
-+++ b/packages/web/server/lib/source-control/provider-routes.ts
-@@ -884,6 +884,9 @@ export function registerProviderRoutes(app: Router, {
-     route('post', '/references/across', 'referencePicker', async (req, res) => {
-       let impl;
-       try {
-+        // A kind the descriptor turns off is the shell's own answer, the same
-+        // 501 the single-repository list gives, not a provider failure.
-+        if (!discussions && (req.body as { kind?: unknown } | undefined)?.kind === 'discussion') return unsupportedCapability(res);
-         impl = await loadImplementation(id);
-         const read = requireResource(impl, 'referencesAcross');
-         if (!(validateReadContext instanceof Function)) return res.status(501).json({ error: 'Bound source control read is unavailable' });
 diff --git a/packages/web/server/lib/gitea/references-across.test.ts b/packages/web/server/lib/gitea/references-across.test.ts
 new file mode 100644
 index 000000000..4362f626f
@@ -1674,3 +1465,212 @@ index 000000000..4a5cc6feb
 +    repositories: repositoriesOf(),
 +  };
 +}
+diff --git a/packages/web/server/lib/gitea/resources.ts b/packages/web/server/lib/gitea/resources.ts
+index e3be9a482..842c0263a 100644
+--- a/packages/web/server/lib/gitea/resources.ts
++++ b/packages/web/server/lib/gitea/resources.ts
+@@ -32,6 +32,19 @@ type Remote = string | null | undefined;
+ type Selector = Repository | null | undefined;
+ type NetworkOptions = { requireComplete?: boolean; linked?: boolean | undefined };
+ type ReadOptions = { remote?: Remote; linked?: boolean | undefined; project?: Selector; includeReferences?: boolean | undefined };
++
++/** What the picker's across-repository search asks one folder's repository. */
++type ReferenceCandidateOptions = {
++  kind?: 'issue' | 'pull';
++  state?: 'open' | 'closed' | 'merged' | 'all' | 'unanswered';
++  people?: 'any' | 'assigned' | 'created' | 'reviewRequested';
++  query?: string;
++  page?: number;
++  remote?: Remote;
++};
++
++/** The picker's single-item lookup: a link or `#number`. */
++type ReferenceItemOptions = { kind?: 'issue' | 'pull'; number: number; remote?: Remote };
+ type Ref = { owner: string; repo: string; number: number };
+ type ListOptions = {
+   labels?: string[] | undefined;
+@@ -131,11 +144,28 @@ export function createGiteaResourceService({
+     const resolved = await resolveRepos(directory, origin, remote, { sshUrl });
+     const repos: Repo[] = [];
+     for (const candidate of resolved.repos) {
+-      const item = await showRepo({ owner: candidate.owner, name: candidate.name }, candidate.remoteName);
++      let item: Repo;
++      try {
++        item = await showRepo({ owner: candidate.owner, name: candidate.name }, candidate.remoteName);
++      } catch (error) {
++        // A repository deleted or renamed on the instance is a remote this
++        // account can no longer read, not a read that broke: the folder reads
++        // as having no repository, as the module's documentation says.
++        const status = statusOf(error as Failure);
++        if (status === 404 || status === 410) continue;
++        throw error;
++      }
+       if (!repos.some((known) => known.project.id === item.project.id)) repos.push(item);
+     }
+     const [first, ...rest] = repos;
+-    if (!first) throw malformed(`No ${providerLabel} repository found for the repository remotes`);
++    if (!first) {
++      throw Object.assign(new Error(`No ${providerLabel} repository found for the repository remotes`), {
++        code: 'SOURCE_CONTROL_NO_REPOSITORY',
++        // `no repository` is a missing target, not a stale one (the shell's
++        // generic mutation answer for a coded error is 409).
++        status: 404,
++      });
++    }
+     return [first, ...rest];
+   };
+ 
+@@ -505,6 +535,98 @@ export function createGiteaResourceService({
+       return { items, page, hasMore: result.hasMore };
+     },
+ 
++    /**
++     * One page of raw issues or pull requests of the folder's repository, for
++     * the reference picker's search across repositories. Unlike the neutral
++     * lists above this keeps the host's own fields, so the picker's rows and
++     * preview get their branches, draft flag and comment count.
++     *
++     * Pull requests read the network's upstream, the repository
++     * `listChangeRequests` lists, while issues stay on the folder's own
++     * repository. A review request lives on the upstream's pull requests, so
++     * the owner-wide search is narrowed to that repository's id.
++     *
++     * Gitea's issue search answers a pull request without its head or base;
++     * `needsDetail` says the page has to read those pull requests before
++     * mapping them. The unfiltered pull list already carries them.
++     */
++    async listReferenceCandidates(directory: string, options: ReferenceCandidateOptions = {}) {
++      const page = options.page ?? 1;
++      const { primary, targets } = await network(directory, null, options.remote);
++      const target = options.kind === 'issue' ? primary : targets.at(-1);
++      if (!target) return { repo: null, items: [], hasMore: false };
++      const repo = target.project;
++      const state: string = (options.state && LIST_STATES[options.state]) ?? 'open';
++      if (options.kind === 'issue') {
++        const query: { type: string; state: string; q?: string | undefined; created_by?: string | null; assigned_by?: string | null } = { type: 'issues', state, q: options.query };
++        if (options.people === 'created') query.created_by = await readCurrentLogin();
++        if (options.people === 'assigned') query.assigned_by = await readCurrentLogin();
++        const result = await client.page(`${repoPath(repo)}/issues`, query, { page, limit: PAGE_LIMIT });
++        return {
++          repo,
++          items: result.items.filter((raw) => isPlainObject(raw) && raw.pull_request == null),
++          hasMore: result.hasMore,
++        };
++      }
++      if (options.people === 'any' && !options.query && options.state !== 'merged') {
++        const result = await client.page(`${repoPath(repo)}/pulls`, { state, sort: 'recentupdate' }, { page, limit: PAGE_LIMIT });
++        return { repo, items: result.items.filter(isPlainObject), hasMore: result.hasMore };
++      }
++      let result: { items: unknown[]; hasMore: boolean };
++      if (options.people === 'reviewRequested') {
++        // Only the cross-repository search filters on review requests; it is
++        // narrowed to the owner here and to the repository below.
++        result = await client.page('/repos/issues/search', {
++          type: 'pulls', state, q: options.query, owner: repo.owner, review_requested: true,
++        }, { page, limit: PAGE_LIMIT });
++        result.items = result.items.filter((item) => isPlainObject(item)
++          && isPlainObject((item as { repository?: unknown }).repository)
++          && Number(((item as { repository: { id?: unknown } }).repository).id) === target.raw.id);
++      } else {
++        const query: { type: string; state: string; q?: string | undefined; created_by?: string | null; assigned_by?: string | null } = { type: 'pulls', state, q: options.query };
++        if (options.people === 'created') query.created_by = await readCurrentLogin();
++        if (options.people === 'assigned') query.assigned_by = await readCurrentLogin();
++        result = await client.page(`${repoPath(repo)}/issues`, query, { page, limit: PAGE_LIMIT });
++        result.items = result.items.filter((raw) => isPlainObject(raw) && raw.pull_request != null);
++      }
++      if (options.state === 'merged') {
++        result.items = result.items.filter((raw) => isPlainObject(raw)
++          && isPlainObject(raw.pull_request) && raw.pull_request.merged === true);
++      }
++      return { repo, items: result.items, hasMore: result.hasMore, needsDetail: true };
++    },
++
++    /** One pull request of the folder's repository, for a search hit that needs its head and base. */
++    async readPullDetail(directory: string, number: number, remote?: Remote) {
++      const { targets } = await network(directory, null, remote);
++      const target = targets.at(-1);
++      if (!target) return null;
++      return client.get(`${repoPath(target.project)}/pulls/${number}`);
++    },
++
++    /**
++     * One issue or pull request by number, for the picker's link or `#number`
++     * lookup. A number the repository does not have is `item: null` with the
++     * repository it was looked up in, so a link that names another repository
++     * is told apart from a read that failed.
++     */
++    async readReferenceItem(directory: string, options: ReferenceItemOptions) {
++      const { primary, targets } = await network(directory, null, options.remote);
++      const target = options.kind === 'issue' ? primary : targets.at(-1);
++      if (!target) return { repo: null, item: null };
++      const path = options.kind === 'issue' ? 'issues' : 'pulls';
++      try {
++        return {
++          repo: target.project,
++          item: await client.get(`${repoPath(target.project)}/${path}/${options.number}`),
++        };
++      } catch (error) {
++        const status = statusOf(error as Failure);
++        if (status === 404 || status === 410) return { repo: target.project, item: null };
++        throw error;
++      }
++    },
++
+     async getIssue(directory: string, number: number, selector?: Selector, remote?: Remote, { linked, includeReferences }: ReadOptions = {}) {
+       const { target } = await network(directory, selector, remote, { linked });
+       const issue = requireIssue(await client.get(`${repoPath(target.project)}/issues/${number}`), target.project);
+diff --git a/packages/web/server/lib/source-control/provider-descriptors.test.js b/packages/web/server/lib/source-control/provider-descriptors.test.js
+index 79c3799e2..582f94072 100644
+--- a/packages/web/server/lib/source-control/provider-descriptors.test.js
++++ b/packages/web/server/lib/source-control/provider-descriptors.test.js
+@@ -76,13 +76,22 @@ describe('source control provider descriptors', () => {
+     expect(gitea.capabilities).toMatchObject({
+       merge: { methods: ['merge', 'squash', 'rebase'] },
+       reviewThreads: { start: false, reply: false, resolve: false },
+-      uploads: false, stacks: false, referencePicker: false,
++      uploads: false, stacks: false, referencePicker: true,
+     });
+     const published = publicProviderDescriptor(gitea, 2);
+     expect(published).toMatchObject({ id: 'gitea', auth: { methods: ['pat', 'cli'], cliName: 'gt', cliTransport: false }, instances: { defaultInstance: null } });
+     expect(published.icon.path).toMatch(/^[MmLlHhVvCcSsQqTtAaZz0-9eE.,\s+-]+$/);
+   });
+ 
++  it('lets Forgejo inherit the reference picker and the search across repositories', () => {
++    const forgejo = sourceControlProviderDescriptors.get('forgejo');
++
++    expect(forgejo.capabilities.referencePicker).toBe(true);
++    expect(publicProviderDescriptor(forgejo, 4).features).toMatchObject({
++      referenceSearch: false, referenceDetail: false, listStatuses: false, referencesAcross: true,
++    });
++  });
++
+   it('builds the origin every caller used to spell out per provider', () => {
+     expect(github.instance.origin('github.com').origin).toBe('https://github.com');
+     expect(github.instance.origin('ghe.example.com').origin).toBe('https://ghe.example.com');
+diff --git a/packages/web/server/lib/source-control/provider-publication-freeze.json b/packages/web/server/lib/source-control/provider-publication-freeze.json
+index 60e723c20..0ffacd0cc 100644
+--- a/packages/web/server/lib/source-control/provider-publication-freeze.json
++++ b/packages/web/server/lib/source-control/provider-publication-freeze.json
+@@ -286,7 +286,7 @@
+         "referenceSearch": false,
+         "referenceDetail": false,
+         "listStatuses": false,
+-        "referencesAcross": false,
++        "referencesAcross": true,
+         "reviewDraftFileComments": false,
+         "reviewDrafts": true,
+         "startThread": false,
+diff --git a/packages/web/server/lib/source-control/provider-routes.ts b/packages/web/server/lib/source-control/provider-routes.ts
+index 865be17f9..924d7d085 100644
+--- a/packages/web/server/lib/source-control/provider-routes.ts
++++ b/packages/web/server/lib/source-control/provider-routes.ts
+@@ -884,6 +884,9 @@ export function registerProviderRoutes(app: Router, {
+     route('post', '/references/across', 'referencePicker', async (req, res) => {
+       let impl;
+       try {
++        // A kind the descriptor turns off is the shell's own answer, the same
++        // 501 the single-repository list gives, not a provider failure.
++        if (!discussions && (req.body as { kind?: unknown } | undefined)?.kind === 'discussion') return unsupportedCapability(res);
+         impl = await loadImplementation(id);
+         const read = requireResource(impl, 'referencesAcross');
+         if (!(validateReadContext instanceof Function)) return res.status(501).json({ error: 'Bound source control read is unavailable' });
