@@ -277,19 +277,19 @@ index 000000000..90f8c80f5
 +    }
 +});
 diff --git a/packages/ui/src/components/chat/components/LiveTurnActivity.test.tsx b/packages/ui/src/components/chat/components/LiveTurnActivity.test.tsx
-index ce8aa24f8..32697b622 100644
+index 4e255fb9f..c407c2a60 100644
 --- a/packages/ui/src/components/chat/components/LiveTurnActivity.test.tsx
 +++ b/packages/ui/src/components/chat/components/LiveTurnActivity.test.tsx
-@@ -106,7 +106,7 @@ function TurnRows({ record, retired, expanded, onToggle, renderMessage }: {
+@@ -110,7 +110,7 @@ function TurnRows({ record, retired, expanded, keepText = false, onToggle, rende
      renderMessage: (message: ChatMessageEntry) => React.ReactNode;
  }) {
      const rows = buildTimelineRows([{ kind: 'turn', key: 'turn', turn: record, isLastTurn: true, hasLaterAssistant: retired }], {
--        collapsedActivity: true, expandedTurns: new Map([[record.turnId, expanded]]), showReasoningTraces: true,
-+        collapsedActivity: true, expandedTurns: new Map([[record.turnId, expanded]]), showReasoningTraces: true, questionsInChat: false,
+-        collapsedActivity: true, keepActivityText: keepText, expandedTurns: new Map([[record.turnId, expanded]]), showReasoningTraces: true,
++        collapsedActivity: true, keepActivityText: keepText, expandedTurns: new Map([[record.turnId, expanded]]), showReasoningTraces: true, questionsInChat: false,
      }, []);
      const finalMessageId = rows.find((row) => row.kind === 'turn-fold')?.finalMessageId;
-     const { hoistedPages, finalContext } = useTurnFoldContexts(record, retired, expanded, finalMessageId);
-@@ -441,6 +441,39 @@ describe('live Activity with the real message body', () => {
+     const { hoistedPages, finalContext } = useTurnFoldContexts(record, retired, expanded, finalMessageId, keepText);
+@@ -587,6 +587,39 @@ describe('live Activity with the real message body', () => {
          expect(container.querySelectorAll('iframe')).toHaveLength(1);
      });
  
@@ -330,7 +330,7 @@ index ce8aa24f8..32697b622 100644
          const page: Part = {
              type: 'tool', tool: 'openchamber_render', id: 'page', callID: 'page', sessionID: 'session', messageID: 'progress',
 diff --git a/packages/ui/src/components/chat/components/LiveTurnActivity.tsx b/packages/ui/src/components/chat/components/LiveTurnActivity.tsx
-index b88771bbe..ef75f65ad 100644
+index 55a4b0015..d8353730f 100644
 --- a/packages/ui/src/components/chat/components/LiveTurnActivity.tsx
 +++ b/packages/ui/src/components/chat/components/LiveTurnActivity.tsx
 @@ -5,6 +5,7 @@ import { useI18n } from '@/lib/i18n';
@@ -341,26 +341,60 @@ index b88771bbe..ef75f65ad 100644
      LIVE_ACTIVITY_VISIBLE_ROWS,
      activityRowParts,
      planActivityTrim,
-@@ -113,6 +114,9 @@ export function TurnFold({ turn, hasLaterAssistant, expanded, finalMessageId, on
+@@ -133,29 +134,33 @@ export function TurnFold({ turn, hasLaterAssistant, expanded, finalMessageId, ke
                  </div>
              </div>
              {expanded ? null : (
+-                <LiveActivityInteractionContext.Provider value={interaction}>
+-                    <div ref={previewFloorRef}>
+-                        <div ref={previewRef}>
+-                            <LiveActivityCollapse expanded={isExpanded} id={contentId}>
+-                                <div ref={rowsRef}>
 +                // What stays in view, its rows above and below the pages, as
 +                // one window: the latest rows of the turn.
 +                <FoldPreviewContext.Provider value={true}>
-                 <div ref={previewFloorRef}>
-                     <div ref={previewRef}>
-                         <LiveActivityCollapse expanded={isExpanded} id={contentId}>
-@@ -134,6 +138,7 @@ export function TurnFold({ turn, hasLaterAssistant, expanded, finalMessageId, on
-                         ) : null}
-                     </div>
-                 </div>
++                    <LiveActivityInteractionContext.Provider value={interaction}>
++                        <div ref={previewFloorRef}>
++                            <div ref={previewRef}>
++                                <LiveActivityCollapse expanded={isExpanded} id={contentId}>
++                                    <div ref={rowsRef}>
++                                        <ActivityRowSkipContext.Provider value={rowSkip}>
++                                            {messagesAbovePages.map((message) => (
++                                                <React.Fragment key={message.info.id}>{renderMessage(message)}</React.Fragment>
++                                            ))}
++                                        </ActivityRowSkipContext.Provider>
++                                    </div>
++                                </LiveActivityCollapse>
++                                {pagesShown ? <TurnPages pages={pages} /> : null}
++                                {messagesBelowPages.length > 0 ? (
+                                     <ActivityRowSkipContext.Provider value={rowSkip}>
+-                                        {messagesAbovePages.map((message) => (
++                                        {messagesBelowPages.map((message) => (
+                                             <React.Fragment key={message.info.id}>{renderMessage(message)}</React.Fragment>
+                                         ))}
+                                     </ActivityRowSkipContext.Provider>
+-                                </div>
+-                            </LiveActivityCollapse>
+-                            {pagesShown ? <TurnPages pages={pages} /> : null}
+-                            {messagesBelowPages.length > 0 ? (
+-                                <ActivityRowSkipContext.Provider value={rowSkip}>
+-                                    {messagesBelowPages.map((message) => (
+-                                        <React.Fragment key={message.info.id}>{renderMessage(message)}</React.Fragment>
+-                                    ))}
+-                                </ActivityRowSkipContext.Provider>
+-                            ) : null}
++                                ) : null}
++                            </div>
+                         </div>
+-                    </div>
+-                </LiveActivityInteractionContext.Provider>
++                    </LiveActivityInteractionContext.Provider>
 +                </FoldPreviewContext.Provider>
              )}
          </div>
      );
 diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
-index 8925fd844..76e0a5efa 100644
+index 18144142d..b17f1988d 100644
 --- a/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
 +++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
 @@ -10,7 +10,7 @@ import { I18nProvider } from '@/lib/i18n';
@@ -521,7 +555,7 @@ index 8925fd844..76e0a5efa 100644
  test('the card fits its content, aligns right and uses transcript typography', () => {
      const markup = render(card(ask([{ question: 'Ship it?', answer: 'Yes' }])));
      expect(markup).toContain('flex flex-col items-end');
-@@ -241,7 +336,7 @@ test('native click parity: collapsed text opens, selected text does not, open te
+@@ -243,7 +338,7 @@ test('native click parity: collapsed text opens, selected text does not, open te
      let toggles = 0;
      const draw = async (open: boolean) => {
          await act(async () => root.render(wrap(
@@ -531,7 +565,7 @@ index 8925fd844..76e0a5efa 100644
      };
      const click = async (element: Element) => {
 diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
-index ded3cf7b3..836d0f8f1 100644
+index e570e6273..159573555 100644
 --- a/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
 +++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
 @@ -9,9 +9,12 @@ import { useUIStore } from '@/stores/useUIStore';
@@ -548,7 +582,7 @@ index ded3cf7b3..836d0f8f1 100644
      type QuestionAnswerEntry,
      type QuestionCardState,
  } from '../lib/questionEntries';
-@@ -20,19 +23,22 @@ import { useQuestionOpen, writeQuestionOpen } from '../lib/questionExpandedState
+@@ -20,6 +23,7 @@ import { useQuestionOpen, writeQuestionOpen } from '../lib/questionExpandedState
  import { FormDockModeContext } from '../formsInChat';
  import { stickyHeaderBackground } from './stickyHeaderBackground';
  import { USER_BUBBLE_TEXT_LINK_CLASS } from '../message/body/userBubbleLinkStyle';
@@ -556,9 +590,7 @@ index ded3cf7b3..836d0f8f1 100644
  
  const RAIL_STYLE: React.CSSProperties = { borderColor: 'var(--status-question)' };
  
- // Match the prompt bubble's shape and subtle border without its body-sized
- // text or full-column footprint. The faint purple fill identifies questions,
- // and it is painted on the canvas rather than left at the tint's own alpha:
+@@ -29,9 +33,11 @@ const RAIL_STYLE: React.CSSProperties = { borderColor: 'var(--status-question)'
  // at 55% of a 12.5% tint it was near-clear, so the transcript read through
  // the card and through the bar that covers the chat while the card is open.
  const QUESTION_TINT = 'color-mix(in srgb, var(--status-question-background) 55%, transparent)';
@@ -571,7 +603,6 @@ index ded3cf7b3..836d0f8f1 100644
      backgroundColor: 'var(--surface-background)',
      backgroundImage: `linear-gradient(${QUESTION_TINT}, ${QUESTION_TINT})`,
  };
- 
 @@ -45,21 +51,16 @@ const MORE_LINE_PX = 24;
  /** The bar takes over once less than this much of a scrolled-away card is in view. */
  const BAR_HANDOVER_PX = 40;
@@ -1061,10 +1092,10 @@ index ad848e6fa..bdb35a0d3 100644
                      <div className="relative z-10">
                          {renderMessage(turn.userMessage)}
 diff --git a/packages/ui/src/components/chat/composer/DOCUMENTATION.md b/packages/ui/src/components/chat/composer/DOCUMENTATION.md
-index a049c57fd..d64e27aac 100644
+index df091b7ae..81a63739a 100644
 --- a/packages/ui/src/components/chat/composer/DOCUMENTATION.md
 +++ b/packages/ui/src/components/chat/composer/DOCUMENTATION.md
-@@ -1909,8 +1909,12 @@ skill, `references/ios-webkit.md`; `lib/iosWebKitMotion.test.ts` guards them.
+@@ -2200,8 +2200,12 @@ skill, `references/ios-webkit.md`; `lib/iosWebKitMotion.test.ts` guards them.
    glide crept in visible one-pixel steps. `keyboardFollowGlide` sets scrollTop
    once and runs the travel as an upward transform on the list's content (an
    upward one adds no scrollable overflow), with the opposite one on a stuck
@@ -1129,24 +1160,22 @@ index 1a038a6e3..840728005 100644
   * Splits a multi-select reply into the labels it names. The reply is the
   * chosen labels joined with `, `, and a label may itself contain a comma, so
 diff --git a/packages/ui/src/components/chat/lib/scroll/DOCUMENTATION.md b/packages/ui/src/components/chat/lib/scroll/DOCUMENTATION.md
-index 4a9c78ac6..f12ce8b26 100644
+index 8255ae283..78df4f608 100644
 --- a/packages/ui/src/components/chat/lib/scroll/DOCUMENTATION.md
 +++ b/packages/ui/src/components/chat/lib/scroll/DOCUMENTATION.md
-@@ -89,8 +89,13 @@ Transform motion and sticky-header handover remain governed by
+@@ -87,10 +87,8 @@ Transform motion and sticky-header handover remain governed by
+ - **A turn is several rows.** A list row is one piece of a turn (`lib/turns/timelineRows.ts`): its prompt row (`turn-head`, the only one carrying `data-turn-id`, `id="turn-…"` and `data-scroll-spy-id`), the fold's header in the Collapsed activity mode, the pages a turn without an answer showed, and its messages. A message is cut into several rows before every 24th part it draws, and a finished text of 3,000 characters or more is cut between Markdown blocks into pieces of about a screen (`answerChunks.ts`); every row but the prompt carries `data-turn-row`, and a message's later rows carry `data-message-slice`. The list keeps the row the reader looks at in place and moves the viewport for every row above it that changes size (`maintainVisibleContentPosition.size`, on once the reader leaves the end), so nothing inside the transcript holds the reader's place on its own. When a row was a whole turn, a change inside it above the reader (a long answer's block drawn for the first time, a fold closing, a window of steps mounting) moved the text, and each such change carried its own compensation, which disagreed with the list's now and then: one jump of 38 to 145 px in about a hundred scroll steps. Opening a 120-turn session mounts a few screens of rows, not four whole answers of four to seven screens each.
+ - **A row is placed at an estimate of its own height until measured.** The list moves the viewport by a row's error once that row, above the reader, is measured. On iOS the move lands while the scroll's momentum runs in another thread, which takes part of it back on its next frame: the text jumps by the error and partly back. With one estimate for every row (320 px) each tool step a reader scrolled past was off by 284 px, and scrolling up through an agent's turn on an iPhone shook and barely moved: 224 corrections and 54,687 px in 12 s of scrolling. `lib/turns/rowSizeEstimate.ts` builds the estimate from what the row draws (tool and reasoning lines, text wrapped at the column's width, a patch's file rows, the pages a fold hoists): 36 corrections and 594 px on the same scroll. Heights measured in one list are not carried to the next: a row keeps its key while what it draws changes (a reasoning block opened, a slice that moved), and a stale height is a worse estimate than one built from the row. The list takes it through `getEstimatedItemSize`, which our patch adds (`bun-patches/@legendapp%2Flist@3.7.2.patch`, `getItemSize`): the per-type average it has is no help, because its first layout caches an estimate for every row before any average exists. On touch layouts the corrections that remain wait until the scroll stops (`deferSizeWhileScrolling`, also our patch): while the user scrolls, every row's position shifts by the correction instead, so the rows on screen stay put, and the shift is undone with one scroll correction 150 ms after the last scroll event, at rest. Near the start of the list (within two viewports) the correction is made at once, because the shifted first row would leave space above it, or cover the "Load older" header, in view. With corrections written during momentum, even 2 px ones stalled the momentum for a frame and caught up the next, which read as micro-stutters on every fling. Carry it over when bumping the library.
    - A piece starts only at a paragraph or a heading. Its top margin is then the whole gap the answer had there (no block's bottom margin is larger), so the first block of a later piece keeps it (`[data-answer-continues]` in index.css) and the rows stack to within a pixel of the whole answer. A text with footnotes or link definitions stays whole: they resolve across the document. A text still streaming stays one row and is cut once it finishes; the first row keeps its key, so it keeps its React tree.
-   - The rows of a message share its record: the first draws what comes before the cut and the message's header, the last its footer, error and actions (`MessageSliceContext`, read by `MessageBody` and `ChatMessage`). Copying and the image export take the message's text from the record, not from the DOM. Navigation and restore find a message by its first row (`[data-message-id]:not([data-message-slice])`); an anchor taken in a later row names that row (`MessageViewportAnchor.slice`).
-   - The rows of one answer read as one text. The list puts its rows in DOM order in the layout pass that hands a container a different row (`sortContainerElements`, moving only the rows out of place and keeping focus), so a selection the reader makes crosses rows in reading order. The selection menu of the row a selection starts in takes one that ends in a later row of the same message (`ownsSelection` in `TextSelectionMenu.tsx`); copying serializes each row's part as Markdown and joins them (`data-answer-part`, `getMarkdownSelectionText`). A quote counts in the message's stream: the text of its mounted rows joined in reading order (`findChatQuoteRoots`), as one root's was before the answer was cut, so quotes taken before then still resolve; a quote crossing rows is painted with a Range per row. Revealing a quote in a row not mounted steps down through the message's rows (`data-message-continues`), after asking the navigation hold on its first row to let go (`openchamber:navigation-release`).
-+<<<<<<< ours
+-  - The rows of a message share its record: the first draws what comes before the cut and the message's header, the last its footer, error and actions (`MessageSliceContext`, read by `MessageBody` and `ChatMessage`). Copying and the image export take the message's text from the record, not from the DOM. Navigation and restore find a message by its first row (`[data-message-id]:not([data-message-slice])`); an anchor taken in a later row names that row (`MessageViewportAnchor.slice`). Text kept in view outside the message that wrote it (Show notes) is an anchor only when no message is in the viewport (a stuck prompt or a message mounted below it does not count), and names the row drawing it (`data-row-key`) and its part (`MessageViewportAnchor.kept`); restoring it leaves the fold closed (turn projection).
+-  - The rows of one answer read as one text. The list puts its rows in DOM order in the layout pass that hands a container a different row (`sortContainerElements`, moving only the rows out of place and keeping focus), so a selection the reader makes crosses rows in reading order. The selection menu of the row a selection starts in takes one that ends in a later row of the same message (`ownsSelection` in `TextSelectionMenu.tsx`); copying serializes each row's part as Markdown and joins them (`data-answer-part`, `getMarkdownSelectionText`). A quote counts in the message's stream: the text of its mounted rows joined in reading order (`findChatQuoteRoots`), as one root's was before the answer was cut, so quotes taken before then still resolve; a root's text leaves out the quote roots nested in it (text another message wrote, drawn inside the answer); a quote crossing rows is painted with a Range per row. Revealing a quote in a row not mounted steps down through the message's rows (`data-message-continues`), after asking the navigation hold on its first row to let go (`openchamber:navigation-release`).
    - Every row of the live tail reads the tail's entry with the newest parts from one store (`LiveTailSource` in `timeline/LiveTailSource.tsx`), computed once per publish, so a streamed part re-renders the tail's rows and nothing else. The rows themselves are built from the timeline's record, and a row reads whether its turn is folded from the row (`underFold`), so the rows of a live turn agree on it while the record lags the stream.
-   - The sticky prompt is the list's own sticky row (`stickyHeaderIndices`): the list keeps it on top until the next sticky row reaches the top. A turn's prompt leaves with its turn instead, as it did inside one turn row: once the turn's last row scrolls under it, the scroll handler pushes it up by as much (`pushStickyHeader`, a `transform` on the row's container, measured from the DOM because the list's positions and its scroll offset do not count from the same origin).
-+=======
-+  - Every row of the live tail reads the tail's entry with the newest parts from one store (`LiveTailSource` in `MessageList.tsx`), computed once per publish, so a streamed part re-renders the tail's rows and nothing else. The rows themselves are built from the timeline's record, and a row reads whether its turn is folded from the row (`underFold`), so the rows of a live turn agree on it while the record lags the stream.
+-  - The sticky prompt is the list's own sticky row (`stickyHeaderIndices`): the list keeps it on top until the next sticky row reaches the top. A turn's prompt leaves with its turn instead, as it did inside one turn row: once the turn's last row scrolls under it, the scroll handler pushes it up by as much (`pushStickyHeader`, a `transform` on the row's container, measured from the DOM because the list's positions and its scroll offset do not count from the same origin).
 +  - The sticky prompt is the list's own sticky row (`stickyHeaderIndices`): the list keeps it on top until the next sticky row reaches the top. A turn's prompt leaves with its turn instead, as it did inside one turn row: once the turn's last row scrolls under it, the scroll handler pushes it up by as much (`pushStickyHeader`, a `transform` on the row's container, measured from the DOM because the list's positions and its scroll offset do not count from the same origin). The same handler publishes how far the list moved the pinned row from its own place (`--sticky-row-offset`, one row at a time, plus a `stickyrowoffset` event on that row's container), which is what lets a batch of questions' card scroll away and draw a bar instead. It measures that offset with the row's own transform cleared first: the push it just wrote would otherwise count as part of the pin, and the card draws itself back by the number. A row's container is reused for whatever scrolls in next, so a reader of the offset takes it from the row the event reports and never from the value it inherits on mount.
-+>>>>>>> theirs
  - **A selection keeps its rows.** While a selection in the transcript lasts, every row from the one holding its anchor to the one holding its focus stays mounted (`useSelectionRowHold` in `selectionRowHold.ts`, the list's `alwaysRender`), the way `MarkdownWindow` holds the blocks a selection spans in a file preview. Two things broke a selection whose start scrolled off on Android, and the fix needs both:
    - Chrome on Android places the end that stays put again from its spot on screen each time a handle drag starts. In a page that scrolls as a whole that spot holds the same text; in the transcript, an inner scroller, it lies outside the list once that end is scrolled out, and the anchor landed at the top of the page (the list header): the highlight and the native copy grew to everything mounted above. Either end can be the one that stays put, so dragging the start handle up lost the end the same way. The hook remembers the ends in rows of the last selection anchored in one. When the anchor leaves the rows while the focus stays in one, it puts back the remembered end farthest from the focus, the one the reader is not dragging, if the screen no longer shows it at its spot: scrolled out, or under the composer or the selection panel (`setBaseAndExtent`). Chrome takes the anchor from the DOM for the rest of the drag, so this happens once per drag. The first step of such a drag can put the anchor in the list header and the focus in the selection panel, outside the list; only a selection with both ends outside the list ends the hold. Measured in Chrome and the app on an Android 15 emulator: without it, the anchor jumped on the first drag after the start left the screen; with it, the selection grew through three rows of one answer and into the next message, in either direction and with the start handle dragged after the end one.
    - The rows hold the anchor's node. Unmounted, React removed it, the anchor fell to the list's container, and the selection stopped growing. Rows in between stay too, so the copy carries their text.
-@@ -225,11 +230,11 @@ its original target until alignment completes or the reader intervenes.
+@@ -225,11 +223,11 @@ its original target until alignment completes or the reader intervenes.
  
  - **A row keeps its React tree when it becomes or stops being the live tail.** Every row renders through `TimelineRow` in `timeline/TimelineRow.tsx`; only the tail's rows read the streaming parts. The tail moves on every send and on a revert. When the tail had its own component type, the moving row remounted, its state reset for one commit (a long user message lost its "Show more" link, 28 px), and LegendList measured that commit in its layout effect. The `ResizeObserver` never corrects such a size, because the short height was never painted, so the row below sat that much too high until a later re-measure: 40-80 ms after a send, and from the revert until 200 ms into the next send. Anything that remounts or resets state inside a mounted row has the same effect.
  - **The gap under an answer belongs to the turn, not to the answer.** The 8 px between an answer and the row after it is the bottom padding of the turn's last row (`gapBelow` in `timelineRows.ts`), on every turn except one a hidden prompt continues, from the moment the turn is sent. It used to be the bottom padding of the answer's last step, and the last step changes while a turn runs: Claude opens a step's text block empty and the first paragraph is held until it ends (`lib/streamTextCommit.ts`), so a new step row added 8 px with nothing on screen and the follow lifted the sent message; dropping it on such a row instead shrank the transcript by 8 px whenever a step after tool calls began, moving the whole chat down. Giving the gap only once a next row exists made the settled turn above a new prompt grow, and the list measured that a frame late: the sent message dropped 8 px for a frame. So the live turn carries it too, at the content's end, and so does a turn that got no answer. Lists without turns (the BTW panel) keep it under the answer.
@@ -1198,7 +1227,7 @@ index 6fa77cd68..390283b1d 100644
 +
  export const ActivityRowSkipContext = createContext<{ messageId: string; rows: number } | null>(null);
 diff --git a/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.test.ts b/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.test.ts
-index 3f73852ed..a1c67ce00 100644
+index 5d13089ec..b4f55df89 100644
 --- a/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.test.ts
 +++ b/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.test.ts
 @@ -7,7 +7,7 @@ import { writeQuestionOpen } from '../questionExpandedState';
@@ -1237,12 +1266,12 @@ index 3f73852ed..a1c67ce00 100644
          ...messages,
      ]).turns[0]!;
      const entry: TimelineEntry = { kind: 'turn', key: `turn:${turn.turnId}`, turn, isLastTurn: true };
--    return buildTimelineRows([entry], { collapsedActivity: false, expandedTurns: new Map(), showReasoningTraces: true }, []);
-+    return buildTimelineRows([entry], { collapsedActivity: false, expandedTurns: new Map(), showReasoningTraces: true, questionsInChat }, []);
+-    return buildTimelineRows([entry], { collapsedActivity: false, keepActivityText: false, expandedTurns: new Map(), showReasoningTraces: true }, []);
++    return buildTimelineRows([entry], { collapsedActivity: false, keepActivityText: false, expandedTurns: new Map(), showReasoningTraces: true, questionsInChat }, []);
  };
  
  const messageRow = (rows: TimelineRow[], messageId: string) => rows.find((row) => row.kind === 'turn-message' && row.messageId === messageId)!;
-@@ -108,18 +117,29 @@ test('reasoning drawn as text when thinking blocks do not fold', () => {
+@@ -126,18 +135,29 @@ test('Show notes adds the kept lines to the answer row, or to the fold row of a
  test('a question card is sized from its own shape: the closed summary, then its options once open', () => {
      const card = (rows: TimelineRow[], partId: string) => rows.find((row) => row.kind === 'turn-message' && row.questionPartId === partId)!;
      const rows = rowsOf([assistant('question', [questionTool('q_size')]), assistant('answer', [text('done', 'Done.')])]);
@@ -1276,7 +1305,7 @@ index 3f73852ed..a1c67ce00 100644
 +    expect(estimateTimelineRowSize(row, { ...metrics, autoExpandAnsweredQuestions: true })).toBe(109);
  });
 diff --git a/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.ts b/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.ts
-index 5ad2d2a05..da382efa1 100644
+index 25f46fcb2..75f5cb802 100644
 --- a/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.ts
 +++ b/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.ts
 @@ -1,6 +1,6 @@
@@ -1286,7 +1315,7 @@ index 5ad2d2a05..da382efa1 100644
 +import { questionEntriesForPart, questionPartSuppressed, questionSentence, selectedOptionLabels } from '../questionEntries';
  import { isQuestionOpen } from '../questionExpandedState';
  import { filterVisibleParts, isEmptyTextPart } from '../../message/partUtils';
- import { getShownPages, isSettledAsk, type ShownPart } from './liveActivity';
+ import { getShownPages, hasUiBlock, isSettledAsk, type ShownPart } from './liveActivity';
 @@ -14,6 +14,8 @@ export type RowSizeMetrics = {
      collapsibleThinkingBlocks: boolean;
      /** Answered question rows open with their options and answer. */
@@ -1354,21 +1383,10 @@ index 5ad2d2a05..da382efa1 100644
              const message = messageRowHeight(row, metrics);
              return message === undefined ? undefined : Math.round(message);
 diff --git a/packages/ui/src/components/chat/lib/turns/timelineRows.test.ts b/packages/ui/src/components/chat/lib/turns/timelineRows.test.ts
-index bfa42f289..d181eff86 100644
+index 163a71180..9c396efaf 100644
 --- a/packages/ui/src/components/chat/lib/turns/timelineRows.test.ts
 +++ b/packages/ui/src/components/chat/lib/turns/timelineRows.test.ts
-@@ -36,8 +36,8 @@ const turnEntry = (messages: ChatMessageEntry[]): TimelineEntry => {
-     return { kind: 'turn', key: `turn:${turn.turnId}`, turn, isLastTurn: true };
- };
- 
--const summary: TimelineRowsOptions = { collapsedActivity: false, expandedTurns: new Map(), showReasoningTraces: true };
--const collapsed: TimelineRowsOptions = { collapsedActivity: true, expandedTurns: new Map(), showReasoningTraces: true };
-+const summary: TimelineRowsOptions = { collapsedActivity: false, expandedTurns: new Map(), showReasoningTraces: true, questionsInChat: false };
-+const collapsed: TimelineRowsOptions = { collapsedActivity: true, expandedTurns: new Map(), showReasoningTraces: true, questionsInChat: false };
- 
- describe('answerChunkCuts', () => {
-     test('leaves a short text whole', () => {
-@@ -160,6 +160,19 @@ describe('answered questions as rows of their own', () => {
+@@ -182,6 +182,19 @@ describe('answered questions as rows of their own', () => {
          const card = steps[1]!;
          expect(card.kind === 'turn-message' && [card.questionPartId, card.questionSticks]).toEqual(['ask', false]);
      });
@@ -1388,7 +1406,7 @@ index bfa42f289..d181eff86 100644
  });
  
  describe('sticky rows', () => {
-@@ -217,7 +230,7 @@ describe('answered questions under a closed fold', () => {
+@@ -239,7 +252,7 @@ describe('answered questions under a closed fold', () => {
              assistant('step', [answeredIn('step'), readPart], 'tool-calls'),
              assistant('answer', [textPart('final', 'Done.')], 'stop'),
          ])], collapsed, []);
@@ -1397,7 +1415,7 @@ index bfa42f289..d181eff86 100644
          expect(lifted).toHaveLength(1);
          expect(rows.findIndex((row) => row.kind === 'turn-fold')).toBeLessThan(rows.indexOf(lifted[0]!));
          const card = lifted[0]!;
-@@ -233,11 +246,11 @@ describe('answered questions under a closed fold', () => {
+@@ -255,11 +268,11 @@ describe('answered questions under a closed fold', () => {
          const rows = buildTimelineRows([entry], { ...collapsed, expandedTurns: new Map([[turnId, true]]) }, []);
          const cards = rows.filter((row) => row.kind === 'turn-message' && row.questionPartId === 'ask');
          expect(cards).toHaveLength(1);
@@ -1412,7 +1430,7 @@ index bfa42f289..d181eff86 100644
      });
  });
 diff --git a/packages/ui/src/components/chat/lib/turns/timelineRows.ts b/packages/ui/src/components/chat/lib/turns/timelineRows.ts
-index dc831dd58..91c01a942 100644
+index 6e04b17a3..de4daa96a 100644
 --- a/packages/ui/src/components/chat/lib/turns/timelineRows.ts
 +++ b/packages/ui/src/components/chat/lib/turns/timelineRows.ts
 @@ -1,6 +1,6 @@
@@ -1441,8 +1459,8 @@ index dc831dd58..91c01a942 100644
      } & TurnRowFields);
  
  type TurnRowFields = {
-@@ -48,6 +49,8 @@ export type TimelineRowsOptions = {
-     collapsedActivity: boolean;
+@@ -50,6 +51,8 @@ export type TimelineRowsOptions = {
+     keepActivityText: boolean;
      expandedTurns: ReadonlyMap<string, boolean>;
      showReasoningTraces: boolean;
 +    /** Waiting questions draw at the transcript's end (the composer's "in the chat" choice), not at their call. */
@@ -1450,7 +1468,7 @@ index dc831dd58..91c01a942 100644
  };
  
  const isMessageCompleted = (message: ChatMessageEntry): boolean => (
-@@ -56,35 +59,47 @@ const isMessageCompleted = (message: ChatMessageEntry): boolean => (
+@@ -58,35 +61,47 @@ const isMessageCompleted = (message: ChatMessageEntry): boolean => (
  
  const PARTS_PER_ROW = 24;
  
@@ -1514,9 +1532,9 @@ index dc831dd58..91c01a942 100644
  };
  
  const sliceKey = (cut: TextCut) => `${cut.partId}:${cut.offset}`;
-@@ -95,73 +110,39 @@ const turnRows = (entry: TurnEntry, options: TimelineRowsOptions): TimelineRow[]
-     const finalMessage = underFold ? getLiveFinalMessage(turn.assistantMessages) : undefined;
-     const fields = { entry, underFold, finalMessageId: finalMessage?.info.id, gapBelow: false };
+@@ -99,73 +114,39 @@ const turnRows = (entry: TurnEntry, options: TimelineRowsOptions): TimelineRow[]
+     const keepText = underFold && options.keepActivityText && !expanded;
+     const fields = { entry, underFold, keepText, finalMessageId: finalMessage?.info.id, gapBelow: false };
      const rows: TimelineRow[] = [{ kind: 'turn-head', key: entry.key, ...fields }];
 -    // The question a row draws on its own: a row that starts at a question cut,
 -    // or a message whose only row opens with one.
@@ -1600,7 +1618,7 @@ index dc831dd58..91c01a942 100644
          if (foldOpen) {
              const pages = finalMessage ? [] : getShownPages(turn.assistantMessages);
              const lastPageMessageId = pages[pages.length - 1]?.messageID;
-@@ -169,6 +150,21 @@ const turnRows = (entry: TurnEntry, options: TimelineRowsOptions): TimelineRow[]
+@@ -173,6 +154,21 @@ const turnRows = (entry: TurnEntry, options: TimelineRowsOptions): TimelineRow[]
              activityMessages.slice(0, split > 0 ? split : activityMessages.length).forEach((message) => addMessage(message));
              if (pages.length > 0) rows.push({ kind: 'turn-pages', key: `pages:${turn.turnId}`, ...fields });
              if (split > 0) activityMessages.slice(split).forEach((message) => addMessage(message));
@@ -1622,9 +1640,9 @@ index dc831dd58..91c01a942 100644
          }
          if (finalMessage) addMessage(finalMessage, true);
      } else {
-@@ -191,7 +187,9 @@ const isSameRow = (previous: TimelineRow, next: TimelineRow): boolean => {
+@@ -195,7 +191,9 @@ const isSameRow = (previous: TimelineRow, next: TimelineRow): boolean => {
      if (previous.kind === 'ungrouped' || next.kind === 'ungrouped') return true;
-     if (previous.gapBelow !== next.gapBelow || previous.underFold !== next.underFold || previous.finalMessageId !== next.finalMessageId) return false;
+     if (previous.gapBelow !== next.gapBelow || previous.underFold !== next.underFold || previous.keepText !== next.keepText || previous.finalMessageId !== next.finalMessageId) return false;
      if (previous.kind === 'turn-message' && next.kind === 'turn-message') {
 -        return previous.messageId === next.messageId && previous.final === next.final && isSameSlice(previous.slice, next.slice);
 +        return previous.messageId === next.messageId && previous.final === next.final
@@ -1634,7 +1652,7 @@ index dc831dd58..91c01a942 100644
      return true;
  };
 diff --git a/packages/ui/src/components/chat/message/body/useAssistantRenderedParts.tsx b/packages/ui/src/components/chat/message/body/useAssistantRenderedParts.tsx
-index 437ab1bb5..a714362c4 100644
+index dfbf0cdc3..69dcc1cac 100644
 --- a/packages/ui/src/components/chat/message/body/useAssistantRenderedParts.tsx
 +++ b/packages/ui/src/components/chat/message/body/useAssistantRenderedParts.tsx
 @@ -13,9 +13,12 @@ import { readSessionNoticePart } from '@/lib/opencode/session-notices';
@@ -1662,7 +1680,7 @@ index 437ab1bb5..a714362c4 100644
      const hoistedPages = React.useContext(LiveTurnHoistedPagesContext);
      const slice = React.useContext(MessageSliceContext);
  
-@@ -216,6 +222,24 @@ export const useAssistantRenderedParts = ({
+@@ -215,6 +221,24 @@ export const useAssistantRenderedParts = ({
                      continue;
                  }
  
@@ -1688,7 +1706,7 @@ index 437ab1bb5..a714362c4 100644
                      if (!hoistedPages?.has(toolPart.id)) {
                          rendered.push(<ShownToolCard key={`page-${toolPart.id}`} part={toolPart} onShowPopup={onShowPopup} />);
 diff --git a/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md b/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
-index cb7ec3827..53a62870f 100644
+index a5422e7c5..b537a74e8 100644
 --- a/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
 +++ b/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
 @@ -33,6 +33,8 @@ Use this doc when you ask an agent to change tool/header/description behavior.
@@ -1700,7 +1718,7 @@ index cb7ec3827..53a62870f 100644
  
  
  - `taskToolModel.ts`
-@@ -716,8 +718,28 @@ the call away, it sticks like their own prompt, and its answer is what a reader
+@@ -789,8 +791,28 @@ the call away, it sticks like their own prompt, and its answer is what a reader
  scrolls back for. Drawn inside a `ToolPart` it only ever appeared as one quiet
  line among the agent's tool rows, folded with them and unable to leave a bar.
  The cost is a second renderer for one part (`QuestionToolContent` still draws
@@ -1731,7 +1749,7 @@ index cb7ec3827..53a62870f 100644
  
  ### Why one module map owns a question row's open state
  
-@@ -840,11 +862,16 @@ that is drawn.
+@@ -913,11 +935,16 @@ that is drawn.
    (`openContextFile` with `expanded`). Only web and desktop show it: VS Code
    and mobile open files full size already, through the path itself.
  - Every other tool, including search/fetch, OpenCode built-ins, custom tools, plugins, and MCP tools, is **expandable** and renders through `ToolPart`.
@@ -1751,7 +1769,7 @@ index cb7ec3827..53a62870f 100644
  - OpenChamber's own tools (`openchamber`, `openchamber_*`, and an `execute` script that made exactly one of their calls) use the expandable path. Their result is a versioned envelope (`{ ok, action, data }`, `openChamberToolEnvelope.ts`):
    - The row keeps the tool's name as its title. Once the envelope says the action succeeded, the description is the action's verb from the i18n map (`OPENCHAMBER_ACTION_VERB_KEYS`, "Remembered · Uses bun"); a running, failed, or unreadable call keeps the action's own name (`memory.save`). A history page leaves results out (`toolContentShells.ts`), so the row reads the action and outcome the server kept in the shell marker; without them every reloaded row fell back to `memory.save` until opened.
    - The expanded row draws the action's own view (`OpenChamberToolOutput.tsx`) when `hasOpenChamberView` finds a successful action it knows with the data that view reads; anything else keeps the neutral JSON views, so a changed answer never leaves the row empty. A failed call shows its error message as text. "Show the raw answer" switches to the JSON views.
-@@ -1102,7 +1129,7 @@ Why: only navigation tools use the compact static path; all other tools need obs
+@@ -1175,7 +1202,7 @@ Why: only navigation tools use the compact static path; all other tools need obs
    via text sniffing (`<terminal_context>` blocks, `GitHub issue context (JSON)`
    and `Linear issue context (JSON)` prefixes).
  - Tools: `ToolPart.tsx`, `ToolPartDiffPreview.tsx`, `PlainDiffFallback.tsx`, `ProgressiveGroup.tsx`, `toolPresentation.tsx`, `toolRenderUtils.ts`, `GuestToolTable.tsx`, `GuestToolCard.tsx`
@@ -2087,7 +2105,7 @@ index 2246e2db8..1918df59d 100644
      sizeMetricsRef.current.collapsibleThinkingBlocks = collapsibleThinkingBlocks;
      const sizeMetrics = React.useCallback((): RowSizeMetrics => {
 diff --git a/packages/ui/src/components/chat/timeline/TurnRow.tsx b/packages/ui/src/components/chat/timeline/TurnRow.tsx
-index 95845d3ce..4ab7b467d 100644
+index c67825101..5274470ae 100644
 --- a/packages/ui/src/components/chat/timeline/TurnRow.tsx
 +++ b/packages/ui/src/components/chat/timeline/TurnRow.tsx
 @@ -56,15 +56,15 @@ export const TurnRow = React.memo(({
@@ -2115,7 +2133,7 @@ index 95845d3ce..4ab7b467d 100644
          } else if (message) {
              content = (
 diff --git a/packages/ui/src/components/chat/timeline/useTimelineRows.ts b/packages/ui/src/components/chat/timeline/useTimelineRows.ts
-index 57eaf61bb..7b6f36cbf 100644
+index d16905e48..9f374b81d 100644
 --- a/packages/ui/src/components/chat/timeline/useTimelineRows.ts
 +++ b/packages/ui/src/components/chat/timeline/useTimelineRows.ts
 @@ -1,4 +1,5 @@
@@ -2124,7 +2142,7 @@ index 57eaf61bb..7b6f36cbf 100644
  
  import { stickyRowIndicesOf } from '../lib/turns/stickyPrompt';
  import { getTurnsWithLaterAssistant } from '../lib/turns/liveActivity';
-@@ -94,11 +95,15 @@ export const useTimelineRows = (
+@@ -95,12 +96,16 @@ export const useTimelineRows = (
      }, [historyEntries, trailingStreamingEntry]);
  
      const previousRowsRef = React.useRef<RenderRow[]>([]);
@@ -2134,6 +2152,7 @@ index 57eaf61bb..7b6f36cbf 100644
      const rows = React.useMemo(() => streamPerfMeasure('ui.message_list.render_rows_ms', () => {
          const next = buildTimelineRows(allEntries, {
              collapsedActivity: !defaultActivityExpanded,
+             keepActivityText,
              expandedTurns: turnExpansion,
              showReasoningTraces,
 +            questionsInChat,
@@ -2141,19 +2160,19 @@ index 57eaf61bb..7b6f36cbf 100644
          previousRowsRef.current = next;
          return next;
 diff --git a/packages/ui/src/components/chat/timeline/useTurnMessageRenderer.tsx b/packages/ui/src/components/chat/timeline/useTurnMessageRenderer.tsx
-index 775a76eb0..10ea779ad 100644
+index 0c1d79984..0d6ccd853 100644
 --- a/packages/ui/src/components/chat/timeline/useTurnMessageRenderer.tsx
 +++ b/packages/ui/src/components/chat/timeline/useTurnMessageRenderer.tsx
-@@ -124,7 +124,7 @@ export const useTurnMessageRenderer = ({
-     }, [turn.activityParts, turn.changedFiles, turn.hasReasoning, turn.hasTools, turn.headerMessageId, turn.summaryText, turn.turnId, turn.assistantMessages, turn.userMessage.info]);
+@@ -132,7 +132,7 @@ export const useTurnMessageRenderer = ({
+     }, [activeStreamingPhase, streamingAssistantMessageId, turn.assistantMessages]);
  
-     return React.useCallback(
+     const renderMessage = React.useCallback(
 -        (message: ChatMessageEntry) => {
 +        (message: ChatMessageEntry, body?: React.ReactNode) => {
              const assistantIndex = assistantIndexById.get(message.info.id) ?? -1;
              const isAssistantMessage = assistantIndex >= 0;
              const isFirstAssistant = assistantIndex === 0;
-@@ -161,6 +161,7 @@ export const useTurnMessageRenderer = ({
+@@ -170,6 +170,7 @@ export const useTurnMessageRenderer = ({
                  <MessageRow
                      key={message.info.id}
                      message={message}
@@ -2162,10 +2181,10 @@ index 775a76eb0..10ea779ad 100644
                      turnGroupingContext={turnGroupingContext}
                      assistantHeaderMessageId={assistantHeaderMessageId}
 diff --git a/packages/ui/src/lib/i18n/messages/ar.ts b/packages/ui/src/lib/i18n/messages/ar.ts
-index d8546e800..f1e8164e2 100644
+index 093bed3a6..8f6549844 100644
 --- a/packages/ui/src/lib/i18n/messages/ar.ts
 +++ b/packages/ui/src/lib/i18n/messages/ar.ts
-@@ -78,6 +78,9 @@ import { tooltipsWorkspaceI18n } from './tooltips-workspace.i18n';
+@@ -80,6 +80,9 @@ import { tooltipsWorkspaceI18n } from './tooltips-workspace.i18n';
  import { tooltipsPanelI18n } from './tooltips-panel.i18n';
  import { tooltipsChatI18n } from './tooltips-chat.i18n';
  
@@ -2175,7 +2194,7 @@ index d8546e800..f1e8164e2 100644
  export const dict: Record<I18nKey, string> = {
    'quota.family.zen': 'نماذج Zen',
    'quota.value.requests': 'الطلبات: {count}',
-@@ -2531,17 +2534,17 @@ export const dict: Record<I18nKey, string> = {
+@@ -2552,17 +2555,17 @@ export const dict: Record<I18nKey, string> = {
    'chat.questionCard.inputNeeded': 'مطلوب إدخال',
    'chat.questionCard.fromSubagent': 'من وكيل فرعي',
    'chat.questionCard.questionFallback': 'السؤال {index}',
@@ -2201,10 +2220,10 @@ index d8546e800..f1e8164e2 100644
    'chat.questionCard.next': 'التالي',
    'chat.questionCard.dismiss': 'تجاهل',
 diff --git a/packages/ui/src/lib/i18n/messages/de.ts b/packages/ui/src/lib/i18n/messages/de.ts
-index 338aeff14..758f62b98 100644
+index c15a9eb40..59950d277 100644
 --- a/packages/ui/src/lib/i18n/messages/de.ts
 +++ b/packages/ui/src/lib/i18n/messages/de.ts
-@@ -2352,17 +2352,17 @@ export const dict = {
+@@ -2371,17 +2371,17 @@ export const dict = {
    'chat.questionCard.inputNeeded': 'Eingabe erforderlich',
    'chat.questionCard.fromSubagent': 'Von Subagent',
    'chat.questionCard.questionFallback': 'Frage {index}',
@@ -2230,10 +2249,10 @@ index 338aeff14..758f62b98 100644
    'chat.questionCard.next': 'Weiter',
    'chat.questionCard.dismiss': 'Verwerfen',
 diff --git a/packages/ui/src/lib/i18n/messages/en.ts b/packages/ui/src/lib/i18n/messages/en.ts
-index 3e416bc57..280a54486 100644
+index 368573b2e..7d4c04ba4 100644
 --- a/packages/ui/src/lib/i18n/messages/en.ts
 +++ b/packages/ui/src/lib/i18n/messages/en.ts
-@@ -2631,17 +2631,17 @@ export const dict = {
+@@ -2654,17 +2654,17 @@ export const dict = {
    'chat.questionCard.inputNeeded': 'Input needed',
    'chat.questionCard.fromSubagent': 'From subagent',
    'chat.questionCard.questionFallback': 'Question {index}',
@@ -2257,10 +2276,10 @@ index 3e416bc57..280a54486 100644
    'chat.questionCard.next': 'Next',
    'chat.questionCard.dismiss': 'Dismiss',
 diff --git a/packages/ui/src/lib/i18n/messages/es.ts b/packages/ui/src/lib/i18n/messages/es.ts
-index 30d843426..73915300b 100644
+index d125ed34f..71bc8f652 100644
 --- a/packages/ui/src/lib/i18n/messages/es.ts
 +++ b/packages/ui/src/lib/i18n/messages/es.ts
-@@ -2599,17 +2599,17 @@ export const dict: Record<I18nKey, string> = {
+@@ -2622,17 +2622,17 @@ export const dict: Record<I18nKey, string> = {
    "chat.questionCard.inputNeeded": "Entrada necesaria",
    "chat.questionCard.fromSubagent": "De un subagente",
    "chat.questionCard.questionFallback": "Pregunta {index}",
@@ -2286,10 +2305,10 @@ index 30d843426..73915300b 100644
    "chat.questionCard.next": "Siguiente",
    "chat.questionCard.dismiss": "Descartar",
 diff --git a/packages/ui/src/lib/i18n/messages/fr.ts b/packages/ui/src/lib/i18n/messages/fr.ts
-index 9c5626c76..e83f5281b 100644
+index 8447872c0..3e0d79571 100644
 --- a/packages/ui/src/lib/i18n/messages/fr.ts
 +++ b/packages/ui/src/lib/i18n/messages/fr.ts
-@@ -2343,17 +2343,17 @@ export const dict = {
+@@ -2366,17 +2366,17 @@ export const dict = {
    'chat.questionCard.inputNeeded': 'Entrée nécessaire',
    'chat.questionCard.fromSubagent': 'Du sous-agent',
    'chat.questionCard.questionFallback': 'Question {index}',
@@ -2315,10 +2334,10 @@ index 9c5626c76..e83f5281b 100644
    'chat.questionCard.next': 'Suivant',
    'chat.questionCard.dismiss': 'Ignorer',
 diff --git a/packages/ui/src/lib/i18n/messages/he.ts b/packages/ui/src/lib/i18n/messages/he.ts
-index 07cb9bc77..325deb084 100644
+index ba6905479..1aeea1a85 100644
 --- a/packages/ui/src/lib/i18n/messages/he.ts
 +++ b/packages/ui/src/lib/i18n/messages/he.ts
-@@ -2530,17 +2530,17 @@ export const dict = {
+@@ -2551,17 +2551,17 @@ export const dict = {
    'chat.questionCard.inputNeeded': 'נדרש קלט',
    'chat.questionCard.fromSubagent': 'מסוכן משנה',
    'chat.questionCard.questionFallback': 'שאלה {index}',
@@ -2344,10 +2363,10 @@ index 07cb9bc77..325deb084 100644
    'chat.questionCard.next': 'הבא',
    'chat.questionCard.dismiss': 'דלג',
 diff --git a/packages/ui/src/lib/i18n/messages/ja.ts b/packages/ui/src/lib/i18n/messages/ja.ts
-index ad0bc3e91..d280636d7 100644
+index 4f1ce3563..4a4fccd88 100644
 --- a/packages/ui/src/lib/i18n/messages/ja.ts
 +++ b/packages/ui/src/lib/i18n/messages/ja.ts
-@@ -2627,17 +2627,17 @@ export const dict: Record<I18nKey, string> = {
+@@ -2650,17 +2650,17 @@ export const dict: Record<I18nKey, string> = {
    'chat.questionCard.inputNeeded': '入力が必要',
    'chat.questionCard.fromSubagent': 'サブエージェントから',
    'chat.questionCard.questionFallback': '質問{index}',
@@ -2373,10 +2392,10 @@ index ad0bc3e91..d280636d7 100644
    'chat.questionCard.next': '次へ',
    'chat.questionCard.dismiss': '閉じる',
 diff --git a/packages/ui/src/lib/i18n/messages/ko.ts b/packages/ui/src/lib/i18n/messages/ko.ts
-index f862ca7fb..b3a3f80d7 100644
+index 059f5aab9..ff09e0e19 100644
 --- a/packages/ui/src/lib/i18n/messages/ko.ts
 +++ b/packages/ui/src/lib/i18n/messages/ko.ts
-@@ -2631,17 +2631,17 @@ export const dict: Record<I18nKey, string> = {
+@@ -2654,17 +2654,17 @@ export const dict: Record<I18nKey, string> = {
    'chat.questionCard.inputNeeded': '입력 필요',
    'chat.questionCard.fromSubagent': '서브 에이전트에서',
    'chat.questionCard.questionFallback': '질문 {index}',
@@ -2402,10 +2421,10 @@ index f862ca7fb..b3a3f80d7 100644
    'chat.questionCard.next': '다음',
    'chat.questionCard.dismiss': '닫기',
 diff --git a/packages/ui/src/lib/i18n/messages/nl.ts b/packages/ui/src/lib/i18n/messages/nl.ts
-index 63469bf8f..27f1dd811 100644
+index 1b3d09f9a..91b0464ff 100644
 --- a/packages/ui/src/lib/i18n/messages/nl.ts
 +++ b/packages/ui/src/lib/i18n/messages/nl.ts
-@@ -2631,17 +2631,17 @@ export const dict = {
+@@ -2654,17 +2654,17 @@ export const dict = {
    'chat.questionCard.inputNeeded': 'Invoer nodig',
    'chat.questionCard.fromSubagent': 'Van subagent',
    'chat.questionCard.questionFallback': 'Vraag {index}',
@@ -2431,10 +2450,10 @@ index 63469bf8f..27f1dd811 100644
    'chat.questionCard.next': 'Volgende',
    'chat.questionCard.dismiss': 'Sluiten',
 diff --git a/packages/ui/src/lib/i18n/messages/pl.ts b/packages/ui/src/lib/i18n/messages/pl.ts
-index 317d29e12..3a5cd012c 100644
+index 82ddd5581..8cc6ce88e 100644
 --- a/packages/ui/src/lib/i18n/messages/pl.ts
 +++ b/packages/ui/src/lib/i18n/messages/pl.ts
-@@ -1180,17 +1180,17 @@ export const dict: Record<I18nKey, string> = {
+@@ -1198,17 +1198,17 @@ export const dict: Record<I18nKey, string> = {
    'chat.questionCard.inputNeeded': 'Wymagane wejście',
    'chat.questionCard.fromSubagent': 'Od pod-agenta',
    'chat.questionCard.questionFallback': 'Pytanie {index}',
@@ -2460,10 +2479,10 @@ index 317d29e12..3a5cd012c 100644
    'chat.questionCard.next': 'Następne',
    'chat.questionCard.dismiss': 'Odrzuć',
 diff --git a/packages/ui/src/lib/i18n/messages/pt-BR.ts b/packages/ui/src/lib/i18n/messages/pt-BR.ts
-index 5ce28808f..3015f8f30 100644
+index ffe3ebd84..36b316a79 100644
 --- a/packages/ui/src/lib/i18n/messages/pt-BR.ts
 +++ b/packages/ui/src/lib/i18n/messages/pt-BR.ts
-@@ -2601,17 +2601,17 @@ export const dict: Record<I18nKey, string> = {
+@@ -2624,17 +2624,17 @@ export const dict: Record<I18nKey, string> = {
    "chat.questionCard.inputNeeded": "Entrada necessária",
    "chat.questionCard.fromSubagent": "De um subagente",
    "chat.questionCard.questionFallback": "Pergunta {index}",
@@ -2489,10 +2508,10 @@ index 5ce28808f..3015f8f30 100644
    "chat.questionCard.next": "Próximo",
    "chat.questionCard.dismiss": "Descartar",
 diff --git a/packages/ui/src/lib/i18n/messages/tr.ts b/packages/ui/src/lib/i18n/messages/tr.ts
-index ec00060e9..045a1c418 100644
+index 675187a15..b1184476b 100644
 --- a/packages/ui/src/lib/i18n/messages/tr.ts
 +++ b/packages/ui/src/lib/i18n/messages/tr.ts
-@@ -2474,17 +2474,17 @@ export const dict = {
+@@ -2497,17 +2497,17 @@ export const dict = {
    'chat.questionCard.inputNeeded': 'Girdi gerekiyor',
    'chat.questionCard.fromSubagent': 'Subagent\'tan',
    'chat.questionCard.questionFallback': 'Soru {index}',
@@ -2518,10 +2537,10 @@ index ec00060e9..045a1c418 100644
    'chat.questionCard.next': 'İleri',
    'chat.questionCard.dismiss': 'Yok say',
 diff --git a/packages/ui/src/lib/i18n/messages/uk.ts b/packages/ui/src/lib/i18n/messages/uk.ts
-index 41e98e55d..5ab8f75a6 100644
+index 15d7a9f63..0f270e088 100644
 --- a/packages/ui/src/lib/i18n/messages/uk.ts
 +++ b/packages/ui/src/lib/i18n/messages/uk.ts
-@@ -2599,17 +2599,17 @@ export const dict: Record<I18nKey, string> = {
+@@ -2622,17 +2622,17 @@ export const dict: Record<I18nKey, string> = {
    "chat.questionCard.inputNeeded": "Потрібна відповідь",
    "chat.questionCard.fromSubagent": "Від субагента",
    "chat.questionCard.questionFallback": "Питання {index}",
@@ -2547,10 +2566,10 @@ index 41e98e55d..5ab8f75a6 100644
    "chat.questionCard.next": "Далі",
    "chat.questionCard.dismiss": "Відхилити",
 diff --git a/packages/ui/src/lib/i18n/messages/zh-CN.ts b/packages/ui/src/lib/i18n/messages/zh-CN.ts
-index d84d1bbde..58aba12e2 100644
+index 5bd651a8f..d082544da 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-CN.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-CN.ts
-@@ -2597,17 +2597,17 @@ export const dict: Record<I18nKey, string> = {
+@@ -2620,17 +2620,17 @@ export const dict: Record<I18nKey, string> = {
    'chat.questionCard.inputNeeded': '需要输入',
    'chat.questionCard.fromSubagent': '来自子智能体',
    'chat.questionCard.questionFallback': '问题 {index}',
@@ -2576,10 +2595,10 @@ index d84d1bbde..58aba12e2 100644
    'chat.questionCard.next': '下一个',
    'chat.questionCard.dismiss': '忽略',
 diff --git a/packages/ui/src/lib/i18n/messages/zh-TW.ts b/packages/ui/src/lib/i18n/messages/zh-TW.ts
-index 635618136..5e759445e 100644
+index 1a64ea990..d0ad7a39b 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-TW.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-TW.ts
-@@ -2608,17 +2608,17 @@ export const dict: Record<I18nKey, string> = {
+@@ -2631,17 +2631,17 @@ export const dict: Record<I18nKey, string> = {
    'chat.questionCard.inputNeeded': '需要輸入',
    'chat.questionCard.fromSubagent': '來自子 Agent',
    'chat.questionCard.questionFallback': '問題 {index}',

@@ -78,10 +78,10 @@ index 945fb2e16..ceaf5ba6a 100644
            state={turnActivity ?? 'unread'}
          />
 diff --git a/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx b/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx
-index 1a9985e6d..53f248ba6 100644
+index 4e44f25c8..96cd228a1 100644
 --- a/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx
 +++ b/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx
-@@ -39,7 +39,8 @@ import { useSessionMarkedUnread, useSessionUnread } from '@/sync/session-unread'
+@@ -43,7 +43,8 @@ import { useSessionMarkedUnread, useSessionUnread } from '@/sync/session-unread'
  import { getSessionDirectory } from '../mobileSessionFields';
  import { MobileProjectIcon } from '../MobileProjectIcon';
  import { MobileSessionRenameForm } from '../MobileSessionRenameForm';
@@ -91,7 +91,7 @@ index 1a9985e6d..53f248ba6 100644
  import { MobileSessionRowActions, MobileSwipeActionsRow, ROW_ACTION_SLOT_WIDTH, ROW_ACTIONS_WIDTH } from '../MobileSessionSwipe';
  import { mobileSessionTitleClass } from '../mobileSessionTitle';
  import { usePendingRequests } from '../usePendingRequests';
-@@ -228,7 +229,7 @@ export const MobileSessionRow: React.FC<{
+@@ -250,7 +251,7 @@ export const MobileSessionRow: React.FC<{
              <MobileSessionGoalGlyph session={session} />
              {refMark(true)}
              {marks}
@@ -100,15 +100,15 @@ index 1a9985e6d..53f248ba6 100644
            </span>
          </> : null}
        />
-@@ -252,7 +253,7 @@ export const MobileSessionRow: React.FC<{
+@@ -274,7 +275,7 @@ export const MobileSessionRow: React.FC<{
            <MobileSessionGoalGlyph session={session} />
            {refMark(false)}
            {marks}
 -          <MobileSessionPendingBadges {...pendingRequests} />
 +          <SessionPendingMarks {...pendingRequests} />
+           {leadMarker}
            {pinMarker}
            {liveState}
-           {timeSlot}
 diff --git a/packages/ui/src/components/multirun/LaneStatusIcon.tsx b/packages/ui/src/components/multirun/LaneStatusIcon.tsx
 index a4e4b605e..ce18807d3 100644
 --- a/packages/ui/src/components/multirun/LaneStatusIcon.tsx
@@ -358,10 +358,10 @@ index 4880e077d..1d4be0451 100644
            <SessionActivityIndicator
              state={turnActivity ?? 'unread'}
 diff --git a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-index 933aca0b5..05c6a7416 100644
+index ab8fcd44c..e2238ca80 100644
 --- a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
 +++ b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-@@ -350,7 +350,7 @@ no Shift.
+@@ -363,7 +363,7 @@ no Shift.
  
  ### Why project trees resolve lineage globally
  
@@ -370,7 +370,7 @@ index 933aca0b5..05c6a7416 100644
  
  Bucket-local lineage promoted cross-project subagents to independent rows and left their parent without an expansion control. The missing-parent fallback applies only while both active and archived sources lack the parent, and clears when either parent arrives. The project-section cache tracks each project's visible ancestors and descendants, including their order and record identity, so a lineage or same-ID semantic change rebuilds the affected trees without replacing unrelated project sections.
  
-@@ -379,7 +379,7 @@ bootstrap work. Selection and activity subscriptions stay session-scoped so a
+@@ -392,7 +392,7 @@ bootstrap work. Selection and activity subscriptions stay session-scoped so a
  structural list update does not make every row observe unrelated streaming
  updates.
  
@@ -380,10 +380,10 @@ index 933aca0b5..05c6a7416 100644
  A session row's menu and the header's session menus (a tab's, the title's)
  are one component, `sessions/SessionActionsMenuItems.tsx`; each surface
 diff --git a/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.marks.test.tsx b/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.marks.test.tsx
-index be36092ac..f35bb726a 100644
+index 2b6799450..f4e6ab993 100644
 --- a/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.marks.test.tsx
 +++ b/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.marks.test.tsx
-@@ -15,9 +15,12 @@ const links: Array<{ url: string; directory: string | null }> = [];
+@@ -16,9 +16,12 @@ const links: Array<{ url: string; directory: string | null }> = [];
  const selected: Array<{ sessionId: string; directory: string | null }> = [];
  let rowRenders = 0;
  const syncContext = await import('@/sync/sync-context');
@@ -397,7 +397,7 @@ index be36092ac..f35bb726a 100644
  }));
  const aiRename = await import('@/sync/use-session-ai-rename');
  mock.module('@/sync/use-session-ai-rename', () => ({
-@@ -141,6 +144,7 @@ const render = async (props: SessionNodeItemProps): Promise<void> => {
+@@ -143,6 +146,7 @@ const render = async (props: SessionNodeItemProps): Promise<void> => {
  const drawn = (): string[] => Array.from(host.querySelectorAll('[data-guest-mark]')).map((node) => node.getAttribute('aria-label') ?? '');
  
  beforeEach(() => {
@@ -405,7 +405,7 @@ index be36092ac..f35bb726a 100644
    win = new Window({ url: 'http://localhost/' });
    const globals = {
      window: win, document: win.document, navigator: win.navigator,
-@@ -250,6 +254,22 @@ test('a mark with nothing to open is an image, not a button', async () => {
+@@ -253,6 +257,22 @@ test('a mark with nothing to open is an image, not a button', async () => {
    expect(node?.getAttribute('aria-label')).toBe('Deploy Log: Deployed');
  });
  
@@ -908,10 +908,10 @@ index e2750933c..22c8ca9c7 100644
        "userMessageBackground": "#ebeef3",
        "divider": "#D9D9D9",
 diff --git a/packages/ui/src/styles/design-system.css b/packages/ui/src/styles/design-system.css
-index b0b9899e0..f2665c21a 100644
+index 7aee24dc6..1fb408805 100644
 --- a/packages/ui/src/styles/design-system.css
 +++ b/packages/ui/src/styles/design-system.css
-@@ -1060,6 +1060,9 @@ html[data-glass-redraw-guard] body::before {
+@@ -1068,6 +1068,9 @@ html[data-glass-redraw-guard] body::before {
    --color-status-warning: var(--status-warning);
    --color-status-error: var(--status-error);
    --color-status-info: var(--status-info);

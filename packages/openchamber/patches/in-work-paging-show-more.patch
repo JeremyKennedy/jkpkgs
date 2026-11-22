@@ -413,10 +413,10 @@ index 84ccdc84d..a5af3c157 100644
    );
  };
 diff --git a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-index cd0fbba94..5e3001112 100644
+index 7e66ea6e4..2fe8e839f 100644
 --- a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
 +++ b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-@@ -710,7 +710,8 @@ the same Mark all as read.
+@@ -743,7 +743,8 @@ the same Mark all as read.
    with a reveal of 3 and 7 more per Show more; pinned chats are always shown
    and never spend that limit. Pinned sessions under a project do spend its
    limit, so a project or worktree list never opens with more than its batch.
@@ -426,7 +426,7 @@ index cd0fbba94..5e3001112 100644
  - Zone collapse state lives in `useSessionProjectViewState` next to project
    collapse and is saved in local storage (`oc.sessions.activityCollapse`). The
    display menu's Collapse all / Expand all set every project and the zones
-@@ -797,12 +798,19 @@ per surface, on by default) shows it. The block ranks what needs the user
+@@ -841,12 +842,19 @@ per surface, on by default) shows it. The block ranks what needs the user
  first: a work waiting on a permission, a question or a page
  (`orderInWorkWorksByAttention` in `works/sidebarWorks.ts`), then one whose
  turn runs, then one whose finished turn is unread or that Jev says looks done,
@@ -452,7 +452,7 @@ index cd0fbba94..5e3001112 100644
  A session work is in work when its root
  or a nested non-subagent session is (`metadata.openchamber.work.state ===
  'open'`, see `packages/web/server/lib/session-work/DOCUMENTATION.md`); a
-@@ -1514,13 +1522,12 @@ rest it is as quiet as the button was.
+@@ -1572,13 +1580,12 @@ rest it is as quiet as the button was.
    `sidebarSessionBatchSize`, 3 to 50, set in the sections manager; the phone
    has no control and follows it). Unset, a project shows 7, 10 in VS Code,
    and VS Code's single-project flat mode 20. A run or a worktree spends one
@@ -473,7 +473,7 @@ index cd0fbba94..5e3001112 100644
    Show more carries the collapsed-header activity indicator after its label,
    covering only the sessions it hides, including runs and worktree contents.
 diff --git a/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx b/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx
-index 6692b0e81..b0e1f81ed 100644
+index b023aedd1..8bcda2351 100644
 --- a/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx
 +++ b/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx
 @@ -177,7 +177,13 @@ type SessionProjectCollectionProps = {
@@ -491,7 +491,7 @@ index 6692b0e81..b0e1f81ed 100644
    const { t } = useI18n();
    const { alwaysShowActions, projectViewActions, rowActions, ...scrollerActions } = actions;
    const foldersMap = useSessionFoldersStore((state) => state.foldersMap);
-@@ -455,13 +461,18 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+@@ -454,13 +460,18 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
    const [heldProjectOrder, setHeldProjectOrder] = React.useState<readonly string[] | null>(null);
    const shownProjectOrderRef = React.useRef<readonly string[]>([]);
    const holdsProjectOrder = view.projectSortOrder === 'recent';
@@ -516,7 +516,7 @@ index 6692b0e81..b0e1f81ed 100644
    React.useEffect(() => {
      if (!holdsProjectOrder) setHeldProjectOrder(null);
    }, [holdsProjectOrder]);
-@@ -474,6 +485,20 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+@@ -473,6 +484,20 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
    }, [orderedSectionsForRender]);
    const sessionWorkEnabled = useUIStore((state) => state.sessionWorkEnabled);
    const showWorkSection = useSessionDisplayStore((state) => state.showWorkSection);
@@ -537,7 +537,7 @@ index 6692b0e81..b0e1f81ed 100644
    const showPinnedSection = useSessionDisplayStore((state) => state.showPinnedSection);
    const keepPinnedInPlace = useSessionDisplayStore((state) => state.keepPinnedInPlace);
    const detailedZoneRows = useSessionDisplayStore((state) => state.detailedZoneRows);
-@@ -1252,6 +1277,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+@@ -1249,6 +1274,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
      movedSessionIds,
      movedGroupKeys,
      detailedZoneRows,
@@ -545,7 +545,7 @@ index 6692b0e81..b0e1f81ed 100644
      foldersMap,
      contentSearchResults: conversationResults,
      revealedSearchSections,
-@@ -1284,7 +1310,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+@@ -1281,7 +1307,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
      sessionBatchSize,
      runIndex,
      blocks: sidebarBlocks,
@@ -554,7 +554,7 @@ index 6692b0e81..b0e1f81ed 100644
    React.useEffect(() => {
      onSearchMatchCountChange(searchTotalCount);
    }, [searchTotalCount, onSearchMatchCountChange]);
-@@ -1413,20 +1439,30 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+@@ -1410,20 +1436,30 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
          className="contents"
          onPointerEnter={(event) => {
            if (event.pointerType !== 'mouse') return;
@@ -589,7 +589,7 @@ index 6692b0e81..b0e1f81ed 100644
          }}
        >
          {view.renderList
-@@ -1441,5 +1477,14 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+@@ -1438,5 +1474,14 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
  export const SessionProjectCollection: React.FC<SessionProjectCollectionProps> = (props) => {
    const [shown, setShown] = React.useState(props.view.isVisible);
    if (props.view.isVisible && !shown) setShown(true);
@@ -818,7 +818,7 @@ index 3574f7088..e55b46976 100644
  
    const selectedSection = args.singleProjectMode
 diff --git a/packages/ui/src/lib/i18n/messages/ar.settings.ts b/packages/ui/src/lib/i18n/messages/ar.settings.ts
-index fc24d71b3..67fcc4031 100644
+index 7a8564e2c..b54f94481 100644
 --- a/packages/ui/src/lib/i18n/messages/ar.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/ar.settings.ts
 @@ -1147,6 +1147,10 @@ export const settingsDict = {
@@ -833,7 +833,7 @@ index fc24d71b3..67fcc4031 100644
    'settings.openchamber.sessionRetention.tooltip': 'يؤرشف الجلسات غير المؤرشفة أو يحذفها بناءً على آخر نشاط. يحتفظ بآخر 5 جلسات، والجلسة المفتوحة، والجلسات قيد التشغيل، والجلسات المثبّتة. تبقى أيضًا الجلسات في قسم «قيد العمل» ما لم تُضمّنها. تُحفظ الجلسات المؤرشفة. يُحتفظ بالجلسة الأم إذا كان حذفها سيحذف أيضًا جلسة فرعية محمية.',
    'settings.openchamber.sessionRetention.field.enableAutoCleanupAria': 'تفعيل التنظيف التلقائي',
 diff --git a/packages/ui/src/lib/i18n/messages/de.settings.ts b/packages/ui/src/lib/i18n/messages/de.settings.ts
-index d0c1d133d..a915e8025 100644
+index 0751155ce..1e91e18e7 100644
 --- a/packages/ui/src/lib/i18n/messages/de.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/de.settings.ts
 @@ -1106,6 +1106,10 @@ export const settingsDict = {
@@ -848,7 +848,7 @@ index d0c1d133d..a915e8025 100644
    'settings.openchamber.sessionRetention.tooltip': 'Archiviert oder löscht nicht archivierte Sitzungen anhand ihrer letzten Aktivität. Behält die 5 neuesten Sitzungen, die geöffnete Sitzung sowie laufende und angeheftete Sitzungen. Sitzungen im Bereich „In Arbeit“ bleiben ebenfalls erhalten, sofern Sie sie nicht einbeziehen. Archivierte Sitzungen bleiben erhalten. Eine übergeordnete Sitzung bleibt erhalten, wenn ihre Löschung auch eine geschützte untergeordnete Sitzung löschen würde.',
    'settings.openchamber.sessionRetention.field.enableAutoCleanupAria': 'Automatische Bereinigung aktivieren',
 diff --git a/packages/ui/src/lib/i18n/messages/en.settings.ts b/packages/ui/src/lib/i18n/messages/en.settings.ts
-index 7863a3b72..cc3975f00 100644
+index 978f40132..0c293ced9 100644
 --- a/packages/ui/src/lib/i18n/messages/en.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/en.settings.ts
 @@ -1147,6 +1147,10 @@ export const settingsDict = {
@@ -863,7 +863,7 @@ index 7863a3b72..cc3975f00 100644
    'settings.openchamber.sessionRetention.tooltip': 'Archives or deletes unarchived sessions based on last activity. Keeps the 5 most recent sessions, the open session, running sessions and pinned sessions. Sessions in the In work block are kept too unless you include them. Archived sessions are kept. A parent is kept if deleting it would also delete a protected child.',
    'settings.openchamber.sessionRetention.field.enableAutoCleanupAria': 'Enable auto-cleanup',
 diff --git a/packages/ui/src/lib/i18n/messages/es.settings.ts b/packages/ui/src/lib/i18n/messages/es.settings.ts
-index f0bfa9acb..a6f0dc258 100644
+index 147df1325..af9383504 100644
 --- a/packages/ui/src/lib/i18n/messages/es.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/es.settings.ts
 @@ -1115,6 +1115,10 @@ export const settingsDict = {
@@ -878,7 +878,7 @@ index f0bfa9acb..a6f0dc258 100644
    "settings.openchamber.sessionRetention.tooltip": "Archiva o elimina sesiones no archivadas según su última actividad. Conserva las 5 sesiones más recientes, la sesión abierta, las sesiones en ejecución y las ancladas. Las sesiones del bloque «En curso» también se conservan, salvo que las incluyas. Las sesiones archivadas se conservan. Una sesión principal se conserva si eliminarla también eliminaría una sesión secundaria protegida.",
    "settings.openchamber.sessionRetention.field.enableAutoCleanupAria": "Habilitar limpieza automática",
 diff --git a/packages/ui/src/lib/i18n/messages/fr.settings.ts b/packages/ui/src/lib/i18n/messages/fr.settings.ts
-index a5085b795..3bee643bc 100644
+index 03c8ae068..5e8c56e72 100644
 --- a/packages/ui/src/lib/i18n/messages/fr.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/fr.settings.ts
 @@ -1018,6 +1018,10 @@ export const settingsDict = {
@@ -893,7 +893,7 @@ index a5085b795..3bee643bc 100644
    'settings.openchamber.sessionRetention.tooltip': 'Archive ou supprime les sessions non archivées selon leur dernière activité. Conserve les 5 sessions les plus récentes, la session ouverte, les sessions en cours d’exécution et les sessions épinglées. Les sessions du bloc « En cours » sont aussi conservées, sauf si vous les incluez. Les sessions archivées sont conservées. Une session parente est conservée si sa suppression supprimerait aussi une session enfant protégée.',
    'settings.openchamber.sessionRetention.field.enableAutoCleanupAria': 'Activer le nettoyage automatique',
 diff --git a/packages/ui/src/lib/i18n/messages/he.settings.ts b/packages/ui/src/lib/i18n/messages/he.settings.ts
-index 5d21f647d..49c99fc50 100644
+index 1aa738897..d1f2ec7e8 100644
 --- a/packages/ui/src/lib/i18n/messages/he.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/he.settings.ts
 @@ -1147,6 +1147,10 @@ export const settingsDict = {
@@ -908,7 +908,7 @@ index 5d21f647d..49c99fc50 100644
    'settings.openchamber.sessionRetention.tooltip': 'מעביר לארכיון או מוחק הפעלות שלא בארכיון לפי הפעילות האחרונה. שומר את 5 ההפעלות האחרונות, את ההפעלה הפתוחה, הפעלות שרצות והפעלות מוצמדות. גם הפעלות באזור „בעבודה” נשמרות, אלא אם כוללים אותן. הפעלות בארכיון נשמרות. הפעלת אב נשמרת אם מחיקתה תמחק גם הפעלת צאצא מוגנת.',
    'settings.openchamber.sessionRetention.field.enableAutoCleanupAria': 'הפעל ניקוי אוטומטי',
 diff --git a/packages/ui/src/lib/i18n/messages/ja.settings.ts b/packages/ui/src/lib/i18n/messages/ja.settings.ts
-index 33679a7ff..27c1080e2 100644
+index 61b9d686f..b54f083f3 100644
 --- a/packages/ui/src/lib/i18n/messages/ja.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/ja.settings.ts
 @@ -1148,6 +1148,10 @@ export const settingsDict = {
@@ -923,7 +923,7 @@ index 33679a7ff..27c1080e2 100644
    'settings.openchamber.sessionRetention.tooltip': '最終アクティビティに基づいて未アーカイブのセッションをアーカイブまたは削除します。最新5件、開いているセッション、実行中のセッション、ピン留めしたセッションは保持されます。「作業中」ブロックのセッションも、含める設定にしない限り保持されます。アーカイブ済みのセッションも保持されます。保護された子セッションまで削除される場合、親セッションは削除されません。',
    'settings.openchamber.sessionRetention.field.enableAutoCleanupAria': '自動クリーンアップを有効化',
 diff --git a/packages/ui/src/lib/i18n/messages/ko.settings.ts b/packages/ui/src/lib/i18n/messages/ko.settings.ts
-index ea7497904..0a09e2368 100644
+index a032e5b5e..3fef22039 100644
 --- a/packages/ui/src/lib/i18n/messages/ko.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/ko.settings.ts
 @@ -1115,6 +1115,10 @@ export const settingsDict = {
@@ -938,7 +938,7 @@ index ea7497904..0a09e2368 100644
    'settings.openchamber.sessionRetention.tooltip': '마지막 활동을 기준으로 보관되지 않은 세션을 보관하거나 삭제합니다. 최근 세션 5개, 열려 있는 세션, 실행 중인 세션과 고정된 세션은 유지됩니다. "작업 중" 영역의 세션도 포함하도록 설정하지 않으면 유지됩니다. 보관된 세션도 유지됩니다. 상위 세션을 삭제하면 보호된 하위 세션도 삭제되는 경우 상위 세션을 유지합니다.',
    'settings.openchamber.sessionRetention.field.enableAutoCleanupAria': '자동 정리 활성화',
 diff --git a/packages/ui/src/lib/i18n/messages/nl.settings.ts b/packages/ui/src/lib/i18n/messages/nl.settings.ts
-index 1d3986017..303b149d0 100644
+index 14bec9986..469b8e064 100644
 --- a/packages/ui/src/lib/i18n/messages/nl.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/nl.settings.ts
 @@ -1148,6 +1148,10 @@ export const settingsDict = {
@@ -953,10 +953,10 @@ index 1d3986017..303b149d0 100644
    'settings.openchamber.sessionRetention.tooltip': 'Archiveert of verwijdert niet-gearchiveerde sessies op basis van de laatste activiteit. Behoudt de 5 meest recente sessies, de geopende sessie, lopende sessies en vastgezette sessies. Sessies in het blok "In bewerking" blijven ook bewaard, tenzij u ze meeneemt. Gearchiveerde sessies blijven behouden. Een bovenliggende sessie blijft behouden als verwijderen daarvan ook een beschermde subsessie zou verwijderen.',
    'settings.openchamber.sessionRetention.field.enableAutoCleanupAria': 'Automatisch opschonen aanzetten',
 diff --git a/packages/ui/src/lib/i18n/messages/pl.settings.ts b/packages/ui/src/lib/i18n/messages/pl.settings.ts
-index 6b9ea095f..1126a8c6b 100644
+index 798801f50..61c6755cf 100644
 --- a/packages/ui/src/lib/i18n/messages/pl.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/pl.settings.ts
-@@ -1154,6 +1154,10 @@ export const settingsDict = {
+@@ -1158,6 +1158,10 @@ export const settingsDict = {
    'settings.openchamber.sessionWork.title': 'Sesje w toku',
    'settings.openchamber.sessionWork.info': 'Blok na pasku bocznym pod czatami, przeznaczony dla sesji, nad którymi pracujesz. Sesja pojawia się tam po wysłaniu wiadomości. Domyślnie jest widoczna tylko w tym bloku. Aby była widoczna również w swoim projekcie, otwórz „Dostosuj sekcje…” w menu paska bocznego i włącz „Także w projektach” przy „W toku”. Na telefonie włącz „Pokazuj też prace w toku pod projektami” w menu paska bocznego. W VS Code sesje są zawsze widoczne w projektach. Oznacz sesję jako gotową znacznikiem lub w jej menu. Gdy tura wygląda na koniec pracy, znacznik szarzeje jako podpowiedź.',
    'settings.openchamber.sessionWork.field.enabled': 'Pokazuj sesje w toku',
@@ -968,7 +968,7 @@ index 6b9ea095f..1126a8c6b 100644
    'settings.openchamber.sessionRetention.toast.archivedCount': 'Zarchiwizowano {count} sesji',
    'settings.openchamber.sessionRetention.toast.deletedCount': 'Usunięto {count} sesji',
 diff --git a/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts b/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
-index 221a82dd9..894ac31d4 100644
+index 30e133cad..2153da05a 100644
 --- a/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
 @@ -1115,6 +1115,10 @@ export const settingsDict = {
@@ -983,7 +983,7 @@ index 221a82dd9..894ac31d4 100644
    "settings.openchamber.sessionRetention.tooltip": "Arquiva ou exclui sessões não arquivadas com base na última atividade. Mantém as 5 sessões mais recentes, a sessão aberta, as sessões em execução e as fixadas. As sessões do bloco 'Em andamento' também ficam, a menos que você as inclua. As sessões arquivadas são mantidas. Uma sessão principal é mantida se sua exclusão também excluir uma sessão filha protegida.",
    "settings.openchamber.sessionRetention.field.enableAutoCleanupAria": "Ativar limpeza automática",
 diff --git a/packages/ui/src/lib/i18n/messages/tr.settings.ts b/packages/ui/src/lib/i18n/messages/tr.settings.ts
-index e2ad0ece8..c9dca5025 100644
+index b05b5d256..becc33f3c 100644
 --- a/packages/ui/src/lib/i18n/messages/tr.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/tr.settings.ts
 @@ -1120,6 +1120,10 @@ export const settingsDict = {
@@ -998,7 +998,7 @@ index e2ad0ece8..c9dca5025 100644
    'settings.openchamber.sessionRetention.tooltip': 'Arşivlenmemiş oturumları son etkinliğe göre arşivler veya siler. En yeni 5 oturumu, açık oturumu, çalışan ve sabitlenen oturumları korur. "Devam eden" bölümündeki oturumlar da dahil etmediğiniz sürece korunur. Arşivlenmiş oturumlar korunur. Bir üst oturumun silinmesi korunan bir alt oturumu da silecekse üst oturum korunur.',
    'settings.openchamber.sessionRetention.field.enableAutoCleanupAria': 'Otomatik temizlemeyi etkinleştir',
 diff --git a/packages/ui/src/lib/i18n/messages/uk.settings.ts b/packages/ui/src/lib/i18n/messages/uk.settings.ts
-index 8a519b662..5e75c56a6 100644
+index 7436bf8ca..789ac3d3c 100644
 --- a/packages/ui/src/lib/i18n/messages/uk.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/uk.settings.ts
 @@ -1115,6 +1115,10 @@ export const settingsDict = {
@@ -1013,7 +1013,7 @@ index 8a519b662..5e75c56a6 100644
    "settings.openchamber.sessionRetention.tooltip": "Архівує або видаляє неархівовані сесії за часом останньої активності. Зберігає 5 найновіших сесій, відкриту сесію, сесії, що виконуються, і закріплені сесії. Сесії в блоці «В роботі» теж зберігаються, якщо ви їх не включили. Архівні сесії зберігаються. Батьківська сесія залишається, якщо її видалення зачепить захищену дочірню.",
    "settings.openchamber.sessionRetention.field.enableAutoCleanupAria": "Увімкнути автоматичне очищення",
 diff --git a/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts b/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
-index a64199dea..cfaeeeedd 100644
+index f28a0ddda..c41349e9e 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
 @@ -1115,6 +1115,10 @@ export const settingsDict = {
@@ -1028,7 +1028,7 @@ index a64199dea..cfaeeeedd 100644
    'settings.openchamber.sessionRetention.tooltip': '根据最后活动时间归档或删除未归档的会话。保留最近 5 个会话、当前打开的会话、运行中的会话和已置顶的会话。“进行中”区块里的会话也会保留，除非你选择包含它们。已归档的会话会保留。如果删除父会话会同时删除受保护的子会话，则保留父会话。',
    'settings.openchamber.sessionRetention.field.enableAutoCleanupAria': '启用自动清理',
 diff --git a/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts b/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
-index 5da797960..92a810352 100644
+index 946616fda..41a228fcc 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
 @@ -1112,6 +1112,10 @@ export const settingsDict = {
@@ -1043,10 +1043,10 @@ index 5da797960..92a810352 100644
    'settings.openchamber.sessionRetention.tooltip': '根據最後活動時間封存或刪除未封存的工作階段。保留最近 5 個工作階段、目前開啟的工作階段、執行中的工作階段及已釘選的工作階段。「進行中」區塊裡的工作階段也會保留，除非你選擇包含它們。已封存的工作階段會保留。如果刪除父工作階段會同時刪除受保護的子工作階段，則保留父工作階段。',
    'settings.openchamber.sessionRetention.field.enableAutoCleanupAria': '啟用自動清理',
 diff --git a/packages/ui/src/lib/settings/DOCUMENTATION.md b/packages/ui/src/lib/settings/DOCUMENTATION.md
-index dcaa57be4..4590a8a4b 100644
+index 41e5fdd4b..5b660dea9 100644
 --- a/packages/ui/src/lib/settings/DOCUMENTATION.md
 +++ b/packages/ui/src/lib/settings/DOCUMENTATION.md
-@@ -17,8 +17,8 @@
+@@ -18,8 +18,8 @@
  
  - **A key that is not in the registry does not persist.** `parseSettingsDocument` drops unknown keys on the way in; `updateDesktopSettings` sends only registry keys that are not `computed`; the server and the VS Code bridge drop anything the snapshot does not list.
  - **Every key has exactly one scope.** `instance` (a fact about the machine the server runs on, never synced), `profile` (the person's preference, shared by every client of the instance), `device` (state of this install/surface). `LOCAL_DEVICE_KEYS` are device fields that only ever lived in `useUIStore`'s persisted slice; `DESKTOP_SHELL_KEYS` are instance facts the Electron main process writes straight into `settings.json` and no client reads.
@@ -1057,7 +1057,7 @@ index dcaa57be4..4590a8a4b 100644
  - Project request paths use `lib/pathNormalization.ts` at the parser boundary, matching project stores and the SDK adapter. Parsing and serializing a Windows drive root preserves `C:/`; comparison or ID formatting must not turn it into a drive-relative request path.
  - Project parsing preserves `labelSource` (`auto` or `manual`) only beside a non-empty label. Unknown sources are dropped without rejecting the project. Save echoes and subsequent reads must retain manual provenance so the store's legacy auto-label migration cannot change a user's rename.
  - **Writes carry intent.** Fields with `ui.autoSave` are watched by `lib/appearanceAutoSave.ts`; changes made while `isApplyingServerSettings()` is true (a sync copying server values in) are a new baseline, not a write. The model-preference fields are watched by `lib/modelPrefsAutoSave.ts`, which delegates to the shared settings debounce, and are therefore `autoSave: false` here. Fields whose store setters already write through `updateDesktopSettings` (the config store), write several keys at once (`draftStarters` with its markers), or are owned by a dedicated auto-save are `autoSave: false` too.
-@@ -42,7 +42,7 @@
+@@ -43,7 +43,7 @@
  
  1. Add one entry to `SETTINGS_REGISTRY` with `scope`, a parser from `parsers.ts`, and a `ui` binding when a store holds the live value. Use an existing setter so its side effects run.
  2. Run `bun run settings-registry:generate` and commit both JSON snapshots.
@@ -1066,7 +1066,7 @@ index dcaa57be4..4590a8a4b 100644
  4. Add the Settings control and search entry per `.agents/skills/settings-ui-patterns`.
  5. The "new" badges follow from the anchor. The shared rows (`SettingsSection`, `SettingsControlGroup`, `SettingsStackedField`, `SettingsFieldRow`, `SettingsCheckboxRow`) render `SettingsNewBadge` for their own `settingsItem`; a control built without them puts `<SettingsNewBadge items={['<anchorId>']} />` next to its label, or the page badge points at a row that says nothing. A new control the page hides until something is opened carries its badge on that opener: the Chat and project tabs badge the anchors their tab maps hold, the notification switch badges the event rows, a tool's switch badges the options it reveals (`reveals`). Page badges count only available controls. Opening a visible page acknowledges its available anchors; hidden anchors remain pending. Row badges stay for the rest of the load. On mobile the title badge appears only on the navigation stage and counts visible pages. A fresh install seeds every build anchor and starts without badges.
  
-@@ -68,30 +68,6 @@ Page badges count every new anchor, so a row badge each control had to opt into
+@@ -71,30 +71,6 @@ Page badges count every new anchor, so a row badge each control had to opt into
  
  A client with no baseline seeds every anchor the build has, so a fresh install sees nothing new. The alternative, listing the anchors this release announces, cannot tell a fresh install from an upgrade that predates the feature, and it lights up a new install that has nothing to compare against. The cost is that controls shipped in the same release as the badge are never announced. The seed runs when the client first renders Settings, which keeps the search table out of the startup path; a client whose first render comes after an update therefore seeds past that update's anchors too.
  
@@ -1100,18 +1100,18 @@ index dcaa57be4..4590a8a4b 100644
 -The removed Sorted chat mode showed only the answers with the work folded away, and Collapsed is its closest match, so `chatRenderMode: 'sorted'` wins over a stored mode until the user picks one (which retires the key). The old wide layout is today's Full. `queueModeEnabled` is the old follow-up switch, and `'immediate'` is steer. The legacy `server` speech-to-text provider is the OpenAI-compatible endpoint, and `browser`/`wasm` are the local one. The legacy window-controls `auto` never read OS chrome configuration and behaves as `right`.
 +`sidebarWorkPageSize` is clamped by the UI parser and again by the server's `sanitizeSettingsUpdate`. A server-side copy of the range, tested against itself, would let a change to the registry bound move only one of them. The field's `bounds` rides in the generated snapshot and the server clamps the number the UI parser actually uses; `registry.test.ts` already fails when the snapshot and `registry.ts` disagree, and the server test reads the snapshot's bounds instead of restating them.
 diff --git a/packages/ui/src/lib/settings/registry.ts b/packages/ui/src/lib/settings/registry.ts
-index 5e6411093..8c96ac33d 100644
+index 56c298ddb..2c1828095 100644
 --- a/packages/ui/src/lib/settings/registry.ts
 +++ b/packages/ui/src/lib/settings/registry.ts
-@@ -16,6 +16,7 @@ import { useMessageQueueStore } from '@/stores/messageQueueStore';
- import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
- import { useUIStore, type FileEditorKeymap, type LargeTextPasteBehavior } from '@/stores/useUIStore';
+@@ -17,6 +17,7 @@ import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
+ import { STT_PROMPT_MAX_LENGTH, readTranscriptionPrompt, setTranscriptionPrompt } from '@/stores/useTranscriptionPromptStore';
+ import { useUIStore, type DocumentAttachBehavior, type FileEditorKeymap, type LargeTextPasteBehavior } from '@/stores/useUIStore';
  import { isSessionGoalMaxAutoTurns } from '@/lib/sessionGoalTurnLimit';
 +import { WORK_PAGE_SIZE_MAX, WORK_PAGE_SIZE_MIN } from '@/lib/workPageSize';
  import { hiddenSidebarSectionsSchema, SIDEBAR_SESSION_BATCH_MAX, SIDEBAR_SESSION_BATCH_MIN, sidebarPinListsSchema, sidebarSectionsSchema } from '@/lib/sidebarSections';
  import { z } from 'zod';
  import {
-@@ -93,6 +94,12 @@ type SettingsFieldSpec<T> = {
+@@ -94,6 +95,12 @@ type SettingsFieldSpec<T> = {
    derived?: true;
    secret?: true;
    computed?: true;
@@ -1124,7 +1124,7 @@ index 5e6411093..8c96ac33d 100644
  };
  
  const field = <T>(spec: SettingsFieldSpec<T>): SettingsFieldSpec<T> => spec;
-@@ -325,6 +332,20 @@ export const SETTINGS_REGISTRY = {
+@@ -330,6 +337,20 @@ export const SETTINGS_REGISTRY = {
    sidebarProjectSortOrder: field({ scope: 'profile', parse: parseOneOf(['manual', 'a-z', 'z-a', 'date-added', 'recent']), ui: sessionDisplayField('projectSortOrder') }),
    sidebarShowChatsSection: field({ scope: 'profile', perSurface: true, parse: parseBoolean, ui: sessionDisplayField('showChatsSection') }),
    sidebarShowWorkSection: field({ scope: 'profile', perSurface: true, parse: parseBoolean, ui: sessionDisplayField('showWorkSection') }),
@@ -1145,7 +1145,7 @@ index 5e6411093..8c96ac33d 100644
    sidebarShowPinnedSection: field({ scope: 'profile', perSurface: true, parse: parseBoolean, ui: sessionDisplayField('showPinnedSection') }),
    sidebarDetailedZoneRows: field({ scope: 'profile', perSurface: true, parse: parseBoolean, ui: sessionDisplayField('detailedZoneRows') }),
    sidebarWorktreeNameByBranch: field({ scope: 'profile', parse: parseBoolean, ui: sessionDisplayField('worktreeNameByBranch') }),
-@@ -724,6 +745,8 @@ type SettingsRegistrySnapshotField = {
+@@ -733,6 +754,8 @@ type SettingsRegistrySnapshotField = {
    computed?: true;
    local?: true;
    owner?: 'desktop-shell';
@@ -1154,7 +1154,7 @@ index 5e6411093..8c96ac33d 100644
  };
  
  type SettingsRegistrySnapshot = {
-@@ -742,6 +765,7 @@ export const buildSettingsRegistrySnapshot = (): SettingsRegistrySnapshot => {
+@@ -751,6 +774,7 @@ export const buildSettingsRegistrySnapshot = (): SettingsRegistrySnapshot => {
      if (spec.derived) entry.derived = true;
      if (spec.secret) entry.secret = true;
      if (spec.computed) entry.computed = true;
@@ -1163,10 +1163,10 @@ index 5e6411093..8c96ac33d 100644
    }
    for (const key of LOCAL_DEVICE_KEYS) {
 diff --git a/packages/ui/src/lib/settings/search.test.ts b/packages/ui/src/lib/settings/search.test.ts
-index 9cf9b0182..e4923e910 100644
+index 42498cefb..d928d4ce9 100644
 --- a/packages/ui/src/lib/settings/search.test.ts
 +++ b/packages/ui/src/lib/settings/search.test.ts
-@@ -56,6 +56,13 @@ describe('settings search', () => {
+@@ -73,6 +73,13 @@ describe('settings search', () => {
      expect(target?.description).toBeNull();
    });
  
@@ -1181,10 +1181,10 @@ index 9cf9b0182..e4923e910 100644
      const initial = useConfigStore.getState();
      try {
 diff --git a/packages/ui/src/lib/settings/search.ts b/packages/ui/src/lib/settings/search.ts
-index 24a477890..e8f4160b7 100644
+index 5383a3a1d..c13035f80 100644
 --- a/packages/ui/src/lib/settings/search.ts
 +++ b/packages/ui/src/lib/settings/search.ts
-@@ -710,6 +710,15 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
+@@ -659,6 +659,15 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
      titleKey: 'settings.openchamber.sessionWork.field.enabled',
      keywords: ['in work', 'in progress', 'track', 'done', 'sidebar'],
    },
@@ -1228,10 +1228,10 @@ index 000000000..e07ffabbf
 +    : DEFAULT_WORK_PAGE_SIZE
 +);
 diff --git a/packages/ui/src/stores/DOCUMENTATION.md b/packages/ui/src/stores/DOCUMENTATION.md
-index 4fde05caf..7fa6f5144 100644
+index 4479e953a..aad32f27d 100644
 --- a/packages/ui/src/stores/DOCUMENTATION.md
 +++ b/packages/ui/src/stores/DOCUMENTATION.md
-@@ -791,7 +791,7 @@ Settings reads retain overlapping local mutations until the read settles, includ
+@@ -866,7 +866,7 @@ Settings reads retain overlapping local mutations until the read settles, includ
  
  Project ordering defaults to manual. Session display persistence v3 migrates the previously shipped `recent` project order to `manual` while preserving every other explicit sort mode.
  
@@ -1416,10 +1416,10 @@ index b3f0d73b3..a53b54f75 100644
  subscribeRuntimeEndpointWillChange(({ runtimeKey }) => dropSectionsOfOtherInstance(runtimeKey));
  queueMicrotask(() => dropSectionsOfOtherInstance(getRuntimeKey()));
 diff --git a/packages/vscode/src/settings-registry.json b/packages/vscode/src/settings-registry.json
-index 481e71ddc..289636940 100644
+index 699b18596..bdaa3e554 100644
 --- a/packages/vscode/src/settings-registry.json
 +++ b/packages/vscode/src/settings-registry.json
-@@ -377,6 +377,14 @@
+@@ -386,6 +386,14 @@
        "scope": "profile",
        "perSurface": true
      },
@@ -1435,10 +1435,10 @@ index 481e71ddc..289636940 100644
        "scope": "profile",
        "perSurface": true
 diff --git a/packages/web/server/lib/opencode/DOCUMENTATION.md b/packages/web/server/lib/opencode/DOCUMENTATION.md
-index dba45cb6f..33ba8d071 100644
+index ba627f751..8eca1ce23 100644
 --- a/packages/web/server/lib/opencode/DOCUMENTATION.md
 +++ b/packages/web/server/lib/opencode/DOCUMENTATION.md
-@@ -618,6 +618,69 @@ null means a completed probe with no snapshot and suppresses another probe.
+@@ -787,6 +787,69 @@ null means a completed probe with no snapshot and suppresses another probe.
    - `ensureOpenCodeApiPrefix()`
    - `scheduleOpenCodeApiDetection()`
  
@@ -1509,19 +1509,19 @@ index dba45cb6f..33ba8d071 100644
  
  Everything OpenChamber persists into OpenCode config now speaks OpenCode 2.
 diff --git a/packages/web/server/lib/settings/settings-helpers.test.js b/packages/web/server/lib/settings/settings-helpers.test.js
-index 5a4928aab..116141ebb 100644
+index af416eb8d..6ebb4a4de 100644
 --- a/packages/web/server/lib/settings/settings-helpers.test.js
 +++ b/packages/web/server/lib/settings/settings-helpers.test.js
-@@ -975,7 +975,7 @@ describe('settings registry gate', () => {
-     lastDirectory: '/home/testuser/project', homeDirectory: '/home/testuser', opencodeBinary: '/usr/local/bin/opencode',
+@@ -984,7 +984,7 @@ describe('settings registry gate', () => {
+     lastDirectory: '/home/testuser/project', homeDirectory: '/home/testuser', opencodeBinary: '/usr/local/bin/opencode', useGlobalOpenCodeService: true,
      projects: [{ id: 'p', path: '/home/testuser/project' }], activeProjectId: 'p',
      securityScopedBookmarks: ['bookmark'], pinnedDirectories: ['/home/testuser/project'],
 -    desktopLanAccessEnabled: true, desktopKeepAwakeEnabled: true, desktopMinimizeToTrayEnabled: true, desktopUpdateChannel: 'canary', serverUpdateChannel: 'canary', desktopMacMenuBarEnabled: true, desktopLinuxNativeFrame: true, sidebarShowChatsSection: false, sidebarShowWorkSection: false, sidebarShowPinnedSection: true, sidebarDetailedZoneRows: true, sidebarWorktreeNameByBranch: true, sidebarHideEmptyWorktrees: true,
 +    desktopLanAccessEnabled: true, desktopKeepAwakeEnabled: true, desktopMinimizeToTrayEnabled: true, desktopUpdateChannel: 'canary', serverUpdateChannel: 'canary', desktopMacMenuBarEnabled: true, desktopLinuxNativeFrame: true, sidebarShowChatsSection: false, sidebarShowWorkSection: false, sidebarWorkPageSize: 15, sidebarShowPinnedSection: true, sidebarDetailedZoneRows: true, sidebarWorktreeNameByBranch: true, sidebarHideEmptyWorktrees: true,
      desktopUiPassword: 'secret', githubClientId: 'client', githubScopes: 'repo', gitlabClientId: 'gitlab-client', skillCatalogs: [{ id: 'c', label: 'C', source: 'https://x' }],
      defaultGitIdentityId: 'global', permissionAutoAccept: { sessions: { s: true }, revision: 1 }, permissionDefaultMode: 'safety', messageSearchEnabled: true, messageSearchReasoningEnabled: true,
-     agentControlToolEnabled: true, agentScheduleToolEnabled: true, agentWebToolEnabled: true, browserProvider: 'builtin', agentMemoryToolEnabled: true, agentMemoryDreamingEnabled: true, agentMemoryDreamingModel: 'openai/gpt-mini', agentMemoryDreamingVariant: 'low', agentKnowledgeToolEnabled: true, agentNotifyToolEnabled: true, agentRenderToolEnabled: true, agentImageToolEnabled: true, agentSecretToolEnabled: true, agentUsageToolEnabled: true, agentTerminalToolEnabled: true, agentImageModel: 'openrouter/openai/gpt-image-2', agentWorkflowToolEnabled: true, agentWorkflowAutoApprove: true, isolatedSpacesEnabled: true, isolatedSpacesIdleStop: { enabled: true, hours: 4 }, isolatedSpacesSshHost: 'me@box.local:2222', openCodeUpdateToastDismissedVersion: '1.0.0',
-@@ -1050,6 +1050,18 @@ describe('settings registry gate', () => {
+     agentControlToolEnabled: true, agentScheduleToolEnabled: true, agentWebToolEnabled: true, browserProvider: 'builtin', agentMemoryToolEnabled: true, agentMemoryDreamingEnabled: true, agentMemoryDreamingModel: 'openai/gpt-mini', agentMemoryDreamingVariant: 'low', agentKnowledgeToolEnabled: true, agentNotifyToolEnabled: true, agentRenderToolEnabled: true, agentImageToolEnabled: true, agentSecretToolEnabled: true, agentUsageToolEnabled: true, agentTerminalToolEnabled: true, agentImageModel: 'openrouter/openai/gpt-image-2', agentWorkflowToolEnabled: true, agentWorkflowAutoApprove: true, agentWorkflowAutoApproveLeads: true, isolatedSpacesEnabled: true, isolatedSpacesIdleStop: { enabled: true, hours: 4 }, isolatedSpacesSshHost: 'me@box.local:2222', openCodeUpdateToastDismissedVersion: '1.0.0',
+@@ -1059,6 +1059,18 @@ describe('settings registry gate', () => {
      expect(rejected).toEqual([]);
    });
  
@@ -1541,10 +1541,10 @@ index 5a4928aab..116141ebb 100644
      const helpers = createTestHelpers();
      expect(helpers.sanitizeSettingsUpdate({
 diff --git a/packages/web/server/lib/settings/settings-helpers.ts b/packages/web/server/lib/settings/settings-helpers.ts
-index 7aea5e5b2..fc31d5607 100644
+index a292689b2..fcb39f75b 100644
 --- a/packages/web/server/lib/settings/settings-helpers.ts
 +++ b/packages/web/server/lib/settings/settings-helpers.ts
-@@ -45,6 +45,7 @@ interface RegistryField {
+@@ -46,6 +46,7 @@ interface RegistryField {
    local?: boolean;
    owner?: string;
    secret?: boolean;
@@ -1552,7 +1552,7 @@ index 7aea5e5b2..fc31d5607 100644
  }
  const settingsRegistry: { fields: Record<string, RegistryField> } = createRequire(import.meta.url)('./settings-registry.json');
  
-@@ -159,6 +160,10 @@ const SECRET_SETTINGS_KEYS = Object.freeze(
+@@ -160,6 +161,10 @@ const SECRET_SETTINGS_KEYS = Object.freeze(
      .map(([key]) => key),
  );
  
@@ -1563,7 +1563,7 @@ index 7aea5e5b2..fc31d5607 100644
  import {
    DEFAULT_INPUT_HISTORY_LIMIT,
    DEFAULT_INPUT_HISTORY_SCOPE,
-@@ -258,6 +263,7 @@ type NumberSettingsKey =
+@@ -263,6 +268,7 @@ type NumberSettingsKey =
    | 'inputHistoryLimit' | 'sidebarSessionBatchSize' | 'liveBrowserTabLimit' | 'sessionGoalMaxAutoTurns'
    | 'sessionGoalDefaultBudget' | 'summaryThreshold' | 'summaryLength' | 'maxLastMessageLength' | 'autoDeleteAfterDays'
    | 'tunnelSessionTtlMs' | 'tunnelHttpsPort' | 'fontSize' | 'chatFontSize' | 'terminalFontSize' | 'editorFontSize'
@@ -1571,7 +1571,7 @@ index 7aea5e5b2..fc31d5607 100644
    | 'padding' | 'cornerRadius' | 'inputBarOffset';
  
  type StringArraySettingsKey =
-@@ -671,6 +677,15 @@ export const createSettingsHelpers = (dependencies: SettingsHelpersDependencies)
+@@ -673,6 +679,15 @@ export const createSettingsHelpers = (dependencies: SettingsHelpersDependencies)
      if (isBoolean(candidate.sidebarShowWorkSection)) {
        result.sidebarShowWorkSection = candidate.sidebarShowWorkSection;
      }
@@ -1588,10 +1588,10 @@ index 7aea5e5b2..fc31d5607 100644
        result.sidebarShowPinnedSection = candidate.sidebarShowPinnedSection;
      }
 diff --git a/packages/web/server/lib/settings/settings-registry.json b/packages/web/server/lib/settings/settings-registry.json
-index 481e71ddc..289636940 100644
+index 699b18596..bdaa3e554 100644
 --- a/packages/web/server/lib/settings/settings-registry.json
 +++ b/packages/web/server/lib/settings/settings-registry.json
-@@ -377,6 +377,14 @@
+@@ -386,6 +386,14 @@
        "scope": "profile",
        "perSurface": true
      },
