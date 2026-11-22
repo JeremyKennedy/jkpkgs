@@ -1227,7 +1227,7 @@ index 6fa77cd68..390283b1d 100644
 +
  export const ActivityRowSkipContext = createContext<{ messageId: string; rows: number } | null>(null);
 diff --git a/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.test.ts b/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.test.ts
-index 5d13089ec..b4f55df89 100644
+index 5d13089ec..421a83013 100644
 --- a/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.test.ts
 +++ b/packages/ui/src/components/chat/lib/turns/rowSizeEstimate.test.ts
 @@ -7,7 +7,7 @@ import { writeQuestionOpen } from '../questionExpandedState';
@@ -1271,6 +1271,15 @@ index 5d13089ec..b4f55df89 100644
  };
  
  const messageRow = (rows: TimelineRow[], messageId: string) => rows.find((row) => row.kind === 'turn-message' && row.messageId === messageId)!;
+@@ -113,7 +122,7 @@ test('Show notes adds the kept lines to the answer row, or to the fold row of a
+             ...messages,
+         ]).turns[0]!;
+         const entry: TimelineEntry = { kind: 'turn', key: `turn:${turn.turnId}`, turn, isLastTurn: true, hasLaterAssistant: true };
+-        return buildTimelineRows([entry], { collapsedActivity: true, keepActivityText, expandedTurns: new Map(), showReasoningTraces: true }, []);
++        return buildTimelineRows([entry], { collapsedActivity: true, keepActivityText, expandedTurns: new Map(), showReasoningTraces: true, questionsInChat: false }, []);
+     };
+     const size = (rows: TimelineRow[], kind: TimelineRow['kind']) => estimateTimelineRowSize(rows.find((row) => row.kind === kind)!, metrics) ?? 0;
+     const step = { ...assistant('step', [text('note', line), tool('read', 'read')]), info: { ...assistant('step', []).info, finish: 'tool-calls' as const } };
 @@ -126,18 +135,29 @@ test('Show notes adds the kept lines to the answer row, or to the fold row of a
  test('a question card is sized from its own shape: the closed summary, then its options once open', () => {
      const card = (rows: TimelineRow[], partId: string) => rows.find((row) => row.kind === 'turn-message' && row.questionPartId === partId)!;
@@ -1383,9 +1392,20 @@ index 25f46fcb2..75f5cb802 100644
              const message = messageRowHeight(row, metrics);
              return message === undefined ? undefined : Math.round(message);
 diff --git a/packages/ui/src/components/chat/lib/turns/timelineRows.test.ts b/packages/ui/src/components/chat/lib/turns/timelineRows.test.ts
-index 163a71180..9c396efaf 100644
+index 163a71180..5a8593d6d 100644
 --- a/packages/ui/src/components/chat/lib/turns/timelineRows.test.ts
 +++ b/packages/ui/src/components/chat/lib/turns/timelineRows.test.ts
+@@ -36,8 +36,8 @@ const turnEntry = (messages: ChatMessageEntry[]): TimelineEntry => {
+     return { kind: 'turn', key: `turn:${turn.turnId}`, turn, isLastTurn: true };
+ };
+ 
+-const summary: TimelineRowsOptions = { collapsedActivity: false, keepActivityText: false, expandedTurns: new Map(), showReasoningTraces: true };
+-const collapsed: TimelineRowsOptions = { collapsedActivity: true, keepActivityText: false, expandedTurns: new Map(), showReasoningTraces: true };
++const summary: TimelineRowsOptions = { collapsedActivity: false, keepActivityText: false, expandedTurns: new Map(), showReasoningTraces: true , questionsInChat: false};
++const collapsed: TimelineRowsOptions = { collapsedActivity: true, keepActivityText: false, expandedTurns: new Map(), showReasoningTraces: true , questionsInChat: false};
+ 
+ describe('answerChunkCuts', () => {
+     test('leaves a short text whole', () => {
 @@ -182,6 +182,19 @@ describe('answered questions as rows of their own', () => {
          const card = steps[1]!;
          expect(card.kind === 'turn-message' && [card.questionPartId, card.questionSticks]).toEqual(['ask', false]);
