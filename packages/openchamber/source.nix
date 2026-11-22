@@ -118,6 +118,13 @@ let
       ./patches/changed-file-chip-opens-file-outside-git.patch
       ./patches/question-rows.patch
       ./patches/question-cards.patch
+      # The card draws the prompt bubble itself with the question colour mixed
+      # into that bubble's fill, so it is the same shape as the prompt above it
+      # and stays opaque. Behaviour of its own: none.
+      ./patches/question-card-bubble.patch
+      # A collapsed prompt that fills both lines used to take its attached quote
+      # with it, leaving the row behind show more.
+      ./patches/collapsed-quote-row.patch
       ./patches/gitea-references-across.patch
     ];
   };
