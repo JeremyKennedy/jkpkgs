@@ -64,6 +64,10 @@ let
       ./patches/mobile-voice-launch.patch
       ./patches/dictation-recovery.patch
       ./patches/instance-attention.patch
+      # A question tool call that ends in error sends no settlement, so the
+      # host's index kept announcing an answered question. Both halves check a
+      # pending form against OpenCode's own form list before showing it.
+      ./patches/attention-stale-form.patch
       ./patches/in-work-paging.patch
       ./patches/hide-empty-worktrees.patch
       ./patches/android-notification-dismiss.patch
