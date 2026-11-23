@@ -1,0 +1,87 @@
+diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
+index b3bfcf375..4f9de3d21 100644
+--- a/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
++++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
+@@ -326,6 +326,8 @@ test('the card fits its content, aligns right and uses transcript typography', (
+     expect(markup).toContain('border-radius:var(--radius-xl)');
+     // The APK build asserts this reaches the packaged bundle.
+     expect(markup).toContain('data-question-card-bubble');
++    // A question carries its own mark, so it never reads as a quoted line.
++    expect(markup).toContain('#oc-question');
+ });
+ 
+ test('text is selectable and expansion uses the native message link instead of a clickable card', () => {
+diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
+index 695bedef4..7194d0638 100644
+--- a/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
++++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
+@@ -4,6 +4,7 @@ import { useDeviceInfo } from '@/lib/device';
+ import { useI18n } from '@/lib/i18n';
+ import { cn } from '@/lib/utils';
+ import { hasTextSelectionInside } from '@/lib/textSelection';
++import { Icon } from '@/components/icon/Icon';
+ import type { Part } from '@/lib/opencode/model';
+ import { useUIStore } from '@/stores/useUIStore';
+ import {
+@@ -175,8 +176,9 @@ const QuestionCard: React.FC<QuestionCardProps> = ({
+         const picked = selectedOptionLabels(entry.options, entry.answer, entry.multiple);
+         return (
+             <div key={`${entry.partId}:${index}`} className="min-w-0 space-y-0.5 border-s-2 ps-2.5" style={RAIL_STYLE}>
+-                <div dir="auto" className={cn('typography-meta text-foreground/70 oc-ui-start-align', !open && 'line-clamp-2')} title={entry.question}>
+-                    {questionSentence(entry.question)}
++                <div dir="auto" className={cn('flex min-w-0 items-start gap-1.5 typography-meta text-foreground/70 oc-ui-start-align', !open && 'line-clamp-2')} title={entry.question} data-context-icon="question">
++                    <Icon name="question" className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: 'var(--status-question)' }} />
++                    <span className="min-w-0">{questionSentence(entry.question)}</span>
+                 </div>
+                 {showOptions ? (
+                     <div className="pt-1">
+@@ -224,8 +226,12 @@ const QuestionCard: React.FC<QuestionCardProps> = ({
+                         }}
+                     >
+                         {batch && !open ? (
+-                            <div className="min-w-0 border-s-2 ps-2.5" style={RAIL_STYLE}>
+-                                <div ref={listRef} className="relative grid grid-cols-[fit-content(40%)_minmax(0,1fr)] gap-x-2 gap-y-1 overflow-hidden">
++                            <div className="flex min-w-0 items-start gap-1.5 border-s-2 ps-2.5" style={RAIL_STYLE} data-context-icon="question">
++                                {/* One mark for the whole card, so a question never
++                                    reads as a quoted line. The card's grid sits beside
++                                    it, so this costs no row of its own. */}
++                                <Icon name="question" className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: 'var(--status-question)' }} />
++                                <div ref={listRef} className="relative grid min-w-0 flex-1 grid-cols-[fit-content(40%)_minmax(0,1fr)] gap-x-2 gap-y-1 overflow-hidden">
+                                     {answered.map(({ entry, answer, state }, index) => (
+                                         <div
+                                             key={`${entry.partId}:${index}`}
+diff --git a/packages/ui/src/components/chat/message/parts/UserContextPart.tsx b/packages/ui/src/components/chat/message/parts/UserContextPart.tsx
+index aa4225dda..4b0b28edb 100644
+--- a/packages/ui/src/components/chat/message/parts/UserContextPart.tsx
++++ b/packages/ui/src/components/chat/message/parts/UserContextPart.tsx
+@@ -70,9 +70,13 @@ const ContextCard: React.FC<{
+             >
+                 <div className={QUOTE_BAR_CLASS}>
+                     {showCaption ? caption : (
+-                        <div className="truncate text-sm text-muted-foreground">
++                        // The icon is the only mark that says "quoted from an
++                        // earlier message": a collapsed quote has no caption,
++                        // and without it the row reads as ordinary text.
++                        <div className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground" data-context-icon="quote">
++                            <Icon name={icon} className="h-3.5 w-3.5 shrink-0" />
+                             <span className="sr-only">{summary}: </span>
+-                            {body.trim().split('\n')[0]}
++                            <span className="truncate">{body.trim().split('\n')[0]}</span>
+                         </div>
+                     )}
+                 </div>
+diff --git a/packages/ui/src/components/chat/message/parts/UserTextPart.truncation.test.tsx b/packages/ui/src/components/chat/message/parts/UserTextPart.truncation.test.tsx
+index 1a4c9b239..456fc322b 100644
+--- a/packages/ui/src/components/chat/message/parts/UserTextPart.truncation.test.tsx
++++ b/packages/ui/src/components/chat/message/parts/UserTextPart.truncation.test.tsx
+@@ -275,6 +275,10 @@ describe('UserTextPart expand affordance (issue #3742)', () => {
+             const card = dom.container.querySelector('[role="button"]') as HTMLElement;
+             if (!card) throw new Error('Expected the collapsed context card row');
+ 
++            // A collapsed quote has no caption, so this icon is the only mark
++            // that says the row is a quote rather than ordinary text.
++            expect(card.querySelector('use[href="#oc-chat-1"]')).not.toBeNull();
++
+             const keydown = (key: string) => {
+                 card.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key, cancelable: true }));
+             };
