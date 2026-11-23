@@ -14,8 +14,14 @@ name: Android release
 on:
   push:
     branches: [main]
+    # Only what changes the app. The ledger, the README and the marker
+    # documentation live under packages/openchamber too, and a change to them
+    # builds a byte-identical APK for nobody.
     paths:
-      - packages/openchamber/**
+      - packages/openchamber/source.nix
+      - packages/openchamber/package.nix
+      - packages/openchamber/hashes.json
+      - packages/openchamber/patches/**
       - flake.lock
       - flake.nix
       - .forgejo/workflows/android-release.yaml
@@ -25,8 +31,14 @@ on:
       - scripts/publish-android-release.sh
   pull_request:
     branches: [main]
+    # Only what changes the app. The ledger, the README and the marker
+    # documentation live under packages/openchamber too, and a change to them
+    # builds a byte-identical APK for nobody.
     paths:
-      - packages/openchamber/**
+      - packages/openchamber/source.nix
+      - packages/openchamber/package.nix
+      - packages/openchamber/hashes.json
+      - packages/openchamber/patches/**
       - flake.lock
       - flake.nix
       - .forgejo/workflows/android-release.yaml
