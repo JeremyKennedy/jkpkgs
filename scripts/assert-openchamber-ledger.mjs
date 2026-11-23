@@ -8,11 +8,17 @@
 // This runs inside `just check`, so a patch cannot be added, dropped or
 // re-expressed without saying what it is and whether upstream has it.
 //
+// It also checks that the queue is the patch directory: every .patch file in
+// packages/openchamber/patches is queued, and every queued patch has its file and
+// a markers.json entry. The android release asserts markers against the
+// directory, not the queue, so a patch file left behind by a bump passes every
+// other gate and fails only the release build, after merge.
+//
 // It does not talk to the network. Whether a release already contains a patch is
 // `just upstream <tag>`, run at a base bump. What is still owed upstream is
 // `just upstream-backlog`.
 
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -41,6 +47,43 @@ try {
 const records = ledger.patches ?? {};
 const candidates = ledger.candidates ?? [];
 const problems = [];
+
+const patchesDir = join(packageDir, 'patches');
+const patchFiles = readdirSync(patchesDir)
+  .filter((name) => name.endsWith('.patch'))
+  .map((name) => name.replace(/\.patch$/, ''));
+
+let markerPatches = null;
+try {
+  markerPatches = new Set(
+    JSON.parse(readFileSync(join(patchesDir, 'markers.json'), 'utf8')).patches.map((entry) => entry.patch.replace(/\.patch$/, '')),
+  );
+} catch (error) {
+  problems.push(`markers.json is not readable: ${error.message}`);
+}
+
+for (const patch of patchFiles) {
+  if (!queue.includes(patch)) {
+    problems.push(`${patch}.patch exists in packages/openchamber/patches but is not in the queue`);
+  }
+}
+
+for (const patch of queue) {
+  if (!patchFiles.includes(patch)) {
+    problems.push(`${patch}: queued but packages/openchamber/patches/${patch}.patch does not exist`);
+  }
+  if (markerPatches && !markerPatches.has(patch)) {
+    problems.push(`${patch}: queued but has no entry in markers.json`);
+  }
+}
+
+if (markerPatches) {
+  for (const patch of markerPatches) {
+    if (!queue.includes(patch)) {
+      problems.push(`${patch}: markers.json entry exists but the patch is not in the queue`);
+    }
+  }
+}
 
 if (!Array.isArray(candidates)) {
   problems.push('"candidates" must be an array');
@@ -97,7 +140,7 @@ if (Array.isArray(candidates)) {
 if (problems.length > 0) {
   console.error('OpenChamber patch ledger problems:');
   for (const problem of problems) console.error(`  ${problem}`);
-  console.error('\nFix packages/openchamber/upstream.json, then run `just upstream <tag>` at the next base bump.');
+  console.error('\nFix packages/openchamber/upstream.json or the patch directory, then run `just upstream <tag>` at the next base bump.');
   process.exit(1);
 }
 
