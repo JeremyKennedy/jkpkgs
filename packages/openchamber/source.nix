@@ -74,6 +74,10 @@ let
       ./patches/mobile-voice-launch.patch
       ./patches/dictation-recovery.patch
       ./patches/instance-attention.patch
+      # A question tool call that ends in error sends no settlement, so the
+      # host's index kept announcing an answered question. Both halves check a
+      # pending form against OpenCode's own form list before showing it.
+      ./patches/attention-stale-form.patch
       # Carries two fixes folded in rather than queued as patches of their own.
       # The drawer applied the sidebar's folder rule to this instance's own
       # sessions and to nothing else, so a saved server's sessions in folders it
