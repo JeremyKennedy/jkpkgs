@@ -1,8 +1,8 @@
 diff --git a/packages/ui/src/components/chat/message/partUtils.test.ts b/packages/ui/src/components/chat/message/partUtils.test.ts
-index a402c11b2..78ef54c37 100644
+index a402c11b2..dacd1fa75 100644
 --- a/packages/ui/src/components/chat/message/partUtils.test.ts
 +++ b/packages/ui/src/components/chat/message/partUtils.test.ts
-@@ -34,8 +34,10 @@ describe('contextPartsPastCollapse', () => {
+@@ -34,16 +34,34 @@ describe('contextPartsPastCollapse', () => {
          expect(hiddenIds([...quotes, textPart('prompt')], 1)).toEqual(['b', 'c']);
      });
  
@@ -15,10 +15,22 @@ index a402c11b2..78ef54c37 100644
      });
  
      test('a quote with a comment takes two lines', () => {
-@@ -46,6 +48,15 @@ describe('contextPartsPastCollapse', () => {
-         expect(hiddenIds([quote('a', 'why?'), quote('b'), textPart('prompt')], 1)).toEqual(['a', 'b']);
+         expect(hiddenIds([quote('a', 'why?'), quote('b', 'and this?')], 0)).toEqual(['b']);
      });
  
+-    test('a quote with a comment that does not fit whole hides it and what follows', () => {
+-        expect(hiddenIds([quote('a', 'why?'), quote('b'), textPart('prompt')], 1)).toEqual(['a', 'b']);
++    test('a quote with a comment is kept even though it needs two lines, and what follows waits', () => {
++        // Keeping only one-line rows hid exactly the case the reader reported:
++        // a quote with a comment beside a prompt that already fills a line.
++        expect(hiddenIds([quote('a', 'why?'), quote('b'), textPart('prompt')], 1)).toEqual(['b']);
++    });
++
++    test('a quoted comment stays visible beside a prompt of any length', () => {
++        expect(hiddenIds([quote('q', 'sent'), textPart('prompt')], 1)).toEqual([]);
++        expect(hiddenIds([quote('q', 'sent'), textPart('prompt')], 2)).toEqual([]);
++    });
++
 +    test('a shared page card is not kept, because it does not collapse to a line', () => {
 +        const page = textPart('page', {
 +            [CONTEXT_METADATA_KEY]: { kind: 'shared-page', receivedId: null, host: 'example.test', title: 'Page', opened: false },
@@ -26,16 +38,14 @@ index a402c11b2..78ef54c37 100644
 +        expect(hiddenIds([page, textPart('prompt')], 2)).toEqual(['page']);
 +        // A quote after it is the row that keeps the line instead.
 +        expect(hiddenIds([page, quote('a'), textPart('prompt')], 2)).toEqual(['page']);
-+    });
-+
-     test('a session mention draws no row, so it takes no line', () => {
-         expect(hiddenIds([sessionMention('m1'), sessionMention('m2'), quote('a'), quote('b')], 0)).toEqual([]);
      });
+ 
+     test('a session mention draws no row, so it takes no line', () => {
 diff --git a/packages/ui/src/components/chat/message/partUtils.ts b/packages/ui/src/components/chat/message/partUtils.ts
-index 3e56601ac..960b496a3 100644
+index 3e56601ac..576408bee 100644
 --- a/packages/ui/src/components/chat/message/partUtils.ts
 +++ b/packages/ui/src/components/chat/message/partUtils.ts
-@@ -6,21 +6,45 @@ import type { Part } from '@/lib/opencode/model';
+@@ -6,21 +6,44 @@ import type { Part } from '@/lib/opencode/model';
  const COLLAPSED_LINES = 2;
  
  export const contextPartsPastCollapse = (parts: Part[], textLines: number): ReadonlySet<Part> => {
@@ -72,14 +82,13 @@ index 3e56601ac..960b496a3 100644
 +        fits += 1;
      }
 +
-+    // The typed text took the whole budget, which left an attached quote
-+    // reachable only behind show more. When nothing fits, the first row that
-+    // collapses to a single line keeps a line of its own, so what the reader
-+    // attached to the message is never invisible. A row that needs two lines
-+    // still waits: it cannot stand in for one.
-+    const kept = fits === 0 && linesLeft <= 0
-+        ? rows.findIndex((row) => row.lines === 1 && row.collapses)
-+        : -1;
++    // The typed text can take the whole budget and leave an attached quote
++    // reachable only behind show more. When not even the first row fits, that
++    // row is kept anyway, whatever it needs: a quote with a comment is a
++    // two-line row, and keeping only one-line rows left the reported case
++    // invisible. A shared page is still never kept; its card draws several
++    // lines and ignores the collapse.
++    const kept = fits === 0 ? rows.findIndex((row) => row.collapses) : -1;
 +
 +    const hidden = new Set<Part>();
 +    rows.forEach((row, index) => {
