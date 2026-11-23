@@ -1,107 +1,6 @@
 {
   "comment": "Upstream provenance for every OpenChamber patch in the queue. `relationship` says what an upstream release would mean for this patch: same (we shipped this change, or upstream did), alternative (upstream shipped a different design for the same need, so the patch needs reconciling rather than porting), partial (upstream took part of it), pending (a PR or issue is open and nothing has shipped), none (local only, no upstream counterpart). `mergedAs` is the merge commit when one exists. `intent` says what the patch deserves upstream: bugfix (a broken thing upstream owns), feature, personal (stays local), testing (wants more use before deciding) or declined (the maintainer refused it). `since` is the date this record was last checked. Update this file whenever a patch is added, dropped or re-expressed; scripts/openchamber-upstream.sh fails when a queued patch has no record here.",
   "patches": {
-    "commandcode-quota": {
-      "relationship": "none",
-      "intent": "feature",
-      "note": "Local-only provider. Upstream removed Command Code quota in 1.21.0 (its official API exposes no usage data) and declined to restore it; this reads the web app's own billing routes with a browser session token. Ported onto main's TypeScript provider module.",
-      "since": "2026-11-19"
-    },
-    "question-indicator": {
-      "relationship": "pending",
-      "intent": "feature",
-      "issue": 6809,
-      "note": "Feature awaiting acceptance. Draws the permission shield and question mark through one shared component with its own question colour role, and builds only on top of stale-pending-badge.",
-      "since": "2026-11-16"
-    },
-    "stale-pending-badge": {
-      "relationship": "pending",
-      "intent": "bugfix",
-      "pr": 6804,
-      "issue": 6802,
-      "note": "Behaviour only: a session row's badge answers from the directory store once it has read its own requests, and from the cross-directory index before that, so a lost settlement stops showing and a never-opened folder still shows what waits. Ported onto main's split sync modules and timeline hook. PR #6804 was withdrawn on 2026-11-20 while green except the file-size rule on an already-oversized file, branch intact at b68f564; the reviewer's last verdict was Merge. Issue #6802 stays open, so this returns as the same fix in a smaller patch.",
-      "since": "2026-11-16"
-    },
-    "reply-start-scroll": {
-      "relationship": "pending",
-      "intent": "feature",
-      "issue": 6808,
-      "note": "Feature request open. The pill's up arrow walks back to the nearest reply whose prose starts above the viewport, past the tool rows that led to it. Ported onto main's timeline handle: useNavigationSettle gained a measurement re-arm and a through-list scroll, and TimelineList/useMessageListHandle own the new handle methods.",
-      "since": "2026-11-16"
-    },
-    "draft-heading-project-picker": {
-      "relationship": "none",
-      "intent": "personal",
-      "note": "The project's name in a new-session heading is a second way into the composer's project picker. Local only; no upstream request. Ported onto main's ComposerDraftTitle and DraftWelcome: the request travels through a store because the welcome renders the heading in another component.",
-      "since": "2026-11-16"
-    },
-    "recap-full-note": {
-      "relationship": "none",
-      "intent": "personal",
-      "note": "A UI preference: the recap ends the transcript instead of lying over the gap above the composer, so the whole note stays readable. Stays local. Ported onto main's ChatViewport listFooter.",
-      "since": "2026-11-16"
-    },
-    "image-viewer-zoom": {
-      "relationship": "none",
-      "intent": "feature",
-      "note": "Pinch, double-tap and wheel zoom with pan for the image viewer, on top of upstream's fit levels. Ported onto main's imageZoom module and ToolOutputDialog. The old record cited PR #321, which does not resolve in the upstream repository, and no open issue covers it, so a feature request has to exist before this can go upstream.",
-      "since": "2026-11-17"
-    },
-    "mobile-assist-trigger": {
-      "relationship": "none",
-      "intent": "feature",
-      "note": "Android assist and deep-link launch: the launch intent is rewritten before the bridge reads it, and an assist tap opens a new draft. Local: no upstream request.",
-      "since": "2026-11-17"
-    },
-    "mobile-voice-launch": {
-      "relationship": "none",
-      "intent": "feature",
-      "note": "openchamber://new-session?dictate=1 starts dictation in the draft it names, bound to the draft's id so it never records in another. Ported onto main's composer hooks: the request is consumed in ChatInput, not in the old monolith.",
-      "since": "2026-11-17"
-    },
-    "dictation-recovery": {
-      "relationship": "none",
-      "intent": "bugfix",
-      "note": "A dictation transcript stays with the composer it was started in: a session or draft switch while it is being transcribed no longer inserts it into whatever is on screen. Origin is keyed by the composer's stable key; the transcript is stored in the origin's draft. Local.",
-      "since": "2026-11-17"
-    },
-    "instance-attention": {
-      "relationship": "none",
-      "intent": "feature",
-      "note": "Cross-instance attention: desktop and mobile poll the saved hosts and the app own server and show one merged, ordered list of sessions that need the user. 69 files, mostly new modules; local only. Carries two fixes folded in rather than queued separately: the drawer applied this instance folder rule to a saved host sessions, and a host switch cleared the session list so the instance on screen published no rows until the sheets opened.",
-      "since": "2026-11-17"
-    },
-    "question-rows": {
-      "relationship": "none",
-      "intent": "feature",
-      "note": "A question call becomes its own row in the transcript instead of a tool row: answered ones stick under their prompt and end its sticky span, waiting ones read as a card. Ported onto main's timeline: the row is cut in timelineRows.ts, the sticky rules live in stickyPrompt.ts, and the card is the row's body so the turn footer and a stopped turn's failure text stay. Issue #7108 closed as fixed by #7109, so a feature request is needed before this can be accepted upstream.",
-      "since": "2026-11-18"
-    },
-    "question-cards": {
-      "relationship": "none",
-      "intent": "feature",
-      "note": "The card itself: every option with the chosen one marked, a typed answer as one more row, a pinned batch collapsing to a one-line bar of answers, and a working turn's fold preview drawing the card in step order. Ported onto main's body modules (useAssistantRenderedParts) and TurnRow. Issue #7108 closed as fixed by #7109, so a feature request is needed before this can be accepted upstream.",
-      "since": "2026-11-18"
-    },
-    "in-work-paging": {
-      "relationship": "none",
-      "intent": "feature",
-      "note": "In work ranks its rows by what needs the user (a waiting answer, then a running turn, then unread or looks-done) from the live turn and request indexes only, so a recency update does not re-run it. Local.",
-      "since": "2026-11-18"
-    },
-    "hide-empty-worktrees": {
-      "relationship": "none",
-      "intent": "feature",
-      "note": "A worktree nobody has used yet (no session, no draft, no pin, no archived session) can be left out of the sidebar. A search still finds it. Local: the setting is ours.",
-      "since": "2026-11-18"
-    },
-    "gitea-references-across": {
-      "relationship": "pending",
-      "intent": "feature",
-      "issue": 6343,
-      "note": "The reference picker's search across a folder's repositories for Gitea and Forgejo, which have no API that names a set of repositories: a page is read per folder and merged by activity. 48 files. Ported onto main's provider-resource contract (referencesAcross in the descriptor, provider and routes) and its TypeScript settings/client modules.",
-      "since": "2026-11-18"
-    },
     "android-notification-dismiss": {
       "relationship": "pending",
       "intent": "bugfix",
@@ -109,32 +8,6 @@
       "issue": 6803,
       "note": "Opening a session removes its own delivered phone banners, and the subagent banners under it. Merged locally after the v2.7.2 port retired it on a wrong \"upstream has it\" reading. PR #6805 was withdrawn on 2026-11-20 because the native push path was never observed on a device, branch intact at 94651fc; issue #6803 is open, so it returns once there is device evidence.",
       "since": "2026-11-16"
-    },
-    "notification-family-clear": {
-      "relationship": "none",
-      "intent": "bugfix",
-      "note": "Local for now. Both upstream attempts are closed: PR #7232 generalised the shared ancestor walk and regressed ready-push suppression for a running subagent of a workflow agent, and issue #7229 was closed with it. This patch leaves `session-activity.js` alone, clears the viewed session exactly as before, and walks only the open-tag sessions with each candidate failing on its own, a cap of 50 sessions/8 steps/5 s, and a snapshot check so a tag re-claimed during the walk keeps its banner. A new attempt needs its own issue first.",
-      "since": "2026-11-19"
-    },
-    "chat-width-80": {
-      "relationship": "none",
-      "intent": "personal",
-      "note": "A fourth chat width, Extra wide (80rem), between Wider and Full. Upstream owns the setting now (default/wider/full, migrated in v29); this re-expresses the 80rem level on top of it rather than porting our old ladder.",
-      "since": "2026-11-17"
-    },
-    "in-work-paging-show-more": {
-      "relationship": "none",
-      "intent": "feature",
-      "note": "In work opens with its own page size (a stored per-surface number) and Show more adds the same number again, separate from the sidebar's session batch size. Local.",
-      "since": "2026-11-18"
-    },
-    "mobile-guest-catalog-failure": {
-      "relationship": "pending",
-      "intent": "bugfix",
-      "pr": 7231,
-      "issue": 7228,
-      "note": "Reproduced on v2.7.2 with a corrupt extensions.json: the phone now says the extension catalog could not be read instead of showing an empty list. Ported onto main's guests store. PR #7231 was withdrawn on 2026-11-20 to rework and live with it locally, branch intact at 15246b745; issue #7228 is open.",
-      "since": "2026-11-18"
     },
     "changed-file-chip-opens-file-outside-git": {
       "relationship": "partial",
@@ -145,17 +18,150 @@
       "note": "Most of this shipped: PR #7098 merged on 2026-11-21 and v2.8.0 carries it as lib/contextFileOpenGuard.ts plus views/files/openChangedFileWithoutRepository.ts, wired at useDiffViewTurnNavigation.ts:104. The release is one squashed commit (30c70496), so the API's merge commit is not in the tag's history; the content is. What remains here is the tail their version leaves open: a project that is not a repository, or a file the turn deleted, reaches no repository and no listed file, and nothing opens. That is nine lines against their own module, and the patch is already shrunk to it. Only the desktop diff-view tail is carried. A phone tail was tried and dropped: the failure it was meant for (a chip landing on the Git screen in a folder with no repository) could not be reproduced on plain main, where the same tap opens the file both immediately and after discovery settles.",
       "since": "2026-11-18"
     },
-    "question-card-bubble": {
+    "chat-width-80": {
       "relationship": "none",
-      "intent": "bugfix",
-      "note": "The question card copies the prompt bubble's shape but mixed its own fill, so it read as a floating black bar with a bare strip above its content. It now draws the bubble itself (message/body/userBubbleStyle.ts) with the question colour mixed into the bubble's fill, which also keeps it opaque: the old fill mixed the role's own tint, whose alpha came through. Issue #7108 closed on 2026-11-20 as fixed by #7109, which shipped the recorded-answers parser, so the card needs an issue of its own before it can go upstream.",
-      "since": "2026-11-20"
+      "intent": "personal",
+      "note": "A fourth chat width, Extra wide (80rem), between Wider and Full. Upstream owns the setting now (default/wider/full, migrated in v29); this re-expresses the 80rem level on top of it rather than porting our old ladder.",
+      "since": "2026-11-17"
     },
     "collapsed-quote-row": {
       "relationship": "none",
       "intent": "bugfix",
       "note": "A collapsed prompt that fills both lines left its attached quote out of the DOM entirely, reachable only behind show more. The first fix kept only rows that need one line, so a quote WITH a comment (a two-line row) stayed invisible. Now the first row that collapses is kept whatever height it needs; a shared page still is not, since its card draws several lines and ignores the collapse. Upstream owns the same collapse code, so this is a bugfix candidate.",
       "since": "2026-11-23"
+    },
+    "commandcode-quota": {
+      "relationship": "none",
+      "intent": "feature",
+      "note": "Local-only provider. Upstream removed Command Code quota in 1.21.0 (its official API exposes no usage data) and declined to restore it; this reads the web app's own billing routes with a browser session token. Ported onto main's TypeScript provider module.",
+      "since": "2026-11-19"
+    },
+    "context-row-icons": {
+      "relationship": "none",
+      "intent": "bugfix",
+      "note": "A collapsed quote renders captionless, so it was a bar and some text; the question card was the same shape, so quotes and questions were indistinguishable at a glance. Each now carries its own icon: the quote keeps the chat mark, the question card the question mark. The question half belongs to question-rows/the card; the quote half is upstream code.",
+      "since": "2026-11-23"
+    },
+    "dictation-recovery": {
+      "relationship": "none",
+      "intent": "bugfix",
+      "note": "A dictation transcript stays with the composer it was started in: a session or draft switch while it is being transcribed no longer inserts it into whatever is on screen. Origin is keyed by the composer's stable key; the transcript is stored in the origin's draft. Local.",
+      "since": "2026-11-17"
+    },
+    "draft-heading-project-picker": {
+      "relationship": "none",
+      "intent": "personal",
+      "note": "The project's name in a new-session heading is a second way into the composer's project picker. Local only; no upstream request. Ported onto main's ComposerDraftTitle and DraftWelcome: the request travels through a store because the welcome renders the heading in another component.",
+      "since": "2026-11-16"
+    },
+    "gitea-references-across": {
+      "relationship": "pending",
+      "intent": "feature",
+      "issue": 6343,
+      "note": "The reference picker's search across a folder's repositories for Gitea and Forgejo, which have no API that names a set of repositories: a page is read per folder and merged by activity. 48 files. Ported onto main's provider-resource contract (referencesAcross in the descriptor, provider and routes) and its TypeScript settings/client modules.",
+      "since": "2026-11-18"
+    },
+    "hide-empty-worktrees": {
+      "relationship": "none",
+      "intent": "feature",
+      "note": "A worktree nobody has used yet (no session, no draft, no pin, no archived session) can be left out of the sidebar. A search still finds it. Local: the setting is ours.",
+      "since": "2026-11-18"
+    },
+    "image-viewer-zoom": {
+      "relationship": "none",
+      "intent": "feature",
+      "note": "Pinch, double-tap and wheel zoom with pan for the image viewer, on top of upstream's fit levels. Ported onto main's imageZoom module and ToolOutputDialog. The old record cited PR #321, which does not resolve in the upstream repository, and no open issue covers it, so a feature request has to exist before this can go upstream.",
+      "since": "2026-11-17"
+    },
+    "in-work-paging": {
+      "relationship": "none",
+      "intent": "feature",
+      "note": "In work ranks its rows by what needs the user (a waiting answer, then a running turn, then unread or looks-done) from the live turn and request indexes only, so a recency update does not re-run it. Local.",
+      "since": "2026-11-18"
+    },
+    "in-work-paging-show-more": {
+      "relationship": "none",
+      "intent": "feature",
+      "note": "In work opens with its own page size (a stored per-surface number) and Show more adds the same number again, separate from the sidebar's session batch size. Local.",
+      "since": "2026-11-18"
+    },
+    "instance-attention": {
+      "relationship": "none",
+      "intent": "feature",
+      "note": "Cross-instance attention: desktop and mobile poll the saved hosts and the app own server and show one merged, ordered list of sessions that need the user. 69 files, mostly new modules; local only. Carries two fixes folded in rather than queued separately: the drawer applied this instance folder rule to a saved host sessions, and a host switch cleared the session list so the instance on screen published no rows until the sheets opened.",
+      "since": "2026-11-17"
+    },
+    "mobile-assist-trigger": {
+      "relationship": "none",
+      "intent": "feature",
+      "note": "Android assist and deep-link launch: the launch intent is rewritten before the bridge reads it, and an assist tap opens a new draft. Local: no upstream request.",
+      "since": "2026-11-17"
+    },
+    "mobile-guest-catalog-failure": {
+      "relationship": "pending",
+      "intent": "bugfix",
+      "pr": 7231,
+      "issue": 7228,
+      "note": "Reproduced on v2.7.2 with a corrupt extensions.json: the phone now says the extension catalog could not be read instead of showing an empty list. Ported onto main's guests store. PR #7231 was withdrawn on 2026-11-20 to rework and live with it locally, branch intact at 15246b745; issue #7228 is open.",
+      "since": "2026-11-18"
+    },
+    "mobile-voice-launch": {
+      "relationship": "none",
+      "intent": "feature",
+      "note": "openchamber://new-session?dictate=1 starts dictation in the draft it names, bound to the draft's id so it never records in another. Ported onto main's composer hooks: the request is consumed in ChatInput, not in the old monolith.",
+      "since": "2026-11-17"
+    },
+    "notification-family-clear": {
+      "relationship": "none",
+      "intent": "bugfix",
+      "note": "Local for now. Both upstream attempts are closed: PR #7232 generalised the shared ancestor walk and regressed ready-push suppression for a running subagent of a workflow agent, and issue #7229 was closed with it. This patch leaves `session-activity.js` alone, clears the viewed session exactly as before, and walks only the open-tag sessions with each candidate failing on its own, a cap of 50 sessions/8 steps/5 s, and a snapshot check so a tag re-claimed during the walk keeps its banner. A new attempt needs its own issue first.",
+      "since": "2026-11-19"
+    },
+    "question-card-bubble": {
+      "relationship": "none",
+      "intent": "bugfix",
+      "note": "The question card copies the prompt bubble's shape but mixed its own fill, so it read as a floating black bar with a bare strip above its content. It now draws the bubble itself (message/body/userBubbleStyle.ts) with the question colour mixed into the bubble's fill, which also keeps it opaque: the old fill mixed the role's own tint, whose alpha came through. Issue #7108 closed on 2026-11-20 as fixed by #7109, which shipped the recorded-answers parser, so the card needs an issue of its own before it can go upstream.",
+      "since": "2026-11-20"
+    },
+    "question-cards": {
+      "relationship": "none",
+      "intent": "feature",
+      "note": "The card itself: every option with the chosen one marked, a typed answer as one more row, a pinned batch collapsing to a one-line bar of answers, and a working turn's fold preview drawing the card in step order. Ported onto main's body modules (useAssistantRenderedParts) and TurnRow. Issue #7108 closed as fixed by #7109, so a feature request is needed before this can be accepted upstream.",
+      "since": "2026-11-18"
+    },
+    "question-indicator": {
+      "relationship": "pending",
+      "intent": "feature",
+      "issue": 6809,
+      "note": "Feature awaiting acceptance. Draws the permission shield and question mark through one shared component with its own question colour role, and builds only on top of stale-pending-badge.",
+      "since": "2026-11-16"
+    },
+    "question-rows": {
+      "relationship": "none",
+      "intent": "feature",
+      "note": "A question call becomes its own row in the transcript instead of a tool row: answered ones stick under their prompt and end its sticky span, waiting ones read as a card. Ported onto main's timeline: the row is cut in timelineRows.ts, the sticky rules live in stickyPrompt.ts, and the card is the row's body so the turn footer and a stopped turn's failure text stay. Issue #7108 closed as fixed by #7109, so a feature request is needed before this can be accepted upstream.",
+      "since": "2026-11-18"
+    },
+    "recap-full-note": {
+      "relationship": "none",
+      "intent": "personal",
+      "note": "A UI preference: the recap ends the transcript instead of lying over the gap above the composer, so the whole note stays readable. Stays local. Ported onto main's ChatViewport listFooter.",
+      "since": "2026-11-16"
+    },
+    "reply-start-scroll": {
+      "relationship": "pending",
+      "intent": "feature",
+      "issue": 6808,
+      "note": "Feature request open. The pill's up arrow walks back to the nearest reply whose prose starts above the viewport, past the tool rows that led to it. Ported onto main's timeline handle: useNavigationSettle gained a measurement re-arm and a through-list scroll, and TimelineList/useMessageListHandle own the new handle methods.",
+      "since": "2026-11-16"
+    },
+    "stale-pending-badge": {
+      "relationship": "pending",
+      "intent": "bugfix",
+      "pr": 6804,
+      "issue": 6802,
+      "note": "Behaviour only: a session row's badge answers from the directory store once it has read its own requests, and from the cross-directory index before that, so a lost settlement stops showing and a never-opened folder still shows what waits. Ported onto main's split sync modules and timeline hook. PR #6804 was withdrawn on 2026-11-20 while green except the file-size rule on an already-oversized file, branch intact at b68f564; the reviewer's last verdict was Merge. Issue #6802 stays open, so this returns as the same fix in a smaller patch.",
+      "since": "2026-11-16"
     },
     "tool-row-tap-opens-file": {
       "relationship": "none",
