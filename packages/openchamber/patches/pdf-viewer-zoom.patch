@@ -1,0 +1,837 @@
+diff --git a/packages/ui/src/components/views/files/DOCUMENTATION.md b/packages/ui/src/components/views/files/DOCUMENTATION.md
+index 3346a2ff0..aeaf0f5be 100644
+--- a/packages/ui/src/components/views/files/DOCUMENTATION.md
++++ b/packages/ui/src/components/views/files/DOCUMENTATION.md
+@@ -259,7 +259,8 @@ fit-relative scale into the picture's own pixels; round arrows fixed to the
+ viewer's edges, and the arrow keys while the image is at fit, show the previous
+ and next image of the same folder, see below),
+ `PdfArtifact` (a frame where the runtime has a PDF viewer; elsewhere pages
+-drawn by pdf.js, see below), `MediaArtifact` (native audio/video
++drawn by pdf.js, with the image viewer's zoom controls, a two-finger pinch and
++Ctrl/⌘ + wheel, see below), `MediaArtifact` (native audio/video
+ element, duration and dimensions once metadata loads, a stated failure when
+ the runtime cannot decode the codec), `FontArtifact` (a specimen under a
+ throwaway `FontFace` family removed when the tab closes), `TableArtifact`
+@@ -442,17 +443,33 @@ A PDF opens in a frame, and the runtime's own viewer draws it, with its zoom,
+ search and print. The Android WebView and Android Chrome have no viewer and
+ painted an empty frame (#5823). They report `navigator.pdfViewerEnabled ===
+ false`, so there, and only there, `PdfArtifact` draws the pages with pdf.js:
+-pages at the pane width and the device pixel ratio, scrolled down, each page
+-painted while it is within a screen of view and cleared once it leaves, so a
+-long document holds a few canvases. pdf.js everywhere would have replaced
+-working viewers with a poorer one. It is the legacy build, which carries
+-polyfills that WebViews a few versions behind need, and the module and its
+-worker are bundled assets imported on first use, never fetched from a CDN, so
+-offline use and the VS Code CSP hold and nothing loads until a PDF opens there.
+-It reads the file in one GET, because a Range request needs a CORS header the
+-server does not allow to the Android app. There is no pinch zoom, and PDFs that
+-need pdf.js's CMap, standard font or wasm data (CJK text without embedded
+-fonts, JPEG 2000 images) may lose that text or image.
++pages at the pane width, scrolled down, each page painted while it is within a
++screen of view and cleared once it leaves, so a long document holds a few
++canvases. The controls above the pages, a two-finger pinch and Ctrl/⌘ + wheel
++zoom by re-painting the pages at the new width, keeping the point under the
++pointer or between the fingers in place and letting the viewer scroll in both
++directions. `pdfZoom.ts` holds the scale steps, the stack geometry and the
++canvas budget. The percentage and actual-size target measure the first page at
++its physical size, 96 CSS pixels per inch; every page is drawn at the same
++width, so a document with differently sized pages reports the first page's
++scale. pdf.js everywhere would have replaced working viewers with a
++poorer one. It is the legacy build, which carries polyfills that WebViews a few
++versions behind need, and the module and its worker are bundled assets imported
++on first use, never fetched from a CDN, so offline use and the VS Code CSP hold
++and nothing loads until a PDF opens there. It reads the file in one GET,
++because a Range request needs a CORS header the server does not allow to the
++Android app. PDFs that need pdf.js's CMap, standard font or wasm data (CJK text
++without embedded fonts, JPEG 2000 images) may lose that text or image.
++
++### Why pdf.js pages repaint at a capped size and not scale a bitmap
++
++A zoomed page has to stay sharp, so the canvas is painted at the width it is
++drawn at, not stretched from the fit bitmap. A page at a deep zoom would need a
++canvas the WebView may refuse, so `pageRenderScale` stops at eight million
++device pixels or 8192 pixels on the long side, and CSS stretches what remains.
++Reading zoom stays inside the budget; only an extreme zoom shows soft text. The
++zoom is a multiple of fit width, so a rotated phone or a resized panel keeps
++the same zoom instead of a fixed pixel width.
+
+ ### Why table, data and office previews load on first use
+
+diff --git a/packages/ui/src/components/views/files/previews/ImageZoomControls.tsx b/packages/ui/src/components/views/files/previews/ImageZoomControls.tsx
+index 3cd1f59cc..07879a6a6 100644
+--- a/packages/ui/src/components/views/files/previews/ImageZoomControls.tsx
++++ b/packages/ui/src/components/views/files/previews/ImageZoomControls.tsx
+@@ -6,24 +6,27 @@ import { ButtonTooltip } from '@/components/ui/action-toolbar';
+ import { useI18n } from '@/lib/i18n';
+
+ /**
+- * The − / percentage / + / Fit cluster above an image: the files preview's
+- * zoom bar, shared with the chat's image viewer so both read and step the same
+- * way. Callers keep their own zoom model and pass the percentage the picture is
+- * drawn at, 100% being one image pixel per screen pixel.
++ * The − / percentage / + / Fit cluster above an image or a PDF page: the files
++ * preview's zoom bar, shared with the chat's image viewer and the pdf.js
++ * viewer so all read and step the same way. Callers keep their own zoom model
++ * and pass the percentage the picture is drawn at, 100% being one image pixel
++ * per screen pixel, or the page's physical width for a PDF.
+  */
+ export const ImageZoomControls: React.FC<{
+-  /** What the picture is drawn at now, in percent of its own size. */
++  /** What the picture or page is drawn at now, in percent of its own size. */
+   percent: number;
+   /** Fit is what the viewer shows now, so the chip reads as pressed. */
+   atFit: boolean;
+-  /** The picture's real size is not known yet, so there is nothing to step. */
++  /** The picture's or page's real size is not known yet, so there is nothing to step. */
+   disabled?: boolean;
++  /** Fit already draws the picture or page at its real size, so the percentage chip has nothing to do. */
++  actualDisabled?: boolean;
+   onZoomOut: () => void;
+   onZoomIn: () => void;
+-  /** Draw the picture one pixel per screen pixel. */
++  /** Draw the picture or page one pixel per screen pixel, or at its physical size. */
+   onActualSize: () => void;
+   onFit: () => void;
+-}> = ({ percent, atFit, disabled = false, onZoomOut, onZoomIn, onActualSize, onFit }) => {
++}> = ({ percent, atFit, disabled = false, actualDisabled = false, onZoomOut, onZoomIn, onActualSize, onFit }) => {
+   const { t } = useI18n();
+   return (
+     <>
+@@ -44,7 +47,7 @@ export const ImageZoomControls: React.FC<{
+           size="xs"
+           className="min-w-11 tabular-nums"
+           aria-label={t('filesView.artifact.image.actualTitle')}
+-          disabled={disabled}
++          disabled={disabled || actualDisabled}
+           onClick={onActualSize}
+         >
+           {`${Math.round(percent)}%`}
+diff --git a/packages/ui/src/components/views/files/previews/PdfArtifact.test.tsx b/packages/ui/src/components/views/files/previews/PdfArtifact.test.tsx
+index bb26e3546..52d214277 100644
+--- a/packages/ui/src/components/views/files/previews/PdfArtifact.test.tsx
++++ b/packages/ui/src/components/views/files/previews/PdfArtifact.test.tsx
+@@ -10,6 +10,8 @@ Object.assign(globalThis, {
+   ResizeObserver: browser.ResizeObserver, IntersectionObserver: browser.IntersectionObserver, IS_REACT_ACT_ENVIRONMENT: true,
+   requestAnimationFrame: browser.requestAnimationFrame.bind(browser), cancelAnimationFrame: browser.cancelAnimationFrame.bind(browser),
+ });
++// The viewer measures the pane it is laid out in; happy-dom reports no size.
++Object.defineProperty(browser.HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 400 });
+ // React DOM and the i18n store read the DOM when imported, so it goes in first.
+ const { createRoot } = await import('react-dom/client');
+ const { I18nProvider } = await import('@/lib/i18n');
+@@ -26,10 +28,10 @@ const setPdfViewer = (enabled: boolean | undefined) => {
+   Object.defineProperty(browser.navigator, 'pdfViewerEnabled', { configurable: true, get: () => enabled });
+ };
+
+-const fakeDocument = (pages: number): PdfDocument => ({
++const fakeDocument = (pages: number, size = { width: 612, height: 792 }): PdfDocument => ({
+   numPages: pages,
+   getPage: async () => ({
+-    getViewport: () => ({ width: 612, height: 792 }),
++    getViewport: () => size,
+     render: () => ({ promise: Promise.resolve(), cancel: () => {} }),
+   }),
+ });
+@@ -77,7 +79,8 @@ describe('PdfArtifact', () => {
+     invalid.name = 'InvalidPDFException';
+     await render(async () => ({ promise: Promise.reject(invalid), destroy: async () => {} }));
+     expect(container?.textContent).toContain('This PDF cannot be shown here');
+-    expect(container?.querySelector('button')?.textContent).toBe('Download');
++    const buttons = [...(container?.querySelectorAll('button') ?? [])];
++    expect(buttons.some((button) => button.textContent === 'Download')).toBe(true);
+   });
+
+   test('a read that fails is not blamed on the PDF', async () => {
+@@ -89,6 +92,34 @@ describe('PdfArtifact', () => {
+     expect(container?.textContent).not.toContain('This PDF cannot be shown here');
+   });
+
++  test('the pdf.js viewer offers zoom steps and follows them', async () => {
++    setPdfViewer(false);
++    await render(async () => ({ promise: Promise.resolve(fakeDocument(3)), destroy: async () => {} }));
++    const zoomIn = container?.querySelector<HTMLButtonElement>('button[aria-label="Zoom in"]');
++    expect(zoomIn).not.toBeNull();
++    // Fit draws the letter page, 816 CSS px at actual size, in the 384px the
++    // 400px pane leaves it.
++    expect(container?.textContent).toContain('47%');
++    await act(async () => zoomIn?.click());
++    expect(container?.textContent).toContain('59%');
++    const actual = container?.querySelector<HTMLButtonElement>('button[aria-label="Show at actual size"]');
++    await act(async () => actual?.click());
++    expect(container?.textContent).toContain('100%');
++    const fit = container?.querySelector<HTMLButtonElement>('button[aria-label="Fit to the panel"]');
++    await act(async () => fit?.click());
++    expect(container?.textContent).toContain('47%');
++  });
++
++  test('a page fit already draws at its own size leaves the percentage chip disabled', async () => {
++    setPdfViewer(false);
++    await render(async () => ({
++      promise: Promise.resolve(fakeDocument(1, { width: 288, height: 432 })),
++      destroy: async () => {},
++    }));
++    const actual = container?.querySelector<HTMLButtonElement>('button[aria-label="Show at actual size"]');
++    expect(actual?.disabled).toBe(true);
++  });
++
+   test('a runtime with a PDF viewer keeps the frame and never loads pdf.js', async () => {
+     setPdfViewer(true);
+     let calls = 0;
+diff --git a/packages/ui/src/components/views/files/previews/PdfArtifact.tsx b/packages/ui/src/components/views/files/previews/PdfArtifact.tsx
+index 0ab60cbdc..4c61048f3 100644
+--- a/packages/ui/src/components/views/files/previews/PdfArtifact.tsx
++++ b/packages/ui/src/components/views/files/previews/PdfArtifact.tsx
+@@ -1,10 +1,24 @@
+ import React from 'react';
++import { flushSync } from 'react-dom';
+
+ import { Icon } from '@/components/icon/Icon';
+ import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
+ import { useI18n } from '@/lib/i18n';
+ import { ArtifactMetaBar } from './ArtifactMetaBar';
+ import { formatArtifactSize } from './artifactMeta';
++import { ImageZoomControls } from './ImageZoomControls';
++import { wheelZoomFactor } from './imageZoom';
++import {
++  PDF_PAGE_GAP_PX,
++  clampPdfZoom,
++  fitPageWidth,
++  pageAtY,
++  pageCssWidth,
++  pageDisplayHeight,
++  pageRenderScale,
++  pdfZoomCeiling,
++  stepPdfZoom,
++} from './pdfZoom';
+ import type { OpenedPdf, PdfDocument, PdfPage } from './pdfjs';
+
+ type OpenPdf = (url: string) => Promise<OpenedPdf>;
+@@ -14,12 +28,26 @@ const openWithPdfJs: OpenPdf = async (url) => (await import('./pdfjs')).openPdf(
+ // external: #5823 Android WebView and Chrome report no built-in PDF viewer and leave PDF frames empty.
+ const hasBuiltInPdfViewer = (): boolean => navigator.pdfViewerEnabled !== false;
+
+-const PAGE_GAP_PX = 8;
+-
++// pdf.js names the errors that come from the file itself; anything else (a
++// dropped connection, an expired token) is a failed read, not a bad PDF.
+ const UNREADABLE_PDF_ERRORS = new Set(['InvalidPDFException', 'PasswordException']);
+
+ type PageSize = { width: number; height: number };
+
++/** A page point that must stay under a screen point once a zoom renders. */
++type ZoomAnchor = { page: HTMLElement; x: number; y: number; clientX: number; clientY: number; width: number };
++
++type TouchPinch = { distance: number; zoom: number };
++
++const touchDistance = (a: Touch, b: Touch): number => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
++
++/**
++ * One page: a box with the page's proportions at the drawn width, painted only
++ * while it is within a screen of the visible part. A page that leaves that
++ * range drops its pixels, so a long document holds a few canvases at a time.
++ * A deep zoom paints a capped bitmap and lets CSS stretch it, so the canvas
++ * stays inside what the runtime can allocate.
++ */
+ const PdfPageCanvas: React.FC<{
+   doc: PdfDocument;
+   pageNumber: number;
+@@ -56,7 +84,7 @@ const PdfPageCanvas: React.FC<{
+     void doc.getPage(pageNumber).then((page) => {
+       if (cancelled) return;
+       const ratio = window.devicePixelRatio || 1;
+-      const viewport = page.getViewport({ scale: (width / size.width) * ratio });
++      const viewport = page.getViewport({ scale: pageRenderScale(width, size, ratio) });
+       canvas.width = Math.floor(viewport.width);
+       canvas.height = Math.floor(viewport.height);
+       task = page.render({ canvas, viewport });
+@@ -66,19 +94,21 @@ const PdfPageCanvas: React.FC<{
+       cancelled = true;
+       task?.cancel();
+     };
+-  }, [doc, pageNumber, near, width, size.width]);
++  }, [doc, pageNumber, near, width, size]);
+
+   return (
+     <div
+       ref={boxRef}
++      data-pdf-page={pageNumber - 1}
+       className="shrink-0 bg-white"
+-      style={{ width, height: Math.round((width * size.height) / size.width) }}
++      style={{ width, height: pageDisplayHeight(size, width) }}
+     >
+       <canvas ref={canvasRef} role="img" aria-label={label} className="block h-full w-full" />
+     </div>
+   );
+ };
+
++/** Pages drawn by pdf.js, for runtimes without a PDF viewer. Fit fills the pane's width; the controls and a pinch zoom in. */
+ const PdfPages: React.FC<{
+   src: string;
+   name: string;
+@@ -93,7 +123,13 @@ const PdfPages: React.FC<{
+     | { status: 'ready'; doc: PdfDocument; sizes: PageSize[] }
+   >({ status: 'loading' });
+   const [scroller, setScroller] = React.useState<HTMLElement | null>(null);
+-  const [width, setWidth] = React.useState(0);
++  const [fitWidth, setFitWidth] = React.useState(0);
++  // A multiple of the width fit gives the pages, so 1 is fit. Resizing the
++  // pane keeps the same zoom rather than a fixed number of pixels.
++  const [zoom, setZoom] = React.useState(1);
++  const zoomRef = React.useRef(zoom);
++  zoomRef.current = zoom;
++  const anchorRef = React.useRef<ZoomAnchor | null>(null);
+
+   React.useEffect(() => {
+     if (!src) return;
+@@ -126,19 +162,138 @@ const PdfPages: React.FC<{
+
+   React.useEffect(() => {
+     if (!scroller) return;
+-    const observer = new ResizeObserver(() => setWidth(Math.max(0, scroller.clientWidth - PAGE_GAP_PX * 2)));
++    const measure = () => setFitWidth(fitPageWidth(scroller.clientWidth));
++    measure();
++    const observer = new ResizeObserver(measure);
+     observer.observe(scroller);
+     return () => observer.disconnect();
+   }, [scroller]);
+
+-  const pageCount = state.status === 'ready' ? state.sizes.length : null;
++  const sizes = state.status === 'ready' ? state.sizes : null;
++  const pageWidth = fitWidth * zoom;
++  const referenceWidth = pageCssWidth(sizes?.[0]?.width ?? 0);
++  const ceiling = pdfZoomCeiling(referenceWidth, fitWidth);
++
++  const zoomAt = (nextZoom: number, clientX: number, clientY: number) => {
++    if (!scroller || !sizes || fitWidth <= 0) return;
++    const clamped = clampPdfZoom(nextZoom, ceiling);
++    if (clamped === zoom) return;
++    const rect = scroller.getBoundingClientRect();
++    const point = pageAtY(sizes, pageWidth, scroller.scrollTop + (clientY - rect.top) - PDF_PAGE_GAP_PX);
++    if (!point) return;
++    const page = scroller.querySelector<HTMLElement>(`[data-pdf-page="${point.index}"]`);
++    if (!page) return;
++    const pageRect = page.getBoundingClientRect();
++    anchorRef.current = {
++      page,
++      x: clientX - pageRect.left,
++      y: clientY - pageRect.top,
++      clientX,
++      clientY,
++      width: pageWidth,
++    };
++    // Flushed at once so the next wheel or pinch event measures the new width.
++    flushSync(() => setZoom(clamped));
++  };
++
++  const zoomAtCenter = (nextZoom: number) => {
++    if (!scroller) return;
++    const rect = scroller.getBoundingClientRect();
++    zoomAt(nextZoom, rect.left + scroller.clientWidth / 2, rect.top + scroller.clientHeight / 2);
++  };
++
++  React.useLayoutEffect(() => {
++    const anchor = anchorRef.current;
++    anchorRef.current = null;
++    if (!anchor || !scroller) return;
++    const ratio = anchor.width > 0 ? (fitWidth * zoom) / anchor.width : 1;
++    const rect = anchor.page.getBoundingClientRect();
++    // Screen-space deltas keep the page point where it was, whatever the
++    // scroller's direction and scroll offset mean in this browser.
++    scroller.scrollLeft += rect.left + anchor.x * ratio - anchor.clientX;
++    scroller.scrollTop += rect.top + anchor.y * ratio - anchor.clientY;
++  }, [zoom, fitWidth, scroller]);
++
++  // Native listeners: React's wheel and touch listeners are passive and could
++  // not stop the page from zooming or scrolling instead of the pages.
++  const gestureRef = React.useRef({ zoomAt });
++  gestureRef.current = { zoomAt };
++  React.useEffect(() => {
++    const element = scroller;
++    if (!element) return;
++    let pinch: TouchPinch | null = null;
++    const onWheel = (event: WheelEvent) => {
++      if (!event.ctrlKey && !event.metaKey) return;
++      event.preventDefault();
++      gestureRef.current.zoomAt(
++        zoomRef.current * wheelZoomFactor(event.deltaY, event.deltaMode),
++        event.clientX,
++        event.clientY,
++      );
++    };
++    const onTouchStart = (event: TouchEvent) => {
++      if (event.touches.length !== 2) {
++        pinch = null;
++        return;
++      }
++      pinch = {
++        distance: touchDistance(event.touches[0], event.touches[1]),
++        zoom: zoomRef.current,
++      };
++    };
++    const onTouchMove = (event: TouchEvent) => {
++      if (!pinch || event.touches.length !== 2 || pinch.distance <= 0) return;
++      event.preventDefault();
++      const [first, second] = [event.touches[0], event.touches[1]];
++      gestureRef.current.zoomAt(
++        pinch.zoom * (touchDistance(first, second) / pinch.distance),
++        (first.clientX + second.clientX) / 2,
++        (first.clientY + second.clientY) / 2,
++      );
++    };
++    const onTouchEnd = (event: TouchEvent) => {
++      if (event.touches.length < 2) pinch = null;
++    };
++    element.addEventListener('wheel', onWheel, { passive: false });
++    element.addEventListener('touchstart', onTouchStart, { passive: true });
++    element.addEventListener('touchmove', onTouchMove, { passive: false });
++    element.addEventListener('touchend', onTouchEnd, { passive: true });
++    element.addEventListener('touchcancel', onTouchEnd, { passive: true });
++    return () => {
++      element.removeEventListener('wheel', onWheel);
++      element.removeEventListener('touchstart', onTouchStart);
++      element.removeEventListener('touchmove', onTouchMove);
++      element.removeEventListener('touchend', onTouchEnd);
++      element.removeEventListener('touchcancel', onTouchEnd);
++    };
++  }, [scroller]);
++
++  const pageCount = sizes?.length ?? null;
+   const pages = pageCount === null
+     ? ''
+     : t(pageCount === 1 ? 'filesView.artifact.pdf.pagesSingle' : 'filesView.artifact.pdf.pagesPlural', { pages: pageCount });
++  // The pages share one drawn width, so the percentage and actual size are
++  // measured against the first page; differently sized pages report its scale.
++  const percent = referenceWidth > 0 && pageWidth > 0 ? (pageWidth / referenceWidth) * 100 : 100;
++  const controlsReady = sizes !== null && fitWidth > 0 && referenceWidth > 0;
+
+   return (
+     <div className="flex h-full min-h-0 flex-col">
+-      <ArtifactMetaBar items={[pages, formatArtifactSize(sizeBytes)]} />
++      <ArtifactMetaBar
++        items={[pages, formatArtifactSize(sizeBytes)]}
++        actions={(
++          <ImageZoomControls
++            percent={percent}
++            atFit={zoom <= 1}
++            disabled={!controlsReady}
++            actualDisabled={referenceWidth <= fitWidth}
++            onZoomOut={() => zoomAtCenter(stepPdfZoom(zoom, -1, ceiling))}
++            onZoomIn={() => zoomAtCenter(stepPdfZoom(zoom, 1, ceiling))}
++            onActualSize={() => zoomAtCenter(clampPdfZoom(fitWidth > 0 ? referenceWidth / fitWidth : 1, ceiling))}
++            onFit={() => zoomAtCenter(1)}
++          />
++        )}
++      />
+       {state.status === 'failed' ? (
+         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+           <div className="max-w-md typography-ui text-muted-foreground">{t(state.unreadable ? 'filesView.artifact.pdf.loadFailed' : 'filesView.error.readFileFailed')}</div>
+@@ -153,17 +308,16 @@ const PdfPages: React.FC<{
+         <ScrollableOverlay
+           ref={setScroller}
+           outerClassName="min-h-0 flex-1 bg-[var(--surface-background)]"
+-          style={{ padding: PAGE_GAP_PX }}
+-          disableHorizontal
++          style={{ padding: PDF_PAGE_GAP_PX }}
+         >
+-          <div className="flex flex-col items-center" style={{ gap: PAGE_GAP_PX }}>
+-            {width > 0 && state.sizes.map((size, index) => (
++          <div className="flex flex-col" style={{ gap: PDF_PAGE_GAP_PX, width: pageWidth }}>
++            {pageWidth > 0 && state.sizes.map((size, index) => (
+               <PdfPageCanvas
+                 key={index}
+                 doc={state.doc}
+                 pageNumber={index + 1}
+                 size={size}
+-                width={width}
++                width={pageWidth}
+                 scroller={scroller}
+                 label={t('filesView.artifact.pdf.pageLabel', { page: index + 1, name })}
+               />
+@@ -175,6 +329,11 @@ const PdfPages: React.FC<{
+   );
+ };
+
++/**
++ * A PDF in the viewer. Where the runtime has a PDF viewer, the file opens in
++ * a frame as before; elsewhere pdf.js draws the pages, which zoom by pinch,
++ * Ctrl/⌘ + wheel and the same controls the image viewer uses.
++ */
+ export const PdfArtifact: React.FC<{
+   src: string;
+   name: string;
+@@ -189,5 +348,5 @@ export const PdfArtifact: React.FC<{
+       </div>
+     );
+   }
+-  return <PdfPages src={src} name={name} sizeBytes={sizeBytes} download={download} openPdf={openPdf} />;
++  return <PdfPages key={src} src={src} name={name} sizeBytes={sizeBytes} download={download} openPdf={openPdf} />;
+ };
+diff --git a/packages/ui/src/components/views/files/previews/pdfZoom.test.ts b/packages/ui/src/components/views/files/previews/pdfZoom.test.ts
+new file mode 100644
+index 000000000..4ebc17b0d
+--- /dev/null
++++ b/packages/ui/src/components/views/files/previews/pdfZoom.test.ts
+@@ -0,0 +1,85 @@
++import { describe, expect, test } from 'bun:test';
++
++import {
++  PDF_PAGE_GAP_PX,
++  clampPdfZoom,
++  fitPageWidth,
++  pageAtY,
++  pageCssWidth,
++  pageDisplayHeight,
++  pageRenderScale,
++  pdfZoomCeiling,
++  stepPdfZoom,
++} from './pdfZoom';
++
++const PAGE = { width: 612, height: 792 };
++const SECOND = { width: 612, height: 792 };
++
++describe('pdfZoom', () => {
++  test('fit fills the pane between its padding', () => {
++    expect(fitPageWidth(400)).toBe(400 - PDF_PAGE_GAP_PX * 2);
++    expect(fitPageWidth(0)).toBe(0);
++    expect(fitPageWidth(PDF_PAGE_GAP_PX)).toBe(0);
++  });
++
++  test('a page keeps its proportions at the drawn width, rounded to the box pixels', () => {
++    expect(pageDisplayHeight(PAGE, 306)).toBe(396);
++    expect(pageDisplayHeight(PAGE, 344)).toBe(445);
++    expect(pageDisplayHeight({ width: 0, height: 0 }, 306)).toBe(0);
++  });
++
++  test('actual size converts PDF points to CSS pixels', () => {
++    expect(pageCssWidth(612)).toBeCloseTo(816);
++    expect(pageCssWidth(0)).toBe(0);
++  });
++
++  test('a point finds its page and offset, and a gap anchors to the next page', () => {
++    const sizes = [PAGE, SECOND];
++    expect(pageAtY(sizes, 306, 100)).toEqual({ index: 0, localY: 100 });
++    expect(pageAtY(sizes, 306, 400)).toEqual({ index: 1, localY: 0 });
++    expect(pageAtY(sizes, 306, 500)).toEqual({ index: 1, localY: 500 - 404 });
++    expect(pageAtY(sizes, 306, -20)).toEqual({ index: 0, localY: 0 });
++    expect(pageAtY(sizes, 306, 2000)).toEqual({ index: 1, localY: 396 });
++    expect(pageAtY([], 306, 100)).toBeNull();
++  });
++
++  test('a rounded page height keeps the stack aligned with the boxes it describes', () => {
++    const sizes = [PAGE, SECOND];
++    // 344px draws the 792pt page 445px tall, then an 8px gap.
++    expect(pageAtY(sizes, 344, 444)).toEqual({ index: 0, localY: 444 });
++    expect(pageAtY(sizes, 344, 446)).toEqual({ index: 1, localY: 0 });
++    expect(pageAtY(sizes, 344, 453)).toEqual({ index: 1, localY: 0 });
++  });
++
++  test('zoom steps stay between fit and the ceiling', () => {
++    expect(clampPdfZoom(0.4, 6)).toBe(1);
++    expect(clampPdfZoom(9, 6)).toBe(6);
++    expect(stepPdfZoom(1, 1, 6)).toBe(1.25);
++    expect(stepPdfZoom(1.25, -1, 6)).toBe(1);
++    expect(stepPdfZoom(6, 1, 6)).toBe(6);
++    expect(stepPdfZoom(6, -1, 6)).toBe(5);
++  });
++
++  test('a page wider than six fits raises the ceiling to its actual size', () => {
++    expect(pdfZoomCeiling(pageCssWidth(612), 400)).toBe(6);
++    expect(pdfZoomCeiling(pageCssWidth(2000), 400)).toBeCloseTo(2000 * (96 / 72) / 400);
++    expect(stepPdfZoom(6, 1, pdfZoomCeiling(pageCssWidth(2000), 400))).toBeCloseTo(2000 * (96 / 72) / 400);
++    expect(clampPdfZoom(pageCssWidth(2000) / 400, pdfZoomCeiling(pageCssWidth(2000), 400))).toBeCloseTo(2000 * (96 / 72) / 400);
++  });
++
++  test('a deep zoom paints inside the canvas budget and CSS stretches the rest', () => {
++    expect(pageRenderScale(300, { width: 600, height: 800 }, 2)).toBe(1);
++
++    const scale = pageRenderScale(4000, { width: 600, height: 800 }, 3);
++    const pixels = (600 * scale) * (800 * scale);
++    expect(pixels).toBeLessThan(8_000_100);
++    expect(pixels).toBeGreaterThan(7_900_000);
++    expect(scale).toBeLessThan(20);
++  });
++
++  test('a panoramic page stops at the side limit instead of its pixel budget', () => {
++    const scale = pageRenderScale(10000, { width: 1000, height: 100 }, 1);
++    expect(1000 * scale).toBeCloseTo(8192);
++    expect(100 * scale).toBeLessThan(8192);
++  });
++});
+diff --git a/packages/ui/src/components/views/files/previews/pdfZoom.ts b/packages/ui/src/components/views/files/previews/pdfZoom.ts
+new file mode 100644
+index 000000000..6933ab4fd
+--- /dev/null
++++ b/packages/ui/src/components/views/files/previews/pdfZoom.ts
+@@ -0,0 +1,103 @@
++/** Space the pages keep from the viewer's edges, in CSS pixels (Tailwind `p-2`). */
++export const PDF_PAGE_GAP_PX = 8;
++
++/** Fit is the floor: zooming out stops at the width the pane gives the pages. */
++const MIN_FIT_ZOOM = 1;
++/** A page may be drawn at most this many times the width fit gives it. */
++const MAX_FIT_ZOOM = 6;
++/** The levels the − and + buttons step through, as multiples of fit width. */
++const ZOOM_STEPS = [1, 1.25, 1.5, 2, 2.5, 3, 4, 5, 6];
++
++/**
++ * A PDF point is 1/72 inch and a CSS pixel is 1/96 inch. Actual size means the
++ * page's physical size, the same unit a PDF viewer's 100% uses.
++ */
++const PDF_POINT_TO_CSS_PX = 96 / 72;
++
++/**
++ * One page's canvas stays inside this many device pixels. Beyond it pdf.js
++ * paints a smaller bitmap and CSS stretches it, so a deep zoom on a long page
++ * cannot allocate a canvas the WebView refuses.
++ */
++const MAX_CANVAS_PIXELS = 8_000_000;
++const MAX_CANVAS_SIDE = 8192;
++
++export type PageSize = { width: number; height: number };
++
++/** The width fit gives every page: the pane less the gap on each side. */
++export const fitPageWidth = (viewportWidth: number): number => (
++  Math.max(0, viewportWidth - PDF_PAGE_GAP_PX * 2)
++);
++
++/** A page's width at actual size, in CSS pixels. */
++export const pageCssWidth = (pointWidth: number): number => pointWidth * PDF_POINT_TO_CSS_PX;
++
++/** A page's height when it is drawn at `width`, rounded to the pixels the box uses. */
++export const pageDisplayHeight = (size: PageSize, width: number): number => (
++  size.width > 0 ? Math.round((width * size.height) / size.width) : 0
++);
++
++/**
++ * How far the buttons may zoom: six times fit, or the page's own width when
++ * that is further, so the actual-size button can always reach it.
++ */
++export const pdfZoomCeiling = (actualWidth: number, fitWidth: number): number => (
++  Math.max(MAX_FIT_ZOOM, actualWidth > 0 && fitWidth > 0 ? actualWidth / fitWidth : 0)
++);
++
++export const clampPdfZoom = (zoom: number, ceiling: number): number => (
++  Math.min(Math.max(MIN_FIT_ZOOM, zoom), Math.max(MIN_FIT_ZOOM, ceiling))
++);
++
++/**
++ * The next level from the current zoom, the way the − and + buttons step. A
++ * zoom with no rung in that direction moves to the ceiling or fit instead.
++ */
++export const stepPdfZoom = (zoom: number, direction: 1 | -1, ceiling: number): number => {
++  const next = direction === 1
++    ? ZOOM_STEPS.find((step) => step > zoom * 1.001) ?? ceiling
++    : [...ZOOM_STEPS].reverse().find((step) => step < zoom * 0.999) ?? MIN_FIT_ZOOM;
++  return clampPdfZoom(next, ceiling);
++};
++
++/**
++ * The page under a point that is `y` pixels from the first page's top, and how
++ * far into that page the point sits. A point in a gap or past the stack anchors
++ * to the nearest page edge, so a zoom keeps that edge where it is.
++ */
++export const pageAtY = (
++  sizes: ReadonlyArray<PageSize>,
++  width: number,
++  y: number,
++): { index: number; localY: number } | null => {
++  if (sizes.length === 0) return null;
++  if (y < 0) return { index: 0, localY: 0 };
++  let top = 0;
++  for (let index = 0; index < sizes.length; index += 1) {
++    const height = pageDisplayHeight(sizes[index], width);
++    if (y < top + height) return { index, localY: Math.max(0, y - top) };
++    top += height + PDF_PAGE_GAP_PX;
++  }
++  const last = sizes.length - 1;
++  return { index: last, localY: pageDisplayHeight(sizes[last], width) };
++};
++
++/**
++ * The scale pdf.js paints a page at, in device pixels. It follows the drawn
++ * width and the device pixel ratio until the canvas budget or the WebView's
++ * side limit is reached.
++ */
++export const pageRenderScale = (
++  cssWidth: number,
++  size: PageSize,
++  devicePixelRatio: number,
++): number => {
++  if (cssWidth <= 0 || size.width <= 0 || size.height <= 0) return 1;
++  const pixelWidth = cssWidth * devicePixelRatio;
++  const pixelHeight = pixelWidth * (size.height / size.width);
++  const pixels = pixelWidth * pixelHeight;
++  const pixelCap = pixels > MAX_CANVAS_PIXELS ? Math.sqrt(MAX_CANVAS_PIXELS / pixels) : 1;
++  const longestSide = Math.max(pixelWidth, pixelHeight);
++  const sideCap = longestSide > MAX_CANVAS_SIDE ? MAX_CANVAS_SIDE / longestSide : 1;
++  return (cssWidth / size.width) * devicePixelRatio * Math.min(pixelCap, sideCap);
++};
+diff --git a/packages/ui/src/lib/i18n/messages/file-artifacts.i18n.ts b/packages/ui/src/lib/i18n/messages/file-artifacts.i18n.ts
+index 78090d540..8936176e6 100644
+--- a/packages/ui/src/lib/i18n/messages/file-artifacts.i18n.ts
++++ b/packages/ui/src/lib/i18n/messages/file-artifacts.i18n.ts
+@@ -2,8 +2,8 @@
+ export const fileArtifactsI18n = {
+   en: {
+     'filesView.artifact.image.fit': 'Fit',
+-    'filesView.artifact.image.fitTitle': 'Fit the image to the panel',
+-    'filesView.artifact.image.actualTitle': 'Show the image at its actual size',
++    'filesView.artifact.image.fitTitle': 'Fit to the panel',
++    'filesView.artifact.image.actualTitle': 'Show at actual size',
+     'filesView.artifact.image.zoomOut': 'Zoom out',
+     'filesView.artifact.image.zoomIn': 'Zoom in',
+     'filesView.artifact.image.previous': 'Previous image: {name}',
+@@ -85,8 +85,8 @@ export const fileArtifactsI18n = {
+   },
+   nl: {
+     'filesView.artifact.image.fit': 'Passen',
+-    'filesView.artifact.image.fitTitle': 'De afbeelding in het paneel passen',
+-    'filesView.artifact.image.actualTitle': 'De afbeelding op werkelijke grootte tonen',
++    'filesView.artifact.image.fitTitle': 'In het paneel passen',
++    'filesView.artifact.image.actualTitle': 'Op werkelijke grootte tonen',
+     'filesView.artifact.image.zoomOut': 'Uitzoomen',
+     'filesView.artifact.image.zoomIn': 'Inzoomen',
+     'filesView.artifact.image.previous': 'Vorige afbeelding: {name}',
+@@ -168,8 +168,8 @@ export const fileArtifactsI18n = {
+   },
+   de: {
+     'filesView.artifact.image.fit': 'Einpassen',
+-    'filesView.artifact.image.fitTitle': 'Bild in das Panel einpassen',
+-    'filesView.artifact.image.actualTitle': 'Bild in Originalgröße anzeigen',
++    'filesView.artifact.image.fitTitle': 'In das Panel einpassen',
++    'filesView.artifact.image.actualTitle': 'In Originalgröße anzeigen',
+     'filesView.artifact.image.zoomOut': 'Verkleinern',
+     'filesView.artifact.image.zoomIn': 'Vergrößern',
+     'filesView.artifact.image.previous': 'Vorheriges Bild: {name}',
+@@ -251,8 +251,8 @@ export const fileArtifactsI18n = {
+   },
+   es: {
+     'filesView.artifact.image.fit': 'Ajustar',
+-    'filesView.artifact.image.fitTitle': 'Ajustar la imagen al panel',
+-    'filesView.artifact.image.actualTitle': 'Mostrar la imagen a tamaño real',
++    'filesView.artifact.image.fitTitle': 'Ajustar al panel',
++    'filesView.artifact.image.actualTitle': 'Mostrar a tamaño real',
+     'filesView.artifact.image.zoomOut': 'Alejar',
+     'filesView.artifact.image.zoomIn': 'Acercar',
+     'filesView.artifact.image.previous': 'Imagen anterior: {name}',
+@@ -334,8 +334,8 @@ export const fileArtifactsI18n = {
+   },
+   fr: {
+     'filesView.artifact.image.fit': 'Ajuster',
+-    'filesView.artifact.image.fitTitle': 'Ajuster l\'image au panneau',
+-    'filesView.artifact.image.actualTitle': 'Afficher l\'image à sa taille réelle',
++    'filesView.artifact.image.fitTitle': 'Ajuster au panneau',
++    'filesView.artifact.image.actualTitle': 'Afficher à sa taille réelle',
+     'filesView.artifact.image.zoomOut': 'Zoom arrière',
+     'filesView.artifact.image.zoomIn': 'Zoom avant',
+     'filesView.artifact.image.previous': 'Image précédente : {name}',
+@@ -417,8 +417,8 @@ export const fileArtifactsI18n = {
+   },
+   ja: {
+     'filesView.artifact.image.fit': 'フィット',
+-    'filesView.artifact.image.fitTitle': '画像をパネルに合わせる',
+-    'filesView.artifact.image.actualTitle': '画像を実際のサイズで表示',
++    'filesView.artifact.image.fitTitle': 'パネルに合わせる',
++    'filesView.artifact.image.actualTitle': '実際のサイズで表示',
+     'filesView.artifact.image.zoomOut': '縮小',
+     'filesView.artifact.image.zoomIn': '拡大',
+     'filesView.artifact.image.previous': '前の画像: {name}',
+@@ -500,8 +500,8 @@ export const fileArtifactsI18n = {
+   },
+   ko: {
+     'filesView.artifact.image.fit': '맞춤',
+-    'filesView.artifact.image.fitTitle': '이미지를 패널에 맞춤',
+-    'filesView.artifact.image.actualTitle': '이미지를 실제 크기로 표시',
++    'filesView.artifact.image.fitTitle': '패널에 맞춤',
++    'filesView.artifact.image.actualTitle': '실제 크기로 표시',
+     'filesView.artifact.image.zoomOut': '축소',
+     'filesView.artifact.image.zoomIn': '확대',
+     'filesView.artifact.image.previous': '이전 이미지: {name}',
+@@ -583,8 +583,8 @@ export const fileArtifactsI18n = {
+   },
+   pl: {
+     'filesView.artifact.image.fit': 'Dopasuj',
+-    'filesView.artifact.image.fitTitle': 'Dopasuj obraz do panelu',
+-    'filesView.artifact.image.actualTitle': 'Pokaż obraz w rzeczywistym rozmiarze',
++    'filesView.artifact.image.fitTitle': 'Dopasuj do panelu',
++    'filesView.artifact.image.actualTitle': 'Pokaż w rzeczywistym rozmiarze',
+     'filesView.artifact.image.zoomOut': 'Pomniejsz',
+     'filesView.artifact.image.zoomIn': 'Powiększ',
+     'filesView.artifact.image.previous': 'Poprzedni obraz: {name}',
+@@ -666,8 +666,8 @@ export const fileArtifactsI18n = {
+   },
+   'pt-BR': {
+     'filesView.artifact.image.fit': 'Ajustar',
+-    'filesView.artifact.image.fitTitle': 'Ajustar a imagem ao painel',
+-    'filesView.artifact.image.actualTitle': 'Mostrar a imagem no tamanho real',
++    'filesView.artifact.image.fitTitle': 'Ajustar ao painel',
++    'filesView.artifact.image.actualTitle': 'Mostrar no tamanho real',
+     'filesView.artifact.image.zoomOut': 'Diminuir zoom',
+     'filesView.artifact.image.zoomIn': 'Aumentar zoom',
+     'filesView.artifact.image.previous': 'Imagem anterior: {name}',
+@@ -749,8 +749,8 @@ export const fileArtifactsI18n = {
+   },
+   tr: {
+     'filesView.artifact.image.fit': 'Sığdır',
+-    'filesView.artifact.image.fitTitle': 'Görseli panele sığdır',
+-    'filesView.artifact.image.actualTitle': 'Görseli gerçek boyutunda göster',
++    'filesView.artifact.image.fitTitle': 'Panele sığdır',
++    'filesView.artifact.image.actualTitle': 'Gerçek boyutunda göster',
+     'filesView.artifact.image.zoomOut': 'Uzaklaştır',
+     'filesView.artifact.image.zoomIn': 'Yakınlaştır',
+     'filesView.artifact.image.previous': 'Önceki görsel: {name}',
+@@ -832,8 +832,8 @@ export const fileArtifactsI18n = {
+   },
+   uk: {
+     'filesView.artifact.image.fit': 'Вписати',
+-    'filesView.artifact.image.fitTitle': 'Вписати зображення в панель',
+-    'filesView.artifact.image.actualTitle': 'Показати зображення у справжньому розмірі',
++    'filesView.artifact.image.fitTitle': 'Вписати в панель',
++    'filesView.artifact.image.actualTitle': 'Показати у справжньому розмірі',
+     'filesView.artifact.image.zoomOut': 'Зменшити',
+     'filesView.artifact.image.zoomIn': 'Збільшити',
+     'filesView.artifact.image.previous': 'Попереднє зображення: {name}',
+@@ -915,8 +915,8 @@ export const fileArtifactsI18n = {
+   },
+   'zh-CN': {
+     'filesView.artifact.image.fit': '适应',
+-    'filesView.artifact.image.fitTitle': '将图片适应面板大小',
+-    'filesView.artifact.image.actualTitle': '以实际大小显示图片',
++    'filesView.artifact.image.fitTitle': '适应面板大小',
++    'filesView.artifact.image.actualTitle': '以实际大小显示',
+     'filesView.artifact.image.zoomOut': '缩小',
+     'filesView.artifact.image.zoomIn': '放大',
+     'filesView.artifact.image.previous': '上一张图片：{name}',
+@@ -998,8 +998,8 @@ export const fileArtifactsI18n = {
+   },
+   'zh-TW': {
+     'filesView.artifact.image.fit': '適應',
+-    'filesView.artifact.image.fitTitle': '將圖片適應面板大小',
+-    'filesView.artifact.image.actualTitle': '以實際大小顯示圖片',
++    'filesView.artifact.image.fitTitle': '適應面板大小',
++    'filesView.artifact.image.actualTitle': '以實際大小顯示',
+     'filesView.artifact.image.zoomOut': '縮小',
+     'filesView.artifact.image.zoomIn': '放大',
+     'filesView.artifact.image.previous': '上一張圖片：{name}',
+@@ -1081,8 +1081,8 @@ export const fileArtifactsI18n = {
+   },
+   ar: {
+     'filesView.artifact.image.fit': 'ملاءمة',
+-    'filesView.artifact.image.fitTitle': 'ملاءمة الصورة مع اللوحة',
+-    'filesView.artifact.image.actualTitle': 'عرض الصورة بحجمها الفعلي',
++    'filesView.artifact.image.fitTitle': 'ملاءمة مع اللوحة',
++    'filesView.artifact.image.actualTitle': 'عرض بالحجم الفعلي',
+     'filesView.artifact.image.zoomOut': 'تصغير',
+     'filesView.artifact.image.zoomIn': 'تكبير',
+     'filesView.artifact.image.previous': 'الصورة السابقة: {name}',
+@@ -1164,8 +1164,8 @@ export const fileArtifactsI18n = {
+   },
+   he: {
+     'filesView.artifact.image.fit': 'התאם',
+-    'filesView.artifact.image.fitTitle': 'התאם את התמונה לחלונית',
+-    'filesView.artifact.image.actualTitle': 'הצג את התמונה בגודלה האמיתי',
++    'filesView.artifact.image.fitTitle': 'התאם לחלונית',
++    'filesView.artifact.image.actualTitle': 'הצג בגודלו האמיתי',
+     'filesView.artifact.image.zoomOut': 'הקטן תצוגה',
+     'filesView.artifact.image.zoomIn': 'הגדל תצוגה',
+     'filesView.artifact.image.previous': 'התמונה הקודמת: {name}',

@@ -60,6 +60,11 @@ let
       ./patches/draft-heading-project-picker.patch
       ./patches/recap-full-note.patch
       ./patches/image-viewer-zoom.patch
+      # The pdf.js fallback used where a runtime has no PDF viewer (the Android
+      # WebView) gets the image viewer's zoom controls, pinch and wheel zoom.
+      # It imports ImageZoomControls and wheelZoomFactor, so it follows the
+      # image viewer patch.
+      ./patches/pdf-viewer-zoom.patch
       ./patches/mobile-assist-trigger.patch
       ./patches/mobile-voice-launch.patch
       ./patches/dictation-recovery.patch
