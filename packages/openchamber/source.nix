@@ -76,6 +76,7 @@ let
       ./patches/question-cards.patch
       ./patches/question-card-bubble.patch
       ./patches/collapsed-quote-row.patch
+      ./patches/tool-row-tap-opens-file.patch
       ./patches/gitea-references-across.patch
     ];
   };
