@@ -1,0 +1,57 @@
+diff --git a/packages/ui/src/components/chat/message/parts/toolRow/useToolRowOpenActions.ts b/packages/ui/src/components/chat/message/parts/toolRow/useToolRowOpenActions.ts
+index 3d7bc8f31..53ee1e71b 100644
+--- a/packages/ui/src/components/chat/message/parts/toolRow/useToolRowOpenActions.ts
++++ b/packages/ui/src/components/chat/message/parts/toolRow/useToolRowOpenActions.ts
+@@ -51,7 +51,7 @@ export const useToolRowOpenActions = ({
+     };
+ 
+     const handleMainClick = (e: { stopPropagation: () => void }) => {
+-        if (isTaskTool || !runtime?.editor) {
++        if (isTaskTool) {
+             onToggle(part.id);
+             return;
+         }
+@@ -75,18 +75,35 @@ export const useToolRowOpenActions = ({
+             filePath = toolInputPath(input);
+         }
+ 
+-        if (typeof filePath === 'string') {
+-            e.stopPropagation();
+-            const absolutePath = toAbsoluteFilePath(currentDirectory, filePath);
+-            if (runtime.runtime.isVSCode && toolDiff && (isEditTool(normalizedPartTool) || isPatchTool(normalizedPartTool))) {
+-                const label = `${getRelativePath(absolutePath, currentDirectory)} (changes)`;
+-                void runtime.editor.openDiff('', absolutePath, label, { line: targetLine, patch: toolDiff });
+-                return;
+-            }
++        if (typeof filePath !== 'string') {
++            onToggle(part.id);
++            return;
++        }
++        e.stopPropagation();
++        const absolutePath = toAbsoluteFilePath(currentDirectory, filePath);
++        if (runtime?.editor && runtime.runtime.isVSCode && toolDiff
++            && (isEditTool(normalizedPartTool) || isPatchTool(normalizedPartTool))) {
++            const label = `${getRelativePath(absolutePath, currentDirectory)} (changes)`;
++            void runtime.editor.openDiff('', absolutePath, label, { line: targetLine, patch: toolDiff });
++            return;
++        }
++        if (runtime?.editor) {
+             runtime.editor.openFile(absolutePath, targetLine);
++        } else if (mobileActions) {
++            // The phone has no hover and no editor handle, so the row itself is
++            // the tap target: open the file and bring the Files surface forward,
++            // the way the row's own open button already does.
++            const uiStore = useUIStore.getState();
++            if (typeof targetLine === 'number' && Number.isFinite(targetLine)) {
++                uiStore.openContextFileAtLine(currentDirectory, absolutePath, Math.max(1, Math.trunc(targetLine)), 1);
++            } else {
++                uiStore.openContextFile(currentDirectory, absolutePath);
++            }
+         } else {
+             onToggle(part.id);
++            return;
+         }
++        mobileActions?.openFiles();
+     };
+ 
+     const handleMainRowClick = (event: React.MouseEvent<HTMLDivElement>) => {
