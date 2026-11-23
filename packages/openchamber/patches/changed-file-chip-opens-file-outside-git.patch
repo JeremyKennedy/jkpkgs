@@ -54,7 +54,7 @@ index 1ee92c48d..4f4705afe 100644
 
 
 diff --git a/packages/ui/src/apps/MobileChangesSurface.tsx b/packages/ui/src/apps/MobileChangesSurface.tsx
-index 16cf11922..0e8f7bded 100644
+index 16cf11922..c426998fc 100644
 --- a/packages/ui/src/apps/MobileChangesSurface.tsx
 +++ b/packages/ui/src/apps/MobileChangesSurface.tsx
 @@ -42,6 +42,7 @@ import { PierreDiffViewer, type ContextExpansionRequest } from '@/components/vie
@@ -85,7 +85,28 @@ index 16cf11922..0e8f7bded 100644
    const { rootIsGitRepo, gitDirectory, nestedRepos, repositoryOptions } = repository;
    const currentDirectory = gitDirectory ?? rootDirectory;
    const status = useGitStatus(currentDirectory || null);
-@@ -530,13 +535,28 @@ export const MobileChangesPane: React.FC<MobileChangesPaneProps> = ({ rootDirect
+@@ -486,7 +491,7 @@ export const MobileChangesPane: React.FC<MobileChangesPaneProps> = ({ rootDirect
+     if (!turnFileRequest || !visible) return;
+     if (turnFileRequest.panelSessionId !== currentSessionId
+       || (turnFileRequest.step === 'turn' && turnFileRequest.sessionId !== turnSessionId)
+-      || route.type !== 'list' || mode !== (turnFileRequest.step === 'turn' ? 'turn' : 'working')) {
++      || route.type !== 'list' || (mode !== 'turn' && mode !== 'working')) {
+       setTurnFileRequest(null);
+       return;
+     }
+@@ -500,8 +505,10 @@ export const MobileChangesPane: React.FC<MobileChangesPaneProps> = ({ rootDirect
+           turnId: turnFileRequest.turnId, turnSessionId: turnFileRequest.sessionId, turnDirectory: turnFileRequest.directory });
+         return;
+       }
++      // Do not move the surface yet: the working list decides whether this file
++      // has a diff to show or has to be opened itself. Navigating here first is
++      // what flashed Changes for a moment before the file appeared.
+       setTurnFileRequest({ ...turnFileRequest, step: 'changes' });
+-      setNavigation({ ownerKey, mode: 'working', route: LIST_ROUTE });
+       return;
+     }
+     if (!repository.repositoriesKnown || !currentDirectory) return;
+@@ -530,13 +537,28 @@ export const MobileChangesPane: React.FC<MobileChangesPaneProps> = ({ rootDirect
      setTurnFileRequest(null);
      const listed = closestRepoFile(file, currentDirectory, changeEntries.map((candidate) => candidate.path));
      const entry = changeEntries.find((candidate) => candidate.path === listed);
