@@ -18,10 +18,10 @@
     "changed-file-chip-opens-file-outside-git": {
       "relationship": "partial",
       "intent": "bugfix",
-      "pr": 7098,
-      "issue": 7097,
+      "pr": 7460,
+      "issue": 7459,
       "release": "v2.8.0",
-      "note": "Most of this shipped: PR #7098 merged on 2026-11-21 and v2.8.0 carries it as lib/contextFileOpenGuard.ts plus views/files/openChangedFileWithoutRepository.ts, wired at useDiffViewTurnNavigation.ts:104. The release is one squashed commit (30c70496), so the API's merge commit is not in the tag's history; the content is. What remains here is the tail their version leaves open: a project that is not a repository, or a file the turn deleted, reaches no repository and no listed file, and nothing opens. That is nine lines against their own module, and the patch is already shrunk to it. Both tails are carried, and the phone one now has evidence and no flash: a chip whose file is in neither the turn diff nor the working list used to land on the Changes screen, and now opens the file and brings Files forward without showing Changes first. Verified live in an isolated instance on 2026-11-23, sampling every 100ms across the tap for the empty Changes copy.",
+      "note": "Most of this shipped: PR #7098 merged on 2026-11-21 and v2.8.0 carries it as lib/contextFileOpenGuard.ts plus views/files/openChangedFileWithoutRepository.ts, wired at useDiffViewTurnNavigation.ts:104. The release is one squashed commit (30c70496), so the API's merge commit is not in the tag's history; the content is. The tail their version leaves open is now submitted as PR #7460 for issue #7459: a project that is not a repository, or a file the turn deleted, reaches no repository and no listed file, and nothing opens. #7460 is blocked on the bot review (the changed-gate fails plus four findings) and is being fixed in a build session. Both tails are carried locally, and the phone one has evidence and no flash: a chip whose file is in neither the turn diff nor the working list used to land on the Changes screen, and now opens the file and brings Files forward without showing Changes first.",
       "since": "2026-11-18"
     },
     "chat-width-80": {
@@ -37,9 +37,11 @@
       "since": "2026-11-24"
     },
     "collapsed-quote-row": {
-      "relationship": "none",
-      "intent": "bugfix",
-      "note": "A collapsed prompt that fills both lines left its attached quote out of the DOM entirely, reachable only behind show more. The first fix kept only rows that need one line, so a quote WITH a comment (a two-line row) stayed invisible. Now the first row that collapses is kept whatever height it needs; a shared page still is not, since its card draws several lines and ignores the collapse. Upstream owns the same collapse code, so this is a bugfix candidate.",
+      "relationship": "pending",
+      "intent": "declined",
+      "pr": 7474,
+      "issue": 7472,
+      "note": "Upstream keeps the collapsed prompt at its two-line budget and wants a count of hidden quotes behind show more instead of keeping a quote row, so maintainer btriapitsyn closed PR #7474 on 2026-11-24. Issue #7472 stays open for that indicator. jkpkgs #396 added the hidden-quote count locally; this patch stays local until upstream's indicator lands.",
       "since": "2026-11-23"
     },
     "commandcode-quota": {
@@ -110,11 +112,11 @@
       "since": "2026-11-17"
     },
     "mobile-guest-catalog-failure": {
-      "relationship": "pending",
+      "relationship": "same",
       "intent": "bugfix",
-      "pr": 7231,
+      "pr": 7395,
       "issue": 7228,
-      "note": "Reproduced on v2.7.2 with a corrupt extensions.json: the phone now says the extension catalog could not be read instead of showing an empty list. Ported onto main's guests store. PR #7231 was withdrawn on 2026-11-20 to rework and live with it locally, branch intact at 15246b745; issue #7228 is open.",
+      "note": "Upstream now carries this: PR #7395 merged on 2026-11-24 and closed #7228 with the failure notice. Our patch stays until the next base bump, because the v2.8.0 base predates the merge, and retires then.",
       "since": "2026-11-18"
     },
     "mobile-voice-launch": {
