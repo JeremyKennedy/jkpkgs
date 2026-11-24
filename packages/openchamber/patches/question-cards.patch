@@ -1,8 +1,16 @@
 diff --git a/packages/ui/src/components/chat/ChatMessage.tsx b/packages/ui/src/components/chat/ChatMessage.tsx
-index f3e1dd304..2899a277e 100644
+index f3e1dd304..1aa470739 100644
 --- a/packages/ui/src/components/chat/ChatMessage.tsx
 +++ b/packages/ui/src/components/chat/ChatMessage.tsx
-@@ -106,6 +106,12 @@ interface ChatMessageProps {
+@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils';
+ import { useChatSurfaceMode } from './useChatSurfaceMode';
+ 
+ import MessageBody, { type MessageExtraAction } from './message/MessageBody';
++import { USER_BUBBLE_SHELL_CLASS, userBubbleStyle } from './message/body/userBubbleStyle';
+ import { GuestIcon } from '@/components/layout/GuestRailIcon';
+ import { useGuestActions } from '@/hooks/useGuestSurfaces';
+ import { buildGuestMessageItem, guestMessageActionsFor } from '@/lib/guests/actions';
+@@ -106,6 +107,12 @@ interface ChatMessageProps {
      animateUserOnMount?: boolean;
      onUserAnimationConsumed?: (messageId: string) => void;
      reviewTransferDirection?: ReviewTransferDirection | null;
@@ -15,7 +23,7 @@ index f3e1dd304..2899a277e 100644
  }
  
  const ChatMessage: React.FC<ChatMessageProps> = ({
-@@ -118,6 +124,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
+@@ -118,6 +125,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
      animateUserOnMount = false,
      onUserAnimationConsumed,
      reviewTransferDirection = null,
@@ -23,7 +31,7 @@ index f3e1dd304..2899a277e 100644
  }) => {
      const { t } = useI18n();
      const { isMobile, isTablet, hasTouchInput } = useDeviceInfo();
-@@ -355,6 +362,16 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
+@@ -355,6 +363,16 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
  
      const shouldHideUserMessage = isUser && visibleParts.length === 0;
  
@@ -40,7 +48,14 @@ index f3e1dd304..2899a277e 100644
      const shouldAnimateMessage = React.useMemo(() => {
          if (isUser) return false;
          const freshnessDetector = MessageFreshnessDetector.getInstance();
-@@ -603,7 +620,11 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
+@@ -596,14 +614,16 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
+         return null;
+     }
+ 
+-    const userMessageRadius = 'var(--radius-xl)';
+-
+     return (
+         <>
              <div
                  className={cn(
                      'group w-full',
@@ -53,18 +68,22 @@ index f3e1dd304..2899a277e 100644
                      isUser || hasTurnGrouping || isFollowedByAssistant || nextIsHiddenUserMessage ? 'pb-0' : 'pb-2'
                  )}
                  id={sliceName ? undefined : `message-${message.info.id}`}
-@@ -632,7 +653,9 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
-                                             style={{
-                                                 backgroundColor: 'var(--chat-user-message-bg)',
-                                                 borderRadius: userMessageRadius,
+@@ -629,12 +649,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
+                                     <MessageSelectionMark sessionId={sessionId} unitKey={promptUnitKey} kind="prompt" />
+                                     <div className={cn('max-w-[85%]', chatSurfaceMode === 'peek' ? 'pb-3' : undefined)}>
+                                         <div
+-                                            style={{
+-                                                backgroundColor: 'var(--chat-user-message-bg)',
+-                                                borderRadius: userMessageRadius,
 -                                                borderBottomRightRadius: 'var(--radius-sm)',
-+                                                // The tail sits at the inline end in either
-+                                                // direction; a physical corner points inward in RTL.
-+                                                borderEndEndRadius: 'var(--radius-sm)',
-                                             }}
-                                             className="px-5 py-3 shadow-none border border-primary/5"
+-                                            }}
+-                                            className="px-5 py-3 shadow-none border border-primary/5"
++                                            style={userBubbleStyle('var(--chat-user-message-bg)')}
++                                            className={USER_BUBBLE_SHELL_CLASS}
                                              data-user-message-bubble=""
-@@ -716,10 +739,11 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
+                                         >
+                                             <MessageBody
+@@ -716,10 +732,11 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                          )
                      ) : (
                          <div className="relative">
@@ -77,7 +96,7 @@ index f3e1dd304..2899a277e 100644
                                  isUser={isUser}
                                  isMessageCompleted={isMessageCompleted}
                                  messageFinish={messageFinish}
-@@ -788,6 +812,7 @@ export default React.memo(ChatMessage, (prev, next) => {
+@@ -788,6 +805,7 @@ export default React.memo(ChatMessage, (prev, next) => {
          && prev.assistantHeaderMessageId === next.assistantHeaderMessageId
          && prev.animateUserOnMount === next.animateUserOnMount
          && prev.onUserAnimationConsumed === next.onUserAnimationConsumed
@@ -394,7 +413,7 @@ index 55a4b0015..d8353730f 100644
          </div>
      );
 diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
-index 18144142d..b17f1988d 100644
+index 18144142d..eeec326a2 100644
 --- a/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
 +++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
 @@ -10,7 +10,7 @@ import { I18nProvider } from '@/lib/i18n';
@@ -417,7 +436,53 @@ index 18144142d..b17f1988d 100644
  );
  
  test('the card shows the question and only the chosen answer, without the recommendation marker', () => {
-@@ -151,7 +151,12 @@ test('a pinned batch leaves a one-line bar of its answers once it scrolls away,
+@@ -94,12 +94,19 @@ const batch = () => ask([
+     { question: 'Update the README?', answer: 'No' },
+ ]);
+ 
+-test('collapsed, a batch of questions is one line each: its label and its answer', () => {
+-    const content = text(card(batch()));
+-    expect(content).toContain('H0');
+-    expect(content).toContain('Yes, retry once');
+-    expect(content).toContain('H1');
+-    expect(content).not.toContain('Retry on timeout?');
++test('collapsed, every question is the same two lines: the question, then its answer', () => {
++    // One question and a batch read the same way; the count never changes the
++    // shape, which is what made a batch look like a table.
++    const one = text(card(ask([{ question: 'Retry on timeout?', answer: 'Yes, retry once' }])));
++    const many = text(card(batch()));
++    for (const content of [one, many]) {
++        expect(content).toContain('Retry on timeout?');
++        expect(content).toContain('Yes, retry once');
++    }
++    expect(many).toContain('Update the README?');
++    // No two-column grid: the header is not used as a table label alone.
++    expect(many).not.toContain('H0');
++    expect(many).not.toContain('H1');
+ });
+ 
+ const mounted = async (run: (container: HTMLElement, mount: (node: React.ReactNode) => Promise<void>) => Promise<void>) => {
+@@ -120,16 +127,14 @@ const click = async (element: Element | null | undefined) => {
+ const buttonNamed = (container: HTMLElement, name: string) => [...container.querySelectorAll('button')].find((button) => button.textContent === name);
+ const optionMarks = (container: HTMLElement) => container.querySelectorAll('.rounded-full.border').length;
+ 
+-test('opened, a batch lists each question with its answer, and Show options adds every option', async () => {
++test('opened, every question lists its options, one question or many', async () => {
+     await mounted(async (container, mount) => {
+         await mount(card(batch(), true));
+         expect(container.textContent).toContain('Retry on timeout?');
+-        expect(container.textContent).toContain('Yes, retry once');
+-        expect(optionMarks(container)).toBe(0);
+-        await click(buttonNamed(container, 'Show options'));
+         // Two options each, and the first answer was typed: one more marked row.
++        // Opening is the only step; there is no second "Show options".
+         expect(optionMarks(container)).toBe(5);
+-        expect(buttonNamed(container, 'Hide options')?.getAttribute('aria-expanded')).toBe('true');
++        expect(buttonNamed(container, 'Show options')).toBeUndefined();
+     });
+ });
+ 
+@@ -151,7 +156,12 @@ test('a pinned batch leaves a one-line bar of its answers once it scrolls away,
              expect(bar?.hasAttribute('data-turn-sticky-header')).toBe(true);
              expect(bar?.textContent).toContain('2 answers');
              expect(bar?.textContent).toContain('Yes, retry once, No');
@@ -431,7 +496,7 @@ index 18144142d..b17f1988d 100644
              expect(bar?.textContent).toContain('Retry on timeout?');
              await click(buttonNamed(row, 'Show less') ?? [...row.querySelectorAll('[data-question-bar] button')].find((button) => button.textContent === 'Show less'));
              expect(row.querySelector('[data-question-bar]')?.textContent).toContain('2 answers');
-@@ -171,6 +176,88 @@ test('the card is a toggle that reports whether the options are open', () => {
+@@ -171,6 +181,88 @@ test('the card is a toggle that reports whether the options are open', () => {
      expect(render(card(ask([{ question: 'Ship it?', answer: 'Yes' }]), true))).toContain('aria-expanded="true"');
  });
  
@@ -520,7 +585,7 @@ index 18144142d..b17f1988d 100644
  test('the question sentence is the last one that asks, after any lead-in', () => {
      expect(questionSentence('src/fetch.ts sets TIMEOUT_MS = 5000. (Note: the file does not exist yet.) Should I change it, and how?'))
          .toBe('Should I change it, and how?');
-@@ -189,15 +276,17 @@ test('opened, the card lists every option and marks the chosen one; a typed answ
+@@ -189,15 +281,17 @@ test('opened, the card lists every option and marks the chosen one; a typed answ
      expect(typed).toContain('Ship it on Friday');
  });
  
@@ -542,7 +607,7 @@ index 18144142d..b17f1988d 100644
      await mounted(async (container, mount) => {
          await mount(<>{row()}{preview()}</>);
          expect(container.querySelectorAll('[aria-expanded="false"]').length).toBe(2);
-@@ -212,6 +301,12 @@ test('a question row and a fold preview of the same part share one open state, w
+@@ -212,6 +306,12 @@ test('a question row and a fold preview of the same part share one open state, w
      });
  });
  
@@ -555,7 +620,29 @@ index 18144142d..b17f1988d 100644
  test('the card fits its content, aligns right and uses transcript typography', () => {
      const markup = render(card(ask([{ question: 'Ship it?', answer: 'Yes' }])));
      expect(markup).toContain('flex flex-col items-end');
-@@ -243,7 +338,7 @@ test('native click parity: collapsed text opens, selected text does not, open te
+@@ -219,9 +319,18 @@ test('the card fits its content, aligns right and uses transcript typography', (
+     expect(markup).toContain('typography-meta');
+     expect(markup).toContain('typography-markdown');
+     expect(markup).not.toContain('text-base');
+-    expect(markup).toContain('color-mix(in srgb, var(--status-question-background) 55%, transparent)');
+-    // The tint is painted on the canvas, so the transcript cannot read through it.
+-    expect(markup).toContain('background-color:var(--surface-background)');
++    // The card is the prompt bubble with the question colour mixed into the
++    // bubble's own fill, so it is opaque and follows the theme's bubble colour.
++    // Mixing the role's `-background` tint instead would carry that tint's own
++    // alpha through and leave the transcript readable through the card.
++    expect(markup).toContain('background-color:color-mix(in srgb, var(--status-question) 14%, var(--chat-user-message-bg))');
++    expect(markup).not.toContain('--status-question-background');
++    expect(markup).not.toContain('--surface-background');
++    // The prompt bubble's padding and radii, so the card lines up with a prompt.
++    expect(markup).toContain('px-5 py-3 shadow-none border border-primary/5');
++    expect(markup).toContain('border-radius:var(--radius-xl)');
++    // The APK build asserts this reaches the packaged bundle.
++    expect(markup).toContain('data-question-card-bubble');
+ });
+ 
+ test('text is selectable and expansion uses the native message link instead of a clickable card', () => {
+@@ -243,7 +352,7 @@ test('native click parity: collapsed text opens, selected text does not, open te
      let toggles = 0;
      const draw = async (open: boolean) => {
          await act(async () => root.render(wrap(
@@ -565,7 +652,7 @@ index 18144142d..b17f1988d 100644
      };
      const click = async (element: Element) => {
 diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
-index e570e6273..ddd375ce9 100644
+index e570e6273..f862b0941 100644
 --- a/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
 +++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
 @@ -9,9 +9,12 @@ import { useUIStore } from '@/stores/useUIStore';
@@ -582,28 +669,40 @@ index e570e6273..ddd375ce9 100644
      type QuestionAnswerEntry,
      type QuestionCardState,
  } from '../lib/questionEntries';
-@@ -20,6 +23,7 @@ import { useQuestionOpen, writeQuestionOpen } from '../lib/questionExpandedState
+@@ -20,21 +23,20 @@ import { useQuestionOpen, writeQuestionOpen } from '../lib/questionExpandedState
  import { FormDockModeContext } from '../formsInChat';
  import { stickyHeaderBackground } from './stickyHeaderBackground';
  import { USER_BUBBLE_TEXT_LINK_CLASS } from '../message/body/userBubbleLinkStyle';
++import { USER_BUBBLE_SHELL_CLASS, userBubbleStyle, userBubbleTintedFill } from '../message/body/userBubbleStyle';
 +import { QuestionAnswerLine, QuestionAnswerRow, QuestionOptionRow } from '../message/parts/QuestionChoices';
  
  const RAIL_STYLE: React.CSSProperties = { borderColor: 'var(--status-question)' };
  
-@@ -29,9 +33,11 @@ const RAIL_STYLE: React.CSSProperties = { borderColor: 'var(--status-question)'
- // at 55% of a 12.5% tint it was near-clear, so the transcript read through
- // the card and through the bar that covers the chat while the card is open.
- const QUESTION_TINT = 'color-mix(in srgb, var(--status-question-background) 55%, transparent)';
-+// The tail corner is the inline end of the block end in either direction, so
-+// it stays the far corner in Arabic.
- const CARD_STYLE: React.CSSProperties = {
-     borderRadius: 'var(--radius-xl)',
+-// Match the prompt bubble's shape and subtle border without its body-sized
+-// text or full-column footprint. The faint purple fill identifies questions,
+-// and it is painted on the canvas rather than left at the tint's own alpha:
+-// at 55% of a 12.5% tint it was near-clear, so the transcript read through
+-// the card and through the bar that covers the chat while the card is open.
+-const QUESTION_TINT = 'color-mix(in srgb, var(--status-question-background) 55%, transparent)';
+-const CARD_STYLE: React.CSSProperties = {
+-    borderRadius: 'var(--radius-xl)',
 -    borderBottomRightRadius: 'var(--radius-sm)',
-+    borderEndEndRadius: 'var(--radius-sm)',
-     backgroundColor: 'var(--surface-background)',
-     backgroundImage: `linear-gradient(${QUESTION_TINT}, ${QUESTION_TINT})`,
- };
-@@ -45,21 +51,16 @@ const MORE_LINE_PX = 24;
+-    backgroundColor: 'var(--surface-background)',
+-    backgroundImage: `linear-gradient(${QUESTION_TINT}, ${QUESTION_TINT})`,
+-};
++// The prompt bubble with the question colour mixed into its own fill, so the
++// card is the same shape and reads as the row's purple sibling instead of a
++// copy that drifted. Mixing into `--chat-user-message-bg` is what keeps it
++// opaque: the old fill mixed the question's own tint, which is already
++// translucent, so the card came out near-clear and the transcript read
++// through it and through the bar that covers the chat while the card is open.
++const CARD_STYLE: React.CSSProperties = userBubbleStyle(
++    userBubbleTintedFill('--status-question'),
++);
+ 
+ const LINK_STYLE: React.CSSProperties = { minHeight: 0, minWidth: 0 };
+ 
+@@ -45,21 +47,16 @@ const MORE_LINE_PX = 24;
  /** The bar takes over once less than this much of a scrolled-away card is in view. */
  const BAR_HANDOVER_PX = 40;
  
@@ -631,7 +730,23 @@ index e570e6273..ddd375ce9 100644
  }
  
  /**
-@@ -116,6 +117,11 @@ const useCollapsedRows = (listRef: React.RefObject<HTMLDivElement | null>, enabl
+@@ -72,6 +69,15 @@ const useCollapsedRows = (listRef: React.RefObject<HTMLDivElement | null>, enabl
+     React.useLayoutEffect(() => {
+         const list = listRef.current;
+         if (!enabled || !list) {
++            // Opening clears what the collapse hid: the rows carry inline
++            // visibility and the list an inline height, and neither is undone by
++            // re-rendering alone, so an opened card kept its rows invisible.
++            if (list) {
++                for (const row of list.querySelectorAll<HTMLElement>('[data-question-row]')) {
++                    row.style.visibility = '';
++                }
++                list.style.height = '';
++            }
+             setHidden(0);
+             return;
+         }
+@@ -116,6 +122,11 @@ const useCollapsedRows = (listRef: React.RefObject<HTMLDivElement | null>, enabl
   * Whether a pinned batch card has scrolled away far enough for its bar. The
   * list moves the pinned row off its place by `STICKY_ROW_OFFSET`; the card
   * draws itself back there, so it scrolls away with the transcript.
@@ -643,7 +758,7 @@ index e570e6273..ddd375ce9 100644
   */
  const useBarHandover = (enabled: boolean) => {
      const flowRef = React.useRef<HTMLDivElement>(null);
-@@ -127,16 +133,13 @@ const useBarHandover = (enabled: boolean) => {
+@@ -127,16 +138,13 @@ const useBarHandover = (enabled: boolean) => {
              setCovered(false);
              return;
          }
@@ -662,7 +777,7 @@ index e570e6273..ddd375ce9 100644
          chat.addEventListener(STICKY_ROW_OFFSET_EVENT, onOffset);
          return () => chat.removeEventListener(STICKY_ROW_OFFSET_EVENT, onOffset);
      }, [enabled]);
-@@ -145,14 +148,11 @@ const useBarHandover = (enabled: boolean) => {
+@@ -145,14 +153,11 @@ const useBarHandover = (enabled: boolean) => {
  
  interface QuestionCardProps {
      answered: readonly AnsweredEntry[];
@@ -679,7 +794,7 @@ index e570e6273..ddd375ce9 100644
  }
  
  /**
-@@ -162,7 +162,7 @@ interface QuestionCardProps {
+@@ -162,157 +167,95 @@ interface QuestionCardProps {
   * question with its answer, and Show options then opens every option.
   */
  const QuestionCard: React.FC<QuestionCardProps> = ({
@@ -687,10 +802,21 @@ index e570e6273..ddd375ce9 100644
 +    answered, open, onToggle, placement, isMobile,
  }) => {
      const { t } = useI18n();
-     const batch = answered.length > 1;
-@@ -175,144 +175,115 @@ const QuestionCard: React.FC<QuestionCardProps> = ({
-         onToggle();
-     };
+-    const batch = answered.length > 1;
+-    const [optionsShown, setOptionsShown] = React.useState(false);
+     const listRef = React.useRef<HTMLDivElement>(null);
+-    const hiddenRows = useCollapsedRows(listRef, batch && !open, answered);
+-    const showOptions = open && (!batch || optionsShown);
+-    const toggle = () => {
+-        setOptionsShown(false);
+-        onToggle();
+-    };
++    // One shape for every card: a question line and its answer under it, as
++    // many as fit, the rest behind one count. Neither the number of questions
++    // nor the open state changes the layout.
++    const hiddenRows = useCollapsedRows(listRef, !open, answered);
++    const showOptions = open;
++    const toggle = onToggle;
  
 -    const entryBlock = ({ entry, answer }: AnsweredEntry, index: number) => {
 +    const entryBlock = ({ entry, answer, state }: AnsweredEntry, index: number) => {
@@ -698,7 +824,7 @@ index e570e6273..ddd375ce9 100644
          return (
              <div key={`${entry.partId}:${index}`} className="min-w-0 space-y-0.5 border-s-2 ps-2.5" style={RAIL_STYLE}>
 -                <div dir="auto" className={cn('typography-meta text-foreground/70', !open && 'line-clamp-2')} title={entry.question}>
-+                <div dir="auto" className={cn('typography-meta text-foreground/70 oc-ui-start-align', !open && 'line-clamp-2')} title={entry.question}>
++                <div dir="auto" className={cn('typography-meta text-foreground/70 oc-ui-start-align', !open && 'line-clamp-1')} title={entry.question}>
                      {questionSentence(entry.question)}
                  </div>
                  {showOptions ? (
@@ -748,7 +874,7 @@ index e570e6273..ddd375ce9 100644
                      </div>
                  ) : answer ? (
 -                    <div dir="auto" className={cn('whitespace-pre-wrap break-words typography-markdown font-medium leading-snug text-foreground', !open && 'line-clamp-3')}>
-+                    <div dir="auto" className={cn('whitespace-pre-wrap break-words typography-markdown font-medium leading-snug text-foreground oc-ui-start-align', !open && 'line-clamp-3')}>
++                    <div dir="auto" className={cn('whitespace-pre-wrap break-words typography-markdown font-medium leading-snug text-foreground oc-ui-start-align', !open && 'line-clamp-1')}>
                          {answer}
                      </div>
                  ) : (
@@ -808,54 +934,13 @@ index e570e6273..ddd375ce9 100644
 -                                                    )}
 -                                                </div>
 -                                            ))}
-+        <div className={cn('relative z-10 flex flex-col items-end', placement === 'preview' ? 'py-1.5' : undefined)} data-question-turn-header="">
-+            <div className="max-w-[85%]">
-+                <div className="select-text border border-primary/5 px-5 py-3 shadow-none" style={CARD_STYLE}>
-+                    <div
-+                        className={cn(
-+                            'space-y-2.5',
-+                            open ? cn(isMobile ? 'max-h-[30dvh]' : 'max-h-[40dvh]', 'overflow-y-auto overscroll-contain') : 'cursor-pointer',
-+                        )}
-+                        onClick={(event) => {
-+                            // Match UserTextPart: a click opens collapsed content;
-+                            // a drag/double-click selecting text must leave it alone.
-+                            // Open text never collapses on click (Show less does).
-+                            if (!open && !hasTextSelectionInside(event.currentTarget)) toggle();
-+                        }}
-+                    >
-+                        {batch && !open ? (
-+                            <div className="min-w-0 border-s-2 ps-2.5" style={RAIL_STYLE}>
-+                                <div ref={listRef} className="relative grid grid-cols-[fit-content(40%)_minmax(0,1fr)] gap-x-2 gap-y-1 overflow-hidden">
-+                                    {answered.map(({ entry, answer, state }, index) => (
-+                                        <div
-+                                            key={`${entry.partId}:${index}`}
-+                                            data-question-row=""
-+                                            className="col-span-2 grid min-w-0 grid-cols-subgrid items-baseline"
-+                                        >
-+                                            <span dir="auto" className="min-w-0 truncate typography-meta text-foreground/70 oc-ui-start-align" title={entry.question}>
-+                                                {entry.header || questionSentence(entry.question)}
-+                                            </span>
-+                                            {answer ? (
-+                                                <span dir="auto" className="min-w-0 line-clamp-2 break-words typography-markdown font-medium leading-snug text-foreground oc-ui-start-align">
-+                                                    {answer}
-+                                                </span>
-+                                            ) : (
-+                                                <span dir="auto" className="min-w-0 truncate typography-markdown italic leading-snug text-muted-foreground oc-ui-start-align">
-+                                                    {t(questionStateKey(state))}
-+                                                </span>
-+                                            )}
-                                         </div>
+-                                        </div>
 -                                        {hiddenRows > 0 ? (
 -                                            <div className="pt-1 typography-meta text-muted-foreground">
 -                                                {t('chat.questionCard.moreQuestions', { count: hiddenRows })}
 -                                            </div>
 -                                        ) : null}
-+                                    ))}
-+                                </div>
-+                                {hiddenRows > 0 ? (
-+                                    <div className="pt-1 typography-meta text-muted-foreground">
-+                                        {t('chat.questionCard.moreQuestions', { count: hiddenRows })}
-                                     </div>
+-                                    </div>
 -                                ) : answered.map(entryBlock)}
 -                            </div>
 -                            <div className="mt-1 flex min-w-0 items-center justify-end gap-1.5 text-sm text-muted-foreground">
@@ -872,30 +957,47 @@ index e570e6273..ddd375ce9 100644
 -                                        </button>
 -                                        <span aria-hidden="true">·</span>
 -                                    </>
-                                 ) : null}
-+                            </div>
-+                        ) : answered.map(entryBlock)}
-+                    </div>
-+                    <div className="mt-1 flex min-w-0 items-center justify-end gap-1.5 text-sm text-muted-foreground">
-+                        {open && batch ? (
-+                            <>
-                                 <button
-                                     type="button"
+-                                ) : null}
+-                                <button
+-                                    type="button"
 -                                    onClick={toggle}
-+                                    onClick={() => setOptionsShown((shown) => !shown)}
-                                     className={cn('shrink-0', USER_BUBBLE_TEXT_LINK_CLASS)}
-                                     style={LINK_STYLE}
+-                                    className={cn('shrink-0', USER_BUBBLE_TEXT_LINK_CLASS)}
+-                                    style={LINK_STYLE}
 -                                    aria-expanded={open}
-+                                    aria-expanded={optionsShown}
-                                 >
+-                                >
 -                                    {t(open ? 'chat.message.userText.showLess' : 'chat.message.userText.showMore')}
-+                                    {t(optionsShown ? 'chat.questionCard.hideOptions' : 'chat.questionCard.showOptions')}
-                                 </button>
--                            </div>
--                        </div>
-+                                <span aria-hidden="true">·</span>
-+                            </>
-+                        ) : null}
+-                                </button>
++        <div className={cn('relative z-10 flex flex-col items-end', placement === 'preview' ? 'py-1.5' : undefined)} data-question-turn-header="">
++            <div className="max-w-[85%]">
++                <div className={`select-text ${USER_BUBBLE_SHELL_CLASS}`} style={CARD_STYLE} data-question-card-bubble="">
++                    <div
++                        ref={listRef}
++                        className={cn(
++                            'space-y-2.5',
++                            open ? cn(isMobile ? 'max-h-[30dvh]' : 'max-h-[40dvh]', 'overflow-y-auto overscroll-contain') : 'cursor-pointer',
++                        )}
++                        onClick={(event) => {
++                            // Match UserTextPart: a click opens collapsed content;
++                            // a drag/double-click selecting text must leave it alone.
++                            // Open text never collapses on click (Show less does).
++                            if (!open && !hasTextSelectionInside(event.currentTarget)) toggle();
++                        }}
++                    >
++                        {answered.map(({ entry, answer, state }, index) => (
++                            <div key={`${entry.partId}:${index}`} data-question-row="" className="mb-2.5 last:mb-0">
++                                {entryBlock({ entry, answer, state }, index)}
+                             </div>
++                        ))}
++                    </div>
++                    {!open && hiddenRows > 0 ? (
++                        // The count sits outside the measured list: the list's
++                        // height is set to the last row that fits, so anything
++                        // inside it would be clipped away.
++                        <div className="mt-1 typography-meta text-muted-foreground">
++                            {t('chat.questionCard.moreQuestions', { count: hiddenRows })}
+                         </div>
++                    ) : null}
++                    <div className="mt-1 flex min-w-0 items-center justify-end gap-1.5 text-sm text-muted-foreground">
 +                        <button
 +                            type="button"
 +                            onClick={toggle}
@@ -910,7 +1012,7 @@ index e570e6273..ddd375ce9 100644
                  </div>
              </div>
          </div>
-@@ -326,20 +297,20 @@ const QuestionCard: React.FC<QuestionCardProps> = ({
+@@ -326,20 +269,20 @@ const QuestionCard: React.FC<QuestionCardProps> = ({
   * header on, an answered card sticks like a prompt until the next prompt or
   * answered question pushes it up. A batch of questions scrolls away instead
   * and leaves a one-line bar of its answers, which opens the card where it is.
@@ -936,7 +1038,7 @@ index e570e6273..ddd375ce9 100644
      const { isMobile } = useDeviceInfo();
      const { t } = useI18n();
      const autoExpandAnsweredQuestions = useUIStore((state) => state.autoExpandAnsweredQuestions);
-@@ -357,11 +328,15 @@ export const QuestionTurnHeader: React.FC<{
+@@ -357,11 +300,15 @@ export const QuestionTurnHeader: React.FC<{
      const sticks = useUIStore((state) => state.stickyUserHeader);
      const formsInChat = React.useContext(FormDockModeContext) === 'in-chat';
      const entries = React.useMemo(() => questionEntriesForPart(part, messageId), [part, messageId]);
@@ -955,7 +1057,7 @@ index e570e6273..ddd375ce9 100644
      const pinned = pinnable && sticks && cardState === 'answered';
      const barred = pinned && answered.length > 1;
      const { flowRef, covered } = useBarHandover(barred);
-@@ -371,26 +346,19 @@ export const QuestionTurnHeader: React.FC<{
+@@ -371,26 +318,19 @@ export const QuestionTurnHeader: React.FC<{
      }, [covered]);
  
      if (answered.length === 0 || cardState === null) return null;
@@ -987,7 +1089,7 @@ index e570e6273..ddd375ce9 100644
                  {card}
              </div>
          );
-@@ -398,40 +366,46 @@ export const QuestionTurnHeader: React.FC<{
+@@ -398,40 +338,46 @@ export const QuestionTurnHeader: React.FC<{
  
      const background = stickyHeaderBackground(isMobile);
      return (
@@ -2151,8 +2253,52 @@ index dfbf0cdc3..69dcc1cac 100644
                  if (isShownInPlace(toolPart.tool, toolPart.state)) {
                      if (!hoistedPages?.has(toolPart.id)) {
                          rendered.push(<ShownToolCard key={`page-${toolPart.id}`} part={toolPart} onShowPopup={onShowPopup} />);
+diff --git a/packages/ui/src/components/chat/message/body/userBubbleStyle.ts b/packages/ui/src/components/chat/message/body/userBubbleStyle.ts
+new file mode 100644
+index 000000000..17bc071ce
+--- /dev/null
++++ b/packages/ui/src/components/chat/message/body/userBubbleStyle.ts
+@@ -0,0 +1,38 @@
++import type React from 'react';
++
++/**
++ * The prompt bubble's shape: fill, radii, padding and hairline. It lives here
++ * so a card that reads as the user's own row, such as an answered question,
++ * draws the same bubble instead of repeating its numbers.
++ *
++ * The repetition is what drifted. A card that copied the radii and the padding
++ * but mixed its own fill stopped reading as a bubble at all: its tint was a
++ * small alpha over the page, so it looked like a floating black bar with a
++ * strip of bare background above the content.
++ *
++ * The tail corner is at the end of the block in either direction, so it stays
++ * the far corner in a right-to-left layout.
++ */
++export const userBubbleStyle = (fill: React.CSSProperties['backgroundColor']): React.CSSProperties => ({
++    backgroundColor: fill,
++    borderRadius: 'var(--radius-xl)',
++    borderEndEndRadius: 'var(--radius-sm)',
++});
++
++/**
++ * The bubble's fill for a card that belongs to the row it sits in but is not a
++ * typed prompt, such as a question the app asked. `role` is a solid colour role
++ * such as `--status-question`; the result mixes it into the prompt's own fill,
++ * so the card follows the theme's bubble colour and reads as its purple
++ * sibling.
++ *
++ * Mix the solid role, not the role's own `-background` tint: that tint is
++ * already translucent, and mixing it into the fill carries its alpha through,
++ * which is the near-clear card this replaced.
++ */
++export const userBubbleTintedFill = (role: string, amount = 14): string => (
++    `color-mix(in srgb, var(${role}) ${amount}%, var(--chat-user-message-bg))`
++);
++
++/** The bubble's padding and hairline, shared so a card lines up with a prompt. */
++export const USER_BUBBLE_SHELL_CLASS = 'px-5 py-3 shadow-none border border-primary/5';
 diff --git a/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md b/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
-index a5422e7c5..b537a74e8 100644
+index a5422e7c5..24d00e698 100644
 --- a/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
 +++ b/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
 @@ -33,6 +33,8 @@ Use this doc when you ask an agent to change tool/header/description behavior.
@@ -2200,7 +2346,7 @@ index a5422e7c5..b537a74e8 100644
    and mobile open files full size already, through the path itself.
  - Every other tool, including search/fetch, OpenCode built-ins, custom tools, plugins, and MCP tools, is **expandable** and renders through `ToolPart`.
 -- A `question` call draws as its own transcript row, the purple card (`components/QuestionTurnHeader.tsx`), not as a `ToolPart`: `lib/turns/timelineRows.ts` cuts a question call into a row of its own (`questionPartId`), so an answered card can stick like a prompt and a batch can leave a bar. Collapsed, one question shows its sentence and answer and a batch one line per question; Show more lists the options with their descriptions and the chosen one marked (a batch first lists every question with its answer, then Show options opens the options). `QuestionToolContent.tsx` keeps the `ToolPart`-drawn question row (collapsed summary, expanded options) for a message body outside the row model, which is the BTW panel's path; its collapsed summary is a click target only, because the row header above is the one keyboard control.
-+- A `question` call draws as its own transcript row, the purple card (`components/QuestionTurnHeader.tsx`), not as a `ToolPart`: `lib/turns/timelineRows.ts` cuts a question call into a row of its own (`questionPartId`), so an answered card can stick like a prompt and a batch can leave a bar. Collapsed, one question shows its sentence and answer and a batch one line per question; Show more lists the options with their descriptions and the chosen one marked (a batch first lists every question with its answer, then Show options opens the options). `QuestionToolContent.tsx` keeps the `ToolPart`-drawn question row (collapsed summary, expanded options) for a message body outside the row model, which is the BTW panel's path; its collapsed summary is a click target only, because the row header above is the one keyboard control. Both draw their options and answers through `QuestionChoices.tsx`.
++- A `question` call draws as its own transcript row, the purple card (`components/QuestionTurnHeader.tsx`), not as a `ToolPart`: `lib/turns/timelineRows.ts` cuts a question call into a row of its own (`questionPartId`), so an answered card can stick like a prompt and a batch can leave a bar. Collapsed, one question shows its sentence and answer and a batch one line per question; Show more lists the options with their descriptions and the chosen one marked (a batch first lists every question with its answer, then Show options opens the options). `QuestionToolContent.tsx` keeps the `ToolPart`-drawn question row (collapsed summary, expanded options) for a message body outside the row model, which is the BTW panel's path; its collapsed summary is a click target only, because the row header above is the one keyboard control. Both draw their options and answers through `QuestionChoices.tsx`. The card draws the prompt bubble itself (`message/body/userBubbleStyle.ts`) with the question colour mixed into that bubble's fill, so a card is the same shape as the prompt above it and stays opaque: mixing the role's own `-background` tint would carry that tint's alpha through and let the transcript read through the card and the pinned bar.
 +  - The card is the **body of the message's own row**, not the row itself: `MessageList` passes it to `ChatMessage`'s body slot, so the message keeps its error banner, its hover actions and its `model · duration` facts under the card, and the row still carries `data-message-id` and its slice. A message that ends in a question therefore loses nothing that its other rows would have drawn; the card row is the slice end, and the banner or the footer appears under the card. The card no longer reserves a prompt's hover-action band, because those actions are drawn.
    - The row's open state has a single owner, `lib/questionExpandedState.ts`: the reader's own decision per part id, remembered across session switches until a reload or the 4000-entry trim, and `autoExpandAnsweredQuestions` only as the default. The transcript card, a closed fold's preview card and a `ToolPart` question row all read that one map, so a card the reader closed in the transcript cannot come back open in a preview. Turning the setting off closes rows the reader did not open themselves; a row they opened stays open.
 +  - Where a question stands is decided **per question**, not per call: `questionCardState` reads the call (answered, waiting, dismissed, stopped), and `questionEntryState` hands each question its own state from its own answer. A call that got an answer for one of its questions and left another blank is answered, and the blank one reads "Not answered", never "Stopped before an answer". The call's state still decides whether the card sticks and what the row estimate reads.
