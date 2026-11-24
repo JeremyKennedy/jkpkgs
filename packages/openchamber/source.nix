@@ -84,7 +84,6 @@ let
       ./patches/question-rows.patch
       ./patches/question-cards.patch
       ./patches/question-card-bubble.patch
-      ./patches/collapsed-quote-row.patch
       # A message that hides quotes says how many it hid: keeping one row
       # silently made several quotes read as one.
       ./patches/collapsed-context-count.patch
