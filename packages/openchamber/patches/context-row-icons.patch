@@ -12,7 +12,7 @@ index b3bfcf375..4f9de3d21 100644
  
  test('text is selectable and expansion uses the native message link instead of a clickable card', () => {
 diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
-index 695bedef4..7194d0638 100644
+index 4f73169d2..7c8eed58a 100644
 --- a/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
 +++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
 @@ -4,6 +4,7 @@ import { useDeviceInfo } from '@/lib/device';
@@ -23,19 +23,22 @@ index 695bedef4..7194d0638 100644
  import type { Part } from '@/lib/opencode/model';
  import { useUIStore } from '@/stores/useUIStore';
  import {
-@@ -175,8 +176,9 @@ const QuestionCard: React.FC<QuestionCardProps> = ({
+@@ -175,8 +176,12 @@ const QuestionCard: React.FC<QuestionCardProps> = ({
          const picked = selectedOptionLabels(entry.options, entry.answer, entry.multiple);
          return (
              <div key={`${entry.partId}:${index}`} className="min-w-0 space-y-0.5 border-s-2 ps-2.5" style={RAIL_STYLE}>
 -                <div dir="auto" className={cn('typography-meta text-foreground/70 oc-ui-start-align', !open && 'line-clamp-2')} title={entry.question}>
 -                    {questionSentence(entry.question)}
-+                <div dir="auto" className={cn('flex min-w-0 items-start gap-1.5 typography-meta text-foreground/70 oc-ui-start-align', !open && 'line-clamp-2')} title={entry.question} data-context-icon="question">
++                <div dir="auto" className="flex min-w-0 items-start gap-1.5 typography-meta text-foreground/70 oc-ui-start-align" title={entry.question} data-context-icon="question">
 +                    <Icon name="question" className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: 'var(--status-question)' }} />
-+                    <span className="min-w-0">{questionSentence(entry.question)}</span>
++                    {/* The clamp goes on the text, not the row: line-clamp sets
++                        display:-webkit-box, which beats flex and left the icon
++                        stacked above the question. */}
++                    <span className={cn('min-w-0', !open && 'line-clamp-2')}>{questionSentence(entry.question)}</span>
                  </div>
                  {showOptions ? (
                      <div className="pt-1">
-@@ -224,8 +226,12 @@ const QuestionCard: React.FC<QuestionCardProps> = ({
+@@ -224,8 +229,12 @@ const QuestionCard: React.FC<QuestionCardProps> = ({
                          }}
                      >
                          {batch && !open ? (
