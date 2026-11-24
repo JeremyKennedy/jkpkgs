@@ -12,7 +12,7 @@
     "attention-stale-form": {
       "relationship": "none",
       "intent": "bugfix",
-      "note": "A question tool call that ends in error sends no settlement event, so the host's cross-directory index kept the form and every surface announced an answered question. Both halves now check a pending form against OpenCode's own form list before showing it. Local only for now.",
+      "note": "A question tool call that ends in error sends no settlement event, so the host's cross-directory index kept the form and every surface announced an answered question. Both halves now check a pending form against OpenCode's own form list before showing it. Kept, and it goes upstream with instance-attention once Jeremy is happy with that work.",
       "since": "2026-11-23"
     },
     "changed-file-chip-opens-file-outside-git": {
@@ -27,7 +27,7 @@
     "chat-width-80": {
       "relationship": "none",
       "intent": "personal",
-      "note": "A fourth chat width, Extra wide (80rem), between Wider and Full. Upstream owns the setting now (default/wider/full, migrated in v29); this re-expresses the 80rem level on top of it rather than porting our old ladder.",
+      "note": "A fourth chat width, Extra wide (80rem), between Wider and Full. Upstream owns the setting now (default/wider/full, migrated in v29); this re-expresses the 80rem level on top of it. Kept indefinitely by Jeremy's choice.",
       "since": "2026-11-17"
     },
     "collapsed-context-count": {
@@ -46,7 +46,7 @@
     "context-row-icons": {
       "relationship": "none",
       "intent": "bugfix",
-      "note": "A collapsed quote renders captionless, so it was a bar and some text; the question card was the same shape, so quotes and questions were indistinguishable at a glance. Each now carries its own icon: the quote keeps the chat mark, the question card the question mark. The question half belongs to question-rows/the card; the quote half is upstream code. The question icon sits in the row, not above it: line-clamp sets display:-webkit-box, which beats flex, so the clamp belongs on the text, not on the flex row.",
+      "note": "A collapsed quote renders captionless, so it was a bar and some text; the question card was the same shape, so quotes and questions read the same at a glance. This carries only the question half: the question line gets its own mark, placed in the row rather than above it, because line-clamp sets display:-webkit-box and beats flex, so the clamp belongs on the text. The quote half is upstream code and was dropped by choice.",
       "since": "2026-11-23"
     },
     "dictation-recovery": {
@@ -58,7 +58,7 @@
     "draft-heading-project-picker": {
       "relationship": "none",
       "intent": "personal",
-      "note": "The project's name in a new-session heading is a second way into the composer's project picker. Local only; no upstream request. Ported onto main's ComposerDraftTitle and DraftWelcome: the request travels through a store because the welcome renders the heading in another component.",
+      "note": "The project's name in a new-session heading is a second way into the composer's project picker. Kept indefinitely by Jeremy's choice, and going upstream: a feature request plus a PR are being prepared. Ported onto main's ComposerDraftTitle and DraftWelcome, where the request travels through a store because the welcome renders the heading in another component.",
       "since": "2026-11-16"
     },
     "gitea-references-across": {
@@ -89,13 +89,13 @@
     "in-work-paging-show-more": {
       "relationship": "none",
       "intent": "feature",
-      "note": "In work opens with its own page size (a stored per-surface number) and Show more adds the same number again, separate from the sidebar's session batch size. Local.",
+      "note": "In work opens with its own page size (a stored per-surface number) and Show more adds the same number again, separate from the sidebar's session batch size. Kept for now.",
       "since": "2026-11-18"
     },
     "instance-attention": {
       "relationship": "none",
       "intent": "feature",
-      "note": "Cross-instance attention: desktop and mobile poll the saved hosts and the app own server and show one merged, ordered list of sessions that need the user. 69 files, mostly new modules; local only. Carries two fixes folded in rather than queued separately: the drawer applied this instance folder rule to a saved host sessions, and a host switch cleared the session list so the instance on screen published no rows until the sheets opened.",
+      "note": "Cross-instance attention: desktop and mobile poll the saved hosts and the app's own server and show one merged, ordered list of sessions that need the user. 69 files, mostly new modules. Kept: Jeremy will upstream it once he is happy with it. Carries two fixes folded in rather than queued separately: the drawer applied this instance's folder rule to a saved host's sessions, and a host switch cleared the session list so the instance on screen published no rows until the sheets opened.",
       "since": "2026-11-17"
     },
     "message-search-no-directory-scope": {
@@ -110,7 +110,7 @@
     "mobile-assist-trigger": {
       "relationship": "none",
       "intent": "feature",
-      "note": "Android assist and deep-link launch: the launch intent is rewritten before the bridge reads it, and an assist tap opens a new draft. Local: no upstream request.",
+      "note": "Android assist and deep-link launch: the launch intent is rewritten before the bridge reads it, and an assist tap opens a new draft. Kept for the power-button assist launch; a feature request follows.",
       "since": "2026-11-17"
     },
     "mobile-guest-catalog-failure": {
@@ -122,9 +122,10 @@
       "since": "2026-11-18"
     },
     "mobile-voice-launch": {
-      "relationship": "none",
+      "relationship": "pending",
       "intent": "feature",
-      "note": "openchamber://new-session?dictate=1 starts dictation in the draft it names, bound to the draft's id so it never records in another. Ported onto main's composer hooks: the request is consumed in ChatInput, not in the old monolith.",
+      "issue": 6554,
+      "note": "openchamber://new-session?dictate=1 starts dictation in the draft it names, bound to the draft's id so it never records in another. Its new-session and dictate shortcuts will be reworked under accepted upstream #6554, so this patch follows that design rather than asking for its own.",
       "since": "2026-11-17"
     },
     "pdf-viewer-zoom": {
@@ -134,22 +135,10 @@
       "note": "Zoom for the pdf.js fallback where the runtime has no built-in PDF viewer (the Android WebView): the image viewer's controls, a two-finger pinch and Ctrl/Cmd + wheel, repainting pages at a capped canvas size. Builds on image-viewer-zoom. PR #7464 was closed by the intake bot on 2026-11-24 because #6113 is not accepted; the patch stays local until it is.",
       "since": "2026-11-23"
     },
-    "question-card-bubble": {
-      "relationship": "none",
-      "intent": "bugfix",
-      "note": "The question card copies the prompt bubble's shape but mixed its own fill, so it read as a floating black bar with a bare strip above its content. It now draws the bubble itself (message/body/userBubbleStyle.ts) with the question colour mixed into the bubble's fill, which also keeps it opaque: the old fill mixed the role's own tint, whose alpha came through. Issue #7108 closed on 2026-11-20 as fixed by #7109, which shipped the recorded-answers parser, so the card needs an issue of its own before it can go upstream.",
-      "since": "2026-11-20"
-    },
-    "question-card-one-shape": {
-      "relationship": "none",
-      "intent": "personal",
-      "note": "The card changed shape by count and by open state: one question was a stacked block, two or more a two-column grid, and expanding went back to stacked. Every card now uses one shape, a question line with its answer under it, the rest behind a count, which is the same grammar a quote uses (quoted line, then the comment). Also clears the inline visibility a collapse leaves on rows, so opening a card no longer keeps the hidden rows invisible.",
-      "since": "2026-11-23"
-    },
     "question-cards": {
       "relationship": "none",
       "intent": "feature",
-      "note": "The card itself: every option with the chosen one marked, a typed answer as one more row, a pinned batch collapsing to a one-line bar of answers, and a working turn's fold preview drawing the card in step order. Ported onto main's body modules (useAssistantRenderedParts) and TurnRow. Issue #7108 closed as fixed by #7109, so a feature request is needed before this can be accepted upstream.",
+      "note": "The card itself: every option with the chosen one marked, a typed answer as one more row, and a working turn's fold preview drawing the card in step order. Folded in from the separate bubble and one-shape patches: the card draws the prompt bubble itself (message/body/userBubbleStyle.ts) with the question colour in its fill, so it stays opaque, and every card uses one shape - a question line with its answer under it, the rest behind a count - whatever the count or open state. Issue #7108 closed as fixed by #7109, so a feature request is needed before this can be accepted upstream.",
       "since": "2026-11-18"
     },
     "question-indicator": {
@@ -168,7 +157,7 @@
     "recap-full-note": {
       "relationship": "none",
       "intent": "personal",
-      "note": "A UI preference: the recap ends the transcript instead of lying over the gap above the composer, so the whole note stays readable. Stays local. Ported onto main's ChatViewport listFooter.",
+      "note": "A UI preference: the recap ends the transcript instead of lying over the gap above the composer, so the whole note stays readable. Kept indefinitely by Jeremy's choice. Ported onto main's ChatViewport listFooter.",
       "since": "2026-11-16"
     },
     "reply-start-scroll": {

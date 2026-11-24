@@ -82,7 +82,6 @@ let
       ./patches/changed-file-chip-opens-file-outside-git.patch
       ./patches/question-rows.patch
       ./patches/question-cards.patch
-      ./patches/question-card-bubble.patch
       # A message that hides quotes says how many it hid: keeping one row
       # silently made several quotes read as one.
       ./patches/collapsed-context-count.patch
@@ -91,7 +90,6 @@ let
       ./patches/context-row-icons.patch
       # One card shape for one question or many, collapsed or open: a
       # question line and its answer under it, the rest behind a count.
-      ./patches/question-card-one-shape.patch
       ./patches/gitea-references-across.patch
       # Message search scoped every session read to that session's directory,
       # and x-opencode-directory makes OpenCode boot the directory as a
