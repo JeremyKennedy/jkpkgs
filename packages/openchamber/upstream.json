@@ -176,6 +176,18 @@
       "issue": 6802,
       "note": "Behaviour only: a session row's badge answers from the directory store once it has read its own requests, and from the cross-directory index before that, so a lost settlement stops showing and a never-opened folder still shows what waits. Ported onto main's split sync modules and timeline hook. PR #6804 was withdrawn on 2026-11-20 while green except the file-size rule on an already-oversized file, branch intact at b68f564; the reviewer's last verdict was Merge. Issue #6802 stays open, so this returns as the same fix in a smaller patch.",
       "since": "2026-11-16"
+    },
+    "attention-jump-landing": {
+      "relationship": "none",
+      "intent": "bugfix",
+      "note": "Clicking a row for another instance in the attention dialog switched host but opened the session last open there: the switch restored the remembered session, the outgoing App wrote it into the URL, and the remounted App replayed that URL over the clicked one. The click now holds the session for the target runtime key and opens it once the switch has landed and that one session can be read; restores and the sidebar's selection stand aside while it is held. Also ports a sidebar fix (keep a session whose project has no rows yet instead of opening a draft), makes relay activation report whether it switched, and stops the host list above the rows from growing after the dialog opens. Builds on instance-attention, so it goes upstream with it.",
+      "since": "2026-11-24"
+    },
+    "tray-instances": {
+      "relationship": "none",
+      "intent": "testing",
+      "note": "The desktop tray showed whichever window last pushed a snapshot, kept a closed window's rows, and answered Allow/Deny through the main window's instance. Main now keeps one snapshot per window, groups the menu by instance and routes every row to the window that supplied it. Also: an empty snapshot while a host switch loads, stale-runtime events dropped from global stores, a loaded directory's requests win over the global index, the tray and sidebar share one row rule, and revoking a desktop-local client from a remote window no longer touches this machine. Bugs found in an audit, not in daily use. Upstream plan: the bug fixes as a PR, the per-instance grouping as a feature request first.",
+      "since": "2026-11-24"
     }
   },
   "candidates": [

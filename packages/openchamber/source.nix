@@ -96,6 +96,14 @@ let
       # location, so indexing a few hundred chats left a few hundred locations
       # and their MCP servers running. A session id resolves globally.
       ./patches/message-search-no-directory-scope.patch
+      # A click in the attention dialog opens the clicked session after the
+      # host switch lands, instead of the one last open there. It edits
+      # instance-attention's files, so it follows that patch.
+      ./patches/attention-jump-landing.patch
+      # The tray keeps one snapshot per window, grouped by instance, and sends
+      # each row's click or answer to the window that supplied it. It sits on
+      # the attention fix because both touch the same runtime and sync files.
+      ./patches/tray-instances.patch
     ];
   };
 in
