@@ -1,0 +1,188 @@
+diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
+index 4f9de3d21..e93b3c020 100644
+--- a/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
++++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
+@@ -94,12 +94,19 @@ const batch = () => ask([
+     { question: 'Update the README?', answer: 'No' },
+ ]);
+ 
+-test('collapsed, a batch of questions is one line each: its label and its answer', () => {
+-    const content = text(card(batch()));
+-    expect(content).toContain('H0');
+-    expect(content).toContain('Yes, retry once');
+-    expect(content).toContain('H1');
+-    expect(content).not.toContain('Retry on timeout?');
++test('collapsed, every question is the same two lines: the question, then its answer', () => {
++    // One question and a batch read the same way; the count never changes the
++    // shape, which is what made a batch look like a table.
++    const one = text(card(ask([{ question: 'Retry on timeout?', answer: 'Yes, retry once' }])));
++    const many = text(card(batch()));
++    for (const content of [one, many]) {
++        expect(content).toContain('Retry on timeout?');
++        expect(content).toContain('Yes, retry once');
++    }
++    expect(many).toContain('Update the README?');
++    // No two-column grid: the header is not used as a table label alone.
++    expect(many).not.toContain('H0');
++    expect(many).not.toContain('H1');
+ });
+ 
+ const mounted = async (run: (container: HTMLElement, mount: (node: React.ReactNode) => Promise<void>) => Promise<void>) => {
+@@ -120,16 +127,14 @@ const click = async (element: Element | null | undefined) => {
+ const buttonNamed = (container: HTMLElement, name: string) => [...container.querySelectorAll('button')].find((button) => button.textContent === name);
+ const optionMarks = (container: HTMLElement) => container.querySelectorAll('.rounded-full.border').length;
+ 
+-test('opened, a batch lists each question with its answer, and Show options adds every option', async () => {
++test('opened, every question lists its options, one question or many', async () => {
+     await mounted(async (container, mount) => {
+         await mount(card(batch(), true));
+         expect(container.textContent).toContain('Retry on timeout?');
+-        expect(container.textContent).toContain('Yes, retry once');
+-        expect(optionMarks(container)).toBe(0);
+-        await click(buttonNamed(container, 'Show options'));
+         // Two options each, and the first answer was typed: one more marked row.
++        // Opening is the only step; there is no second "Show options".
+         expect(optionMarks(container)).toBe(5);
+-        expect(buttonNamed(container, 'Hide options')?.getAttribute('aria-expanded')).toBe('true');
++        expect(buttonNamed(container, 'Show options')).toBeUndefined();
+     });
+ });
+ 
+diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
+index 7c8eed58a..b67de43e8 100644
+--- a/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
++++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx
+@@ -70,6 +70,15 @@ const useCollapsedRows = (listRef: React.RefObject<HTMLDivElement | null>, enabl
+     React.useLayoutEffect(() => {
+         const list = listRef.current;
+         if (!enabled || !list) {
++            // Opening clears what the collapse hid: the rows carry inline
++            // visibility and the list an inline height, and neither is undone by
++            // re-rendering alone, so an opened card kept its rows invisible.
++            if (list) {
++                for (const row of list.querySelectorAll<HTMLElement>('[data-question-row]')) {
++                    row.style.visibility = '';
++                }
++                list.style.height = '';
++            }
+             setHidden(0);
+             return;
+         }
+@@ -162,15 +171,13 @@ const QuestionCard: React.FC<QuestionCardProps> = ({
+     answered, open, onToggle, placement, isMobile,
+ }) => {
+     const { t } = useI18n();
+-    const batch = answered.length > 1;
+-    const [optionsShown, setOptionsShown] = React.useState(false);
+     const listRef = React.useRef<HTMLDivElement>(null);
+-    const hiddenRows = useCollapsedRows(listRef, batch && !open, answered);
+-    const showOptions = open && (!batch || optionsShown);
+-    const toggle = () => {
+-        setOptionsShown(false);
+-        onToggle();
+-    };
++    // One shape for every card: a question line and its answer under it, as
++    // many as fit, the rest behind one count. Neither the number of questions
++    // nor the open state changes the layout.
++    const hiddenRows = useCollapsedRows(listRef, !open, answered);
++    const showOptions = open;
++    const toggle = onToggle;
+ 
+     const entryBlock = ({ entry, answer, state }: AnsweredEntry, index: number) => {
+         const picked = selectedOptionLabels(entry.options, entry.answer, entry.multiple);
+@@ -181,7 +188,7 @@ const QuestionCard: React.FC<QuestionCardProps> = ({
+                     {/* The clamp goes on the text, not the row: line-clamp sets
+                         display:-webkit-box, which beats flex and left the icon
+                         stacked above the question. */}
+-                    <span className={cn('min-w-0', !open && 'line-clamp-2')}>{questionSentence(entry.question)}</span>
++                    <span className={cn('min-w-0', !open && 'line-clamp-1')}>{questionSentence(entry.question)}</span>
+                 </div>
+                 {showOptions ? (
+                     <div className="pt-1">
+@@ -200,7 +207,7 @@ const QuestionCard: React.FC<QuestionCardProps> = ({
+                         ) : null}
+                     </div>
+                 ) : answer ? (
+-                    <div dir="auto" className={cn('whitespace-pre-wrap break-words typography-markdown font-medium leading-snug text-foreground oc-ui-start-align', !open && 'line-clamp-3')}>
++                    <div dir="auto" className={cn('whitespace-pre-wrap break-words typography-markdown font-medium leading-snug text-foreground oc-ui-start-align', !open && 'line-clamp-1')}>
+                         {answer}
+                     </div>
+                 ) : (
+@@ -217,6 +224,7 @@ const QuestionCard: React.FC<QuestionCardProps> = ({
+             <div className="max-w-[85%]">
+                 <div className={`select-text ${USER_BUBBLE_SHELL_CLASS}`} style={CARD_STYLE} data-question-card-bubble="">
+                     <div
++                        ref={listRef}
+                         className={cn(
+                             'space-y-2.5',
+                             open ? cn(isMobile ? 'max-h-[30dvh]' : 'max-h-[40dvh]', 'overflow-y-auto overscroll-contain') : 'cursor-pointer',
+@@ -228,57 +236,21 @@ const QuestionCard: React.FC<QuestionCardProps> = ({
+                             if (!open && !hasTextSelectionInside(event.currentTarget)) toggle();
+                         }}
+                     >
+-                        {batch && !open ? (
+-                            <div className="flex min-w-0 items-start gap-1.5 border-s-2 ps-2.5" style={RAIL_STYLE} data-context-icon="question">
+-                                {/* One mark for the whole card, so a question never
+-                                    reads as a quoted line. The card's grid sits beside
+-                                    it, so this costs no row of its own. */}
+-                                <Icon name="question" className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: 'var(--status-question)' }} />
+-                                <div ref={listRef} className="relative grid min-w-0 flex-1 grid-cols-[fit-content(40%)_minmax(0,1fr)] gap-x-2 gap-y-1 overflow-hidden">
+-                                    {answered.map(({ entry, answer, state }, index) => (
+-                                        <div
+-                                            key={`${entry.partId}:${index}`}
+-                                            data-question-row=""
+-                                            className="col-span-2 grid min-w-0 grid-cols-subgrid items-baseline"
+-                                        >
+-                                            <span dir="auto" className="min-w-0 truncate typography-meta text-foreground/70 oc-ui-start-align" title={entry.question}>
+-                                                {entry.header || questionSentence(entry.question)}
+-                                            </span>
+-                                            {answer ? (
+-                                                <span dir="auto" className="min-w-0 line-clamp-2 break-words typography-markdown font-medium leading-snug text-foreground oc-ui-start-align">
+-                                                    {answer}
+-                                                </span>
+-                                            ) : (
+-                                                <span dir="auto" className="min-w-0 truncate typography-markdown italic leading-snug text-muted-foreground oc-ui-start-align">
+-                                                    {t(questionStateKey(state))}
+-                                                </span>
+-                                            )}
+-                                        </div>
+-                                    ))}
+-                                </div>
+-                                {hiddenRows > 0 ? (
+-                                    <div className="pt-1 typography-meta text-muted-foreground">
+-                                        {t('chat.questionCard.moreQuestions', { count: hiddenRows })}
+-                                    </div>
+-                                ) : null}
++                        {answered.map(({ entry, answer, state }, index) => (
++                            <div key={`${entry.partId}:${index}`} data-question-row="" className="mb-2.5 last:mb-0">
++                                {entryBlock({ entry, answer, state }, index)}
+                             </div>
+-                        ) : answered.map(entryBlock)}
++                        ))}
+                     </div>
++                    {!open && hiddenRows > 0 ? (
++                        // The count sits outside the measured list: the list's
++                        // height is set to the last row that fits, so anything
++                        // inside it would be clipped away.
++                        <div className="mt-1 typography-meta text-muted-foreground">
++                            {t('chat.questionCard.moreQuestions', { count: hiddenRows })}
++                        </div>
++                    ) : null}
+                     <div className="mt-1 flex min-w-0 items-center justify-end gap-1.5 text-sm text-muted-foreground">
+-                        {open && batch ? (
+-                            <>
+-                                <button
+-                                    type="button"
+-                                    onClick={() => setOptionsShown((shown) => !shown)}
+-                                    className={cn('shrink-0', USER_BUBBLE_TEXT_LINK_CLASS)}
+-                                    style={LINK_STYLE}
+-                                    aria-expanded={optionsShown}
+-                                >
+-                                    {t(optionsShown ? 'chat.questionCard.hideOptions' : 'chat.questionCard.showOptions')}
+-                                </button>
+-                                <span aria-hidden="true">·</span>
+-                            </>
+-                        ) : null}
+                         <button
+                             type="button"
+                             onClick={toggle}
