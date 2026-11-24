@@ -1,5 +1,5 @@
 diff --git a/packages/ui/src/components/chat/message/MessageBody.rowExpand.test.tsx b/packages/ui/src/components/chat/message/MessageBody.rowExpand.test.tsx
-index 79ec9831d..9f3db9e21 100644
+index 79ec9831d..3c1d064cc 100644
 --- a/packages/ui/src/components/chat/message/MessageBody.rowExpand.test.tsx
 +++ b/packages/ui/src/components/chat/message/MessageBody.rowExpand.test.tsx
 @@ -10,6 +10,7 @@ import { I18nProvider } from '@/lib/i18n';
@@ -10,7 +10,7 @@ index 79ec9831d..9f3db9e21 100644
  
  const { default: MessageBody } = await import('./MessageBody');
  
-@@ -123,3 +124,63 @@ for (const stuck of [false, true]) test(stuck
+@@ -123,3 +124,70 @@ for (const stuck of [false, true]) test(stuck
      }
    }
  });
@@ -26,6 +26,7 @@ index 79ec9831d..9f3db9e21 100644
 +    localStorage: happyWindow.localStorage, customElements: happyWindow.customElements,
 +    Node: happyWindow.Node, NodeList: happyWindow.NodeList, Element: happyWindow.Element,
 +    HTMLElement: happyWindow.HTMLElement, SVGElement: happyWindow.SVGElement,
++    Event: happyWindow.Event, CustomEvent: happyWindow.CustomEvent,
 +    requestAnimationFrame: happyWindow.requestAnimationFrame.bind(happyWindow),
 +    cancelAnimationFrame: happyWindow.cancelAnimationFrame.bind(happyWindow),
 +    getComputedStyle: happyWindow.getComputedStyle.bind(happyWindow),
@@ -64,7 +65,13 @@ index 79ec9831d..9f3db9e21 100644
 +      );
 +    });
 +    // One row fits beside one line of text, so two of the three quotes wait.
-+    expect(container.textContent).toContain('+2 more');
++    const showMore = [...container.querySelectorAll('button')].find((button) => button.textContent?.includes('Show more'));
++    if (!showMore) throw new Error('Expected the collapsed message control');
++    expect(showMore.textContent).toBe('+2 more·Show more');
++
++    await act(async () => { showMore.click(); });
++    expect(container.textContent).not.toContain('+2 more');
++    expect(container.textContent?.match(/Quoted from an earlier message/g)).toHaveLength(3);
 +  } finally {
 +    await act(async () => { root.unmount(); });
 +    await happyWindow.happyDOM.abort();
@@ -75,21 +82,38 @@ index 79ec9831d..9f3db9e21 100644
 +  }
 +});
 diff --git a/packages/ui/src/components/chat/message/body/UserMessageBody.tsx b/packages/ui/src/components/chat/message/body/UserMessageBody.tsx
-index 784215faa..15b62f439 100644
+index 784215faa..1911bea63 100644
 --- a/packages/ui/src/components/chat/message/body/UserMessageBody.tsx
 +++ b/packages/ui/src/components/chat/message/body/UserMessageBody.tsx
-@@ -459,6 +459,14 @@ export const UserMessageBody = React.memo(({ parts, messageCreatedAt, isMobile,
-                 <div className="mt-1 flex min-w-0 items-center justify-end gap-1.5 typography-micro text-muted-foreground">
-                     {promptOrigin ? <PromptOriginLink origin={promptOrigin} /> : null}
-                     {promptOrigin && showMessageExpandToggle ? <span aria-hidden="true">·</span> : null}
-+                    {/* What the collapse left out, so a message with several
-+                        quotes does not read as if it had one. */}
-+                    {hidesContextParts ? (
-+                        <>
-+                            <span className="shrink-0">{t('chat.liveActivity.moreRows', { count: contextPartsToHide.size })}</span>
-+                            {showMessageExpandToggle ? <span aria-hidden="true">·</span> : null}
-+                        </>
-+                    ) : null}
-                     {showMessageExpandToggle && (
+@@ -463,10 +463,16 @@ export const UserMessageBody = React.memo(({ parts, messageCreatedAt, isMobile,
                          <button
                              type="button"
+                             onClick={toggleMessageExpanded}
+-                            className={cn('shrink-0', USER_BUBBLE_TEXT_LINK_CLASS)}
++                            className={cn('shrink-0', hidesContextParts && 'inline-flex items-center gap-1.5', USER_BUBBLE_TEXT_LINK_CLASS)}
+                             style={INLINE_TEXT_LINK_STYLE}
+                             aria-expanded={messageExpanded}
+                         >
++                            {hidesContextParts ? (
++                                <>
++                                    <span className="shrink-0">{t('chat.liveActivity.moreRows', { count: contextPartsToHide.size })}</span>
++                                    <span aria-hidden="true">·</span>
++                                </>
++                            ) : null}
+                             {t(messageExpanded ? 'chat.message.userText.showLess' : 'chat.message.userText.showMore')}
+                         </button>
+                     )}
+diff --git a/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md b/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
+index 24d00e698..e6d687e6c 100644
+--- a/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
++++ b/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
+@@ -171,7 +171,8 @@ stayed twenty lines tall, and with the sticky user header on those lines stayed
+ over the chat. A collapsed message now gets two lines: the text takes one or
+ two, and context items get what is left, each shown whole or not at all
+ (`contextPartsPastCollapse`). The rest waits behind the message's one show more
+-link. The text wins because it is what the user typed. Lines follow the chat's
++link, which says how many items it hides. The text wins because it is what the
++user typed. Lines follow the chat's
+ width, so `UserTextPart` measures them before paint, and clamping the block by
+ height would cut an item in half.
+ 
