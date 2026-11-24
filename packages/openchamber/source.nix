@@ -76,7 +76,6 @@ let
       ./patches/in-work-paging.patch
       ./patches/hide-empty-worktrees.patch
       ./patches/android-notification-dismiss.patch
-      ./patches/notification-family-clear.patch
       ./patches/chat-width-80.patch
       ./patches/in-work-paging-show-more.patch
       ./patches/mobile-guest-catalog-failure.patch
