@@ -1,0 +1,2455 @@
+diff --git a/packages/electron/DOCUMENTATION.md b/packages/electron/DOCUMENTATION.md
+index 4b527b967..7836b5f38 100644
+--- a/packages/electron/DOCUMENTATION.md
++++ b/packages/electron/DOCUMENTATION.md
+@@ -117,6 +117,10 @@ Streaming turns create short-lived objects, and macOS compression keeps the rend
+ 
+ Tray image changes cost CPU in both the main process and WindowServer throughout long-running work. Six eased frames at five changes per second preserve the roughly two-second cycle with fewer native image updates. Linux tray images stay panel-sized because StatusNotifier hosts can drop oversized images; monochrome geometric glyphs follow native menu-bar tinting.
+ 
++### Why the tray is grouped by instance and not last writer
++
++Each app window can show a different instance and pushes its own snapshot, and a window only re-sends when its own snapshot changes. With one shared slot the tray showed whichever window pushed last: a closed window's rows stayed until another window changed, and Allow, Deny and Mark all as read went to the main window even when the row came from another instance, answering against the wrong server. Main therefore keeps a snapshot per window, keyed by the runtime key main recorded for it rather than one the page claims, shows every instance as its own section, and routes each row's action to the window that supplied it. Focus-only ownership was rejected: it hides approvals waiting on an instance in a background window.
++
+ ### Why native menu refresh follows content signatures
+ 
+ Tray live state belongs to the renderer and the native controller owns presentation. A signature of menu-affecting data avoids rebuilding native menus for unchanged snapshots without serializing images or handlers; native menu lifecycle events also cover keyboard opening for quota refresh.
+diff --git a/packages/electron/README.md b/packages/electron/README.md
+index f0b538542..e56917e60 100644
+--- a/packages/electron/README.md
++++ b/packages/electron/README.md
+@@ -434,6 +434,39 @@ An exit requested during entry remains queued in Electron even after an explicit
+ 
+ The macOS menu bar item is enabled by default and can be disabled in General settings. The setting applies after restart. While disabled, Desktop skips the native tray controller, tray-specific subscriptions, polling, and quota refresh. Dock badges remain independent: unread activity, session membership, and badge preferences still update the Dock through the shared IPC command. Turning off the Dock badge clears its count without enabling the menu bar item.
+ 
++Every full app window pushes its own tray snapshot through `desktop_tray_update`.
++Main keeps one snapshot per window, stamped with the runtime key main recorded
++for that window (`desktop_set_window_runtime_key`), and `tray-owner.mjs` groups
++them by instance; `tray-routing.mjs` publishes the result to the tray, Dock
++badge, Dock menu and jump list and routes row actions. A remote host's own UI
++cannot report a key (that command is local-only), so its window takes the key
++of the host main opened it for, else of the configured host whose URL it shows;
++two windows on one host therefore share a section. Windows with no key at all
++are never merged with each other, and a snapshot a window pushed before it
++reported its key is restamped with that key.
++
++The tray menu has one section per open instance, each under its instance name
++with its own approvals and sessions (each section capped at 10 approvals and 8
++sessions); the focused window's instance comes first, the rest in the order
++they first appeared. With one instance the menu is the same as an ungrouped
++one. When several windows show the same instance, the focused one supplies its
++rows, else the most recently focused, else the latest push. The focus event's
++own window counts as focused: while `browser-window-focus` runs,
++`BrowserWindow.getFocusedWindow()` still returns the previously focused window.
++A window with no sessions, approvals or unread rows adds no section. The tray
++icon and tooltip counts, the Dock badge (one count per instance), the Dock menu
++and the jump list cover every section; usage shows the focused instance's. A
++window with nothing to show (a lock or sign-in screen) never leads, so it
++cannot hide the usage section or set the tray's language.
++A closed window, a window that loads a new document (a reload, or an in-place
++host switch even when the new page fails to load), or a window whose runtime
++key changes drops its snapshot; the new document pushes its own.
++
++Each row carries the window that supplied it. Allow, Deny and Open in app go to
++that window; if it is gone, the session opens through the main window with the
++row's runtime key, which hands it to the window for that instance. Mark all as
++read and the menu-open quota refresh go to every window in the menu.
++
+ The Dock's context menu lists up to 10 unread sessions, newest completed turn
+ first, from the same sidebar-visible set as its badge. A session opens through
+ the tray's session action route. Mark all as read reaches the renderer even
+@@ -442,7 +475,7 @@ an empty unread list offers no actions. Native labels follow the preferred UI lo
+ 
+ Packaged Windows exposes the same unread set in a custom taskbar jump-list
+ category and a Mark all as read task. Session items launch the executable with
+-the existing session deep link, strictly validating its ID and checking global
++the existing session deep link (with `host=` naming the row's instance), strictly validating its ID and checking global
+ session membership before selection. Mark-all launches with `--mark-all-read`;
+ main queues it until the renderer has registered its action listener, and the
+ renderer waits for the global list. Unchanged lists are not rewritten. Empty
+@@ -466,8 +499,8 @@ The controller retains its last snapshot so `desktop_set_tray_locale` can rebuil
+ labels immediately, even while session activity is idle. That command is
+ remote-safe and accepts only a locale the tray has labels for, so a window
+ loading its UI from a remote instance moves the tray to its language while
+-`desktop_set_locale` (native menus) stays local-only. Only the window that
+-published the snapshot the tray shows relabels it; a Mini Chat or another
++`desktop_set_locale` (native menus) stays local-only. Only the window whose
++instance leads the tray relabels it; a Mini Chat or another
+ window's locale is kept and applied when that window publishes next. The renderer resolves
+ instance and quota fallback text again when its dictionary loads; user-provided
+ host and session names remain literal.
+diff --git a/packages/electron/dock-menu.mjs b/packages/electron/dock-menu.mjs
+index efe912d70..7bd3058c5 100644
+--- a/packages/electron/dock-menu.mjs
++++ b/packages/electron/dock-menu.mjs
+@@ -3,12 +3,21 @@ import { menuLabel } from './menu-locales.mjs';
+ 
+ const jumpListSessionIdSchema = z.string().regex(/^ses_[A-Za-z0-9_]{1,120}$/);
+ 
++const ownerSchema = z.object({
++  windowId: z.number().int(),
++  runtimeKey: z.string(),
++});
++
+ const unreadSessionSchema = z.object({
+   id: z.string().min(1),
+   title: z.string(),
+   directory: z.string().optional(),
++  owner: ownerSchema.optional(),
+ });
+ 
++const jumpListHostIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,120}$/);
++const jumpListHostParam = (hostId) => (jumpListHostIdSchema.safeParse(hostId).success ? `&host=${hostId}` : '');
++
+ const readUnreadSessions = (snapshot) => {
+   const list = z.array(z.unknown()).safeParse(snapshot?.dockUnreadSessions);
+   if (!list.success) return [];
+@@ -20,14 +29,14 @@ const readUnreadSessions = (snapshot) => {
+ 
+ export const isJumpListSessionId = (value) => jumpListSessionIdSchema.safeParse(value).success;
+ 
+-export const buildUnreadJumpList = (snapshot, { execPath, locale = 'en', removedItems = [] }) => {
++export const buildUnreadJumpList = (snapshot, { execPath, locale = 'en', removedItems = [], hostIdOf = () => '' }) => {
+   const rows = readUnreadSessions(snapshot).filter((session) => isJumpListSessionId(session.id)).slice(0, 10);
+   if (rows.length === 0) return null;
+   const task = (title, args) => ({ type: 'task', program: execPath, title, args });
+   const removedArgs = new Set(removedItems.map((item) => item.args));
+   const items = rows.map((session) => task(
+     (session.title.trim() || menuLabel(locale, 'dock.untitledSession')).slice(0, 100),
+-    `"openchamber://session/${session.id}?source=jump-list"`,
++    `"openchamber://session/${session.id}?source=jump-list${jumpListHostParam(session.owner ? hostIdOf(session.owner) : '')}"`,
+   )).filter((item) => !removedArgs.has(item.args));
+   return [
+     ...(items.length > 0 ? [{
+@@ -47,7 +56,11 @@ export const buildDockMenuTemplate = (snapshot, { onAction, locale = 'en' }) =>
+       const label = title.length > 40 ? `${title.slice(0, 39)}…` : title;
+       return {
+         label: label.replace(/&/g, '&&'),
+-        click: () => onAction({ type: 'focus-session', sessionId: session.id, directory: session.directory ?? '' }),
++        click: () => {
++          const action = { type: 'focus-session', sessionId: session.id, directory: session.directory ?? '' };
++          if (session.owner) action.owner = session.owner;
++          onAction(action);
++        },
+       };
+     }),
+     { type: 'separator' },
+diff --git a/packages/electron/dock-menu.test.mjs b/packages/electron/dock-menu.test.mjs
+index eb625a2ed..5904d53f3 100644
+--- a/packages/electron/dock-menu.test.mjs
++++ b/packages/electron/dock-menu.test.mjs
+@@ -67,3 +67,28 @@ test('jump lists omit user-removed arguments before deriving their dedupe key',
+   assert.equal(allRemoved[0].type, 'tasks');
+   assert.equal(allRemoved[0].items[0].args, '--mark-all-read');
+ });
++
++test('dock rows carry their owning window, and jump-list rows name the host main resolves for that window', () => {
++  const actions = [];
++  const snapshot = { dockUnreadSessions: [
++    { id: 'ses_c', title: 'Cedar', directory: '/c', owner: { windowId: 1, runtimeKey: 'host:cedar' } },
++    { id: 'ses_n', title: 'Navi', directory: '/n', owner: { windowId: 2, runtimeKey: 'local' } },
++    { id: 'ses_x', title: 'Odd', owner: { windowId: 3, runtimeKey: 'host:a b"' } },
++  ] };
++  const menu = buildDockMenuTemplate(snapshot, { onAction: (action) => actions.push(action) });
++  menu[0].click();
++  assert.deepEqual(actions, [{ type: 'focus-session', sessionId: 'ses_c', directory: '/c', owner: { windowId: 1, runtimeKey: 'host:cedar' } }]);
++  const hostIds = new Map([[1, 'cedar'], [2, 'local'], [3, 'a b"'], [4, 'navi']]);
++  const hostIdOf = (owner) => hostIds.get(owner.windowId) ?? '';
++  const withUrlOwner = { dockUnreadSessions: [
++    ...snapshot.dockUnreadSessions,
++    { id: 'ses_u', title: 'Url', owner: { windowId: 4, runtimeKey: 'url:https://navi.example.com' } },
++  ] };
++  const list = buildUnreadJumpList(withUrlOwner, { execPath: '/app', hostIdOf });
++  assert.deepEqual(list[0].items.map((item) => item.args), [
++    '"openchamber://session/ses_c?source=jump-list&host=cedar"',
++    '"openchamber://session/ses_n?source=jump-list&host=local"',
++    '"openchamber://session/ses_x?source=jump-list"',
++    '"openchamber://session/ses_u?source=jump-list&host=navi"',
++  ]);
++});
+diff --git a/packages/electron/main.mjs b/packages/electron/main.mjs
+index b7f31e017..3e7451ea1 100644
+--- a/packages/electron/main.mjs
++++ b/packages/electron/main.mjs
+@@ -20,9 +20,10 @@ import { persistMainWindowState } from './window-state.mjs';
+ import { createWindowGeometryState } from './window-geometry-state.mjs';
+ import { attachWindowEvents, isNativeWindowVisible } from './window-events.mjs';
+ import { createTrayController, createTrayLocaleRouter } from './tray.mjs';
+-import { buildDockMenuTemplate, buildUnreadJumpList, isJumpListSessionId } from './dock-menu.mjs';
++import { createTrayRouting } from './tray-routing.mjs';
++import { isJumpListSessionId } from './dock-menu.mjs';
+ import { createSessionLinkGate } from './session-link-gate.mjs';
+-import { applyDevDockIdentity, applyDockBadge } from './dev-dock-identity.mjs';
++import { applyDevDockIdentity } from './dev-dock-identity.mjs';
+ import { attachDevWindowTape } from './dev-window-tape.mjs';
+ import { resolveManagedOpenCodeCwd } from './opencode-cwd.mjs';
+ import { stopEmbeddedServer } from './server-shutdown.mjs';
+@@ -1788,7 +1789,6 @@ const setTaskbarProgress = (value) => {
+ const pendingDeepLinks = [];
+ let pendingMarkAllRead = process.platform === 'win32' && process.argv.includes('--mark-all-read');
+ let mainWindowTrayActionsReady = false;
+-let lastJumpListKey = '';
+ const PENDING_SESSION_LINK_FALLBACK_MS = 10_000;
+ 
+ const sessionDeepLinkTarget = (link) => {
+@@ -1796,7 +1796,7 @@ const sessionDeepLinkTarget = (link) => {
+   if (readDeepLinkQueryParam(link.raw, 'source') === 'jump-list') target.requireKnownSession = true;
+   const messageId = readDeepLinkQueryParam(link.raw, 'message');
+   if (messageId) target.messageId = messageId;
+-  const runtimeKey = runtimeKeyForDeepLinkHost(readDeepLinkQueryParam(link.raw, 'host'));
++  const runtimeKey = runtimeKeyForDeepLinkHost(readDeepLinkQueryParam(link.raw, 'host')) || link.runtimeKey;
+   if (runtimeKey) target.runtimeKey = runtimeKey;
+   return target;
+ };
+@@ -2475,14 +2475,16 @@ const createBrowserWindow = ({ label, restoreGeometry, url, runtimeConfig = {},
+ 
+     debounceWindowStatePersist(browserWindow, true);
+   });
++  const closedWindowId = browserWindow.id;
+   browserWindow.on('closed', () => {
+     windowGeometryState.cancel(browserWindow);
+-    state.focusedWindowIds.delete(browserWindow.id);
++    state.focusedWindowIds.delete(closedWindowId);
+     if (state.mainWindow && browserWindow.id === state.mainWindow.id) {
+       mainWindowTrayActionsReady = false;
+       mainWindowSessionLinkGate.documentReplaced();
+       state.mainWindow = null;
+     }
++    trayRouting.forgetWindow(closedWindowId);
+     if (BrowserWindow.getAllWindows().length === 0) {
+       if (process.platform !== 'darwin') {
+         if (state.updateInstallPending) {
+@@ -2550,6 +2552,7 @@ const createBrowserWindow = ({ label, restoreGeometry, url, runtimeConfig = {},
+ 
+   browserWindow.webContents.on('did-navigate', (_event, url) => {
+     if (!isAppUiNavigationTarget(url)) browserWindow.__ocRuntimeKey = null;
++    trayRouting.forgetWindow(browserWindow.id);
+     if (browserWindow === state.mainWindow) mainWindowSessionLinkGate.documentReplaced();
+   });
+   browserWindow.webContents.on('did-start-navigation', (details) => {
+@@ -3746,7 +3749,21 @@ const closeAllDevTunnels = () => {
+   pending.then((client) => client.closeAll()).catch(() => {});
+ };
+ 
++const trayRuntimeKeyOf = (browserWindow) => readTrimmedString(browserWindow.__ocRuntimeKey)
++  || runtimeKeyForDeepLinkHost(browserWindow.__ocHostWindowId || findConfiguredHostForUrl(browserWindow.webContents.getURL())?.id);
+ const trayLocaleRouter = createTrayLocaleRouter((locale) => state.trayController?.setLocale(locale));
++const trayRouting = createTrayRouting({
++  getTrayController: () => state.trayController,
++  localeRouter: trayLocaleRouter,
++  getMainWindow: () => state.mainWindow,
++  getMenuLocale: () => normalizeMenuLocale(readPreferredLocale()),
++  onAction: (action) => { void dispatchTrayAction(action); },
++  emitTrayAction: (target, action) => emitToWindow(target, 'openchamber:tray-action', action),
++  openSessionInMainWindow: (sessionId, directory, runtimeKey) => focusMainWindowWithSession(sessionId, directory, runtimeKey),
++  hostIdOfOwner: (owner) => resolveHostEntryForRuntimeKey(owner.runtimeKey, {
++    hosts: readDesktopHostsConfig()?.hosts || [], localUrl: state.sidecarUrl || null, localClientToken: '',
++  })?.id || readTrimmedString(BrowserWindow.fromId(owner.windowId)?.__ocHostWindowId),
++});
+ 
+ const handleInvoke = async (browserWindow, command, args = {}) => {
+   switch (command) {
+@@ -4204,6 +4221,7 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
+     case 'desktop_set_window_runtime_key': {
+       if (browserWindow && !browserWindow.isDestroyed()) {
+         browserWindow.__ocRuntimeKey = readTrimmedString(args.runtimeKey);
++        trayRouting.noteRuntimeKey(browserWindow.id, trayRuntimeKeyOf(browserWindow));
+       }
+       return null;
+     }
+@@ -4236,41 +4254,8 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
+       return null;
+ 
+     case 'desktop_tray_update':
+-      if (state.trayController) {
+-        try {
+-          trayLocaleRouter.publish(browserWindow);
+-          state.trayController.update(args || {});
+-        } catch (error) {
+-          log.warn('[electron] tray update failed', error);
+-        }
+-      }
+-      try {
+-        const rawCount = args && typeof args.dockBadgeCount === 'number' ? args.dockBadgeCount : 0;
+-        const badgeCount = Number.isFinite(rawCount) ? Math.max(0, Math.floor(rawCount)) : 0;
+-        applyDockBadge(app, badgeCount);
+-        if (process.platform === 'darwin' && app.dock) {
+-          const template = buildDockMenuTemplate(args, {
+-            locale: normalizeMenuLocale(readPreferredLocale()),
+-            onAction: (action) => { void dispatchTrayAction(action); },
+-          });
+-          // external: https://www.electronjs.org/docs/latest/api/dock#docksetmenumenu Use an empty menu to clear it; Electron 45 rejects null.
+-          app.dock.setMenu(Menu.buildFromTemplate(template));
+-        }
+-        if (process.platform === 'win32' && app.isPackaged) {
+-          const jumpList = buildUnreadJumpList(args, {
+-            execPath: process.execPath, locale: normalizeMenuLocale(readPreferredLocale()),
+-            removedItems: app.getJumpListSettings().removedItems,
+-          });
+-          const key = JSON.stringify(jumpList);
+-          if (key !== lastJumpListKey) {
+-            const result = app.setJumpList(jumpList);
+-            if (result === 'ok') lastJumpListKey = key;
+-            else log.warn('[electron] unread jump list update failed', { result });
+-          }
+-        }
+-      } catch (error) {
+-        log.warn('[electron] dock badge update failed', error);
+-      }
++      if (!browserWindow || browserWindow.isDestroyed()) return null;
++      trayRouting.setSnapshot(browserWindow.id, args, trayRuntimeKeyOf(browserWindow));
+       return null;
+ 
+     case 'desktop_clear_cache':
+@@ -5490,6 +5475,7 @@ const setupTray = () => {
+       state.trayFocusListener = (_event, browserWindow) => {
+         if (browserWindow && !browserWindow.isDestroyed()) {
+           state.lastFocusedWindowId = browserWindow.id;
++          trayRouting.noteFocus(browserWindow.id);
+         }
+       };
+       app.on('browser-window-focus', state.trayFocusListener);
+@@ -5513,22 +5499,30 @@ const revealMainWindow = async () => {
+   return target;
+ };
+ 
+-const focusMainWindowWithSession = async (sessionId, directory) => {
++const revealWindowWithSession = (target, sessionId, directory, runtimeKey) => {
++  if (target.isMinimized()) target.restore();
++  showWindow(target);
++  target.focus();
++  if (!sessionId) return;
++  const payload = { sessionId, directory: directory || '' };
++  if (runtimeKey) payload.runtimeKey = runtimeKey;
++  emitToWindow(target, 'openchamber:open-session', payload);
++};
++
++const focusMainWindowWithSession = async (sessionId, directory, runtimeKey = '') => {
+   if (state.mainWindow && !state.mainWindow.isDestroyed()) {
+-    if (state.mainWindow.isMinimized()) state.mainWindow.restore();
+-    showWindow(state.mainWindow);
+-    state.mainWindow.focus();
+-    if (sessionId) {
+-      emitToWindow(state.mainWindow, 'openchamber:open-session', { sessionId, directory: directory || '' });
+-    }
++    revealWindowWithSession(state.mainWindow, sessionId, directory, runtimeKey);
+     return;
+   }
+-  if (sessionId) pendingDeepLinks.push({ type: 'session', value: sessionId });
++  if (sessionId) pendingDeepLinks.push({ type: 'session', value: sessionId, runtimeKey });
+   await openMainWindow();
+ };
+ 
+-const dispatchTrayAction = async (action) => {
+-  if (!action || typeof action !== 'object') return;
++const dispatchTrayAction = async (rawAction) => {
++  if (!rawAction || typeof rawAction !== 'object') return;
++  const routed = await trayRouting.route(rawAction);
++  if (!routed) return;
++  const { action, ownerWindow, ownerRuntimeKey } = routed;
+ 
+   if (action.type === 'menu-opened') {
+     const target = state.mainWindow;
+@@ -5583,16 +5577,14 @@ const dispatchTrayAction = async (action) => {
+   if (action.type === 'focus-session') {
+     const surface = resolveTraySurface();
+     if (surface && surface.__ocMiniChat === true && action.sessionId) {
+-      if (surface.isMinimized()) surface.restore();
+-      showWindow(surface);
+-      surface.focus();
+-      emitToWindow(surface, 'openchamber:open-session', {
+-        sessionId: action.sessionId,
+-        directory: action.directory || '',
+-      });
++      revealWindowWithSession(surface, action.sessionId, action.directory, ownerRuntimeKey);
++      return;
++    }
++    if (ownerWindow) {
++      revealWindowWithSession(ownerWindow, action.sessionId, action.directory, ownerRuntimeKey);
+       return;
+     }
+-    await focusMainWindowWithSession(action.sessionId, action.directory || '');
++    await focusMainWindowWithSession(action.sessionId, action.directory || '', ownerRuntimeKey);
+     return;
+   }
+ 
+diff --git a/packages/electron/tray-menu.mjs b/packages/electron/tray-menu.mjs
+index 4f74cdd32..997b824dc 100644
+--- a/packages/electron/tray-menu.mjs
++++ b/packages/electron/tray-menu.mjs
+@@ -45,12 +45,18 @@ const approvalLabel = (approval, locale) => {
+   return `${icon} ${who} — ${what}`;
+ };
+ 
+-export const buildTrayMenuTemplate = (snapshot, { onAction, statusIcons, locale = 'en' }) => {
++const withOwner = (row, action) => (row.owner ? { ...action, owner: row.owner } : action);
++
++const trayMenuGroups = (snapshot) => (
++  Array.isArray(snapshot.groups) && snapshot.groups.length > 0 ? snapshot.groups : [snapshot]
++);
++
++const buildGroupSection = (group, { onAction, statusIcons, locale }) => {
+   const t = (key, count) => trayLabel(locale, key, count);
+-  const sessions = Array.isArray(snapshot.sessions) ? snapshot.sessions : [];
+-  const approvals = Array.isArray(snapshot.approvals) ? snapshot.approvals : [];
+-  const header = typeof snapshot.instanceName === 'string' && snapshot.instanceName.trim()
+-    ? snapshot.instanceName.trim()
++  const sessions = Array.isArray(group.sessions) ? group.sessions : [];
++  const approvals = Array.isArray(group.approvals) ? group.approvals : [];
++  const header = typeof group.instanceName === 'string' && group.instanceName.trim()
++    ? group.instanceName.trim()
+     : 'OpenChamber';
+ 
+   const template = [
+@@ -61,23 +67,22 @@ export const buildTrayMenuTemplate = (snapshot, { onAction, statusIcons, locale
+   if (approvals.length > 0) {
+     template.push({ label: t('needsAttention'), enabled: false });
+     const approvalItem = (approval) => {
++      const respond = (response) => () => onAction(withOwner(approval, { type: 'respond-permission', sessionId: approval.sessionId, id: approval.id, response }));
++      const focus = () => onAction(withOwner(approval, { type: 'focus-session', sessionId: approval.sessionId, directory: approval.directory || '' }));
+       if (approval.kind === 'permission') {
+         return {
+           label: approvalLabel(approval, locale),
+           submenu: [
+-            { label: t('allowOnce'), click: () => onAction({ type: 'respond-permission', sessionId: approval.sessionId, id: approval.id, response: 'once' }) },
+-            ...(approval.canSave ? [{ label: t('allowAlways'), click: () => onAction({ type: 'respond-permission', sessionId: approval.sessionId, id: approval.id, response: 'always' }) }] : []),
++            { label: t('allowOnce'), click: respond('once') },
++            ...(approval.canSave ? [{ label: t('allowAlways'), click: respond('always') }] : []),
+             { type: 'separator' },
+-            { label: t('deny'), click: () => onAction({ type: 'respond-permission', sessionId: approval.sessionId, id: approval.id, response: 'reject' }) },
++            { label: t('deny'), click: respond('reject') },
+             { type: 'separator' },
+-            { label: t('openInApp'), click: () => onAction({ type: 'focus-session', sessionId: approval.sessionId, directory: approval.directory || '' }) },
++            { label: t('openInApp'), click: focus },
+           ],
+         };
+       }
+-      return {
+-        label: approvalLabel(approval, locale),
+-        click: () => onAction({ type: 'focus-session', sessionId: approval.sessionId, directory: approval.directory || '' }),
+-      };
++      return { label: approvalLabel(approval, locale), click: focus };
+     };
+     for (const approval of approvals.slice(0, MAX_APPROVALS)) {
+       template.push(approvalItem(approval));
+@@ -96,7 +101,7 @@ export const buildTrayMenuTemplate = (snapshot, { onAction, statusIcons, locale
+     label: sessionLabel(session, locale),
+     icon: statusIcons[statusIconKey(session)] || statusIcons.blank,
+     ...(session.subtitle ? { sublabel: truncate(session.subtitle, 48) } : {}),
+-    click: () => onAction({ type: 'focus-session', sessionId: session.id, directory: session.directory || '' }),
++    click: () => onAction(withOwner(session, { type: 'focus-session', sessionId: session.id, directory: session.directory || '' })),
+   });
+ 
+   if (sessions.length > 0) {
+@@ -114,6 +119,15 @@ export const buildTrayMenuTemplate = (snapshot, { onAction, statusIcons, locale
+   } else {
+     template.push({ label: t('noActiveSessions'), enabled: false });
+   }
++  return template;
++};
++
++export const buildTrayMenuTemplate = (snapshot, { onAction, statusIcons, locale = 'en' }) => {
++  const t = (key, count) => trayLabel(locale, key, count);
++  const template = trayMenuGroups(snapshot).flatMap((group, index) => [
++    ...(index > 0 ? [{ type: 'separator' }] : []),
++    ...buildGroupSection(group, { onAction, statusIcons, locale }),
++  ]);
+ 
+   const usage = snapshot.usage && typeof snapshot.usage === 'object' ? snapshot.usage : null;
+   const usageGroups = usage && Array.isArray(usage.groups) ? usage.groups : [];
+@@ -162,15 +176,20 @@ export const buildTrayMenuTemplate = (snapshot, { onAction, statusIcons, locale
+ };
+ 
+ export const trayMenuKey = (snapshot, locale = 'en') => {
+-  const sessions = Array.isArray(snapshot.sessions) ? snapshot.sessions : [];
+-  const approvals = Array.isArray(snapshot.approvals) ? snapshot.approvals : [];
+   const usage = snapshot.usage && typeof snapshot.usage === 'object' ? snapshot.usage : {};
+   const groups = Array.isArray(usage.groups) ? usage.groups : [];
+   return JSON.stringify({
+     locale,
+-    h: typeof snapshot.instanceName === 'string' ? snapshot.instanceName : '',
+-    s: sessions.map((s) => `${s.id}|${s.title}|${s.status}|${s.unseen}|${s.hasError}|${s.subtitle}|${s.directory}`),
+-    a: approvals.map((a) => `${a.id}|${a.kind}|${a.sessionId}|${a.sessionTitle}|${a.label}|${a.directory}|${a.canSave ? 1 : 0}`),
++    i: trayMenuGroups(snapshot).map((group) => {
++      const sessions = Array.isArray(group.sessions) ? group.sessions : [];
++      const approvals = Array.isArray(group.approvals) ? group.approvals : [];
++      return {
++        o: group.owner ? `${group.owner.windowId}|${group.owner.runtimeKey}` : '',
++        h: typeof group.instanceName === 'string' ? group.instanceName : '',
++        s: sessions.map((s) => `${s.id}|${s.title}|${s.status}|${s.unseen}|${s.hasError}|${s.subtitle}|${s.directory}`),
++        a: approvals.map((a) => `${a.id}|${a.kind}|${a.sessionId}|${a.sessionTitle}|${a.label}|${a.directory}|${a.canSave ? 1 : 0}`),
++      };
++    }),
+     u: usage.mode || '',
+     g: groups.map((g) => `${g.provider}|${g.account ?? ''}|${g.status}|${(Array.isArray(g.rows) ? g.rows : []).map((r) => `${r.label}|${r.value}`).join(',')}`),
+   });
+diff --git a/packages/electron/tray-menu.test.mjs b/packages/electron/tray-menu.test.mjs
+index d5a98d17f..293a6bb0f 100644
+--- a/packages/electron/tray-menu.test.mjs
++++ b/packages/electron/tray-menu.test.mjs
+@@ -102,3 +102,64 @@ describe('tray usage submenu', () => {
+     expect(trayMenuKey(usageSnapshot('outlook'))).not.toBe(trayMenuKey(usageSnapshot('solar tool')));
+   });
+ });
++
++describe('tray menu grouped by instance', () => {
++  const CEDAR = { windowId: 1, runtimeKey: 'host:cedar' };
++  const NAVI = { windowId: 2, runtimeKey: 'local' };
++  const grouped = () => {
++    const cedarSessions = [{ id: 'c1', title: 'Cedar work', owner: CEDAR }];
++    const naviApprovals = [{ kind: 'permission', id: 'p1', sessionId: 'n1', sessionTitle: 'Navi work', label: 'bash: ls', owner: NAVI }];
++    const naviSessions = [{ id: 'n1', title: 'Navi work', owner: NAVI }];
++    return {
++      instanceName: 'Cedar',
++      groups: [
++        { owner: CEDAR, instanceName: 'Cedar', sessions: cedarSessions, approvals: [] },
++        { owner: NAVI, instanceName: 'Local OpenChamber', sessions: naviSessions, approvals: naviApprovals },
++      ],
++      sessions: [...cedarSessions, ...naviSessions],
++      approvals: naviApprovals,
++    };
++  };
++
++  test('shows one section per instance, each under its own header', () => {
++    const labels = buildTrayMenuTemplate(grouped(), { onAction: () => {}, statusIcons: {} })
++      .map((item) => item.label ?? item.type);
++    const head = labels.slice(0, labels.indexOf('New Session'));
++    expect(head).toEqual([
++      'Cedar', 'separator', 'Sessions', 'Cedar work',
++      'separator',
++      'Local OpenChamber', 'separator', 'Needs your attention', '⛔ Navi work — bash: ls', 'separator', 'Sessions', 'Navi work',
++      'separator',
++    ]);
++  });
++
++  test('a row\'s actions carry the window that supplied it', () => {
++    const actions = [];
++    const template = buildTrayMenuTemplate(grouped(), { onAction: (action) => actions.push(action), statusIcons: {} });
++    template.find((item) => item.label === 'Cedar work').click();
++    template.find((item) => item.label === 'Navi work').click();
++    const approval = template.find((item) => Array.isArray(item.submenu) && item.label.includes('Navi work'));
++    approval.submenu.find((item) => item.label === 'Deny').click();
++    expect(actions).toEqual([
++      { type: 'focus-session', sessionId: 'c1', directory: '', owner: CEDAR },
++      { type: 'focus-session', sessionId: 'n1', directory: '', owner: NAVI },
++      { type: 'respond-permission', sessionId: 'n1', id: 'p1', response: 'reject', owner: NAVI },
++    ]);
++  });
++
++  test('a single instance looks exactly like an ungrouped snapshot', () => {
++    const sessions = [{ id: 'n1', title: 'Navi work' }];
++    const bare = { instanceName: 'Local OpenChamber', sessions, approvals: [] };
++    const single = { ...bare, groups: [{ instanceName: 'Local OpenChamber', sessions, approvals: [] }] };
++    const strip = (template) => template.map((item) => item.label ?? item.type);
++    const options = { onAction: () => {}, statusIcons: {} };
++    expect(strip(buildTrayMenuTemplate(single, options))).toEqual(strip(buildTrayMenuTemplate(bare, options)));
++  });
++
++  test('the menu key changes when a row moves to another owning window', () => {
++    const before = grouped();
++    const after = grouped();
++    after.groups[1] = { ...after.groups[1], owner: { windowId: 3, runtimeKey: 'local' } };
++    expect(trayMenuKey(after)).not.toBe(trayMenuKey(before));
++  });
++});
+diff --git a/packages/electron/tray-owner.mjs b/packages/electron/tray-owner.mjs
+new file mode 100644
+index 000000000..af7fe88b0
+--- /dev/null
++++ b/packages/electron/tray-owner.mjs
+@@ -0,0 +1,140 @@
++import { z } from 'zod';
++
++const traySnapshotRows = z.array(z.unknown()).catch([])
++  .transform((rows) => rows.flatMap((row) => {
++    const parsed = z.looseObject({}).safeParse(row);
++    return parsed.success ? [parsed.data] : [];
++  }));
++
++const traySnapshotSchema = z.object({
++  instanceName: z.string().catch(''),
++  sessions: traySnapshotRows,
++  approvals: traySnapshotRows,
++  dockUnreadSessions: traySnapshotRows,
++  dockBadgeCount: z.number().catch(0).transform((count) => (Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0)),
++  usage: z.unknown(),
++}).catch({ instanceName: '', sessions: [], approvals: [], dockUnreadSessions: [], dockBadgeCount: 0, usage: undefined });
++
++const isEmptySnapshot = (snapshot) => snapshot.sessions.length === 0
++  && snapshot.approvals.length === 0
++  && snapshot.dockUnreadSessions.length === 0
++  && snapshot.dockBadgeCount === 0;
++
++const groupKeyOf = (windowId, runtimeKey) => runtimeKey || `window:${windowId}`;
++
++export const createTraySnapshotStore = () => {
++  const entries = new Map();
++  let focusOrder = [];
++  const groupOrder = new Map();
++  let groupSeq = 0;
++
++  const pruneGroupOrder = () => {
++    const live = new Set([...entries].map(([id, entry]) => groupKeyOf(id, entry.runtimeKey)));
++    for (const key of [...groupOrder.keys()]) if (!live.has(key)) groupOrder.delete(key);
++  };
++
++  const noteFocus = (windowId) => {
++    if (windowId == null) return;
++    focusOrder = [windowId, ...focusOrder.filter((id) => id !== windowId)];
++  };
++
++  const set = (windowId, snapshot, runtimeKey) => {
++    if (windowId == null) return;
++    entries.delete(windowId);
++    entries.set(windowId, { snapshot: traySnapshotSchema.parse(snapshot), runtimeKey });
++    const groupKey = groupKeyOf(windowId, runtimeKey);
++    if (!groupOrder.has(groupKey)) groupOrder.set(groupKey, groupSeq++);
++    pruneGroupOrder();
++  };
++
++  const noteRuntimeKey = (windowId, runtimeKey) => {
++    const entry = entries.get(windowId);
++    if (!entry || entry.runtimeKey === runtimeKey) return false;
++    if (entry.runtimeKey === '') {
++      entries.set(windowId, { snapshot: entry.snapshot, runtimeKey });
++      if (!groupOrder.has(runtimeKey)) groupOrder.set(runtimeKey, groupSeq++);
++    } else {
++      entries.delete(windowId);
++    }
++    pruneGroupOrder();
++    return true;
++  };
++
++  const remove = (windowId) => {
++    entries.delete(windowId);
++    focusOrder = focusOrder.filter((id) => id !== windowId);
++    pruneGroupOrder();
++  };
++
++  const pickWindow = (candidates, { focusedId = null, mainId = null } = {}) => {
++    if (candidates.length === 0) return null;
++    const has = (id) => id != null && candidates.includes(id);
++    if (has(focusedId)) return focusedId;
++    const recent = focusOrder.find(has);
++    if (recent != null) return recent;
++    if (has(mainId)) return mainId;
++    return candidates[candidates.length - 1];
++  };
++
++  const withOwner = (rows, owner) => rows.map((row) => ({ ...row, owner }));
++
++  const buildView = ({ focusedId = null, mainId = null } = {}) => {
++    const allIds = [...entries.keys()];
++    const shownIds = allIds.filter((id) => !isEmptySnapshot(entries.get(id).snapshot));
++    const leadId = pickWindow(shownIds.length > 0 ? shownIds : allIds, { focusedId, mainId });
++    if (leadId == null) return null;
++    const lead = entries.get(leadId);
++    const leadGroupKey = groupKeyOf(leadId, lead.runtimeKey);
++
++    const idsByGroup = new Map();
++    for (const [id, entry] of entries) {
++      if (isEmptySnapshot(entry.snapshot)) continue;
++      const key = groupKeyOf(id, entry.runtimeKey);
++      idsByGroup.set(key, [...(idsByGroup.get(key) || []), id]);
++    }
++    const groupKeys = [...idsByGroup.keys()].sort((a, b) => {
++      if (a === leadGroupKey) return -1;
++      if (b === leadGroupKey) return 1;
++      return (groupOrder.get(a) ?? 0) - (groupOrder.get(b) ?? 0);
++    });
++
++    const groups = groupKeys.map((key) => {
++      const windowId = pickWindow(idsByGroup.get(key), { focusedId, mainId });
++      const { snapshot, runtimeKey } = entries.get(windowId);
++      const owner = { windowId, runtimeKey };
++      return {
++        owner,
++        instanceName: snapshot.instanceName,
++        sessions: withOwner(snapshot.sessions, owner),
++        approvals: withOwner(snapshot.approvals, owner),
++        dockUnreadSessions: withOwner(snapshot.dockUnreadSessions, owner),
++        dockBadgeCount: snapshot.dockBadgeCount,
++      };
++    });
++
++    const leadOwner = { windowId: leadId, runtimeKey: lead.runtimeKey };
++    if (groups.length === 0) {
++      groups.push({
++        owner: leadOwner,
++        instanceName: lead.snapshot.instanceName,
++        sessions: [], approvals: [], dockUnreadSessions: [], dockBadgeCount: 0,
++      });
++    }
++
++    return {
++      leadOwner,
++      owners: groups.map((group) => group.owner),
++      snapshot: {
++        instanceName: groups[0].instanceName,
++        groups: groups.map(({ owner, instanceName, sessions, approvals }) => ({ owner, instanceName, sessions, approvals })),
++        sessions: groups.flatMap((group) => group.sessions),
++        approvals: groups.flatMap((group) => group.approvals),
++        dockUnreadSessions: groups.flatMap((group) => group.dockUnreadSessions),
++        dockBadgeCount: groups.reduce((sum, group) => sum + group.dockBadgeCount, 0),
++        usage: lead.snapshot.usage,
++      },
++    };
++  };
++
++  return { set, remove, noteFocus, noteRuntimeKey, buildView };
++};
+diff --git a/packages/electron/tray-owner.test.mjs b/packages/electron/tray-owner.test.mjs
+new file mode 100644
+index 000000000..b1281d309
+--- /dev/null
++++ b/packages/electron/tray-owner.test.mjs
+@@ -0,0 +1,156 @@
++import { describe, expect, test } from 'bun:test';
++
++import { createTraySnapshotStore } from './tray-owner.mjs';
++
++const MAIN = 1;
++const SECOND = 2;
++const THIRD = 3;
++
++const snap = (label, extra = {}) => ({
++  instanceName: label,
++  sessions: [{ id: `${label}-s`, title: label }],
++  approvals: [],
++  dockBadgeCount: 1,
++  dockUnreadSessions: [{ id: `${label}-u`, title: label }],
++  ...extra,
++});
++const empty = (label) => ({ instanceName: label, sessions: [], approvals: [], dockBadgeCount: 0, dockUnreadSessions: [] });
++const names = (view) => view.snapshot.groups.map((group) => group.instanceName);
++
++describe('tray view grouped by instance', () => {
++  test('every open instance is shown, not just the last window to push', () => {
++    const store = createTraySnapshotStore();
++    store.set(MAIN, snap('cedar'), 'host:cedar');
++    store.noteFocus(MAIN);
++    store.set(SECOND, snap('navi'), 'local');
++
++    const view = store.buildView({ focusedId: MAIN, mainId: MAIN });
++    expect(names(view)).toEqual(['cedar', 'navi']);
++    expect(view.snapshot.sessions.map((s) => s.id)).toEqual(['cedar-s', 'navi-s']);
++    expect(view.owners).toEqual([
++      { windowId: MAIN, runtimeKey: 'host:cedar' },
++      { windowId: SECOND, runtimeKey: 'local' },
++    ]);
++  });
++
++  test('the focused window\'s instance comes first, the rest keep a stable order', () => {
++    const store = createTraySnapshotStore();
++    store.set(MAIN, snap('cedar'), 'host:cedar');
++    store.set(SECOND, snap('navi'), 'local');
++    store.set(THIRD, snap('third'), 'host:third');
++    store.set(MAIN, snap('cedar', { sessions: [{ id: 'new' }] }), 'host:cedar'); // a later push does not reorder
++
++    expect(names(store.buildView({ focusedId: THIRD, mainId: MAIN }))).toEqual(['third', 'cedar', 'navi']);
++    expect(names(store.buildView({ focusedId: SECOND, mainId: MAIN }))).toEqual(['navi', 'cedar', 'third']);
++    expect(names(store.buildView({ focusedId: null, mainId: MAIN }))).toEqual(['cedar', 'navi', 'third']);
++  });
++
++  test('rows carry the window that supplied them', () => {
++    const store = createTraySnapshotStore();
++    store.set(MAIN, snap('cedar', { approvals: [{ id: 'p1', kind: 'permission', sessionId: 'c' }] }), 'host:cedar');
++    store.set(SECOND, snap('navi', { approvals: [{ id: 'p2', kind: 'permission', sessionId: 'n' }] }), 'local');
++    const view = store.buildView({ focusedId: MAIN, mainId: MAIN });
++    expect(view.snapshot.approvals.map((a) => [a.id, a.owner])).toEqual([
++      ['p1', { windowId: MAIN, runtimeKey: 'host:cedar' }],
++      ['p2', { windowId: SECOND, runtimeKey: 'local' }],
++    ]);
++    expect(view.snapshot.dockUnreadSessions.map((s) => s.owner.windowId)).toEqual([MAIN, SECOND]);
++  });
++
++  test('windows on the same instance count once: focused, else most recently focused, else latest push', () => {
++    const store = createTraySnapshotStore();
++    store.set(MAIN, snap('navi-a', { dockBadgeCount: 3 }), 'local');
++    store.set(SECOND, snap('navi-b', { dockBadgeCount: 3 }), 'local');
++    store.set(THIRD, snap('cedar', { dockBadgeCount: 2 }), 'host:cedar');
++
++    const latest = store.buildView({ focusedId: THIRD });
++    expect(names(latest)).toEqual(['cedar', 'navi-b']);
++    expect(latest.snapshot.dockBadgeCount).toBe(5);
++
++    store.noteFocus(MAIN);
++    expect(names(store.buildView({ focusedId: null }))).toEqual(['navi-a', 'cedar']);
++    expect(names(store.buildView({ focusedId: SECOND }))).toEqual(['navi-b', 'cedar']);
++  });
++
++  test('an empty window contributes nothing, and an all-empty tray keeps the lead header', () => {
++    const store = createTraySnapshotStore();
++    store.set(MAIN, empty('cedar'), 'host:cedar');
++    store.set(SECOND, snap('navi'), 'local');
++    expect(names(store.buildView({ focusedId: MAIN, mainId: MAIN }))).toEqual(['navi']);
++
++    store.set(SECOND, empty('navi'), 'local');
++    const view = store.buildView({ focusedId: MAIN, mainId: MAIN });
++    expect(names(view)).toEqual(['cedar']);
++    expect(view.snapshot.sessions).toEqual([]);
++    expect(view.snapshot.dockBadgeCount).toBe(0);
++  });
++
++  test('a focused window with nothing to show (a lock screen) does not lead the tray', () => {
++    const store = createTraySnapshotStore();
++    store.set(MAIN, snap('cedar', { usage: { mode: 'usage', groups: [{ provider: 'cedar-p' }] } }), 'host:cedar');
++    store.set(SECOND, empty('navi'), 'local');
++    store.noteFocus(SECOND);
++    const view = store.buildView({ focusedId: SECOND, mainId: MAIN });
++    expect(view.leadOwner.windowId).toBe(MAIN);
++    expect(view.snapshot.usage.groups[0].provider).toBe('cedar-p');
++  });
++
++  test('windows without a runtime key yet are not merged with each other', () => {
++    const store = createTraySnapshotStore();
++    store.set(MAIN, snap('a'), '');
++    store.set(SECOND, snap('b'), '');
++    expect(names(store.buildView({ focusedId: MAIN }))).toEqual(['a', 'b']);
++  });
++
++  test('usage comes from the lead window', () => {
++    const store = createTraySnapshotStore();
++    store.set(MAIN, snap('cedar', { usage: { mode: 'usage', groups: [{ provider: 'cedar-p' }] } }), 'host:cedar');
++    store.set(SECOND, snap('navi', { usage: { mode: 'usage', groups: [{ provider: 'navi-p' }] } }), 'local');
++    expect(store.buildView({ focusedId: SECOND }).snapshot.usage.groups[0].provider).toBe('navi-p');
++  });
++
++  test('a closed window\'s rows leave the tray', () => {
++    const store = createTraySnapshotStore();
++    store.set(MAIN, snap('cedar'), 'host:cedar');
++    store.set(SECOND, snap('navi'), 'local');
++    store.noteFocus(SECOND);
++    store.remove(SECOND);
++    expect(names(store.buildView({ focusedId: null, mainId: MAIN }))).toEqual(['cedar']);
++    store.remove(MAIN);
++    expect(store.buildView({ focusedId: null, mainId: null })).toBeNull();
++  });
++
++  test('the runtime key comes from main, not from the renderer payload', () => {
++    const store = createTraySnapshotStore();
++    store.set(SECOND, { ...snap('remote'), runtimeKey: 'host:spoofed' }, 'host:real');
++    const view = store.buildView({ focusedId: SECOND });
++    expect(view.leadOwner.runtimeKey).toBe('host:real');
++    expect(view.snapshot.sessions[0].owner.runtimeKey).toBe('host:real');
++  });
++
++  test('an in-place host switch drops the window\'s old snapshot', () => {
++    const store = createTraySnapshotStore();
++    store.set(MAIN, snap('navi'), 'local');
++    store.set(SECOND, snap('third'), 'host:third');
++    store.noteFocus(MAIN);
++
++    expect(store.noteRuntimeKey(MAIN, 'local')).toBe(false);
++    expect(store.noteRuntimeKey(MAIN, 'host:cedar')).toBe(true);
++
++    // The new instance has not pushed yet (it may be locked or unreachable):
++    // navi's rows must not stay in the tray.
++    expect(names(store.buildView({ focusedId: MAIN, mainId: MAIN }))).toEqual(['third']);
++
++    store.set(MAIN, snap('cedar'), 'host:cedar');
++    expect(names(store.buildView({ focusedId: MAIN, mainId: MAIN }))).toEqual(['cedar', 'third']);
++  });
++
++  test('a snapshot pushed before the window reported its key is restamped, not dropped', () => {
++    const store = createTraySnapshotStore();
++    store.set(MAIN, snap('navi'), '');
++    expect(store.noteRuntimeKey(MAIN, 'local')).toBe(true);
++    const view = store.buildView({ focusedId: MAIN });
++    expect(names(view)).toEqual(['navi']);
++    expect(view.leadOwner.runtimeKey).toBe('local');
++  });
++});
+diff --git a/packages/electron/tray-routing.mjs b/packages/electron/tray-routing.mjs
+new file mode 100644
+index 000000000..a576eddf7
+--- /dev/null
++++ b/packages/electron/tray-routing.mjs
+@@ -0,0 +1,102 @@
++import { app, BrowserWindow, Menu } from 'electron';
++import log from 'electron-log/main.js';
++import { applyDockBadge } from './dev-dock-identity.mjs';
++import { buildDockMenuTemplate, buildUnreadJumpList } from './dock-menu.mjs';
++import { createTraySnapshotStore } from './tray-owner.mjs';
++
++const liveWindowById = (windowId) => {
++  if (windowId == null) return null;
++  const window = BrowserWindow.fromId(windowId);
++  return window && !window.isDestroyed() ? window : null;
++};
++
++const liveWindowId = (window) => (window && !window.isDestroyed() ? window.id : null);
++
++export const createTrayRouting = ({ getTrayController, localeRouter, getMainWindow, getMenuLocale, onAction, emitTrayAction, openSessionInMainWindow, hostIdOfOwner }) => {
++  const snapshots = createTraySnapshotStore();
++  let leadOwner = null;
++  let owners = [];
++  let lastJumpListKey = '';
++
++  const publishDock = (snapshot) => {
++    applyDockBadge(app, snapshot.dockBadgeCount ?? 0);
++    if (process.platform === 'darwin' && app.dock) {
++      const template = buildDockMenuTemplate(snapshot, { locale: getMenuLocale(), onAction });
++      // external: https://www.electronjs.org/docs/latest/api/dock#docksetmenumenu Use an empty menu to clear it; Electron 45 rejects null.
++      app.dock.setMenu(Menu.buildFromTemplate(template));
++    }
++    if (process.platform === 'win32' && app.isPackaged) {
++      const jumpList = buildUnreadJumpList(snapshot, {
++        execPath: process.execPath, locale: getMenuLocale(),
++        removedItems: app.getJumpListSettings().removedItems, hostIdOf: hostIdOfOwner,
++      });
++      const key = JSON.stringify(jumpList);
++      if (key !== lastJumpListKey) {
++        const result = app.setJumpList(jumpList);
++        if (result === 'ok') lastJumpListKey = key;
++        else log.warn('[electron] unread jump list update failed', { result });
++      }
++    }
++  };
++
++  const apply = (focusedId = liveWindowId(BrowserWindow.getFocusedWindow())) => {
++    const view = snapshots.buildView({ focusedId, mainId: liveWindowId(getMainWindow()) });
++    leadOwner = view ? view.leadOwner : null;
++    owners = view ? view.owners : [];
++    const snapshot = view ? view.snapshot : {};
++    const trayController = getTrayController();
++    if (trayController) {
++      try {
++        localeRouter.publish(leadOwner ? liveWindowById(leadOwner.windowId) : null);
++        trayController.update(snapshot);
++      } catch (error) {
++        log.warn('[electron] tray update failed', error);
++      }
++    }
++    try {
++      publishDock(snapshot);
++    } catch (error) {
++      log.warn('[electron] dock badge update failed', error);
++    }
++  };
++
++  const route = async (rawAction) => {
++    const { owner: rowOwner, ...action } = rawAction;
++    const owner = rowOwner ?? leadOwner;
++    const ownerWindow = liveWindowById(owner?.windowId);
++    const ownerRuntimeKey = owner?.runtimeKey || '';
++
++    if (action.type === 'menu-opened' || action.type === 'mark-all-read') {
++      const targets = owners.map((entry) => liveWindowById(entry.windowId)).filter(Boolean);
++      for (const target of targets) emitTrayAction(target, action);
++      if (targets.length > 0) return null;
++    }
++
++    if (action.type === 'respond-permission' && owner) {
++      if (ownerWindow) emitTrayAction(ownerWindow, action);
++      else await openSessionInMainWindow(action.sessionId, '', ownerRuntimeKey);
++      return null;
++    }
++
++    return { action, ownerWindow, ownerRuntimeKey };
++  };
++
++  return {
++    setSnapshot: (windowId, snapshot, runtimeKey) => {
++      snapshots.set(windowId, snapshot, runtimeKey);
++      apply();
++    },
++    forgetWindow: (windowId) => {
++      snapshots.remove(windowId);
++      apply();
++    },
++    noteFocus: (windowId) => {
++      snapshots.noteFocus(windowId);
++      apply(windowId);
++    },
++    noteRuntimeKey: (windowId, runtimeKey) => {
++      if (snapshots.noteRuntimeKey(windowId, runtimeKey)) apply();
++    },
++    route,
++  };
++};
+diff --git a/packages/ui/src/components/sections/DOCUMENTATION.md b/packages/ui/src/components/sections/DOCUMENTATION.md
+index db9c71eb6..f37d865cf 100644
+--- a/packages/ui/src/components/sections/DOCUMENTATION.md
++++ b/packages/ui/src/components/sections/DOCUMENTATION.md
+@@ -944,6 +944,7 @@ the browser, and a second meaning there confuses both.
+ - Re-importing pairing updates the matching server record. Renaming preserves relay credentials and learned addresses; relay-only transport changes require fresh pairing.
+ - Pairing auto-close requires successful reads that first see the session and later see it disappear. Failure retains the list; only a matching redeemed client produces a success notification.
+ - Device labels name this server's device-list entry; exported connection labels name the issuing server. Dense pairing payloads use high-resolution QR output with low error correction.
++- Revoking a `desktop-local` client clears this machine's local client token only while the window shows the desktop's own server. A `desktop-local` client listed by a remote server is that server's own desktop app, so this window's token and runtime stay untouched.
+ - LAN availability comes from the server bind address, with browser-origin guessing only after read failure. Publishing a remote server to its network requires its UI password.
+ - Only reconnecting SSH status runs the stuck-state clock. Saved-host probes run per list identity, hidden pages pause polling and relay-conflict failures retain the last state.
+ - A running tunnel's port belongs to its identity, so changing the configured port requires a different tunnel even if its mode is unchanged.
+diff --git a/packages/ui/src/components/sections/remote-instances/RemoteInstancesPage.test.tsx b/packages/ui/src/components/sections/remote-instances/RemoteInstancesPage.test.tsx
+index 5ef8fa377..eb080da0d 100644
+--- a/packages/ui/src/components/sections/remote-instances/RemoteInstancesPage.test.tsx
++++ b/packages/ui/src/components/sections/remote-instances/RemoteInstancesPage.test.tsx
+@@ -3,6 +3,7 @@ import React, { act } from 'react';
+ import type { Root } from 'react-dom/client';
+ import { Window } from 'happy-dom';
+ import type { DesktopHost, HostProbeResult } from '@/lib/desktopHosts';
++import type { ClientAuthAPI, RemoteClientRecord } from '@/lib/api/types';
+ 
+ const dom = new Window({ url: 'http://localhost/' });
+ Object.assign(globalThis, {
+@@ -30,7 +31,10 @@ const mockUIStore = (select: (state: unknown) => unknown) => select({
+ mockUIStore.getState = actualUIStore.useUIStore.getState;
+ mockUIStore.subscribe = actualUIStore.useUIStore.subscribe;
+ mock.module('@/stores/useUIStore', () => ({ ...actualUIStore, useUIStore: mockUIStore }));
+-mock.module('@/hooks/useRuntimeAPIs', () => ({ useRuntimeAPIs: () => ({}) }));
++type ClientAuthFake = Pick<ClientAuthAPI, 'listClients' | 'listPendingPairings' | 'getRelayHostStatus' | 'revokeClient'>;
++type RuntimeAPIsFake = { clientAuth?: ClientAuthFake };
++let runtimeAPIs: RuntimeAPIsFake;
++mock.module('@/hooks/useRuntimeAPIs', () => ({ useRuntimeAPIs: () => runtimeAPIs }));
+ mock.module('@/components/ui', () => ({ toast: { error() {} } }));
+ 
+ const desktop = await import('@/lib/desktop');
+@@ -42,6 +46,7 @@ const baseHost: DesktopHost = {
+ };
+ let host: DesktopHost;
+ let saved: DesktopHost[];
++let savedConfigs: Array<{ localClientToken?: string | null }>;
+ let directStatus: HostProbeResult['status'];
+ let directOptions: unknown[];
+ let relayCalls: number;
+@@ -49,7 +54,10 @@ const hosts = await import('@/lib/desktopHosts');
+ mock.module('@/lib/desktopHosts', () => ({
+   ...hosts,
+   desktopHostsGet: async () => ({ hosts: [host], defaultHostId: 'local' }),
+-  desktopHostsSet: async (config: { hosts: DesktopHost[] }) => { saved = config.hosts; },
++  desktopHostsSet: async (config: { hosts: DesktopHost[]; localClientToken?: string | null }) => {
++    saved = config.hosts;
++    savedConfigs.push(config);
++  },
+   desktopHostProbe: async (_url: string, options: unknown) => {
+     directOptions.push(options);
+     return { status: directStatus, latencyMs: 1 };
+@@ -64,6 +72,8 @@ let root: Root;
+ beforeEach(() => {
+   host = { ...baseHost };
+   saved = [];
++  savedConfigs = [];
++  runtimeAPIs = {};
+   directStatus = 'wrong-service';
+   directOptions = [];
+   relayCalls = 0;
+@@ -111,3 +121,36 @@ for (const status of ['wrong-service', 'incompatible'] as const) {
+     expect(document.body.textContent).not.toContain(status === 'wrong-service' ? 'Wrong service' : 'Incompatible');
+   });
+ }
++
++test('revoking a desktop-local client listed by a remote server leaves this machine\'s token and runtime alone', async () => {
++  window.__OPENCHAMBER_LOCAL_ORIGIN__ = 'http://127.0.0.1:3901';
++  Reflect.set(window, '__OPENCHAMBER_API_BASE_URL__', 'http://192.0.2.20:3000');
++  const revoked: string[] = [];
++  let clients: RemoteClientRecord[] = [{
++    id: 'desktop-1', label: 'Desktop', clientKind: 'desktop-local', createdAt: '2026-01-01T00:00:00.000Z', lastUsedAt: null, revokedAt: null,
++  }];
++  runtimeAPIs = {
++    clientAuth: {
++      listClients: async () => clients,
++      listPendingPairings: async () => [],
++      getRelayHostStatus: async () => ({ identityConflict: false }),
++      revokeClient: async (id: string) => {
++        revoked.push(id);
++        clients = clients.map((client) => ({ ...client, revokedAt: '2026-01-02T00:00:00.000Z' }));
++        return { revoked: true };
++      },
++    },
++  };
++  const { getRuntimeKey } = await import('@/lib/runtime-switch');
++  try {
++    await render();
++    await act(async () => button('Revoke').click());
++    expect(revoked).toEqual(['desktop-1']);
++    expect(document.body.textContent).toContain('Revoked');
++    expect(savedConfigs).toEqual([]);
++    expect(getRuntimeKey()).toBe('url:http://192.0.2.20:3000');
++  } finally {
++    delete window.__OPENCHAMBER_LOCAL_ORIGIN__;
++    Reflect.deleteProperty(window, '__OPENCHAMBER_API_BASE_URL__');
++  }
++});
+diff --git a/packages/ui/src/components/sections/remote-instances/RemoteInstancesPage.tsx b/packages/ui/src/components/sections/remote-instances/RemoteInstancesPage.tsx
+index 756b5c957..93cb68299 100644
+--- a/packages/ui/src/components/sections/remote-instances/RemoteInstancesPage.tsx
++++ b/packages/ui/src/components/sections/remote-instances/RemoteInstancesPage.tsx
+@@ -1023,11 +1023,11 @@ export const RemoteInstancesPage: React.FC = () => {
+ 
+   const revokeRemoteClient = React.useCallback(async (client: RemoteClientRecord) => {
+     if (!clientAuth) return;
+-    const isLocalDesktopClient = client.clientKind === 'desktop-local';
++    const isThisDesktopClient = client.clientKind === 'desktop-local' && isDesktopLocalOriginActive();
+     setRemoteClientError(null);
+     try {
+       await clientAuth.revokeClient(client.id);
+-      if (isLocalDesktopClient && isDesktopShell()) {
++      if (isThisDesktopClient) {
+         const config = await desktopHostsGet();
+         await desktopHostsSet({
+           hosts: config.hosts,
+diff --git a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
+index e2d752f7c..735e77964 100644
+--- a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
++++ b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
+@@ -1872,3 +1872,20 @@ from about 420 to 285 ms; time in tasks over 50 ms fell by 37 percent. What
+ still rebuilds the derived indexes at a turn's start and end is the ordering
+ store: a session going active and settling again publishes new ranks, and
+ group order reads those ranks too.
++
++### Tray rows
++
++The desktop tray and the dock badge list a session exactly when the sidebar gives it a row (maintainer decision 2026-11-24). One module decides that for both: `list/sidebarSessionTree.ts`. The sidebar's collection (`useSessionProjectCollection`) builds its tree from it: which sessions are listed (`buildSidebarSessionTree`, the known-directory filter and the live gap), how they nest (`nestingParentById`, from `resolveSessionNestingParentId`), and which are nested and so not roots (`collectNestedSessionIds`). The tray (`hooks/useTraySync.ts`) builds the same tree and ownership index from the same stores and asks `resolveSidebarSessionRows` which roots have a row. A root has one when it is a managed chat (Chats section), when the ownership index places it in a project, worktree or space group, or, failing both, when it is pinned to the default list (Pinned section). The In work and custom sections draw from the project groups, so they add no session of their own. View state stays out: collapsed groups, search, single-project mode and show-more limits hide a row, they do not decide whether it exists.
++
++What this means in the tray:
++
++- A review session ("Review: X") and a promoted /btw session nest under their original in the same folder, as in the sidebar, so they get no tray row of their own. Their status and unread turn roll up into the original's row, as subagents' status already did. The dock badge counts such a session while its root has a row.
++- A space session whose space mark names no registered project has no sidebar group, so it has no tray row.
++- A session a directory store holds before the global list has it (the live gap) gets a tray row, as it gets a sidebar row.
++- A subagent whose parent is not loaded is a root in the sidebar, so it is one in the tray.
++- A session is nested, and so not a root, when the session it nests under is listed, active or archived. A child of an archived parent therefore has no row of its own while its parent is out of the active list.
++- A project session whose nesting chain loops without reaching a root is listed as a root in its project group (`isInNestingCycle` in `useSessionGrouping`), and the rest of the loop nests under it. The sidebar picks the first member in its own order and the tray the first in tree order, so the loop has one row either way.
++
++The parity test (`hooks/useTraySync.test.tsx`, *tray rows follow the sidebar row rule*) renders one fixture per kind of session the tray meets and checks the tray's rows against both the shared rule and the sidebar's projection. Rejected: a tray-side copy of the rule (`sessionHasSidebarRow`), which had fallen behind on nesting and space ownership.
++
++The tray rebuilds the tree only when one of its inputs changes (global active and archived sessions, projects, worktrees, spaces, OpenCode's projects, the directory stores' sessions): the 5 s poll and flushes for status or quota changes reuse it.
+diff --git a/packages/ui/src/components/session/sidebar/list/sessionCollection.ts b/packages/ui/src/components/session/sidebar/list/sessionCollection.ts
+index b3ab7373c..2b7b1954c 100644
+--- a/packages/ui/src/components/session/sidebar/list/sessionCollection.ts
++++ b/packages/ui/src/components/session/sidebar/list/sessionCollection.ts
+@@ -8,20 +8,25 @@ import {
+ } from '@/sync/session-ordering';
+ import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
+ import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
+-import { resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
+-import { normalizePath } from '../utils';
+-import { isChatDirectoryPath } from '@/lib/chatDirectories';
+-import { isVSCodeWithoutWorkspace } from '@/lib/vscodeBootstrap';
+-import { isSpaceDirectory } from '@/lib/spaces/space-route';
+-import { isBtwSession } from '@/lib/sessionBtwMetadata';
+-import { resolveSessionNestingParentId } from '@/lib/sessionWorkLineage';
+ import type { GlobalSessionStructure } from '@/stores/globalSessionStructure';
+ import { countSyncPerformance } from '@/sync/performance-diagnostics';
++import {
++  buildSidebarSessionTree,
++  collectNestedSessionIds,
++  filterSidebarArchivedSessions,
++  isKnownActiveSessionDirectory,
++  keepKnownSessionsWithDescendants,
++  partitionSidebarSessions,
++  toKnownDirectoryKeys,
++  type SidebarSessionTree,
++} from './sidebarSessionTree';
+ import type { ProjectSortOrder } from '@/stores/useSessionDisplayStore';
+ import { haveSameSidebarHierarchy, haveSameSidebarStructure } from './sidebarStructureKey';
+ import { useSidebarReadsActivityTime } from './useSidebarReadsActivityTime';
+ import type { SessionNode } from '../types';
+ 
++export { partitionSidebarSessions };
++
+ type ProjectSidebarActiveSessionsArgs = {
+   globalActiveSessions: Session[];
+   liveSessions: Session[];
+@@ -29,68 +34,6 @@ type ProjectSidebarActiveSessionsArgs = {
+   isVSCode: boolean;
+ };
+ 
+-type SidebarSessionPartitions = {
+-  projectSessions: Session[];
+-  chatSessions: Session[];
+-};
+-
+-const nestingParentResolver = (sessionById: ReadonlyMap<string, Session>) => (
+-  (session: Session): string | null => resolveSessionNestingParentId(session, (id) => sessionById.get(id))
+-);
+-
+-export const partitionSidebarSessions = (
+-  sessions: readonly Session[],
+-  isVSCode: boolean,
+-): SidebarSessionPartitions => {
+-  const projectSessions: Session[] = [];
+-  const chatSessions: Session[] = [];
+-  const excludeChats = isVSCode && !isVSCodeWithoutWorkspace();
+-  for (const session of sessions) {
+-    if (isBtwSession(session)) continue;
+-    if (isChatDirectoryPath(session.directory)) {
+-      if (excludeChats) continue;
+-      chatSessions.push(session);
+-      continue;
+-    }
+-    projectSessions.push(session);
+-  }
+-  return { projectSessions, chatSessions };
+-};
+-
+-
+-const isKnownActiveSessionDirectory = (
+-  session: Session,
+-  knownDirectories: Set<string>,
+-  isVSCode: boolean,
+-): boolean => {
+-  const normalized = normalizePath(resolveGlobalSessionDirectory(session));
+-  const directory = isVSCode ? normalized?.toLowerCase() : normalized;
+-  if (!directory) return false;
+-  if (!isVSCode && isSpaceDirectory(directory)) return true;
+-  if (knownDirectories.size === 0) return false;
+-  return knownDirectories.has(directory) || (!isVSCode && [...knownDirectories].some((root) => directory.startsWith(root.endsWith('/') ? root : `${root}/`)));
+-};
+-
+-const keepKnownSessionsWithDescendants = (
+-  sessions: readonly Session[],
+-  isKnown: (session: Session) => boolean,
+-  anchors: readonly Session[],
+-): Session[] => {
+-  const sessionById = new Map([...anchors, ...sessions].map((session) => [session.id, session]));
+-  const nestingParentOf = nestingParentResolver(sessionById);
+-  const kept = new Map<string, boolean>(anchors.map((anchor) => [anchor.id, true]));
+-  const keeps = (session: Session): boolean => {
+-    const cached = kept.get(session.id);
+-    if (cached !== undefined) return cached;
+-    kept.set(session.id, false);
+-    const parent = isKnown(session) ? null : sessionById.get(nestingParentOf(session) ?? '');
+-    const result = parent === null || Boolean(parent && keeps(parent));
+-    kept.set(session.id, result);
+-    return result;
+-  };
+-  return sessions.filter(keeps);
+-};
+-
+ export const projectSidebarActiveSessions = ({
+   globalActiveSessions,
+   liveSessions,
+@@ -99,7 +42,7 @@ export const projectSidebarActiveSessions = ({
+ }: ProjectSidebarActiveSessionsArgs): Session[] => {
+   const sessions = [...globalActiveSessions];
+   const knownIds = new Set(globalActiveSessions.map((session) => session.id));
+-  const knownDirectoryKeys = new Set([...knownDirectories].map((directory) => isVSCode ? directory.toLowerCase() : directory));
++  const knownDirectoryKeys = toKnownDirectoryKeys(knownDirectories, isVSCode);
+ 
+   for (const session of liveSessions) {
+     if (knownIds.has(session.id)) continue;
+@@ -118,20 +61,6 @@ export const projectSidebarCollection = (args: ProjectSidebarActiveSessionsArgs)
+   return projectSidebarActiveSessions(args);
+ };
+ 
+-const mergeSidebarSessionSources = (
+-  globalActiveSessions: readonly Session[],
+-  liveSessions: readonly Session[],
+-): Session[] => {
+-  const sessions = [...globalActiveSessions];
+-  const knownIds = new Set(globalActiveSessions.map((session) => session.id));
+-  for (const session of liveSessions) {
+-    if (knownIds.has(session.id)) continue;
+-    knownIds.add(session.id);
+-    sessions.push(session);
+-  }
+-  return sessions;
+-};
+-
+ export const getDescendantIds = (
+   childrenMap: ReadonlyMap<string, readonly Session[]>,
+   sessionId: string,
+@@ -172,46 +101,10 @@ type SidebarSessionProjectionArgs = ProjectSidebarActiveSessionsArgs & {
+   sessionOrderRanks: ReadonlyMap<string, number>;
+ };
+ 
+-type SidebarSessionStructureArgs = Omit<ProjectSidebarActiveSessionsArgs, 'globalActiveSessions'> & {
+-  globalActiveSessions?: readonly Session[];
+-  globalStructure?: GlobalSessionStructure;
+-};
+-
+-const buildSidebarSessionStructure = ({
+-  globalActiveSessions,
+-  liveSessions,
+-  knownDirectories,
+-  isVSCode,
+-  globalStructure,
+-}: SidebarSessionStructureArgs) => {
+-  countSyncPerformance('sidebarStructureBuilds');
+-  const indexedGlobalSessions = globalActiveSessions ?? [];
+-  const visibleSessions = mergeSidebarSessionSources(indexedGlobalSessions, liveSessions);
+-  const partition = partitionSidebarSessions(visibleSessions, isVSCode);
+-  const knownDirectoryKeys = new Set([...knownDirectories].map((directory) => isVSCode ? directory.toLowerCase() : directory));
+-  const projectSessions = keepKnownSessionsWithDescendants(
+-    partition.projectSessions,
+-    (session) => isKnownActiveSessionDirectory(session, knownDirectoryKeys, isVSCode),
+-    partition.chatSessions,
+-  );
+-  const sessions = [...projectSessions, ...partition.chatSessions];
+-  const sessionById = new Map(sessions.map((session) => [session.id, session]));
+-  return {
+-    chatSessionIds: new Set(partition.chatSessions.map((session) => session.id)),
+-    projectSessions,
+-    sessionById,
+-    sessions,
+-    hierarchy: globalStructure ? {
+-      rootIds: globalStructure.activeRootIds,
+-      childrenByParentId: globalStructure.activeChildrenByParentId,
+-    } : undefined,
+-  };
+-};
+-
+ const EMPTY_PINNED_SESSION_IDS = new Set<string>();
+ 
+ const orderSidebarSessionStructure = (
+-  structure: ReturnType<typeof buildSidebarSessionStructure>,
++  structure: SidebarSessionTree,
+   pinnedSessionIds: Set<string>,
+   sessionOrderRanks: ReadonlyMap<string, number>,
+ ) => {
+@@ -222,9 +115,8 @@ const orderSidebarSessionStructure = (
+     structure.hierarchy,
+   );
+   const childrenMap = new Map<string, Session[]>();
+-  const nestingParentOf = nestingParentResolver(structure.sessionById);
+   for (const session of orderedSessions) {
+-    const parentID = nestingParentOf(session);
++    const parentID = structure.nestingParentById.get(session.id);
+     if (!parentID) continue;
+     const siblings = childrenMap.get(parentID) ?? [];
+     siblings.push(session);
+@@ -245,7 +137,7 @@ export const buildSidebarSessionProjection = ({
+   pinnedSessionIds,
+   sessionOrderRanks,
+ }: SidebarSessionProjectionArgs) => {
+-  const structure = buildSidebarSessionStructure({
++  const structure = buildSidebarSessionTree({
+     globalActiveSessions,
+     liveSessions,
+     knownDirectories,
+@@ -302,12 +194,10 @@ export const useSessionProjectCollection = ({
+   const globalActiveSessions = useStructurallyStableSessions(useGlobalSessionsStore((state) => state.activeSessions), readsActivityTime);
+   const globalStructure = useStableHierarchy(useGlobalSessionsStore((state) => state.structure));
+   const rawArchivedSessions = useGlobalSessionsStore((state) => state.archivedSessions);
+-  const archivedSessions = React.useMemo(() => {
+-    const known = new Set([...knownDirectories].map((directory) => isVSCode ? directory.toLowerCase() : directory));
+-    return rawArchivedSessions.filter((session) => (
+-      isChatDirectoryPath(session.directory) ? !isVSCode : isKnownActiveSessionDirectory(session, known, isVSCode)
+-    ));
+-  }, [isVSCode, knownDirectories, rawArchivedSessions]);
++  const archivedSessions = React.useMemo(
++    () => filterSidebarArchivedSessions(rawArchivedSessions, knownDirectories, isVSCode),
++    [isVSCode, knownDirectories, rawArchivedSessions],
++  );
+   const hasAuthoritativeGlobalSessions = useGlobalSessionsStore((state) => state.status === 'ready');
+   const pinnedSessionIds = useSessionPinnedStore((state) => state.ids);
+   const sessionOrderRanks = useSessionOrderingStore(React.useCallback(
+@@ -319,7 +209,7 @@ export const useSessionProjectCollection = ({
+     [globalActiveSessions, rawArchivedSessions],
+   );
+   const liveGapSessions = useLiveSessionsExcluding(globalSessionIds);
+-  const structure = React.useMemo(() => buildSidebarSessionStructure({
++  const structure = React.useMemo(() => buildSidebarSessionTree({
+     globalActiveSessions,
+     globalStructure,
+     liveSessions: liveGapSessions,
+@@ -355,14 +245,10 @@ export const useSessionProjectCollection = ({
+     }
+     return children;
+   }, [archivedSessions, ordering.childrenMap]);
+-  const nestedSessionIds = React.useMemo(() => {
+-    const nested = new Set<string>();
+-    for (const [parentId, children] of childrenMap) {
+-      if (!sessionById.has(parentId)) continue;
+-      for (const child of children) nested.add(child.id);
+-    }
+-    return nested;
+-  }, [childrenMap, sessionById]);
++  const nestedSessionIds = React.useMemo(
++    () => collectNestedSessionIds(structure, archivedSessions),
++    [archivedSessions, structure],
++  );
+   const projectSessionIds = React.useMemo(
+     () => new Set(structure.projectSessions.map((session) => session.id)),
+     [structure.projectSessions],
+diff --git a/packages/ui/src/components/session/sidebar/list/sidebarSessionTree.test.ts b/packages/ui/src/components/session/sidebar/list/sidebarSessionTree.test.ts
+new file mode 100644
+index 000000000..edf8e5583
+--- /dev/null
++++ b/packages/ui/src/components/session/sidebar/list/sidebarSessionTree.test.ts
+@@ -0,0 +1,57 @@
++import { describe, expect, test } from 'bun:test';
++import type { Session } from '@/lib/opencode/model';
++import { getPinnedSessionKey } from '@/lib/sessionPins';
++import { getRuntimeKey } from '@/lib/runtime-switch';
++import { createSessionOwnershipIndex } from '../sessions/sessionOwnership';
++import { buildSidebarSessionTree, collectNestedSessionIds, resolveSidebarSessionRows } from './sidebarSessionTree';
++
++const session = (id: string, options: { parentID?: string; directory?: string; archived?: number } = {}): Session => {
++  const time: Session['time'] = { created: 1, updated: 1 };
++  if (options.archived) time.archived = options.archived;
++  return {
++    id,
++    parentID: options.parentID,
++    projectID: 'project',
++    directory: options.directory ?? '/project',
++    title: id,
++    cost: 0,
++    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
++    time,
++  };
++};
++
++const rowsOf = (active: Session[], archived: Session[] = [], pinned: string[] = []) => {
++  const knownDirectories = new Set(['/project']);
++  const tree = buildSidebarSessionTree({ globalActiveSessions: active, liveSessions: [], knownDirectories, isVSCode: false });
++  const owners = createSessionOwnershipIndex(tree.projectSessions, [{ id: 'project', normalizedPath: '/project' }], new Map(), false, archived).bySessionId;
++  const pinnedSessionIds = new Set(pinned.flatMap((key) => key ? [key] : []));
++  return resolveSidebarSessionRows(tree, collectNestedSessionIds(tree, archived), {
++    ownerBySessionId: owners, pinnedSessionIds, zones: { chats: true, pinned: true },
++  });
++};
++
++describe('resolveSidebarSessionRows', () => {
++  test('a subagent whose parent is not loaded is a root, as the sidebar shows it', () => {
++    expect(rowsOf([session('orphan', { parentID: 'missing' })]).rootIds).toEqual(['orphan']);
++  });
++
++  test('a child of an archived parent has no row and no root', () => {
++    const rows = rowsOf([session('child', { parentID: 'parent' })], [session('parent', { archived: 5 })]);
++    expect(rows.rootIds).toEqual([]);
++    expect(rows.rootOf.has('child')).toBe(false);
++  });
++
++  test('a loop of parents gets one root, as the sidebar lists it', () => {
++    const rows = rowsOf([session('a', { parentID: 'b' }), session('b', { parentID: 'a' }), session('c', { parentID: 'a' })]);
++    expect(rows.rootIds).toEqual(['a']);
++    expect(rows.rootOf.get('b')).toBe('a');
++    expect(rows.rootOf.get('c')).toBe('a');
++  });
++
++  test('a space session no project group holds has a row only through the Pinned section', () => {
++    const spaced = session('spaced', { directory: '/spaces/a1b2c3d4e5f6/app' });
++    expect(rowsOf([spaced]).rootIds).toEqual([]);
++    const pinKey = getPinnedSessionKey(getRuntimeKey(), spaced.directory, 'spaced');
++    expect(rowsOf([spaced], [], pinKey ? [pinKey] : []).rootIds).toEqual(['spaced']);
++  });
++});
+diff --git a/packages/ui/src/components/session/sidebar/list/sidebarSessionTree.ts b/packages/ui/src/components/session/sidebar/list/sidebarSessionTree.ts
+new file mode 100644
+index 000000000..1e42330e2
+--- /dev/null
++++ b/packages/ui/src/components/session/sidebar/list/sidebarSessionTree.ts
+@@ -0,0 +1,226 @@
++import type { Session } from '@/lib/opencode/model';
++import { resolveGlobalSessionDirectory } from '@/stores/globalSessionStructure';
++import type { GlobalSessionStructure } from '@/stores/globalSessionStructure';
++import { normalizePath } from '@/lib/pathNormalization';
++import { isChatDirectoryPath } from '@/lib/chatDirectories';
++import { isVSCodeWithoutWorkspace } from '@/lib/vscodeBootstrap';
++import { isSpaceDirectory } from '@/lib/spaces/space-route';
++import { isBtwSession } from '@/lib/sessionBtwMetadata';
++import { getSessionPinList, isSessionPinned } from '@/lib/sessionPins';
++import { DEFAULT_PIN_LIST } from '@/lib/sidebarSections';
++import { resolveSessionNestingParentId } from '@/lib/sessionWorkLineage';
++import { countSyncPerformance } from '@/sync/performance-diagnostics';
++
++type SidebarSessionTreeInput = {
++  globalActiveSessions?: readonly Session[];
++  liveSessions: readonly Session[];
++  knownDirectories: Set<string>;
++  isVSCode: boolean;
++  globalStructure?: GlobalSessionStructure;
++};
++
++type SidebarSessionPartitions = {
++  projectSessions: Session[];
++  chatSessions: Session[];
++};
++
++const nestingParentResolver = (sessionById: ReadonlyMap<string, Session>) => (
++  (session: Session): string | null => resolveSessionNestingParentId(session, (id) => sessionById.get(id))
++);
++
++export const partitionSidebarSessions = (
++  sessions: readonly Session[],
++  isVSCode: boolean,
++): SidebarSessionPartitions => {
++  const projectSessions: Session[] = [];
++  const chatSessions: Session[] = [];
++  const excludeChats = isVSCode && !isVSCodeWithoutWorkspace();
++  for (const session of sessions) {
++    if (isBtwSession(session)) continue;
++    if (isChatDirectoryPath(session.directory)) {
++      if (excludeChats) continue;
++      chatSessions.push(session);
++      continue;
++    }
++    projectSessions.push(session);
++  }
++  return { projectSessions, chatSessions };
++};
++
++export const toKnownDirectoryKeys = (knownDirectories: Set<string>, isVSCode: boolean): Set<string> => (
++  new Set([...knownDirectories].map((directory) => isVSCode ? directory.toLowerCase() : directory))
++);
++
++export const isKnownActiveSessionDirectory = (
++  session: Session,
++  knownDirectories: Set<string>,
++  isVSCode: boolean,
++): boolean => {
++  const normalized = normalizePath(resolveGlobalSessionDirectory(session));
++  const directory = isVSCode ? normalized?.toLowerCase() : normalized;
++  if (!directory) return false;
++  if (!isVSCode && isSpaceDirectory(directory)) return true;
++  if (knownDirectories.size === 0) return false;
++  return knownDirectories.has(directory) || (!isVSCode && [...knownDirectories].some((root) => directory.startsWith(root.endsWith('/') ? root : `${root}/`)));
++};
++
++export const keepKnownSessionsWithDescendants = (
++  sessions: readonly Session[],
++  isKnown: (session: Session) => boolean,
++  anchors: readonly Session[],
++): Session[] => {
++  const sessionById = new Map([...anchors, ...sessions].map((session) => [session.id, session]));
++  const nestingParentOf = nestingParentResolver(sessionById);
++  const kept = new Map<string, boolean>(anchors.map((anchor) => [anchor.id, true]));
++  const keeps = (session: Session): boolean => {
++    const cached = kept.get(session.id);
++    if (cached !== undefined) return cached;
++    kept.set(session.id, false);
++    const parent = isKnown(session) ? null : sessionById.get(nestingParentOf(session) ?? '');
++    const result = parent === null || Boolean(parent && keeps(parent));
++    kept.set(session.id, result);
++    return result;
++  };
++  return sessions.filter(keeps);
++};
++
++const mergeSidebarSessionSources = (
++  globalActiveSessions: readonly Session[],
++  liveSessions: readonly Session[],
++): Session[] => {
++  const sessions = [...globalActiveSessions];
++  const knownIds = new Set(globalActiveSessions.map((session) => session.id));
++  for (const session of liveSessions) {
++    if (knownIds.has(session.id)) continue;
++    knownIds.add(session.id);
++    sessions.push(session);
++  }
++  return sessions;
++};
++
++export const buildSidebarSessionTree = ({
++  globalActiveSessions,
++  liveSessions,
++  knownDirectories,
++  isVSCode,
++  globalStructure,
++}: SidebarSessionTreeInput) => {
++  countSyncPerformance('sidebarStructureBuilds');
++  const indexedGlobalSessions = globalActiveSessions ?? [];
++  const visibleSessions = mergeSidebarSessionSources(indexedGlobalSessions, liveSessions);
++  const partition = partitionSidebarSessions(visibleSessions, isVSCode);
++  const knownDirectoryKeys = toKnownDirectoryKeys(knownDirectories, isVSCode);
++  const projectSessions = keepKnownSessionsWithDescendants(
++    partition.projectSessions,
++    (session) => isKnownActiveSessionDirectory(session, knownDirectoryKeys, isVSCode),
++    partition.chatSessions,
++  );
++  const sessions = [...projectSessions, ...partition.chatSessions];
++  const sessionById = new Map(sessions.map((session) => [session.id, session]));
++  const nestingParentOf = nestingParentResolver(sessionById);
++  const nestingParentById = new Map<string, string>();
++  for (const session of sessions) {
++    const parentId = nestingParentOf(session);
++    if (parentId) nestingParentById.set(session.id, parentId);
++  }
++  return {
++    chatSessionIds: new Set(partition.chatSessions.map((session) => session.id)),
++    projectSessions,
++    sessionById,
++    sessions,
++    nestingParentById,
++    hierarchy: globalStructure ? {
++      rootIds: globalStructure.activeRootIds,
++      childrenByParentId: globalStructure.activeChildrenByParentId,
++    } : undefined,
++  };
++};
++
++export type SidebarSessionTree = ReturnType<typeof buildSidebarSessionTree>;
++
++export const filterSidebarArchivedSessions = (
++  archivedSessions: readonly Session[],
++  knownDirectories: Set<string>,
++  isVSCode: boolean,
++): Session[] => {
++  const known = toKnownDirectoryKeys(knownDirectories, isVSCode);
++  return archivedSessions.filter((session) => (
++    isChatDirectoryPath(session.directory) ? !isVSCode : isKnownActiveSessionDirectory(session, known, isVSCode)
++  ));
++};
++
++export const collectNestedSessionIds = (
++  tree: SidebarSessionTree,
++  archivedSessions: readonly Session[],
++): Set<string> => {
++  const listed = new Set([...tree.sessionById.keys(), ...archivedSessions.map((session) => session.id)]);
++  const nested = new Set<string>();
++  for (const [sessionId, parentId] of tree.nestingParentById) {
++    if (listed.has(parentId)) nested.add(sessionId);
++  }
++  for (const session of archivedSessions) {
++    // SAFETY: OpenCode's session records carry parentID for sub-session
++    // hierarchy; the SDK's base Session type does not currently expose it.
++    const parentID = (session as Session & { parentID?: string | null }).parentID;
++    if (parentID && listed.has(parentID)) nested.add(session.id);
++  }
++  return nested;
++};
++
++type SidebarRowPlacement = {
++  ownerBySessionId: ReadonlyMap<string, unknown>;
++  pinnedSessionIds: Set<string>;
++  zones: { chats: boolean; pinned: boolean };
++};
++
++type SidebarSessionRows = {
++  rootIds: string[];
++  rootOf: ReadonlyMap<string, string>;
++};
++
++export const resolveSidebarSessionRows = (
++  tree: SidebarSessionTree,
++  nestedSessionIds: ReadonlySet<string>,
++  { ownerBySessionId, pinnedSessionIds, zones }: SidebarRowPlacement,
++): SidebarSessionRows => {
++  const hasRow = (session: Session): boolean => {
++    if (session.time?.archived || nestedSessionIds.has(session.id)) return false;
++    if (tree.chatSessionIds.has(session.id)) return zones.chats;
++    if (ownerBySessionId.has(session.id)) return true;
++    return zones.pinned
++      && !isChatDirectoryPath(session.directory)
++      && isSessionPinned(pinnedSessionIds, session.directory, session.id)
++      && (getSessionPinList(session) ?? DEFAULT_PIN_LIST) === DEFAULT_PIN_LIST;
++  };
++  const rootIds = tree.sessions.filter(hasRow).map((session) => session.id);
++  const rootOf = new Map(rootIds.map((id) => [id, id]));
++  const resolve = (sessionId: string, seen: Set<string>): string | undefined => {
++    const known = rootOf.get(sessionId);
++    if (known !== undefined || !nestedSessionIds.has(sessionId) || seen.has(sessionId)) return known;
++    seen.add(sessionId);
++    const parentId = tree.nestingParentById.get(sessionId);
++    const root = parentId ? resolve(parentId, seen) : undefined;
++    if (root !== undefined) rootOf.set(sessionId, root);
++    return root;
++  };
++  const isInNestingCycle = (session: Session): boolean => {
++    const seen = new Set<string>();
++    let current: Session | undefined = session;
++    while (current && !current.time?.archived) {
++      if (seen.has(current.id)) return true;
++      seen.add(current.id);
++      const parentId = tree.nestingParentById.get(current.id);
++      current = parentId ? tree.sessionById.get(parentId) : undefined;
++    }
++    return false;
++  };
++  for (const session of tree.sessions) {
++    if (resolve(session.id, new Set()) !== undefined || session.time?.archived) continue;
++    if (!nestedSessionIds.has(session.id) || tree.chatSessionIds.has(session.id)) continue;
++    if (!ownerBySessionId.has(session.id) || !isInNestingCycle(session)) continue;
++    rootIds.push(session.id);
++    rootOf.set(session.id, session.id);
++  }
++  for (const session of tree.sessions) resolve(session.id, new Set());
++  return { rootIds, rootOf };
++};
+diff --git a/packages/ui/src/hooks/DOCUMENTATION.md b/packages/ui/src/hooks/DOCUMENTATION.md
+index 37b7b308e..781534e9c 100644
+--- a/packages/ui/src/hooks/DOCUMENTATION.md
++++ b/packages/ui/src/hooks/DOCUMENTATION.md
+@@ -112,6 +112,8 @@ A hook here owns the lifetime of what it subscribes to. Mechanics that another m
+ ### Desktop and mobile platform
+ 
+ - The tray and dock badge admit only sessions with a sidebar row. Sessions from unconfigured directories cannot be opened or cleared from there, and pending approvals follow the same rule.
++- A window's tray hook publishes an empty snapshot when it unmounts (a host switch unmounts the app), so the tray lists no rows from the instance the window just left.
++- Tray approvals read a directory's own permission and form maps once its store has completed a bootstrap; until then they read the cross-directory blocking-request index. The index only adds and never learns of a missed reply, so a loaded store alone says which permissions and forms are pending. Waiting pages live only in the index.
+ - Tray status comes from the status map, not the session list: a session can have a live status before it appears in a list, and several stores can list it. A session is active when either the synced child stores or the cross-project map says so.
+ - Push visibility on the native app follows `App.appStateChange`. Web visibility signals are unreliable in a WKWebView, where `hasFocus()` can report false while the app is active, which leaked push notifications.
+ - iOS grants `navigator.wakeLock` only inside a tap, so the native app uses its own idle-timer plugin. Android drops the wake lock when the app leaves the screen, so it is requested again on visibility.
+diff --git a/packages/ui/src/hooks/useTraySync.test.tsx b/packages/ui/src/hooks/useTraySync.test.tsx
+index e1a7769ad..d09bd54d5 100644
+--- a/packages/ui/src/hooks/useTraySync.test.tsx
++++ b/packages/ui/src/hooks/useTraySync.test.tsx
+@@ -13,9 +13,19 @@ import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
+ import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
+ import { getPinnedSessionKey } from '@/lib/sessionPins';
+ import { getRuntimeKey } from '@/lib/runtime-switch';
++import { ChildStoreManager } from '@/sync/child-store';
++import { setSyncRefs } from '@/sync/sync-refs';
+ import { useI18nStore } from '@/lib/i18n';
+ import { dict as germanDictionary } from '@/lib/i18n/messages/de';
+ import { useSessionUIStore } from '@/sync/session-ui-store';
++import { useSpacesStore } from '@/lib/spaces/spaces-store';
++import { buildSidebarSessionProjection } from '@/components/session/sidebar/list/sessionCollection';
++import {
++  buildSidebarSessionTree,
++  collectNestedSessionIds,
++  resolveSidebarSessionRows,
++} from '@/components/session/sidebar/list/sidebarSessionTree';
++import { createSessionOwnershipIndex } from '@/components/session/sidebar/sessions/sessionOwnership';
+ import { useUIStore } from '@/stores/useUIStore';
+ import { useQuotaStore } from '@/stores/useQuotaStore';
+ import type { ProviderResult } from '@/types/quota';
+@@ -123,11 +133,10 @@ describe('Dock badge with the macOS menu bar disabled', () => {
+   });
+ 
+   test('counts a chat while the Chats section is shown', async () => {
+-    useProjectsStore.setState({ projects: [{ id: 'moved-chat', path: '/tmp/chats' }] });
+     // Pinned and in work, it still has no row elsewhere: those zones leave chats out.
+     useGlobalSessionsStore.setState({
+       activeSessions: [{
+-        ...session('chat', undefined, '/tmp/chats', CHAT_DRAFT_PROJECT_ID),
++        ...session('chat', undefined, '/home/.config/openchamber/chats/2026-10-26/session-1', CHAT_DRAFT_PROJECT_ID),
+         metadata: { openchamber: { pinned: { at: 1 }, work: { state: 'open' } } },
+       }],
+     });
+@@ -238,10 +247,11 @@ describe('Dock badge with the macOS menu bar disabled', () => {
+     view('root');
+     await act(async () => root.unmount());
+     await flush();
+-    expect(counts).toEqual([0, 1]);
++    // Unmounting clears what this window published, and nothing follows.
++    expect(counts).toEqual([0, 1, 0]);
+     finishTurn('root');
+     await flush();
+-    expect(counts).toEqual([0, 1]);
++    expect(counts).toEqual([0, 1, 0]);
+   });
+ 
+   test('counts all unread chats at startup, beyond the tray menu limit', async () => {
+@@ -377,6 +387,48 @@ describe('tray approvals carry whether a permission can be remembered', () => {
+     expect(canSaveById()).toEqual({ 'seed-save': true, 'seed-once': false });
+   });
+ 
++  test('a loaded directory store overrules index entries whose reply was missed', async () => {
++    const childStores = new ChildStoreManager();
++    const repoStore = childStores.ensureChild('/repo', { bootstrap: false });
++    setSyncRefs(opencodeClient.getSdkClient(), childStores, '/repo');
++    try {
++      await act(async () => root.render(<Harness />));
++      applyGlobalBlockingRequestEvents('/repo', [
++        { type: 'permission.asked', properties: { id: 'answered-elsewhere', sessionID: 'root', action: 'bash', resources: ['ls'] } },
++      ]);
++      applyWaitingPageEvent({
++        type: 'openchamber.page-waiting',
++        properties: { sessionID: 'root', directory: '/repo', page: { id: 'waiting-page', title: 'Page' } },
++      }, () => null);
++      await flush();
++      // Still loading: the index is the only source and stays visible.
++      expect(Object.keys(canSaveById()).sort()).toEqual(['answered-elsewhere', 'waiting-page']);
++
++      // The directory resyncs and lists no pending permission.
++      act(() => repoStore.setState({ status: 'complete' }));
++      await flush();
++      expect(Object.keys(canSaveById())).toEqual(['waiting-page']);
++    } finally {
++      await act(async () => root.unmount());
++      root = createRoot(document.createElement('div'));
++      childStores.disposeAll();
++      setSyncRefs(opencodeClient.getSdkClient(), new ChildStoreManager(), '/repo');
++    }
++  });
++
++  test('unmounting clears the tray so it stops showing the instance it left', async () => {
++    await act(async () => root.render(<Harness />));
++    applyGlobalBlockingRequestEvents('/repo', [
++      { type: 'permission.asked', properties: { id: 'pending', sessionID: 'root', action: 'bash', resources: ['ls'] } },
++    ]);
++    await flush();
++    expect(Object.keys(canSaveById())).toEqual(['pending']);
++
++    await act(async () => root.unmount());
++    root = createRoot(document.createElement('div'));
++    expect(snapshots.at(-1)).toMatchObject({ sessions: [], approvals: [], dockBadgeCount: 0, dockUnreadSessions: [] });
++  });
++
+   test('a complete host snapshot removes an answered page from tray approvals', async () => {
+     await act(async () => root.render(<Harness />));
+     applyWaitingPageEvent({
+@@ -531,6 +583,10 @@ describe('Tray sessions follow the configured projects', () => {
+   });
+ 
+   test('keeps a managed chat and an isolated space session', async () => {
++    // The sidebar groups a space session under the project its space belongs to.
++    useSpacesStore.setState({ spaces: new Map([['a1b2c3d4e5f6', {
++      id: 'a1b2c3d4e5f6', name: 'app', state: 'complete', projectDirectory: '/project', directory: '/spaces/a1b2c3d4e5f6/app',
++    }]]) });
+     useGlobalSessionsStore.setState({
+       activeSessions: [
+         session('chat', undefined, '/home/.config/openchamber/chats/2026-10-26/session-1', CHAT_DRAFT_PROJECT_ID),
+@@ -545,6 +601,10 @@ describe('Tray sessions follow the configured projects', () => {
+     useSessionDisplayStore.setState({ showChatsSection: false });
+     await flush();
+     expect(lastSnapshot()?.sessions?.map((entry) => entry.id).sort()).toEqual(['chat', 'space']);
++    // A space whose project is unknown has no sidebar group, so no tray row.
++    useSpacesStore.setState({ spaces: new Map() });
++    await flush();
++    expect(lastSnapshot()?.sessions?.map((entry) => entry.id)).toEqual(['chat']);
+   });
+ 
+   test('keeps a session inside a configured project worktree', async () => {
+@@ -608,3 +668,107 @@ describe('Tray sessions follow the configured projects', () => {
+     expect(lastSnapshot()?.approvals?.map((entry) => entry.id)).toEqual([]);
+   });
+ });
++
++// The tray's rows come from the sidebar's own row rule, so a session gets a
++// tray row exactly when it gets a top-level sidebar row. One fixture per kind
++// of session the tray meets (the parity audit's classification table). Each
++// also checks the sidebar's projection, so a drift on either side fails here.
++describe('tray rows follow the sidebar row rule', () => {
++  let dom: Window;
++  let root: Root;
++  const snapshots: Array<{ sessions?: Array<{ id: string; status: string; unseen: number }> }> = [];
++  const invoke = async (command: string, args?: (typeof snapshots)[number]) => {
++    if (command === 'desktop_tray_update') snapshots.push(args ?? {});
++    return null;
++  };
++  const listen = async () => () => {};
++  const through = { type: 'through', messageID: 'message' } as const;
++  const origin = { ...session('origin'), title: 'fix pr review' };
++
++  const fixtures: Array<{ kind: string; sessions: Session[]; rows: string[] }> = [
++    { kind: 'task-tool subagent', sessions: [session('sub', 'origin')], rows: ['origin'] },
++    // OpenCode's workflow-agent and operator-child links reach the store as parentID.
++    { kind: 'workflow agent', sessions: [{ ...session('wf', 'origin'), metadata: { openchamber: { kind: 'workflow-agent' } } }], rows: ['origin'] },
++    { kind: 'operator child (ownWork)', sessions: [{ ...session('op', 'origin'), metadata: { openchamber: { kind: 'operator-child' } } }], rows: ['origin'] },
++    { kind: 'dispatch without ownWork, scheduled task or CLI', sessions: [session('dispatched')], rows: ['dispatched', 'origin'] },
++    { kind: 'auto-review', sessions: [{ ...session('review'), title: 'Review: fix pr review', metadata: { openchamber: { kind: 'review', originalSessionID: 'origin' } } }], rows: ['origin'] },
++    { kind: '/btw fork', sessions: [{ ...session('btw'), metadata: { openchamber: { kind: 'btw', originalSessionID: 'origin' } } }], rows: ['origin'] },
++    { kind: 'promoted /btw', sessions: [{ ...session('promoted'), fork: { sessionID: 'origin', boundary: through }, metadata: { openchamber: { btwPromoted: true } } }], rows: ['origin'] },
++    { kind: 'mini-chat', sessions: [session('mini')], rows: ['mini', 'origin'] },
++  ];
++
++  const sharedRuleRows = (sessions: Session[]): string[] => {
++    const tree = buildSidebarSessionTree({ globalActiveSessions: sessions, liveSessions: [], knownDirectories: new Set(['/project']), isVSCode: false });
++    const owners = createSessionOwnershipIndex(tree.projectSessions, [{ id: 'project', normalizedPath: '/project' }], new Map(), false).bySessionId;
++    return resolveSidebarSessionRows(tree, collectNestedSessionIds(tree, []), {
++      ownerBySessionId: owners, pinnedSessionIds: new Set(), zones: { chats: true, pinned: true },
++    }).rootIds.sort();
++  };
++
++  const sidebarRootIds = (sessions: Session[]): string[] => {
++    const projection = buildSidebarSessionProjection({
++      globalActiveSessions: sessions, liveSessions: [], knownDirectories: new Set(['/project']), isVSCode: false,
++      pinnedSessionIds: new Set(), sessionOrderRanks: new Map(),
++    });
++    const nested = new Set([...projection.childrenMap.values()].flat().map((entry) => entry.id));
++    return projection.projectSessions.filter((entry) => !nested.has(entry.id)).map((entry) => entry.id).sort();
++  };
++
++  beforeEach(() => {
++    dom = new Window({ url: 'http://localhost/' });
++    jest.useFakeTimers();
++    Object.assign(dom, {
++      __OPENCHAMBER_PLATFORM__: 'darwin',
++      __OPENCHAMBER_ELECTRON__: { runtime: 'electron', trayEnabled: true },
++      __OPENCHAMBER_DESKTOP__: { invoke, listen },
++      setTimeout: globalThis.setTimeout,
++      clearTimeout: globalThis.clearTimeout,
++      setInterval: globalThis.setInterval,
++      clearInterval: globalThis.clearInterval,
++    });
++    Object.assign(globalThis, {
++      window: dom, document: dom.document, navigator: dom.navigator,
++      IS_REACT_ACT_ENVIRONMENT: true,
++    });
++    useProjectsStore.setState({ projects: [{ id: 'project', path: '/project' }] });
++    useUIStore.setState({ dockBadgeEnabled: true, notifyOnSubtasks: false });
++    snapshots.length = 0;
++    root = createRoot(document.createElement('div'));
++  });
++
++  afterEach(async () => {
++    await act(async () => root.unmount());
++    useProjectsStore.setState({ projects: [] });
++    replaceGlobalSessionStatusById(new Map());
++    jest.useRealTimers();
++    await dom.happyDOM.close();
++  });
++
++  for (const fixture of fixtures) {
++    test(`${fixture.kind}: tray rows equal the shared rule's rows`, async () => {
++      const sessions = [origin, ...fixture.sessions];
++      useGlobalSessionsStore.setState({ activeSessions: sessions });
++      await act(async () => root.render(<Harness />));
++      await flush();
++
++      const trayRows = (snapshots.at(-1)?.sessions ?? []).map((entry) => entry.id).sort();
++      expect(trayRows).toEqual(fixture.rows);
++      expect(trayRows).toEqual(sharedRuleRows(sessions));
++      expect(trayRows).toEqual(sidebarRootIds(sessions));
++    });
++  }
++
++  test('a folded review lends its status and unread turn to the original row', async () => {
++    const review = { ...session('review'), title: 'Review: fix pr review', metadata: { openchamber: { kind: 'review', originalSessionID: 'origin' } } };
++    useGlobalSessionsStore.setState({ activeSessions: [origin, review] });
++    replaceGlobalSessionStatusById(new Map([['review', { directory: '/project', status: { type: 'busy' } }]]));
++    await act(async () => root.render(<Harness />));
++    await flush();
++    expect(snapshots.at(-1)?.sessions).toMatchObject([{ id: 'origin', status: 'busy', unseen: 0 }]);
++
++    replaceGlobalSessionStatusById(new Map());
++    useGlobalSessionsStore.setState({ activeSessions: [origin, { ...review, time: { ...review.time, idle: 2 } }] });
++    await flush();
++    expect(snapshots.at(-1)?.sessions).toMatchObject([{ id: 'origin', status: 'idle', unseen: 1 }]);
++  });
++});
+diff --git a/packages/ui/src/hooks/useTraySync.ts b/packages/ui/src/hooks/useTraySync.ts
+index 3a23de3ac..44377ead0 100644
+--- a/packages/ui/src/hooks/useTraySync.ts
++++ b/packages/ui/src/hooks/useTraySync.ts
+@@ -3,7 +3,7 @@ import type { Session } from '@/lib/opencode/model';
+ import { canUseElectronDesktopIPC, invokeDesktop, isDesktopLocalOriginActive } from '@/lib/desktop';
+ import { getRuntimeApiBaseUrl } from '@/lib/runtime-switch';
+ import { desktopHostsGet, getDesktopHostApiUrl, locationMatchesHost, redactSensitiveUrl } from '@/lib/desktopHosts';
+-import { getSyncChildStores } from '@/sync/sync-refs';
++import { getAllSyncSessionMap, getSyncChildStores } from '@/sync/sync-refs';
+ import { useBackgroundShellsStore } from '@/sync/background-shells';
+ import { useBackgroundImagesStore } from '@/sync/background-images';
+ import { collectOpenTurnSessionIds, useGlobalSessionStatusStore } from '@/sync/global-session-status';
+@@ -25,7 +25,6 @@ import {
+   ensureGlobalSessionsLoaded,
+   resolveGlobalSessionDirectory,
+ } from '@/stores/useGlobalSessionsStore';
+-import { createSessionLineage } from '@/stores/sessionLineage';
+ import { refreshTrayQuotas, useQuotaStore } from '@/stores/useQuotaStore';
+ import { useConfigStore } from '@/stores/useConfigStore';
+ import { formatWindowLabel, formatQuotaWindowValueLabel, quotaProviderList } from '@/lib/quota';
+@@ -37,11 +36,19 @@ import { useUIStore } from '@/stores/useUIStore';
+ import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
+ import { resolveProjectForSessionDirectory, normalizeProjectPath } from '@/lib/projectResolution';
+ import { isSessionDirectoryAdmitted } from '@/sync/session-admission-rule';
+-import { CHAT_DRAFT_PROJECT_ID, isChatDirectoryPath } from '@/lib/chatDirectories';
+-import { isSpaceDirectory } from '@/lib/spaces/space-route';
+-import { isSessionPinned } from '@/lib/sessionPins';
+ import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
+-import { sessionHasSidebarRow } from '@/lib/sidebarSessionRows';
++import { mergeSidebarSpaces, useSpacesStore } from '@/lib/spaces/spaces-store';
++import { useGlobalSyncStore } from '@/sync/global-sync-store';
++import { normalizePath } from '@/lib/pathNormalization';
++import { buildKnownSessionDirectories } from '@/components/session/sidebar/list/sessionListDirectories';
++import {
++  buildSidebarSessionTree,
++  collectNestedSessionIds,
++  filterSidebarArchivedSessions,
++  resolveSidebarSessionRows,
++  type SidebarSessionTree,
++} from '@/components/session/sidebar/list/sidebarSessionTree';
++import { createSessionOwnershipIndex } from '@/components/session/sidebar/sessions/sessionOwnership';
+ import { findWorktreeHoldingDirectory } from '@/lib/worktrees/worktreePaths';
+ import type { ProjectEntry } from '@/lib/api/types';
+ import type { WorktreeMetadata } from '@/types/worktree';
+@@ -119,6 +126,11 @@ const formLabel = (request: BlockingFormRequest): string => request.title.trim()
+ 
+ const NO_PINNED_SESSIONS = new Set<string>();
+ 
++const EMPTY_SNAPSHOT: TraySnapshot = {
++  sessions: [], approvals: [], instanceName: '', usage: { mode: 'usage', groups: [] }, dockBadgeCount: 0, dockUnreadSessions: [],
++};
++const EMPTY_SNAPSHOT_SERIALIZED = JSON.stringify(EMPTY_SNAPSHOT);
++
+ const compareSessionOrder = (left: Session, right: Session): number => (
+   compareSessionsByLifecycleOrder(
+     left,
+@@ -216,6 +228,7 @@ type LiveData = {
+   branchByDirectory: Map<string, string>;
+   approvals: TrayApproval[];
+   titleById: Map<string, string>;
++  authoritativeDirectories: Set<string>;
+ };
+ 
+ const collectLiveData = (): LiveData => {
+@@ -223,16 +236,18 @@ const collectLiveData = (): LiveData => {
+   const branchByDirectory = new Map<string, string>();
+   const approvals: TrayApproval[] = [];
+   const titleById = new Map<string, string>();
++  const authoritativeDirectories = new Set<string>();
+ 
+   let stores;
+   try {
+     stores = getSyncChildStores();
+   } catch {
+-    return { statusById, branchByDirectory, approvals, titleById };
++    return { statusById, branchByDirectory, approvals, titleById, authoritativeDirectories };
+   }
+ 
+   for (const [directory, store] of stores.children.entries()) {
+     const state = store.getState();
++    if (state.status === 'complete') authoritativeDirectories.add(normalizeProjectPath(directory) ?? directory);
+     if (state.vcs?.branch) branchByDirectory.set(normalizeProjectPath(directory) ?? directory, state.vcs.branch);
+ 
+     for (const session of state.session) {
+@@ -263,42 +278,56 @@ const collectLiveData = (): LiveData => {
+     }
+   }
+ 
+-  return { statusById, branchByDirectory, approvals, titleById };
++  return { statusById, branchByDirectory, approvals, titleById, authoritativeDirectories };
+ };
+ 
+-const buildSnapshot = (instanceName: string, includeTray: boolean): TraySnapshot => {
+-  const allSessions = useGlobalSessionsStore.getState().activeSessions;
+-  const lineage = createSessionLineage(allSessions);
+-  const collectDescendants = (rootId: string): string[] => (
+-    lineage.descendantsOf(rootId, 'active').map((session) => session.id)
++type SidebarRowBase = {
++  tree: SidebarSessionTree;
++  nestedSessionIds: ReadonlySet<string>;
++  ownerBySessionId: ReadonlyMap<string, unknown>;
++};
++
++let rowBaseCache: { inputs: readonly unknown[]; base: SidebarRowBase } | null = null;
++
++const readSidebarRowBase = (): SidebarRowBase => {
++  const { activeSessions, archivedSessions } = useGlobalSessionsStore.getState();
++  const projects = useProjectsStore.getState().projects;
++  const worktreesByProject = useSessionUIStore.getState().availableWorktreesByProject;
++  const { spaces, journey } = useSpacesStore.getState();
++  const authoritativeProjects = useGlobalSyncStore.getState().projects;
++  const live = getAllSyncSessionMap();
++  const inputs = [activeSessions, archivedSessions, projects, worktreesByProject, spaces, journey, authoritativeProjects, live];
++  if (rowBaseCache && rowBaseCache.inputs.every((input, index) => input === inputs[index])) return rowBaseCache.base;
++
++  const isVSCode = false;
++  const knownDirectories = buildKnownSessionDirectories(projects, worktreesByProject, { includeWorktrees: true });
++  const globalIds = new Set([...activeSessions, ...archivedSessions].map((session) => session.id));
++  const liveSessions = [...live.values()].filter((session) => !globalIds.has(session.id));
++  const tree = buildSidebarSessionTree({ globalActiveSessions: activeSessions, liveSessions, knownDirectories, isVSCode });
++  const archived = filterSidebarArchivedSessions(archivedSessions, knownDirectories, isVSCode);
++  const normalizedProjects = projects.flatMap((project) => {
++    const normalizedPath = normalizePath(project.path);
++    return normalizedPath ? [{ id: project.id, normalizedPath }] : [];
++  });
++  const ownership = createSessionOwnershipIndex(
++    tree.projectSessions, normalizedProjects, worktreesByProject, isVSCode, archived, authoritativeProjects, mergeSidebarSpaces(spaces, journey),
+   );
++  const base = { tree, nestedSessionIds: collectNestedSessionIds(tree, archived), ownerBySessionId: ownership.bySessionId };
++  rowBaseCache = { inputs, base };
++  return base;
++};
+ 
++const buildSnapshot = (instanceName: string, includeTray: boolean): TraySnapshot => {
++  const allSessions = useGlobalSessionsStore.getState().activeSessions;
+   const projects = useProjectsStore.getState().projects;
+   const worktreesByProject = useSessionUIStore.getState().availableWorktreesByProject;
+ 
+-  const pinnedIds = useSessionPinnedStore.getState().ids;
+-  type Sections = { chats: boolean; pinned: boolean; work: boolean };
+-  const hasRowIn = (session: Session, sections: Sections): boolean => {
+-    const directory = resolveGlobalSessionDirectory(session);
+-    const isAdmitted = isSessionDirectoryAdmitted(directory, projects, worktreesByProject);
+-    if (isChatDirectoryPath(directory) || session.projectID === CHAT_DRAFT_PROJECT_ID) {
+-      return sessionHasSidebarRow(session, { isAdmitted, isPlaced: sections.chats, isPinned: false, zones: { pinned: false, work: false } });
+-    }
+-    return sessionHasSidebarRow(session, {
+-      isAdmitted,
+-      isPlaced: isSpaceDirectory(directory)
+-        || resolveProjectForSessionDirectory(projects, worktreesByProject, directory) !== null,
+-      isPinned: isSessionPinned(pinnedIds, session.directory, session.id),
+-      zones: sections,
+-    });
+-  };
++  const rowBase = readSidebarRowBase();
++  const pinnedSessionIds = useSessionPinnedStore.getState().ids;
+   const display = useSessionDisplayStore.getState();
+-  const shownSections: Sections = {
+-    chats: display.showChatsSection,
+-    pinned: display.showPinnedSection,
+-    work: useUIStore.getState().sessionWorkEnabled && display.showWorkSection,
+-  };
+-  const allSections: Sections = { chats: true, pinned: true, work: true };
++  const rowsIn = (zones: { chats: boolean; pinned: boolean }) => resolveSidebarSessionRows(
++    rowBase.tree, rowBase.nestedSessionIds, { ownerBySessionId: rowBase.ownerBySessionId, pinnedSessionIds, zones },
++  );
+ 
+   const openTurnIds = collectOpenTurnSessionIds(useGlobalSessionStatusStore.getState().activeSessionIds, [
+     useWorkflowActivityStore.getState().runningSessionIds,
+@@ -309,8 +338,11 @@ const buildSnapshot = (instanceName: string, includeTray: boolean): TraySnapshot
+   ]);
+   const hasUnreadTurn = (session: Session): boolean => isSessionUnread(session) && !openTurnIds.has(session.id);
+ 
+-  const dockUnread = useUIStore.getState().dockBadgeEnabled
+-    ? allSessions.filter((session) => hasUnreadTurn(session) && hasRowIn(session, shownSections))
++  const shownRows = useUIStore.getState().dockBadgeEnabled
++    ? rowsIn({ chats: display.showChatsSection, pinned: display.showPinnedSection })
++    : null;
++  const dockUnread = shownRows
++    ? allSessions.filter((session) => hasUnreadTurn(session) && shownRows.rootOf.has(session.id))
+     : [];
+   const dockBadgeCount = dockUnread.length;
+   const dockUnreadSessions = dockUnread
+@@ -334,6 +366,16 @@ const buildSnapshot = (instanceName: string, includeTray: boolean): TraySnapshot
+     return globalStatusById.get(id)?.status.type ?? fromStores ?? 'idle';
+   };
+ 
++  const rows = rowsIn({ chats: true, pinned: true });
++  const familyByRoot = new Map<string, Session[]>();
++  for (const [sessionId, rootId] of rows.rootOf) {
++    const member = rowBase.tree.sessionById.get(sessionId);
++    if (!member) continue;
++    const family = familyByRoot.get(rootId);
++    if (family) family.push(member);
++    else familyByRoot.set(rootId, [member]);
++  }
++
+   const rollupStatus = (family: string[]): TraySessionStatus => {
+     const statuses = family.map((id) => resolveStatus(id));
+     if (statuses.includes('busy')) return 'busy';
+@@ -341,22 +383,21 @@ const buildSnapshot = (instanceName: string, includeTray: boolean): TraySnapshot
+     return 'idle';
+   };
+ 
+-  const sessions: TraySession[] = allSessions
+-    .filter((s) => s?.id && !s.parentID)
+-    .filter((session) => hasRowIn(session, allSections))
+-    .slice()
++  const sessions: TraySession[] = rows.rootIds
++    .flatMap((id) => rowBase.tree.sessionById.get(id) ?? [])
+     .sort(compareSessionOrder)
+     .slice(0, MAX_SESSIONS)
+     .map((session) => {
+-      const family = [session.id, ...collectDescendants(session.id)];
++      const family = familyByRoot.get(session.id) ?? [session];
++      const unread = family.filter(hasUnreadTurn);
+       const directory = resolveGlobalSessionDirectory(session) ?? '';
+       return {
+         id: session.id,
+         title: session.title || '',
+-        status: rollupStatus(family),
++        status: rollupStatus(family.map((member) => member.id)),
+         branch: directory ? (live.branchByDirectory.get(directory) ?? '') : '',
+-        unseen: hasUnreadTurn(session) ? 1 : 0,
+-        hasError: hasUnreadTurn(session) && isSessionUnreadWithError(session),
++        unseen: unread.length > 0 ? 1 : 0,
++        hasError: unread.some(isSessionUnreadWithError),
+         directory,
+         subtitle: resolveSessionSubtitle(directory, session, projects, worktreesByProject, live.branchByDirectory),
+       };
+@@ -366,12 +407,13 @@ const buildSnapshot = (instanceName: string, includeTray: boolean): TraySnapshot
+   const seen = new Set(approvals.map((a) => a.id));
+   for (const [sessionId, pending] of useGlobalBlockingRequestsStore.getState().bySession) {
+     const sessionTitle = titleById.get(sessionId) || '';
+-    for (const request of pending.permissions) {
++    const storeAuthoritative = live.authoritativeDirectories.has(normalizeProjectPath(pending.directory) ?? pending.directory);
++    for (const request of storeAuthoritative ? [] : pending.permissions) {
+       if (seen.has(request.id)) continue;
+       seen.add(request.id);
+       approvals.push({ kind: 'permission', id: request.id, sessionId, sessionTitle, label: permissionLabel(request), directory: pending.directory, canSave: canSavePermission(request.save) });
+     }
+-    for (const request of [...pending.forms, ...pending.pages]) {
++    for (const request of [...(storeAuthoritative ? [] : pending.forms), ...pending.pages]) {
+       if (seen.has(request.id)) continue;
+       seen.add(request.id);
+       approvals.push({ kind: 'form', id: request.id, sessionId, sessionTitle, label: formLabel(request), directory: pending.directory, canSave: false });
+@@ -426,24 +468,29 @@ export const useTraySync = (): void => {
+     const unsubscribePrWatches = usePrWatchStore.subscribe(() => scheduleFlush());
+     const unsubscribeExtensionWaits = useExtensionWaitsStore.subscribe(() => scheduleFlush());
+     const unsubscribeUI = useUIStore.subscribe((state, previous) => {
+-      if (state.dockBadgeEnabled !== previous.dockBadgeEnabled
+-        || state.sessionWorkEnabled !== previous.sessionWorkEnabled) {
+-        scheduleFlush();
+-      }
++      if (state.dockBadgeEnabled !== previous.dockBadgeEnabled) scheduleFlush();
+     });
+     const unsubscribeProjects = useProjectsStore.subscribe(() => scheduleFlush());
+     const unsubscribeWorktrees = useSessionUIStore.subscribe(() => scheduleFlush());
+     const unsubscribePins = useSessionPinnedStore.subscribe(() => scheduleFlush());
+     const unsubscribeSections = useSessionDisplayStore.subscribe((state, previous) => {
+       if (state.showChatsSection !== previous.showChatsSection
+-        || state.showPinnedSection !== previous.showPinnedSection
+-        || state.showWorkSection !== previous.showWorkSection) {
++        || state.showPinnedSection !== previous.showPinnedSection) {
+         scheduleFlush();
+       }
+     });
++    const unsubscribeSpaces = useSpacesStore.subscribe((state, previous) => {
++      if (state.spaces !== previous.spaces || state.journey !== previous.journey) scheduleFlush();
++    });
++    const unsubscribeAuthoritativeProjects = useGlobalSyncStore.subscribe((state, previous) => {
++      if (state.projects !== previous.projects) scheduleFlush();
++    });
+     const stopBadgeSync = () => {
+       disposed = true;
+       if (flushTimer !== null) window.clearTimeout(flushTimer);
++      if (lastSerialized && lastSerialized !== EMPTY_SNAPSHOT_SERIALIZED) {
++        void invokeDesktop('desktop_tray_update', EMPTY_SNAPSHOT);
++      }
+       unsubscribeGlobal();
+       unsubscribeLocale();
+       unsubscribeGlobalStatus();
+@@ -457,6 +504,8 @@ export const useTraySync = (): void => {
+       unsubscribeWorktrees();
+       unsubscribePins();
+       unsubscribeSections();
++      unsubscribeSpaces();
++      unsubscribeAuthoritativeProjects();
+     };
+ 
+     if (!trayEnabled) {
+diff --git a/packages/ui/src/lib/sidebarSessionRows.test.ts b/packages/ui/src/lib/sidebarSessionRows.test.ts
+deleted file mode 100644
+index a0c421410..000000000
+--- a/packages/ui/src/lib/sidebarSessionRows.test.ts
++++ /dev/null
+@@ -1,31 +0,0 @@
+-import { describe, expect, test } from 'bun:test';
+-import type { Session } from '@/lib/opencode/model';
+-import { sessionHasSidebarRow } from './sidebarSessionRows';
+-
+-const session: Session = {
+-  id: 'row', title: 'Row', directory: '/repo', projectID: 'project', cost: 0,
+-  tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+-  time: { created: 1, updated: 1 },
+-  metadata: { openchamber: { work: { state: 'open' } } },
+-};
+-
+-describe('sidebar row admission and section visibility', () => {
+-  test('placement, pins and work never admit an untrusted destination', () => {
+-    expect(sessionHasSidebarRow(session, {
+-      isAdmitted: false, isPlaced: true, isPinned: true, zones: { pinned: true, work: true },
+-    })).toBe(false);
+-  });
+-
+-  test('an admitted placed session remains visible with both zones hidden', () => {
+-    expect(sessionHasSidebarRow(session, {
+-      isAdmitted: true, isPlaced: true, isPinned: false, zones: { pinned: false, work: false },
+-    })).toBe(true);
+-  });
+-
+-  test('admitted unplaced sessions follow their pin and work zones', () => {
+-    const base = { isAdmitted: true, isPlaced: false, isPinned: true };
+-    expect(sessionHasSidebarRow(session, { ...base, zones: { pinned: false, work: false } })).toBe(false);
+-    expect(sessionHasSidebarRow(session, { ...base, zones: { pinned: true, work: false } })).toBe(true);
+-    expect(sessionHasSidebarRow(session, { ...base, zones: { pinned: false, work: true } })).toBe(true);
+-  });
+-});
+diff --git a/packages/ui/src/lib/sidebarSessionRows.ts b/packages/ui/src/lib/sidebarSessionRows.ts
+deleted file mode 100644
+index 774465daf..000000000
+--- a/packages/ui/src/lib/sidebarSessionRows.ts
++++ /dev/null
+@@ -1,11 +0,0 @@
+-import type { Session } from '@/lib/opencode/model';
+-import { isBtwSession } from '@/lib/sessionBtwMetadata';
+-import { isSessionInWork } from '@/lib/sessionWorkMetadata';
+-
+-export const sessionHasSidebarRow = (
+-  session: Session,
+-  { isAdmitted, isPlaced, isPinned, zones }: { isAdmitted: boolean; isPlaced: boolean; isPinned: boolean; zones: { pinned: boolean; work: boolean } },
+-): boolean => {
+-  if (!isAdmitted || session.parentID || session.time?.archived || isBtwSession(session)) return false;
+-  return isPlaced || (zones.pinned && isPinned) || (zones.work && isSessionInWork(session));
+-};
+diff --git a/packages/ui/src/lib/spaces/spaces-store.ts b/packages/ui/src/lib/spaces/spaces-store.ts
+index c0f21e5f3..74ea566b5 100644
+--- a/packages/ui/src/lib/spaces/spaces-store.ts
++++ b/packages/ui/src/lib/spaces/spaces-store.ts
+@@ -313,7 +313,7 @@ export const useSpaceDirectoryStopped = (directory: string | null | undefined):
+   return useSpacesStore((state) => spaceId !== null && isStoppedEntry(state.journey?.get(spaceId)));
+ };
+ 
+-const mergeSidebarSpaces = (marks: ReadonlyMap<string, SpaceMark>, journey: ReadonlyMap<string, SpaceEntry> | null): SpaceMark[] => {
++export const mergeSidebarSpaces = (marks: ReadonlyMap<string, SpaceMark>, journey: ReadonlyMap<string, SpaceEntry> | null): SpaceMark[] => {
+   const merged = Array.from(marks.values(), (mark) => {
+     const entry = journey?.get(mark.id);
+     return entry ? { ...mark, taskTitle: entry.taskTitle ?? null } : mark;
+diff --git a/packages/ui/src/sync/DOCUMENTATION.md b/packages/ui/src/sync/DOCUMENTATION.md
+index 476f54835..da2de0764 100644
+--- a/packages/ui/src/sync/DOCUMENTATION.md
++++ b/packages/ui/src/sync/DOCUMENTATION.md
+@@ -1109,6 +1109,10 @@ The index was written only by lifecycle events and the host seed, so a reply who
+ 
+ The host owns waiting pages directly, so its complete `pending` map is authoritative for its own page waits. `readHostBlockingRequestsSnapshot` clears pages omitted from that map and overlays page events received during the read, including a settlement whose ask never reached this client. Otherwise a delayed snapshot can resurrect an answered page, and a lost settlement leaves a question badge indefinitely. Observers live only for the read and runtime reset invalidates them. Unchanged entries keep their references. Failed reads and hosts that omit `pending` clear nothing; isolated-space page waits belong to their own server and are left untouched. Forms and permissions remain additive because their host map only forwards OpenCode events and can itself miss a settlement.
+ 
++A reply OpenCode answers with "not found" (`isPermissionRequestNotFoundError`) proves the permission is gone though no `permission.replied` will arrive for it, so `respondToPermission` drops it from the directory stores, and the store-removal helper settles the index with it (`settleGlobalBlockingRequest`).
++
++The dispatcher applies these global effects only while the event's pipeline belongs to the current runtime (`expectedRuntimeKey === getRuntimeKey()`). The global stores hold only the current runtime, and an old pipeline's cleanup flush after a host switch would otherwise write its instance into them.
++
+ A `permission.asked` in a session whose permission mode answers without the user (`auto`, or `safety` while a classification provider can run) is held back in `handleEvent`: no card, no row badge, no toast, and no entry in the cross-directory blocking-request index (which feeds collapsed rows, the tray and run overviews), so a request the server accepts never flashes on screen. The replay for the user applies global effects, which adds it to the index then. The host seed is not filtered this way: a page loaded while the server is still classifying a request can show it until the server answers. The server reports a request it did not answer (the safety net held it, Jev failed, or the reply failed) as `openchamber.permission-left-for-user`; the held-back event is then replayed as an `ask` request, stored and announced, in a directory with or without a store. `permission.replied` drops a held-back request. A report that arrives before its request is remembered (bounded), and that request is shown at once. VS Code never holds back: its extension host answers in the webview. A request held back while the client disconnects reaches the store through reconnect reconciliation, which does not consult the mode.
+ 
+ Holding back is only safe while the client hears both the modes and the reports. The main event stream carries them only over the WebSocket; over SSE it is OpenCode's own stream. So the server also sends `openchamber:permission-auto-accept.updated` and `.left-for-user` on the control stream, which every web, desktop and mobile window keeps open, and `subscribePermissionPolicySync` (`permission-mode-sync.ts`) feeds them into `handleEvent`. Over the WebSocket each arrives twice; a second policy of the same revision and a second report for a request already shown change nothing. Each connection of the control stream reads the modes again, the host's (`usePermissionStore.hydrate`) and each known space's (`refreshSpaceModes`): a mode changed in another window while this one was cut off was never announced to it, and a stale `auto` would hide every request of that session for the life of the window. The host's `openchamber:space-permission-stream` announcement re-reads that space's modes from the control stream too.
+@@ -1236,7 +1240,7 @@ Live activity/status indicators must not depend on this cache. They must use the
+ 
+ ### Unread sessions
+ 
+-`session-unread.ts` owns the unread mark, and OpenCode owns the state behind it. A session record carries `time.idle` (when its last turn ended, whatever the outcome) and `time.viewed` (a watermark of the last turn end a viewer saw, which OpenCode keeps monotone). A top-level, unarchived session whose `idle` is past its `viewed` is unread. Rows, tabs, switchers, collapsed aggregates, run overviews, the tray, the dock badge and the iOS widget all read that one rule from the global sessions store. OpenCode stamps `idle` when a session only idles on background work, so the sidebar's user sections, the tray and the dock badge also leave out a session whose turn is still open (`collectOpenTurnSessionIds`: the running sessions, their ancestors, and sessions waiting on a workflow run, a background command or image, or a pull request). It counts once that work ends, with no change to its record, which is why the tray hook subscribes to those stores even with the tray off. The tray and the dock badge also require a sidebar row (`sessionHasSidebarRow`): an unread session the user cannot see or open would hold a dock count nothing clears. The badge counts a session that only the Chats, Pinned or In work section lists while that section is shown; the tray list keeps it with the section hidden, because a tray row opens the session directly.
++`session-unread.ts` owns the unread mark, and OpenCode owns the state behind it. A session record carries `time.idle` (when its last turn ended, whatever the outcome) and `time.viewed` (a watermark of the last turn end a viewer saw, which OpenCode keeps monotone). A top-level, unarchived session whose `idle` is past its `viewed` is unread. Rows, tabs, switchers, collapsed aggregates, run overviews, the tray, the dock badge and the iOS widget all read that one rule from the global sessions store. OpenCode stamps `idle` when a session only idles on background work, so the sidebar's user sections, the tray and the dock badge also leave out a session whose turn is still open (`collectOpenTurnSessionIds`: the running sessions, their ancestors, and sessions waiting on a workflow run, a background command or image, or a pull request). It counts once that work ends, with no change to its record, which is why the tray hook subscribes to those stores even with the tray off. The tray and the dock badge also require a sidebar row, decided by the sidebar's own row rule (`resolveSidebarSessionRows`, see *Tray rows* in `components/session/sidebar/DOCUMENTATION.md`): an unread session the user cannot see or open would hold a dock count nothing clears. A session nested under a row (a review, a promoted /btw) counts through that row. The badge counts a session that only the Chats or Pinned section lists while that section is shown; the tray list keeps it with the section hidden, because a tray row opens the session directly.
+ 
+ Marking a session seen (`markSessionViewed` in `notification-store.ts`, which also clears its native notifications) writes the watermark locally at once and sends `POST /api/session/:id/view` with the `idle` it saw; a failed write restores the previous watermark unless a newer record replaced it. OpenCode announces the view as `session.viewed` to every client, so a session seen on one device stops being unread on the others. The global store's change signatures include `idle` and `viewed`, so these updates publish immediately instead of waiting with recency-only updates. The signatures also carry the usage and selection fields a `session.patched` can change without advancing `updated` (cost, tokens, model, permissions, outcome, revert, subpath): a patch touching only those fields would otherwise read as no change and be dropped by the store's same-record filter. Spend (`cost`, `tokens`) waits with the recency updates: OpenCode reports usage after every step of a turn, the sidebar paints none of it, and publishing it rebuilt the whole sidebar once per step (24 rebuilds and about 2 GB of allocation in one 21-step turn with 3,700 sessions; 4 rebuilds once deferred). Live usage readouts read the directory stores, which apply every step (Work status, subagent cost); a run lane in a folder no store holds gets its spend from the deferred records (`useDeferredGlobalSessions`), which `useMultiRunSessions` lays over the global list. The selection fields (model, permissions, outcome, revert, subpath) still publish at once.
+ 
+diff --git a/packages/ui/src/sync/__tests__/stale-runtime-global-effects.test.ts b/packages/ui/src/sync/__tests__/stale-runtime-global-effects.test.ts
+new file mode 100644
+index 000000000..7988e484a
+--- /dev/null
++++ b/packages/ui/src/sync/__tests__/stale-runtime-global-effects.test.ts
+@@ -0,0 +1,41 @@
++import { afterEach, beforeEach, describe, expect, test } from "bun:test"
++import type { SyncEvent } from "@/lib/opencode/events"
++import { ChildStoreManager } from "../child-store"
++import { createEventRoutingIndex, handleEvent } from "../sync-context"
++import { getRuntimeKey } from "@/lib/runtime-switch"
++import { resetGlobalBlockingRequests, useGlobalBlockingRequestsStore } from "../global-blocking-requests"
++
++// After an in-place host switch the old event pipeline flushes its queue on
++// cleanup. Those events belong to the previous instance and must not reach the
++// global stores, which now hold the new instance.
++
++const asked: SyncEvent = {
++  type: "permission.asked",
++  properties: { id: "perm_old", sessionID: "ses_old", action: "bash", resources: ["git status"] },
++}
++
++describe("global effects of an event from a previous runtime", () => {
++  let childStores: ChildStoreManager
++
++  beforeEach(() => {
++    childStores = new ChildStoreManager()
++    resetGlobalBlockingRequests()
++  })
++
++  afterEach(() => {
++    childStores.disposeAll()
++    resetGlobalBlockingRequests()
++  })
++
++  test("a permission from the previous instance stays out of the approvals index", () => {
++    handleEvent("/repo", asked, childStores, createEventRoutingIndex(), `${getRuntimeKey()}-previous`)
++
++    expect(useGlobalBlockingRequestsStore.getState().bySession.size).toBe(0)
++  })
++
++  test("the same permission from the current instance is indexed", () => {
++    handleEvent("/repo", asked, childStores, createEventRoutingIndex(), getRuntimeKey())
++
++    expect(useGlobalBlockingRequestsStore.getState().bySession.get("ses_old")?.permissions.map((p) => p.id)).toEqual(["perm_old"])
++  })
++})
+diff --git a/packages/ui/src/sync/session-actions.test.ts b/packages/ui/src/sync/session-actions.test.ts
+index 102c6d2fc..5eb476b58 100644
+--- a/packages/ui/src/sync/session-actions.test.ts
++++ b/packages/ui/src/sync/session-actions.test.ts
+@@ -2552,6 +2552,23 @@ describe("respondToPermission passes directory", () => {
+     expect(replyCalls.filter((call) => call.method === "permission.reply").map((call) => call.params.directory)).toEqual(["/test/project/wt"])
+   })
+ 
++  test("a reply the server no longer knows also leaves the cross-directory index", async () => {
++    const { applyGlobalBlockingRequestEvents, useGlobalBlockingRequestsStore, resetGlobalBlockingRequests } = await import("./global-blocking-requests")
++    resetGlobalBlockingRequests()
++    applyGlobalBlockingRequestEvents("/test/project", [
++      { type: "permission.asked", properties: { id: "perm-gone", sessionID: "session-a", action: "bash", resources: [] } },
++    ])
++    permissionReplyError = Object.assign(new Error("PermissionNotFoundError"), { status: 404 })
++
++    const { setActionRefs, respondToPermission } = await import("./session-actions")
++    setActionRefs(createChildStores([]), () => "/test/project")
++
++    await expect(respondToPermission("session-a", "perm-gone", "once", "/test/project")).rejects.toThrow()
++
++    expect(useGlobalBlockingRequestsStore.getState().bySession.has("session-a")).toBe(false)
++    resetGlobalBlockingRequests()
++  })
++
+   test("a failed record read sends nothing and keeps the permission pending (#6555)", async () => {
+     const permission = buildPermission("perm-unread", "session-unread")
+     const store = createStore({ "session-unread": [permission] })
+diff --git a/packages/ui/src/sync/sync-event-dispatch.ts b/packages/ui/src/sync/sync-event-dispatch.ts
+index bd316be4a..1642bd7f4 100644
+--- a/packages/ui/src/sync/sync-event-dispatch.ts
++++ b/packages/ui/src/sync/sync-event-dispatch.ts
+@@ -168,7 +168,7 @@ export function handleEvent(
+     ? resolveCachedSessionDirectory(payload.properties.sessionID)
+     : null
+ 
+-  if (!globalEffectsAlreadyApplied) {
++  if (!globalEffectsAlreadyApplied && expectedRuntimeKey === getRuntimeKey()) {
+     const heldForAutoAnswer = payload.type === "permission.asked"
+       && !autoAnswerDeclined
+       && isHeldUntilAutoAnswered(payload.properties)
+diff --git a/packages/web/src/runtimeConfig.test.ts b/packages/web/src/runtimeConfig.test.ts
+index 93d6ab9e7..e54827557 100644
+--- a/packages/web/src/runtimeConfig.test.ts
++++ b/packages/web/src/runtimeConfig.test.ts
+@@ -121,6 +121,43 @@ describe('createConfiguredWebAPIs', () => {
+     });
+   });
+ 
++  test('a window on another instance does not take the main window\'s boot host as its key', () => {
++    const current = makeWindow();
++    current.__OPENCHAMBER_DESKTOP_BOOT_OUTCOME__ = {
++      target: 'remote',
++      status: 'ok',
++      hostId: 'cedar',
++      url: 'https://cedar.example.com/',
++      localAvailable: true,
++    };
++    current.__OPENCHAMBER_API_BASE_URL__ = 'https://navi.example.com';
++    current.__OPENCHAMBER_LOCAL_ORIGIN__ = 'http://127.0.0.1:3901';
++    current.__OPENCHAMBER_EXPLICIT_RUNTIME__ = true;
++    installWindow(current);
++
++    createConfiguredWebAPIs();
++
++    expect(initializeRuntimeEndpoint).toHaveBeenCalledWith({ apiBaseUrl: 'https://navi.example.com', runtimeKey: null });
++  });
++
++  test('a window on the boot host keeps the host key whatever the trailing slash', () => {
++    const current = makeWindow();
++    current.__OPENCHAMBER_DESKTOP_BOOT_OUTCOME__ = {
++      target: 'remote',
++      status: 'ok',
++      hostId: 'cedar',
++      url: 'https://cedar.example.com/',
++      localAvailable: true,
++    };
++    current.__OPENCHAMBER_API_BASE_URL__ = 'https://cedar.example.com';
++    current.__OPENCHAMBER_LOCAL_ORIGIN__ = 'http://127.0.0.1:3901';
++    installWindow(current);
++
++    createConfiguredWebAPIs();
++
++    expect(initializeRuntimeEndpoint).toHaveBeenCalledWith({ apiBaseUrl: 'https://cedar.example.com', runtimeKey: 'host:cedar' });
++  });
++
+   test('a window opened for an explicit instance keeps its runtime instead of the default host', () => {
+     const current = makeWindow();
+     current.__OPENCHAMBER_API_BASE_URL__ = 'http://127.0.0.1:3901';
+diff --git a/packages/web/src/runtimeConfig.ts b/packages/web/src/runtimeConfig.ts
+index 14f666c94..978217dfe 100644
+--- a/packages/web/src/runtimeConfig.ts
++++ b/packages/web/src/runtimeConfig.ts
+@@ -20,6 +20,17 @@ const sameOrigin = (left: string, right: string): boolean => {
+   }
+ };
+ 
++const sameApiUrl = (left: string, right: string): boolean => {
++  if (!left || !right) return false;
++  try {
++    const a = new URL(left);
++    const b = new URL(right);
++    return a.origin === b.origin && a.pathname.replace(/\/+$/, '') === b.pathname.replace(/\/+$/, '');
++  } catch {
++    return false;
++  }
++};
++
+ declare global {
+   interface Window {
+     __OPENCHAMBER_API_BASE_URL__?: string;
+@@ -65,7 +76,11 @@ export const getDesktopRelayRestoreReady = (): Promise<void> => desktopRelayRest
+ export const createConfiguredWebAPIs = () => {
+   const { apiBaseUrl, clientToken, localOrigin, runtimeHeaders, relayHostId, explicitRuntime } = readRuntimeBootstrapConfig();
+   const bootOutcome = getInjectedBootOutcome();
+-  const desktopHostId = relayHostId || (bootOutcome?.target === 'remote' ? bootOutcome.hostId : '');
++  const ownApiUrl = apiBaseUrl || window.location.origin;
++  const bootHostId = bootOutcome?.target === 'remote' && 'url' in bootOutcome && sameApiUrl(bootOutcome.url, ownApiUrl)
++    ? bootOutcome.hostId
++    : '';
++  const desktopHostId = relayHostId || bootHostId;
+ 
+   const urls = configureRuntimeUrlResolver({
+     apiBaseUrl: apiBaseUrl || undefined,
