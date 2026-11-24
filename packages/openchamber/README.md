@@ -97,6 +97,23 @@ patch, and a record without an `intent`.
 yet, each with `name`, `intent`, `note` and `since`. A candidate becomes a patch
 record when someone writes the patch, not before.
 
+## Waiting for acceptance
+
+A feature request goes upstream first, and the pull request opens alongside it.
+The intake bot closes a feature PR until its request is `accepted`, and reopens
+it on its own once that happens. That closed state is the normal waiting state,
+not a verdict:
+
+- keep the patch, and keep both `issue` and `pr` in its record with
+  `relationship: pending`;
+- do not drop a patch because the bot closed its PR;
+- drop it when the request is declined, when it goes stale for long enough that
+  nobody is going to act, or when upstream ships something else for the need
+  (`alternative`, or `declined` for this exact patch).
+
+Closing a PR by hand is the same: the patch stays unless the reason is one of
+the three above. The queue's job is to carry the work until upstream takes it.
+
 ## The backlog
 
 ```
