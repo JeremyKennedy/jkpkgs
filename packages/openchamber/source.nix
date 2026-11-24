@@ -85,6 +85,9 @@ let
       ./patches/question-cards.patch
       ./patches/question-card-bubble.patch
       ./patches/collapsed-quote-row.patch
+      # A message that hides quotes says how many it hid: keeping one row
+      # silently made several quotes read as one.
+      ./patches/collapsed-context-count.patch
       # A collapsed quote has no caption and a question card had no mark, so
       # both read as "a bar and some text". Each now carries its own icon.
       ./patches/context-row-icons.patch
