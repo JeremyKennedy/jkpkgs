@@ -94,6 +94,11 @@ let
       # question line and its answer under it, the rest behind a count.
       ./patches/question-card-one-shape.patch
       ./patches/gitea-references-across.patch
+      # Message search scoped every session read to that session's directory,
+      # and x-opencode-directory makes OpenCode boot the directory as a
+      # location, so indexing a few hundred chats left a few hundred locations
+      # and their MCP servers running. A session id resolves globally.
+      ./patches/message-search-no-directory-scope.patch
     ];
   };
 in
