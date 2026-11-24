@@ -88,7 +88,6 @@ let
       # A collapsed quote has no caption and a question card had no mark, so
       # both read as "a bar and some text". Each now carries its own icon.
       ./patches/context-row-icons.patch
-      ./patches/tool-row-tap-opens-file.patch
       ./patches/gitea-references-across.patch
     ];
   };
