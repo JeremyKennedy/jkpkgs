@@ -1,16 +1,18 @@
 diff --git a/packages/ui/src/components/chat/ChatInput.tsx b/packages/ui/src/components/chat/ChatInput.tsx
-index a876bdae1..9cfac9451 100644
+index a876bdae1..1ea24037d 100644
 --- a/packages/ui/src/components/chat/ChatInput.tsx
 +++ b/packages/ui/src/components/chat/ChatInput.tsx
-@@ -13,7 +13,6 @@ import { useComposerAutocompleteState } from './composer/input/useComposerAutoco
+@@ -13,8 +13,8 @@ import { useComposerAutocompleteState } from './composer/input/useComposerAutoco
  import { useComposerColumn } from './composer/input/useComposerColumn';
  import { useComposerCompletions } from './composer/input/useComposerCompletions';
  import { useComposerControls } from './composer/input/useComposerControls';
 -import { useInputStore } from '@/sync/input-store';
  import { useComposerDictation } from './composer/input/useComposerDictation';
++import { usePendingDraftDictation } from './composer/input/usePendingDraftDictation';
  import { useComposerDictationState } from './composer/input/useComposerDictationState';
  import { useComposerDraftHistory } from './composer/input/useComposerDraftHistory';
-@@ -130,8 +129,18 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+ import { useComposerDraftTarget } from './composer/input/useComposerDraftTarget';
+@@ -130,8 +130,18 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
          inlineContext, sendAvailability, sendHandlers: sending, sessionScope, sessionLifecycle,
          queueState, queueActions: sending, editorState, draftText,
      });
@@ -30,7 +32,7 @@ index a876bdae1..9cfac9451 100644
      });
      useComposerExternalSubmits({ draftText, column, sendHandlers: sending, sendAvailability, sessionScope, submission: sending, sendActions, selection });
      const editorActions = useComposerEditorActions({
-@@ -186,21 +195,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+@@ -186,21 +196,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
          editorState, mobilePanels, draftText, i18n, preferences, expansion, permissionSettings,
          sessionScope, mobileShell, runtime, draftHistory,
      });
@@ -49,6 +51,11 @@ index a876bdae1..9cfac9451 100644
 -        controls.toggleDictation();
 -    }, [column.columnPinned, controls.toggleDictation, pendingDraftDictation, sessionScope.newSessionDraft, sessionScope.newSessionDraftOpen]);
 -
++    usePendingDraftDictation({
++        draftId: sessionScope.newSessionDraftOpen ? sessionScope.newSessionDraft.draftId : null,
++        enabled: !column.columnPinned,
++        start: controls.toggleDictation,
++    });
      const keyHandler = createComposerKeyHandler({
          largePasteState, editorState, draftText, autocompleteState, preferences, expansion,
          mobileActions, sessionScope, sessionLifecycle, editorActions, queueState, queueActions: sending,
@@ -92,6 +99,103 @@ index 6bcdcfccf..4b1eab0e9 100644
          identityRef: currentChatDraftIdentityRef,
          restoreDraft,
          onKeptForOrigin: () => {
+diff --git a/packages/ui/src/components/chat/composer/input/usePendingDraftDictation.test.tsx b/packages/ui/src/components/chat/composer/input/usePendingDraftDictation.test.tsx
+new file mode 100644
+index 000000000..ff4bafa25
+--- /dev/null
++++ b/packages/ui/src/components/chat/composer/input/usePendingDraftDictation.test.tsx
+@@ -0,0 +1,60 @@
++import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
++import React, { act } from 'react';
++import { createRoot, type Root } from 'react-dom/client';
++import { Window } from 'happy-dom';
++
++import { useInputStore } from '@/sync/input-store';
++import { usePendingDraftDictation } from './usePendingDraftDictation';
++
++const browser = new Window({ url: 'http://localhost/' });
++Object.assign(globalThis, {
++  window: browser, document: browser.document, navigator: browser.navigator,
++  Node: browser.Node, Element: browser.Element, HTMLElement: browser.HTMLElement,
++  Event: browser.Event, IS_REACT_ACT_ENVIRONMENT: true,
++});
++
++let reactRoot: Root | null = null;
++let started = 0;
++
++const Probe: React.FC<{ draftId: number | null; enabled?: boolean }> = ({ draftId, enabled = true }) => {
++  usePendingDraftDictation({ draftId, enabled, start: () => { started += 1; } });
++  return null;
++};
++
++const render = async (props: { draftId: number | null; enabled?: boolean }) => {
++  reactRoot ??= createRoot(document.createElement('div'));
++  await act(async () => reactRoot?.render(<Probe {...props} />));
++};
++
++beforeEach(() => {
++  started = 0;
++  useInputStore.setState({ pendingDraftDictation: null });
++});
++
++afterEach(async () => {
++  await act(async () => reactRoot?.unmount());
++  reactRoot = null;
++});
++
++describe('usePendingDraftDictation', () => {
++  test('a dictate request for this draft starts recording and is consumed', async () => {
++    await act(async () => { useInputStore.getState().requestDraftDictation(7); });
++    await render({ draftId: 7 });
++    expect(started).toBe(1);
++    expect(useInputStore.getState().pendingDraftDictation).toBeNull();
++  });
++
++  test('a request meant for another draft neither records nor is consumed', async () => {
++    await act(async () => { useInputStore.getState().requestDraftDictation(7); });
++    await render({ draftId: 8 });
++    expect(started).toBe(0);
++    expect(useInputStore.getState().pendingDraftDictation).toEqual({ draftId: 7 });
++  });
++
++  test('a pinned composer does not start recording', async () => {
++    await act(async () => { useInputStore.getState().requestDraftDictation(7); });
++    await render({ draftId: 7, enabled: false });
++    expect(started).toBe(0);
++    expect(useInputStore.getState().pendingDraftDictation).toEqual({ draftId: 7 });
++  });
++});
+diff --git a/packages/ui/src/components/chat/composer/input/usePendingDraftDictation.ts b/packages/ui/src/components/chat/composer/input/usePendingDraftDictation.ts
+new file mode 100644
+index 000000000..f0619f99e
+--- /dev/null
++++ b/packages/ui/src/components/chat/composer/input/usePendingDraftDictation.ts
+@@ -0,0 +1,25 @@
++import React from 'react';
++import { useInputStore } from '@/sync/input-store';
++
++type PendingDraftDictationOptions = {
++    draftId: number | null;
++    enabled: boolean;
++    start: () => void;
++};
++
++// A deep link (openchamber://new-session?dictate=1) asks for recording once the
++// draft's composer is mounted. The request is bound to a draft id, so a composer
++// showing another draft drops it instead of recording there.
++//
++// This lives in its own hook because it was lost once already: the composer was
++// rewritten for dictation recovery and the consumer went with the old body, so a
++// dictate link opened the draft and never started recording.
++export const usePendingDraftDictation = ({ draftId, enabled, start }: PendingDraftDictationOptions): void => {
++    const pendingDraftDictation = useInputStore((state) => state.pendingDraftDictation);
++    React.useEffect(() => {
++        if (!enabled || pendingDraftDictation == null) return;
++        if (draftId !== pendingDraftDictation.draftId) return;
++        if (!useInputStore.getState().consumePendingDraftDictation(draftId)) return;
++        start();
++    }, [draftId, enabled, pendingDraftDictation, start]);
++};
 diff --git a/packages/ui/src/components/chat/composer/state/__tests__/useDictationOrigin.test.ts b/packages/ui/src/components/chat/composer/state/__tests__/useDictationOrigin.test.ts
 index 97d24c9b6..1a1887d47 100644
 --- a/packages/ui/src/components/chat/composer/state/__tests__/useDictationOrigin.test.ts
