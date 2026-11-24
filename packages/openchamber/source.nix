@@ -88,6 +88,9 @@ let
       # A collapsed quote has no caption and a question card had no mark, so
       # both read as "a bar and some text". Each now carries its own icon.
       ./patches/context-row-icons.patch
+      # One card shape for one question or many, collapsed or open: a
+      # question line and its answer under it, the rest behind a count.
+      ./patches/question-card-one-shape.patch
       ./patches/gitea-references-across.patch
     ];
   };

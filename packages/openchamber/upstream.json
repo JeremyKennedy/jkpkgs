@@ -9,6 +9,12 @@
       "note": "Opening a session removes its own delivered phone banners, and the subagent banners under it. Merged locally after the v2.7.2 port retired it on a wrong \"upstream has it\" reading. PR #6805 was withdrawn on 2026-11-20 because the native push path was never observed on a device, branch intact at 94651fc; issue #6803 is open, so it returns once there is device evidence.",
       "since": "2026-11-16"
     },
+    "attention-stale-form": {
+      "relationship": "none",
+      "intent": "bugfix",
+      "note": "A question tool call that ends in error sends no settlement event, so the host's cross-directory index kept the form and every surface announced an answered question. Both halves now check a pending form against OpenCode's own form list before showing it. Local only for now.",
+      "since": "2026-11-23"
+    },
     "changed-file-chip-opens-file-outside-git": {
       "relationship": "partial",
       "intent": "bugfix",
@@ -73,13 +79,6 @@
       "note": "Pinch, double-tap and wheel zoom with pan for the image viewer, on top of upstream's fit levels. Ported onto main's imageZoom module and ToolOutputDialog. The old record cited PR #321, which does not resolve in the upstream repository, and no open issue covers it, so a feature request has to exist before this can go upstream.",
       "since": "2026-11-17"
     },
-    "pdf-viewer-zoom": {
-      "relationship": "pending",
-      "intent": "feature",
-      "pr": 7464,
-      "note": "Zoom for the pdf.js fallback where the runtime has no built-in PDF viewer (the Android WebView): the image viewer's controls, a two-finger pinch and Ctrl/\u2318 + wheel, repainting pages at a capped canvas size. Builds on image-viewer-zoom for ImageZoomControls and wheelZoomFactor. Upstream PR openchamber/openchamber#7464 re-expresses it against main without the shared control component; this patch keeps its queue-relative form until that lands. The phone build has it.",
-      "since": "2026-11-23"
-    },
     "in-work-paging": {
       "relationship": "none",
       "intent": "feature",
@@ -124,11 +123,24 @@
       "note": "Local for now. Both upstream attempts are closed: PR #7232 generalised the shared ancestor walk and regressed ready-push suppression for a running subagent of a workflow agent, and issue #7229 was closed with it. This patch leaves `session-activity.js` alone, clears the viewed session exactly as before, and walks only the open-tag sessions with each candidate failing on its own, a cap of 50 sessions/8 steps/5 s, and a snapshot check so a tag re-claimed during the walk keeps its banner. A new attempt needs its own issue first.",
       "since": "2026-11-19"
     },
+    "pdf-viewer-zoom": {
+      "relationship": "pending",
+      "intent": "feature",
+      "pr": 7464,
+      "note": "Zoom for the pdf.js fallback where the runtime has no built-in PDF viewer (the Android WebView): the image viewer's controls, a two-finger pinch and Ctrl/\u2318 + wheel, repainting pages at a capped canvas size. Builds on image-viewer-zoom for ImageZoomControls and wheelZoomFactor. Upstream PR openchamber/openchamber#7464 re-expresses it against main without the shared control component; this patch keeps its queue-relative form until that lands. The phone build has it.",
+      "since": "2026-11-23"
+    },
     "question-card-bubble": {
       "relationship": "none",
       "intent": "bugfix",
       "note": "The question card copies the prompt bubble's shape but mixed its own fill, so it read as a floating black bar with a bare strip above its content. It now draws the bubble itself (message/body/userBubbleStyle.ts) with the question colour mixed into the bubble's fill, which also keeps it opaque: the old fill mixed the role's own tint, whose alpha came through. Issue #7108 closed on 2026-11-20 as fixed by #7109, which shipped the recorded-answers parser, so the card needs an issue of its own before it can go upstream.",
       "since": "2026-11-20"
+    },
+    "question-card-one-shape": {
+      "relationship": "none",
+      "intent": "personal",
+      "note": "The card changed shape by count and by open state: one question was a stacked block, two or more a two-column grid, and expanding went back to stacked. Every card now uses one shape, a question line with its answer under it, the rest behind a count, which is the same grammar a quote uses (quoted line, then the comment). Also clears the inline visibility a collapse leaves on rows, so opening a card no longer keeps the hidden rows invisible.",
+      "since": "2026-11-23"
     },
     "question-cards": {
       "relationship": "none",
@@ -169,12 +181,6 @@
       "issue": 6802,
       "note": "Behaviour only: a session row's badge answers from the directory store once it has read its own requests, and from the cross-directory index before that, so a lost settlement stops showing and a never-opened folder still shows what waits. Ported onto main's split sync modules and timeline hook. PR #6804 was withdrawn on 2026-11-20 while green except the file-size rule on an already-oversized file, branch intact at b68f564; the reviewer's last verdict was Merge. Issue #6802 stays open, so this returns as the same fix in a smaller patch.",
       "since": "2026-11-16"
-    },
-    "attention-stale-form": {
-      "relationship": "none",
-      "intent": "bugfix",
-      "note": "A question tool call that ends in error sends no settlement event, so the host's cross-directory index kept the form and every surface announced an answered question. Both halves now check a pending form against OpenCode's own form list before showing it. Local only for now.",
-      "since": "2026-11-23"
     }
   },
   "candidates": [
