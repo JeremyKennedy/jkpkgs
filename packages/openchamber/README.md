@@ -127,6 +127,29 @@ it to answer "what still needs to go upstream" before a batch of PRs or at a bas
 bump; `just upstream <tag>` answers the other question, whether an existing patch
 survives a tag.
 
+## Proving a patch before it is queued
+
+A patch earns its place by changing what the running app does, not by being right in isolation.
+Before it goes into `source.nix`:
+
+1. Reproduce the problem in the app the patch is for, and write the number down first: a request
+   count, a boot count, a latency percentile, whatever the patch is supposed to move.
+2. Apply it, deploy, and measure the same number the same way. No difference means no patch.
+3. If the number cannot be measured (a client bundle cached by the browser, a path only a rare
+   event reaches), the patch is a draft upstream, not a local queue entry.
+
+The 2026-11-24 reconnect patch is the example to keep: it removed a per-directory reconnect loop
+that was correct to remove, but a deployed build still booted 268 locations after an OpenCode
+restart, so the effect could not be shown. It was reverted from the queue and its upstream pull
+request closed. The same night's message-search patch had its effect measured (MCP servers per
+location 4 to 2) and stayed.
+
+A second trap from the same night: a 404 is not proof that an endpoint is unsupported. On OpenCode
+2.4.1 `/api/form` and `/api/permission/request` answer 200 for a loaded location and 404
+(`LocationNotFoundError`) for a directory whose location was unloaded. Caching that as
+"unsupported" would have disabled pending-form reads for the whole runtime; the test that stayed
+red was right and the design was wrong.
+
 ## Retiring a patch
 
 Only on content. The `retire` verdict means the patched files come out
