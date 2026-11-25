@@ -168,6 +168,13 @@
       "intent": "bugfix",
       "note": "The attention popover built another instance's rows with its own rule: it read only the wire parentID, so an operator child whose parent link lives in metadata, sitting in a /tmp/opencode worktree, was listed from cedar although navi's own sidebar and popover hid it. Both paths now call the sidebar's row rule with each instance's own data, and a failed or partial read shows sessions rather than hiding them. Builds on instance-attention, so it goes upstream with it.",
       "since": "2026-11-24"
+    },
+    "catalog-refresh-in-use": {
+      "relationship": "pending",
+      "intent": "bugfix",
+      "issue": 7541,
+      "note": "Every running OpenCode location announces a config change, and the catalog refresh re-read agents, commands, providers and directory config for each one, so an OpenCode restart during the refresh booted every announcing location again. The refresh now reads only directories in use (current, viewed, bootstrap demand, active project, settings, the Projects page selection and the chats root) and invalidates the caches of the rest and marks their stores stale, so opening one re-reads it. Exported from 653b63caa on upstream main 3853549df; on 62f77fbfa only the ModelSelector.tsx hunk offset differs (its imports differ there). Also part of #7494. No upstream PR yet.",
+      "since": "2026-11-25"
     }
   },
   "candidates": [

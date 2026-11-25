@@ -1,0 +1,428 @@
+diff --git a/.agents/skills/opencode-v2/SKILL.md b/.agents/skills/opencode-v2/SKILL.md
+index a180ae408..4360d1156 100644
+--- a/.agents/skills/opencode-v2/SKILL.md
++++ b/.agents/skills/opencode-v2/SKILL.md
+@@ -57,7 +57,9 @@ a directory, and only one the user is working in:
+   the last-used directory it warmed at startup.
+ - **Fan-out is the failure:** a loop over every project, worktree or store
+   directory starts one fleet each. A refresh after a catalog event re-reads
+-  only the directories the events named; they are already running.
++  only the named directories that are in use: every running location
++  announces a config change, and one that stops before its read arrives is
++  started again by it.
+ - **Releasing one:** 2.x has no `/instance/dispose`. `DELETE /api/debug/location`
+   (`client.debug.location.evict`) with the directory disposes that location;
+   `GET /api/debug/location` lists the running ones and starts none.
+diff --git a/.agents/skills/sync-state-invariants/SKILL.md b/.agents/skills/sync-state-invariants/SKILL.md
+index b37b4aecd..406aebea6 100644
+--- a/.agents/skills/sync-state-invariants/SKILL.md
++++ b/.agents/skills/sync-state-invariants/SKILL.md
+@@ -67,7 +67,7 @@ For streaming-frequency work, also load `performance-engineering`.
+ 
+ - Preserve rich fields when lightweight polling omits them.
+ - Use cheap change detection before heavy per-directory fetches.
+-- Refresh only directories already running: the selected one and those an event names. Every OpenCode read of a directory starts it with its MCP servers (`opencode-v2`), so a refresh over every store is a fan-out.
++- Refresh only directories in use: the selected one, and of those an event names, the ones viewed, demanded by a selection or column, or ambient (`sync-catalog-refresh.ts`). Every OpenCode read of a directory starts it with its MCP servers (`opencode-v2`), so a refresh over every store or every announcing location is a fan-out.
+ - Treat startup 502/503 as transient with bounded retry/recovery.
+ - A retry loop requires a real failure signal; swallowed errors disable retries.
+ - Preserve previous authoritative state during transient bootstrap/reconnect failures.
+diff --git a/packages/ui/src/components/sections/agents/ModelSelector.tsx b/packages/ui/src/components/sections/agents/ModelSelector.tsx
+index 5af755e5a..a0a09182c 100644
+--- a/packages/ui/src/components/sections/agents/ModelSelector.tsx
++++ b/packages/ui/src/components/sections/agents/ModelSelector.tsx
+@@ -17,6 +17,7 @@ import { cn } from '@/lib/utils';
+ import { dropdownTriggerVariants } from '@/components/ui/dropdown-trigger';
+ import { selectProvidersForDirectory, useConfigStore } from '@/stores/useConfigStore';
+ import { useUIStore } from '@/stores/useUIStore';
++import { useCatalogReader } from '@/stores/catalogReaders';
+ import { ModelPickerList, type ModelPickerEntry, type ModelPickerProvider } from '@/components/model-picker/ModelPickerList';
+ import { AUTO_MODEL_ID, AUTO_PROVIDER_ID, isAutoModel } from '@/lib/routing/autoModel';
+ import { selectAutoReady, useRoutingStore } from '@/stores/useRoutingStore';
+@@ -61,6 +62,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
+         : null), [autoReady, offerAuto, t]);
+     const isAutoSelected = isAutoModel(providerId, modelId);
+     const { isReady, isUnavailable } = useOpenCodeReadiness('models', directory);
++    useCatalogReader(directory);
+     const canOpen = isReady && !disabled;
+     const providers: ModelPickerProvider[] = useConfigStore((state) => directory === undefined
+         ? state.providers : selectProvidersForDirectory(state, directory));
+diff --git a/packages/ui/src/components/sections/commands/AgentSelector.tsx b/packages/ui/src/components/sections/commands/AgentSelector.tsx
+index c8dff6c96..620f4357e 100644
+--- a/packages/ui/src/components/sections/commands/AgentSelector.tsx
++++ b/packages/ui/src/components/sections/commands/AgentSelector.tsx
+@@ -10,6 +10,7 @@ import {
+ import { useAgentsStore, filterVisibleAgents } from '@/stores/useAgentsStore';
+ import { selectConfigAgentsForDirectory, useConfigStore } from '@/stores/useConfigStore';
+ import { useUIStore } from '@/stores/useUIStore';
++import { useCatalogReader } from '@/stores/catalogReaders';
+ import { useDeviceInfo } from '@/lib/device';
+ import { cn } from '@/lib/utils';
+ import { dropdownTriggerVariants } from '@/components/ui/dropdown-trigger';
+@@ -39,6 +40,7 @@ export const AgentSelector: React.FC<AgentSelectorProps> = ({
+ }) => {
+     const { t } = useI18n();
+     const { isReady, isUnavailable } = useOpenCodeReadiness('agents', directory);
++    useCatalogReader(directory);
+     const configAgents = useConfigStore((state) => selectConfigAgentsForDirectory(state, directory));
+     const agentsStoreAgents = useAgentsStore((state) => state.agents);
+     const loadAgentsStore = useAgentsStore((state) => state.loadAgents);
+diff --git a/packages/ui/src/hooks/useSettingsDirectory.ts b/packages/ui/src/hooks/useSettingsDirectory.ts
+index 88c646f3e..e5d09ccd2 100644
+--- a/packages/ui/src/hooks/useSettingsDirectory.ts
++++ b/packages/ui/src/hooks/useSettingsDirectory.ts
+@@ -1,6 +1,7 @@
+ import type { ProjectEntry } from '@/lib/api/types';
+ import { useProjectsStore } from '@/stores/useProjectsStore';
+ import { useUIStore } from '@/stores/useUIStore';
++import { useCatalogReader } from '@/stores/catalogReaders';
+ 
+ export const resolveSettingsDirectory = (
+   settingsProjectPath: string | null,
+@@ -19,6 +20,8 @@ export const useSettingsDirectory = (): string | null => {
+   const settingsProjectPath = useUIStore((state) => state.settingsProjectPath);
+   const projects = useProjectsStore((state) => state.projects);
+   const activeProjectId = useProjectsStore((state) => state.activeProjectId);
++  const directory = resolveSettingsDirectory(settingsProjectPath, projects, activeProjectId);
++  useCatalogReader(directory);
+ 
+-  return resolveSettingsDirectory(settingsProjectPath, projects, activeProjectId);
++  return directory;
+ };
+diff --git a/packages/ui/src/stores/catalogReaders.ts b/packages/ui/src/stores/catalogReaders.ts
+new file mode 100644
+index 000000000..c58066c1f
+--- /dev/null
++++ b/packages/ui/src/stores/catalogReaders.ts
+@@ -0,0 +1,18 @@
++import React from "react";
++
++const readers = new Map<string, number>();
++
++export const catalogReaderDirectories = (): string[] => [...readers.keys()];
++
++export function registerCatalogReader(directory: string): () => void {
++  readers.set(directory, (readers.get(directory) ?? 0) + 1);
++  return () => {
++    const remaining = (readers.get(directory) ?? 1) - 1;
++    if (remaining > 0) readers.set(directory, remaining);
++    else readers.delete(directory);
++  };
++}
++
++export function useCatalogReader(directory: string | null | undefined): void {
++  React.useEffect(() => (directory ? registerCatalogReader(directory) : undefined), [directory]);
++}
+diff --git a/packages/ui/src/stores/catalogRefresh.providers.test.ts b/packages/ui/src/stores/catalogRefresh.providers.test.ts
+index ce5d71f26..b62961e65 100644
+--- a/packages/ui/src/stores/catalogRefresh.providers.test.ts
++++ b/packages/ui/src/stores/catalogRefresh.providers.test.ts
+@@ -156,6 +156,7 @@ describe('provider catalog refresh directories', () => {
+ 
+   test('a Windows drive root event refreshes the catalog Settings reads for that root', async () => {
+     const childStores = new ChildStoreManager();
++    childStores.setBootstrapDemand('selection', [{ directory: 'C:/', priority: 'selected', reason: 'selected-session' }]);
+     catalogs.set('C:/', ['drive-provider']);
+     await useConfigStore.getState().loadProviders({ directory: 'C:/' });
+     catalogs.set('C:/', ['drive-provider', 'new-drive-provider']);
+diff --git a/packages/ui/src/stores/catalogRefresh.ts b/packages/ui/src/stores/catalogRefresh.ts
+index 026aca98d..1c34cf9da 100644
+--- a/packages/ui/src/stores/catalogRefresh.ts
++++ b/packages/ui/src/stores/catalogRefresh.ts
+@@ -13,6 +13,7 @@ import { useMcpConfigStore } from "@/stores/useMcpConfigStore";
+ import { usePluginsStore } from "@/stores/usePluginsStore";
+ import { useQuotaStore } from "@/stores/useQuotaStore";
+ import { refreshWebSearchIfLoaded } from "@/stores/useWebSearchStore";
++import { catalogReaderDirectories } from "@/stores/catalogReaders";
+ 
+ const SOURCE = "catalogRefresh";
+ 
+@@ -139,6 +140,24 @@ export function catalogRefreshTasks(
+   }
+ }
+ 
++export const catalogAmbientDirectories = (): string[] => [
++  getConfigDirectory(),
++  fromDirectoryKey(useConfigStore.getState().activeDirectoryKey),
++  ...catalogReaderDirectories(),
++].filter((directory): directory is string => directory !== null);
++
++export function invalidateCatalogDirectories(reloads: ReadonlyMap<CatalogKind, readonly string[]>): void {
++  for (const [kind, directories] of reloads) {
++    for (const directory of directories) {
++      if (kind === "config" || kind === "agent") {
++        invalidateAgentsLoadCache(directory);
++        invalidateConfigAgentsLoad(directory);
++      }
++      if (kind === "config" || kind === "command") invalidateCommandsLoadCache(directory);
++    }
++  }
++}
++
+ export async function refreshStoresForCatalogKind(
+   kind: CatalogKind,
+   eventDirectories: readonly string[] = [],
+diff --git a/packages/ui/src/sync/DOCUMENTATION.md b/packages/ui/src/sync/DOCUMENTATION.md
+index 8855b55db..9fd1b3154 100644
+--- a/packages/ui/src/sync/DOCUMENTATION.md
++++ b/packages/ui/src/sync/DOCUMENTATION.md
+@@ -312,7 +312,11 @@ client's config cache, otherwise the refresh would be answered from the copy
+ cached seconds earlier. A re-read that returns an identical list keeps the
+ objects already in the stores, so nothing re-renders.
+ 
+-Catalog events retain the locations that raised them while the burst settles. Global events and directory-store callbacks schedule the same refresh, including when the event's location already has an open child store. The Settings agent store refreshes those locations together with the ambient project. The batch belongs to the runtime and SDK that received it, and obsolete batches and responses cannot publish after a switch or reconnect.
++Catalog events retain the locations that raised them while the burst settles. Global events and directory-store callbacks schedule the same refresh, including when the event's location already has an open child store. Once the burst settles, a location is read again only while it is in use: the current directory, the directory of the session on screen or viewed in another window, a directory with a foreground bootstrap demand (a selection, a chat column, a retry), the active project, the config store's directory, and any directory a mounted Settings page or picker reads (`useCatalogReader` in `stores/catalogReaders.ts`, registered by `useSettingsDirectory` and the Settings agent and model selectors). Those are refreshed together with the ambient project. Every other location that announced has its agent and command caches invalidated and the config store marked stale, so their next reader reads them. Its directory store keeps its `config` and is marked stale; opening the directory, through a selection demand or the sync provider's current-directory read that every surface makes, bootstraps it again. Emptying the config instead would let that bootstrap seed it with the startup global config first. The batch belongs to the runtime and SDK that received it, and obsolete batches and responses cannot publish after a switch or reconnect.
++
++### Why a catalog refresh reads only directories in use and not every location that announced
++
++Every running location announces a config change, so on a machine where OpenCode runs a hundred locations one edit asked each client for agents, commands and providers of every one of them, about 28 requests per location. Those reads are cheap while the location runs, but a location that stops before its read arrives, after an OpenCode restart, the hourly eviction or a release, is started again with all its MCP servers. A restart during the refresh brought back every location that had announced, the same set after every restart. Sidebar rows pin their stores but read no catalog, so pins do not count as use.
+ 
+ **The model list.** OpenCode 2.0.8 removed the `catalog.updated` storm and
+ replaced it with `provider.updated` and `model.updated`, which it publishes
+@@ -331,7 +335,7 @@ second time `PROVIDER_REREAD_AFTER_CREDENTIAL_MS` after a credential change.
+ | `command` | — | commands store |
+ | `skill` | — | skills store + skills catalog |
+ | `plugin` | — | plugins store + plugin policy readers |
+-| `config` | `config` per named directory (plus `emitSyncConfigChanged`) | agents, commands, skills, MCP config, plugins + plugin policy readers, config-store providers |
++| `config` | `config` per named directory in use (plus `emitSyncConfigChanged`); marked stale elsewhere | agents, commands, skills, MCP config, plugins + plugin policy readers, config-store providers |
+ | `provider` / `model` / `credential` | — | config-store providers (metadata retained; the current list stays until the new one lands; `credential` reads twice) |
+ | `project` | global project list | — |
+ 
+diff --git a/packages/ui/src/sync/__tests__/open-directory-catalog-events.test.ts b/packages/ui/src/sync/__tests__/open-directory-catalog-events.test.ts
+index 9de5ad429..f030c5e08 100644
+--- a/packages/ui/src/sync/__tests__/open-directory-catalog-events.test.ts
++++ b/packages/ui/src/sync/__tests__/open-directory-catalog-events.test.ts
+@@ -1,4 +1,4 @@
+-import { afterEach, beforeEach, describe, expect, test } from "bun:test"
++import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test"
+ import type { SyncEvent } from "@/lib/opencode/events"
+ import { opencodeClient } from "@/lib/opencode/client"
+ import { ChildStoreManager } from "../child-store"
+@@ -19,7 +19,7 @@ const CATALOG_SETTLE_MS = 400
+ 
+ describe("catalog events for an open directory", () => {
+   let childStores: ChildStoreManager
+-  let agentLoads = 0
++  let agentLoads: Array<string | null | undefined> = []
+   let directoryAgentReads: Array<string | null | undefined> = []
+   let directoryConfigReads: Array<string | null | undefined> = []
+   const originalLoadAgents = useAgentsStore.getState().loadAgents
+@@ -31,14 +31,14 @@ describe("catalog events for an open directory", () => {
+   beforeEach(() => {
+     childStores = new ChildStoreManager()
+     childStores.ensureChild("/open", { bootstrap: false })
+-    agentLoads = 0
++    agentLoads = []
+     directoryAgentReads = []
+     directoryConfigReads = []
+     opencodeClient.setDirectory("/open")
+     useConfigStore.setState({ loadAgents: async () => true })
+     useAgentsStore.setState({
+-      loadAgents: async () => {
+-        agentLoads += 1
++      loadAgents: async (directory) => {
++        agentLoads.push(directory)
+         return true
+       },
+     })
+@@ -66,17 +66,46 @@ describe("catalog events for an open directory", () => {
+ 
+     await new Promise((resolve) => setTimeout(resolve, CATALOG_SETTLE_MS))
+ 
+-    expect(agentLoads).toBe(1)
++    expect(agentLoads).toEqual(["/open"])
+     // The agents store owns the list; no directory store keeps a copy.
+     expect(directoryAgentReads).toEqual([])
+   })
+ 
+-  test("agent.updated in a directory without a store re-reads it too", async () => {
++  // Every location OpenCode runs announces each config change. Reading one
++  // nobody is looking at starts it again once it has stopped, so a restart
++  // during the refresh brought back every location that announced.
++  test("agent.updated in a directory nobody uses re-reads only the open one", async () => {
+     handleEvent("/far", agentUpdated, childStores, createEventRoutingIndex(), getRuntimeKey())
+ 
+     await new Promise((resolve) => setTimeout(resolve, CATALOG_SETTLE_MS))
+ 
+-    expect(agentLoads).toBe(2)
++    expect(agentLoads).toEqual(["/open"])
++  })
++
++  test("a retained directory nobody uses is read again when it is opened, not on the event", () => {
++    const bootstraps: string[] = []
++    childStores.configure({ onBootstrap: ({ directory }) => { bootstraps.push(directory) } })
++    const idle = childStores.ensureChild("/idle", { bootstrap: false })
++    idle.setState({ status: "complete", config: { model: "provider/old" } })
++    // A sidebar row showing one of its sessions keeps the store mounted.
++    childStores.pin("/idle")
++
++    // The settled burst issues its reads synchronously from the debounce timer.
++    jest.useFakeTimers()
++    try {
++      handleEvent("/idle", configUpdated, childStores, createEventRoutingIndex(), getRuntimeKey())
++      jest.advanceTimersByTime(CATALOG_SETTLE_MS)
++    } finally {
++      jest.useRealTimers()
++    }
++
++    expect(directoryConfigReads).toEqual([])
++    expect(bootstraps).toEqual([])
++
++    // Every surface, the phone and Mini Chat included, opens a directory
++    // through the sync provider's current-directory read.
++    childStores.ensureChild("/idle", { priority: "selected", reason: "current-directory" })
++    expect(bootstraps).toEqual(["/idle"])
+   })
+ 
+   // Reading a directory makes OpenCode start it, MCP servers included. The
+diff --git a/packages/ui/src/sync/catalog-refresh-routing.test.ts b/packages/ui/src/sync/catalog-refresh-routing.test.ts
+index 43c5bf37b..263b283f3 100644
+--- a/packages/ui/src/sync/catalog-refresh-routing.test.ts
++++ b/packages/ui/src/sync/catalog-refresh-routing.test.ts
+@@ -10,6 +10,7 @@ import { useSkillsStore } from '@/stores/useSkillsStore';
+ import { useSkillsCatalogStore } from '@/stores/useSkillsCatalogStore';
+ import { useMcpConfigStore } from '@/stores/useMcpConfigStore';
+ import { usePluginsStore } from '@/stores/usePluginsStore';
++import { registerCatalogReader } from '@/stores/catalogReaders';
+ import { ChildStoreManager } from './child-store';
+ import { useGlobalSyncStore } from './global-sync-store';
+ import { createEventRoutingIndex, handleEvent } from './sync-context';
+@@ -39,6 +40,7 @@ beforeEach(() => {
+   sdkReads = [];
+   childStores = new ChildStoreManager();
+   childStores.ensureChild('/workspace/project', { bootstrap: false });
++  childStores.setBootstrapDemand('selection', [{ directory: '/workspace/project', priority: 'selected', reason: 'selected-session' }]);
+   childStores.ensureChild('/workspace/unrelated', { bootstrap: false });
+   useProjectsStore.setState({ projects: [{ id: 'ambient', path: '/workspace/ambient' }], activeProjectId: 'ambient' });
+   useAgentsStore.setState({ loadAgents: async (directory) => { agentLoads.push(directory); return true; } });
+@@ -95,6 +97,22 @@ describe('catalog refresh routing', () => {
+     }
+   });
+ 
++  test('a directory a mounted Settings page reads refreshes its list, one it stopped reading does not', () => {
++    const release = registerCatalogReader('/workspace/unrelated');
++    registerCatalogReader('/workspace/closed')();
++    jest.useFakeTimers();
++    try {
++      for (const directory of ['/workspace/unrelated', '/workspace/closed']) {
++        handleEvent(directory, { type: 'catalog.updated', properties: { kind: 'agent' } }, childStores, createEventRoutingIndex(), getRuntimeKey());
++      }
++      jest.advanceTimersByTime(CATALOG_RELOAD_DEBOUNCE_MS);
++      expect(agentLoads.sort()).toEqual(['/workspace/ambient', '/workspace/unrelated']);
++    } finally {
++      jest.useRealTimers();
++      release();
++    }
++  });
++
+   test('a queued catalog batch is discarded after a runtime switch', () => {
+     jest.useFakeTimers();
+     try {
+diff --git a/packages/ui/src/sync/child-store.test.ts b/packages/ui/src/sync/child-store.test.ts
+index b59b6175e..1ecf4c596 100644
+--- a/packages/ui/src/sync/child-store.test.ts
++++ b/packages/ui/src/sync/child-store.test.ts
+@@ -882,6 +882,15 @@ describe('ChildStoreManager after an OpenCode stream restart', () => {
+     expect(started.filter((directory) => directory === '/idle-a' || directory === '/current')).toEqual(['/current', '/idle-a']);
+     expect(started.includes('/idle-b')).toBe(false);
+     expect(started.includes('/never-bootstrapped')).toBe(false);
++
++    // A hook reading a deferred store leaves it alone; opening the directory,
++    // which every surface does through the current-directory read, re-reads it.
++    manager.ensureChild('/idle-b');
++    await settle();
++    expect(started.includes('/idle-b')).toBe(false);
++    manager.ensureChild('/idle-b', { priority: 'selected', reason: 'current-directory' });
++    await settle();
++    expect(started.filter((directory) => directory === '/idle-b')).toEqual(['/idle-b']);
+     cleanup();
+     manager.disposeAll();
+   });
+diff --git a/packages/ui/src/sync/child-store.ts b/packages/ui/src/sync/child-store.ts
+index 451271664..bad12b81f 100644
+--- a/packages/ui/src/sync/child-store.ts
++++ b/packages/ui/src/sync/child-store.ts
+@@ -457,6 +457,10 @@ export class ChildStoreManager {
+     return normalizedDirectory ? (this.pins.get(normalizedDirectory) ?? 0) > 0 : false
+   }
+ 
++  markStale(directory: string): void {
++    if ((this.children.get(directory)?.getState().status ?? "loading") !== "loading") this.staleDirectories.add(directory)
++  }
++
+   ensureChild(
+     directory: string,
+     options?: {
+@@ -478,7 +482,7 @@ export class ChildStoreManager {
+     this.mark(normalizedDirectory)
+ 
+     const shouldBootstrap = options?.bootstrap ?? true
+-    if (shouldBootstrap && store.getState().status === "loading") {
++    if (shouldBootstrap && (store.getState().status === "loading" || (options?.priority && this.staleDirectories.has(normalizedDirectory)))) {
+       this.requestBootstrap({
+         directory: normalizedDirectory,
+         priority: options?.priority ?? "selected",
+@@ -520,10 +524,7 @@ export class ChildStoreManager {
+   refreshAfterStreamRestart(currentDirectory?: string | null): ReadonlySet<string> {
+     const queued = new Set<string>()
+     if (this.disposed) return queued
+-    for (const [directory, store] of this.children) {
+-      if (store.getState().status === "loading") continue
+-      this.staleDirectories.add(directory)
+-    }
++    for (const directory of this.children.keys()) this.markStale(directory)
+     const current = currentDirectory ? normalizePath(currentDirectory) : null
+     if (current && this.staleDirectories.has(current)) {
+       this.requestBootstrap({ directory: current, priority: "selected", reason: "server-connected", force: true })
+@@ -630,9 +631,8 @@ export class ChildStoreManager {
+     return result
+   }
+ 
+-  private hasForegroundBootstrapDemand(directory: string): boolean {
+-    const demand = this.aggregateBootstrapDemand(directory)
+-    return Boolean(demand && demand.priority !== "background")
++  hasForegroundBootstrapDemand(directory: string): boolean {
++    return (this.aggregateBootstrapDemand(directory)?.priority ?? "background") !== "background"
+   }
+ 
+   private reconcileBootstrapQueue(): void {
+diff --git a/packages/ui/src/sync/sync-catalog-refresh.ts b/packages/ui/src/sync/sync-catalog-refresh.ts
+index 32979af41..579f4b81c 100644
+--- a/packages/ui/src/sync/sync-catalog-refresh.ts
++++ b/packages/ui/src/sync/sync-catalog-refresh.ts
+@@ -5,8 +5,10 @@ import { emitSyncConfigChanged } from "./sync-refs"
+ import { opencodeClient } from "@/lib/opencode/client"
+ import { spaceFoldersOfProject } from "./space-catalog-sync"
+ import { markConfigCatalogStale } from "@/stores/useConfigStore"
+-import { refreshStoresForCatalogKinds } from "@/stores/catalogRefresh"
++import { catalogAmbientDirectories, invalidateCatalogDirectories, refreshStoresForCatalogKinds } from "@/stores/catalogRefresh"
+ import { getRuntimeKey } from "@/lib/runtime-switch"
++import { normalizePath } from "@/lib/pathNormalization"
++import { getActiveSession, isDirectoryExternallyViewed } from "./viewed-sessions"
+ 
+ type CatalogRuntime = { key: string; sdk: ReturnType<typeof opencodeClient.getSdkClient> }
+ 
+@@ -84,10 +86,22 @@ export function scheduleCatalogReload(
+     pendingCatalogCurrentKinds.clear()
+     if (!scheduledRuntime || !isCatalogRuntimeCurrent(scheduledRuntime)) return
+     const currentDirectory = opencodeClient.getDirectory()
++    const ambient = new Set([currentDirectory, getActiveSession().directory, ...catalogAmbientDirectories()].map(normalizePath))
++    const inUse = (directory: string) => {
++      const key = normalizePath(directory) ?? directory
++      return ambient.has(key) || isDirectoryExternallyViewed(key) || childStores.hasForegroundBootstrapDemand(key)
++    }
++    const used = new Map<CatalogKind, string[]>()
++    const idle = new Map<CatalogKind, string[]>()
+     for (const [pendingKind, pendingDirectories] of reloads) {
+       if (currentKinds.has(pendingKind) && currentDirectory) pendingDirectories.add(currentDirectory)
+-      void reloadCatalog(pendingKind, childStores, [...pendingDirectories], scheduledRuntime)
++      const directories = [...pendingDirectories]
++      used.set(pendingKind, directories.filter(inUse))
++      idle.set(pendingKind, directories.filter((directory) => !inUse(directory)))
+     }
+-    void refreshStoresForCatalogKinds(new Map([...reloads].map(([kind, directories]) => [kind, [...directories]])))
++    for (const [pendingKind, directories] of used) void reloadCatalog(pendingKind, childStores, directories, scheduledRuntime)
++    for (const directory of idle.get("config") ?? []) childStores.markStale(normalizePath(directory) ?? directory)
++    invalidateCatalogDirectories(idle)
++    void refreshStoresForCatalogKinds(used)
+   }, CATALOG_RELOAD_DEBOUNCE_MS)
+ }
