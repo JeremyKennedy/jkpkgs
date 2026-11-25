@@ -1,0 +1,204 @@
+diff --git a/packages/ui/src/sync/DOCUMENTATION.md b/packages/ui/src/sync/DOCUMENTATION.md
+index b42357ec4..2e888358d 100644
+--- a/packages/ui/src/sync/DOCUMENTATION.md
++++ b/packages/ui/src/sync/DOCUMENTATION.md
+@@ -1322,6 +1322,19 @@ covers the client cursor. The pipeline clears that cursor and the sync provider
+ runs normal authoritative gap repair even during early boot. Ordinary reconnects
+ retain their existing startup grace period.
+ 
++An ordinary reconnect without a replay means events were lost. It marks every
++bootstrapped store stale and re-reads now only the current directory, stores
++with foreground demand, and stores whose state the gap may have made wrong, on
++the same judgment as a `server.connected` restart, and both run the same repair
++(`refreshAfterStreamGap`): every other store re-reads on its next foreground
++demand, and each directory with a background command that is not re-read lists
++its commands, so one that exited during the gap ends. A directory the
++blocking-request index holds a request for and that is not re-read still gets
++its pending-request read, with a store created without a bootstrap, so a
++request settled during the gap clears. A directory read starts that directory's
++OpenCode location, so repairing directories nobody is looking at boots one
++location and its MCP servers for each.
++
+ `replayed` on that callback means the server found the cursor and sent every
+ event after it. The stream then has no gap, so the repair reads only what the
+ server announces live and replay does not carry: session statuses, pending
+diff --git a/packages/ui/src/sync/__tests__/gap-activity-reconcile.test.ts b/packages/ui/src/sync/__tests__/gap-activity-reconcile.test.ts
+index 237b3c4ba..5374f66c9 100644
+--- a/packages/ui/src/sync/__tests__/gap-activity-reconcile.test.ts
++++ b/packages/ui/src/sync/__tests__/gap-activity-reconcile.test.ts
+@@ -6,6 +6,9 @@ import { ChildStoreManager } from "../child-store"
+ import { reconcileActivityAfterGap } from "../sync-context"
+ import { applyGlobalSessionStatusEvent, replaceGlobalSessionStatusById, useGlobalSessionStatusStore } from "../global-session-status"
+ import { useGlobalSessionsStore } from "@/stores/useGlobalSessionsStore"
++import { applyBackgroundShellEvents, resetBackgroundShells, useBackgroundShellsStore, waitForShellSettle } from "../background-shells"
++import { refreshAfterStreamGap, resyncIndexedRequestsAfterGap } from "../session-reconnect-recovery"
++import { applyGlobalBlockingRequestEvents, resetGlobalBlockingRequests } from "../global-blocking-requests"
+ 
+ // Only the directory being worked in has a store; every other project's rows
+ // read the cross-directory status index. A turn that ends while the stream is
+@@ -22,6 +25,7 @@ const idle = (sessionID: string): SyncEvent => ({ type: "session.status", proper
+ 
+ const SPACE = "/spaces/a1b2c3d4e5f6/app"
+ const originalActiveStatuses = opencodeClient.getActiveSessionStatuses
++const originalListRunningShells = opencodeClient.listRunningShells
+ const running = (): string[] => [...useGlobalSessionStatusStore.getState().activeSessionIds].sort()
+ 
+ describe("activity after a stream gap", () => {
+@@ -46,6 +50,9 @@ describe("activity after a stream gap", () => {
+ 
+   afterEach(() => {
+     opencodeClient.getActiveSessionStatuses = originalActiveStatuses
++    opencodeClient.listRunningShells = originalListRunningShells
++    resetBackgroundShells()
++    resetGlobalBlockingRequests()
+     childStores.disposeAll()
+     useGlobalSessionsStore.getState().resetForRuntimeSwitch()
+     replaceGlobalSessionStatusById(new Map())
+@@ -82,4 +89,36 @@ describe("activity after a stream gap", () => {
+     await reconcileActivityAfterGap(childStores)
+     expect(running()).toEqual(["ses_ended", "ses_space", "ses_still"])
+   })
++
++  test("a command that exited in a directory the repair does not re-read ends", async () => {
++    applyBackgroundShellEvents("/far", [{
++      type: "shell.started",
++      properties: { shell: { id: "sh_gone", sessionID: "ses_ended", command: "watch", file: "/tmp/sh_gone.out", startedAt: 1 } },
++    }])
++    const listed: string[] = []
++    opencodeClient.listRunningShells = async (directory) => {
++      listed.push(directory)
++      return { directory, shells: [] }
++    }
++
++    const settled = waitForShellSettle("sh_gone", 5000).settled
++    refreshAfterStreamGap(childStores, "/current")
++
++    expect(await settled).toBe("ended")
++    expect(listed).toEqual(["/far"])
++    expect(useBackgroundShellsStore.getState().byId.has("sh_gone")).toBe(false)
++    expect(useBackgroundShellsStore.getState().ended.has("sh_gone")).toBe(true)
++  })
++
++  test("a directory the request index names reads its requests unless the repair re-reads it", () => {
++    const form = (id: string, sessionID: string): SyncEvent => ({ type: "form.created", properties: { form: { id, sessionID, title: "Pick one", fields: [{ key: "answer", type: "boolean" }] } } })
++    applyGlobalBlockingRequestEvents("/far", [form("q1", "ses_ended")])
++    applyGlobalBlockingRequestEvents("/other", [form("q2", "ses_started")])
++    const resynced: string[] = []
++
++    resyncIndexedRequestsAfterGap(childStores, new Set(["/other"]), (directory) => resynced.push(directory))
++
++    expect(resynced).toEqual(["/far"])
++    expect(childStores.getChild("/far")).toBeDefined()
++  })
+ })
+diff --git a/packages/ui/src/sync/session-reconnect-recovery.ts b/packages/ui/src/sync/session-reconnect-recovery.ts
+index 12149a384..d4d3046d3 100644
+--- a/packages/ui/src/sync/session-reconnect-recovery.ts
++++ b/packages/ui/src/sync/session-reconnect-recovery.ts
+@@ -21,6 +21,8 @@ import { resyncBlockingRequestsForDirectory } from "./blocking-request-recovery"
+ import { indexedBlockingRequestDirectories, indexedBlockingRequestSessionIds } from "./global-blocking-requests"
+ import { getReconnectRequestSessionIds } from "./reconnect-recovery"
+ import { isCatalogRuntimeCurrent } from "./sync-catalog-refresh"
++import { directoriesWithRunningShells, refreshBackgroundShells } from "./background-shells"
++import { normalizePath } from "@/lib/pathNormalization"
+ 
+ const RECONNECT_MESSAGE_LIMIT = 30
+ 
+@@ -89,6 +91,25 @@ export function recoverDirectoriesAfterGap(childStores: ChildStoreManager, resyn
+   void reconcileActivityAfterGap(childStores)
+ }
+ 
++export function refreshAfterStreamGap(childStores: ChildStoreManager, currentDirectory: string | null | undefined): ReadonlySet<string> {
++  const refreshing = childStores.refreshAfterStreamRestart(currentDirectory)
++  for (const dir of directoriesWithRunningShells()) {
++    if (refreshing.has(normalizePath(dir) ?? dir)) continue
++    void runBackgroundNetworkTask(() => refreshBackgroundShells(dir, (target) => opencodeClient.listRunningShells(target)))
++      .catch(() => undefined)
++  }
++  void reconcileActivityAfterGap(childStores)
++  return refreshing
++}
++
++export function resyncIndexedRequestsAfterGap(childStores: ChildStoreManager, refreshing: ReadonlySet<string>, resync: (directory: string) => void): void {
++  for (const directory of indexedBlockingRequestDirectories()) {
++    if (refreshing.has(normalizePath(directory) ?? directory)) continue
++    childStores.ensureChild(directory, { bootstrap: false })
++    resync(directory)
++  }
++}
++
+ export async function reconcileActivityAfterGap(childStores: ChildStoreManager): Promise<void> {
+   const runtime = { key: getRuntimeKey(), sdk: opencodeClient.getSdkClient() }
+   const writes = watchGlobalSessionStatusWrites()
+diff --git a/packages/ui/src/sync/sync-context.tsx b/packages/ui/src/sync/sync-context.tsx
+index 1b9a985bd..f0d1ac884 100644
+--- a/packages/ui/src/sync/sync-context.tsx
++++ b/packages/ui/src/sync/sync-context.tsx
+@@ -67,7 +67,7 @@ import { listSessionPage } from "./session-page-listing"
+ import { enqueueSessionMaterialization } from "./session-materialization-recovery"
+ import { statusPollingDirectories, resyncDirectorySessionStatuses, needsSnapshotAfterStatusPoll, getActiveSessionCandidateIds, getLiveSessionCandidateIds } from "./session-status-recovery"
+ import { isDirectoryExternallyViewed, isSessionCacheViewed } from "./viewed-sessions"
+-import { recoverDirectoriesAfterGap, resyncDirectoryAfterReconnect } from "./session-reconnect-recovery"
++import { recoverDirectoriesAfterGap, refreshAfterStreamGap, resyncDirectoryAfterReconnect, resyncIndexedRequestsAfterGap } from "./session-reconnect-recovery"
+ import { resyncBlockingRequestsForActiveDirectory } from "./blocking-request-recovery"
+ import { dormantLocations, wakeDormantLocations } from "./dormant-locations"
+ import { isUiFocused } from "./surface-notifications"
+@@ -540,10 +540,9 @@ export function SyncProvider(props: {
+     const resyncAfterStreamGap = (reason: SessionMaterializationReason) => {
+       messageLoader.markHistoryStale()
+       const gapEndedAt = Date.now()
+-      recoverDirectoriesAfterGap(childStores, (dir) => {
+-        triggerDirectoryResync(dir, reason)
+-        childDiscoveryDueAtByDirectoryRef.current.set(dir, gapEndedAt)
+-      })
++      for (const dir of childStores.children.keys()) childDiscoveryDueAtByDirectoryRef.current.set(dir, gapEndedAt)
++      const refreshing = refreshAfterStreamGap(childStores, currentDirectoryRef.current)
++      resyncIndexedRequestsAfterGap(childStores, refreshing, (dir) => triggerDirectoryResync(dir, reason))
+       notifyStreamGap(runtimeKey)
+     }
+     const pipeline = createEventPipeline({
+diff --git a/packages/ui/src/sync/sync-event-dispatch.ts b/packages/ui/src/sync/sync-event-dispatch.ts
+index 2f992101a..7a0337567 100644
+--- a/packages/ui/src/sync/sync-event-dispatch.ts
++++ b/packages/ui/src/sync/sync-event-dispatch.ts
+@@ -15,7 +15,6 @@ import { shouldConsumeBulkArchiveEcho } from "./bulk-archive-echo"
+ import { applyForkedSession, noteForkedSessionPatched } from "./forked-session"
+ import { useBtwStore } from "@/stores/useBtwStore"
+ import { syncDebug } from "./debug"
+-import { normalizePath } from "@/lib/pathNormalization"
+ import { opencodeClient } from "@/lib/opencode/client"
+ import { usePermissionStore } from "@/stores/permissionStore"
+ import { policySnapshotFromWire } from "@/stores/utils/permissionAutoAccept"
+@@ -27,7 +26,7 @@ import { toast } from "@/components/ui"
+ import { dropFormDraftsForRequest } from "@/components/chat/formDrafts"
+ import { applyGlobalSessionStatusEvent } from "./global-session-status"
+ import { applyGlobalBlockingRequestEvents } from "./global-blocking-requests"
+-import { applyBackgroundShellEvents, directoriesWithRunningShells, refreshBackgroundShells } from "./background-shells"
++import { applyBackgroundShellEvents } from "./background-shells"
+ import { applyBackgroundImageEvents, refreshBackgroundImages } from "./background-images"
+ import { applySessionLiveWorkEvents } from "./session-live-work"
+ import { applyReplyCommandEvents } from "./reply-commands"
+@@ -49,7 +48,7 @@ import { isControlStreamOnlyEvent } from "./sync-control-events"
+ import { forgetMcpStatus, dormantLocations, cancelMcpStatusRefresh, scheduleMcpStatusRefresh } from "./dormant-locations"
+ import { isRecentBoot } from "./sync-context"
+ import { scheduleCatalogReload } from "./sync-catalog-refresh"
+-import { reconcileActivityAfterGap } from "./session-reconnect-recovery"
++import { refreshAfterStreamGap } from "./session-reconnect-recovery"
+ import { enqueueSessionMaterialization } from "./session-materialization-recovery"
+ import { maybePollStatusAfterMessageCompletion } from "./session-status-recovery"
+ import { interruptedTurnToolParts } from "./interrupted-turn-recovery"
+@@ -217,13 +216,7 @@ export function handleEvent(
+       }
+       if (!recent) {
+         getImperativeSessionMessageLoader()?.markHistoryStale()
+-        const refreshing = childStores.refreshAfterStreamRestart(opencodeClient.getDirectory())
+-        for (const dir of directoriesWithRunningShells()) {
+-          if (refreshing.has(normalizePath(dir) ?? dir)) continue
+-          void runBackgroundNetworkTask(() => refreshBackgroundShells(dir, (target) => opencodeClient.listRunningShells(target)))
+-            .catch(() => undefined)
+-        }
+-        void reconcileActivityAfterGap(childStores)
++        refreshAfterStreamGap(childStores, opencodeClient.getDirectory())
+       }
+     }
+     return
