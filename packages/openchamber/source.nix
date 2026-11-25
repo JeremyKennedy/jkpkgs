@@ -105,6 +105,10 @@ let
       # instance's sidebar row rule, the same one its own view uses, so a
       # session its sidebar hides is not listed from elsewhere either.
       ./patches/attention-row-parity.patch
+      # Where a session opens: the remembered position, the start of the last
+      # reply, or the conversation start. It reads the reply start
+      # reply-start-scroll computes, so it follows that patch.
+      ./patches/session-entry-position.patch
     ];
   };
 in
