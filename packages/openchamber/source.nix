@@ -104,6 +104,11 @@ let
       # reply, or the conversation start. It reads the reply start
       # reply-start-scroll computes, so it follows that patch.
       ./patches/session-entry-position.patch
+      # A catalog change is announced by every running OpenCode location, and
+      # the refresh re-read each one, so an OpenCode restart during it booted
+      # every announcing location again. The refresh now reads only the
+      # directories in use and marks the rest stale.
+      ./patches/catalog-refresh-in-use.patch
     ];
   };
 in
