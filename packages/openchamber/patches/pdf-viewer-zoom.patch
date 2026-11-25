@@ -1,5 +1,5 @@
 diff --git a/packages/ui/src/components/views/files/DOCUMENTATION.md b/packages/ui/src/components/views/files/DOCUMENTATION.md
-index 3346a2ff0..aeaf0f5be 100644
+index d87f8f6aa..c2cbf02cd 100644
 --- a/packages/ui/src/components/views/files/DOCUMENTATION.md
 +++ b/packages/ui/src/components/views/files/DOCUMENTATION.md
 @@ -259,7 +259,8 @@ fit-relative scale into the picture's own pixels; round arrows fixed to the
@@ -54,16 +54,16 @@ index 3346a2ff0..aeaf0f5be 100644
 +Reading zoom stays inside the budget; only an extreme zoom shows soft text. The
 +zoom is a multiple of fit width, so a rotated phone or a resized panel keeps
 +the same zoom instead of a fixed pixel width.
-
+ 
  ### Why table, data and office previews load on first use
-
+ 
 diff --git a/packages/ui/src/components/views/files/previews/ImageZoomControls.tsx b/packages/ui/src/components/views/files/previews/ImageZoomControls.tsx
 index 3cd1f59cc..07879a6a6 100644
 --- a/packages/ui/src/components/views/files/previews/ImageZoomControls.tsx
 +++ b/packages/ui/src/components/views/files/previews/ImageZoomControls.tsx
 @@ -6,24 +6,27 @@ import { ButtonTooltip } from '@/components/ui/action-toolbar';
  import { useI18n } from '@/lib/i18n';
-
+ 
  /**
 - * The − / percentage / + / Fit cluster above an image: the files preview's
 - * zoom bar, shared with the chat's image viewer so both read and step the same
@@ -122,7 +122,7 @@ index bb26e3546..52d214277 100644
 @@ -26,10 +28,10 @@ const setPdfViewer = (enabled: boolean | undefined) => {
    Object.defineProperty(browser.navigator, 'pdfViewerEnabled', { configurable: true, get: () => enabled });
  };
-
+ 
 -const fakeDocument = (pages: number): PdfDocument => ({
 +const fakeDocument = (pages: number, size = { width: 612, height: 792 }): PdfDocument => ({
    numPages: pages,
@@ -140,12 +140,12 @@ index bb26e3546..52d214277 100644
 +    const buttons = [...(container?.querySelectorAll('button') ?? [])];
 +    expect(buttons.some((button) => button.textContent === 'Download')).toBe(true);
    });
-
+ 
    test('a read that fails is not blamed on the PDF', async () => {
 @@ -89,6 +92,34 @@ describe('PdfArtifact', () => {
      expect(container?.textContent).not.toContain('This PDF cannot be shown here');
    });
-
+ 
 +  test('the pdf.js viewer offers zoom steps and follows them', async () => {
 +    setPdfViewer(false);
 +    await render(async () => ({ promise: Promise.resolve(fakeDocument(3)), destroy: async () => {} }));
@@ -184,7 +184,7 @@ index 0ab60cbdc..4c61048f3 100644
 @@ -1,10 +1,24 @@
  import React from 'react';
 +import { flushSync } from 'react-dom';
-
+ 
  import { Icon } from '@/components/icon/Icon';
  import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
  import { useI18n } from '@/lib/i18n';
@@ -204,20 +204,20 @@ index 0ab60cbdc..4c61048f3 100644
 +  stepPdfZoom,
 +} from './pdfZoom';
  import type { OpenedPdf, PdfDocument, PdfPage } from './pdfjs';
-
+ 
  type OpenPdf = (url: string) => Promise<OpenedPdf>;
 @@ -14,12 +28,26 @@ const openWithPdfJs: OpenPdf = async (url) => (await import('./pdfjs')).openPdf(
  // external: #5823 Android WebView and Chrome report no built-in PDF viewer and leave PDF frames empty.
  const hasBuiltInPdfViewer = (): boolean => navigator.pdfViewerEnabled !== false;
-
+ 
 -const PAGE_GAP_PX = 8;
 -
 +// pdf.js names the errors that come from the file itself; anything else (a
 +// dropped connection, an expired token) is a failed read, not a bad PDF.
  const UNREADABLE_PDF_ERRORS = new Set(['InvalidPDFException', 'PasswordException']);
-
+ 
  type PageSize = { width: number; height: number };
-
+ 
 +/** A page point that must stay under a screen point once a zoom renders. */
 +type ZoomAnchor = { page: HTMLElement; x: number; y: number; clientX: number; clientY: number; width: number };
 +
@@ -250,7 +250,7 @@ index 0ab60cbdc..4c61048f3 100644
      };
 -  }, [doc, pageNumber, near, width, size.width]);
 +  }, [doc, pageNumber, near, width, size]);
-
+ 
    return (
      <div
        ref={boxRef}
@@ -263,7 +263,7 @@ index 0ab60cbdc..4c61048f3 100644
      </div>
    );
  };
-
+ 
 +/** Pages drawn by pdf.js, for runtimes without a PDF viewer. Fit fills the pane's width; the controls and a pinch zoom in. */
  const PdfPages: React.FC<{
    src: string;
@@ -280,11 +280,11 @@ index 0ab60cbdc..4c61048f3 100644
 +  const zoomRef = React.useRef(zoom);
 +  zoomRef.current = zoom;
 +  const anchorRef = React.useRef<ZoomAnchor | null>(null);
-
+ 
    React.useEffect(() => {
      if (!src) return;
 @@ -126,19 +162,138 @@ const PdfPages: React.FC<{
-
+ 
    React.useEffect(() => {
      if (!scroller) return;
 -    const observer = new ResizeObserver(() => setWidth(Math.max(0, scroller.clientWidth - PAGE_GAP_PX * 2)));
@@ -294,7 +294,7 @@ index 0ab60cbdc..4c61048f3 100644
      observer.observe(scroller);
      return () => observer.disconnect();
    }, [scroller]);
-
+ 
 -  const pageCount = state.status === 'ready' ? state.sizes.length : null;
 +  const sizes = state.status === 'ready' ? state.sizes : null;
 +  const pageWidth = fitWidth * zoom;
@@ -403,7 +403,7 @@ index 0ab60cbdc..4c61048f3 100644
 +  // measured against the first page; differently sized pages report its scale.
 +  const percent = referenceWidth > 0 && pageWidth > 0 ? (pageWidth / referenceWidth) * 100 : 100;
 +  const controlsReady = sizes !== null && fitWidth > 0 && referenceWidth > 0;
-
+ 
    return (
      <div className="flex h-full min-h-0 flex-col">
 -      <ArtifactMetaBar items={[pages, formatArtifactSize(sizeBytes)]} />
@@ -450,7 +450,7 @@ index 0ab60cbdc..4c61048f3 100644
 @@ -175,6 +329,11 @@ const PdfPages: React.FC<{
    );
  };
-
+ 
 +/**
 + * A PDF in the viewer. Where the runtime has a PDF viewer, the file opens in
 + * a frame as before; elsewhere pdf.js draws the pages, which zoom by pinch,

@@ -24,10 +24,10 @@ index 7693b7105..6ecf273cd 100644
          if (badge != null) {
              try {
 diff --git a/packages/ui/src/lib/DOCUMENTATION.md b/packages/ui/src/lib/DOCUMENTATION.md
-index d443fcf10..364930fcc 100644
+index 2804be3f3..f386a1721 100644
 --- a/packages/ui/src/lib/DOCUMENTATION.md
 +++ b/packages/ui/src/lib/DOCUMENTATION.md
-@@ -40,6 +40,26 @@ Imports retry once by default. Browser failures can reload; VS Code never naviga
+@@ -57,6 +57,30 @@ Imports retry once by default. Browser failures can reload; VS Code never naviga
  
  Image capture still needs the page after its source fallback succeeds, so detached loading preserves the page. Screen recovery stays unchanged.
  
@@ -51,9 +51,71 @@ index d443fcf10..364930fcc 100644
 +
 +The plugin already owns the delivered list on both platforms and returns each banner with its push data. Android's `SealedPushMessagingService` copies `sessionId` into the notification's extras so that read sees it, and iOS keeps it in the request's userInfo. A second app-local plugin would duplicate the list handling for one operation.
 +
++### Why the loader returns functions and not the plugin
++
++The Capacitor plugin is a proxy that turns every property into a native call, `then` included. An async function that returns it makes the promise call `PushNotifications.then()`, which never settles on a device, so the clear never reads the list. `loadNativePush` returns plain functions that call the plugin, and `nativeNotifications.plugin.test.ts` runs the clear through the real proxy.
++
  # Shared library contracts
  
  ## Ownership
+diff --git a/packages/ui/src/lib/nativeNotifications.plugin.test.ts b/packages/ui/src/lib/nativeNotifications.plugin.test.ts
+new file mode 100644
+index 000000000..bf1d4608d
+--- /dev/null
++++ b/packages/ui/src/lib/nativeNotifications.plugin.test.ts
+@@ -0,0 +1,52 @@
++import { afterAll, expect, test } from 'bun:test';
++
++// Exercise the real Capacitor plugin proxy against an in-memory native bridge,
++// as mobileHeaderStorage.test.ts does. This file runs in its own process.
++const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
++const originalCapacitor = Object.getOwnPropertyDescriptor(globalThis, 'Capacitor');
++
++const delivered = [
++  { id: 0, tag: 'ready-ses_seen', title: 'Seen', body: '', data: { sessionId: 'ses_seen' } },
++  { id: 0, tag: 'ready-ses_other', title: 'Other', body: '', data: { sessionId: 'ses_other' } },
++];
++const removed: unknown[] = [];
++
++Object.defineProperty(globalThis, 'Capacitor', {
++  configurable: true,
++  writable: true,
++  value: {
++    PluginHeaders: [{
++      name: 'PushNotifications',
++      methods: ['getDeliveredNotifications', 'removeDeliveredNotifications'].map((name) => ({ name, rtype: 'promise' })),
++    }],
++    nativePromise: async (_plugin: string, method: string, options: { notifications?: unknown[] }) => {
++      if (method === 'getDeliveredNotifications') return { notifications: delivered };
++      if (method === 'removeDeliveredNotifications') {
++        removed.push(...(options.notifications ?? []));
++        return;
++      }
++      throw new Error(`${method} is not implemented on android`);
++    },
++  },
++});
++Object.defineProperty(globalThis, 'window', {
++  configurable: true,
++  value: Object.assign(new EventTarget(), {
++    Capacitor: { isNativePlatform: () => true, getPlatform: () => 'android' },
++  }),
++});
++
++const { clearNativeSessionNotifications } = await import('./nativeNotifications');
++
++afterAll(() => {
++  if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow);
++  else Reflect.deleteProperty(globalThis, 'window');
++  if (originalCapacitor) Object.defineProperty(globalThis, 'Capacitor', originalCapacitor);
++  else Reflect.deleteProperty(globalThis, 'Capacitor');
++});
++
++test('removes the seen session banners through the real plugin proxy', async () => {
++  await clearNativeSessionNotifications(['ses_seen'], 'android');
++
++  expect(removed).toEqual([delivered[0]]);
++});
 diff --git a/packages/ui/src/lib/nativeNotifications.test.ts b/packages/ui/src/lib/nativeNotifications.test.ts
 new file mode 100644
 index 000000000..d76646da6
@@ -155,10 +217,10 @@ index 000000000..d76646da6
 +});
 diff --git a/packages/ui/src/lib/nativeNotifications.ts b/packages/ui/src/lib/nativeNotifications.ts
 new file mode 100644
-index 000000000..220914da6
+index 000000000..c911a5c12
 --- /dev/null
 +++ b/packages/ui/src/lib/nativeNotifications.ts
-@@ -0,0 +1,43 @@
+@@ -0,0 +1,46 @@
 +import type { PushNotificationSchema } from '@capacitor/push-notifications';
 +
 +import { getClientPlatform } from '@/lib/platform';
@@ -172,7 +234,10 @@ index 000000000..220914da6
 +
 +const loadNativePush = async (): Promise<NativePush> => {
 +  const { PushNotifications } = await import('@capacitor/push-notifications');
-+  return PushNotifications;
++  return {
++    getDeliveredNotifications: () => PushNotifications.getDeliveredNotifications(),
++    removeDeliveredNotifications: (options) => PushNotifications.removeDeliveredNotifications(options),
++  };
 +};
 +
 +const sessionIdOf = (notification: PushNotificationSchema): string | undefined => {
@@ -203,10 +268,10 @@ index 000000000..220914da6
 +  }
 +};
 diff --git a/packages/ui/src/stores/DOCUMENTATION.md b/packages/ui/src/stores/DOCUMENTATION.md
-index 77195dcdf..4479e953a 100644
+index 194606edc..6031b7656 100644
 --- a/packages/ui/src/stores/DOCUMENTATION.md
 +++ b/packages/ui/src/stores/DOCUMENTATION.md
-@@ -635,7 +635,7 @@ to dispatch.
+@@ -630,7 +630,7 @@ to dispatch.
  
  Deferred streaming updates publish revisions while retaining the list and entity-map references. Zustand still executes every selector. `sessionListProjection.ts` retains one input tuple and result per projection, so these updates visit no list entries. Real publications replace an input and recompute; callers retain their existing shallow or primitive equality so unrelated results do not render. Keys include every source read by the projection, including runtime/chat-root identity and the legacy multirun worktree map where applicable. A `useMemo` after selecting the whole list would broaden the archive and multirun subscriptions.
  

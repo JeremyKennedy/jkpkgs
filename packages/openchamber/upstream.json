@@ -6,8 +6,8 @@
       "intent": "bugfix",
       "pr": 6805,
       "issue": 6803,
-      "note": "Opening a session removes its own delivered phone banners, and the subagent banners under it. Merged locally after the v2.7.2 port retired it on a wrong \"upstream has it\" reading. PR #6805 was withdrawn on 2026-11-20 because the native push path was never observed on a device, branch intact at 94651fc; issue #6803 is open, so it returns once there is device evidence.",
-      "since": "2026-11-16"
+      "note": "Opening a session removes its own delivered phone banners, and the subagent banners under it. Checked against #7381 and #7274 on the new base and left in place: #7381 does not clear a session's own banners, and #7274's family walk only overlaps getSessionFamilyIds when the server is reachable. The native push loader awaited a Capacitor plugin proxy, which is thenable, so the first await never settled; loadNativePush now returns plain functions over the plugin, with a test that drives a real proxy. PR #6805 was withdrawn on 2026-11-20 because the native push path was never observed on a device; issue #6803 is open, so it returns once there is device evidence.",
+      "since": "2026-11-24"
     },
     "attention-stale-form": {
       "relationship": "none",
@@ -15,28 +15,11 @@
       "note": "A question tool call that ends in error sends no settlement event, so the host's cross-directory index kept the form and every surface announced an answered question. Both halves now check a pending form against OpenCode's own form list before showing it. Kept, and it goes upstream with instance-attention once Jeremy is happy with that work.",
       "since": "2026-11-23"
     },
-    "changed-file-chip-opens-file-outside-git": {
-      "relationship": "partial",
-      "intent": "bugfix",
-      "pr": 7460,
-      "issue": 7459,
-      "release": "v2.8.0",
-      "note": "Most of this shipped: PR #7098 merged on 2026-11-21 and v2.8.0 carries it as lib/contextFileOpenGuard.ts plus views/files/openChangedFileWithoutRepository.ts, wired at useDiffViewTurnNavigation.ts:104. The release is one squashed commit (30c70496), so the API's merge commit is not in the tag's history; the content is. The tail their version leaves open is now submitted as PR #7460 for issue #7459: a project that is not a repository, or a file the turn deleted, reaches no repository and no listed file, and nothing opens. #7460 is blocked on the bot review (the changed-gate fails plus four findings) and is being fixed in a build session. Both tails are carried locally, and the phone one has evidence and no flash: a chip whose file is in neither the turn diff nor the working list used to land on the Changes screen, and now opens the file and brings Files forward without showing Changes first.",
-      "since": "2026-11-18"
-    },
     "chat-width-80": {
       "relationship": "none",
       "intent": "personal",
       "note": "A fourth chat width, Extra wide (80rem), between Wider and Full. Upstream owns the setting now (default/wider/full, migrated in v29); this re-expresses the 80rem level on top of it. Kept indefinitely by Jeremy's choice.",
       "since": "2026-11-17"
-    },
-    "collapsed-context-count": {
-      "relationship": "pending",
-      "intent": "bugfix",
-      "pr": 7536,
-      "issue": 7472,
-      "note": "A collapsed message keeps its first quote row and hides the rest silently, so a message with several quotes read as if it had one. The Show more control now leads with +N more for the hidden quotes, spaced so the count and the separator do not collide. PR #7536 waits on issue #7472: the intake bot closes feature PRs until the request is accepted, and it reopens on its own when it is.",
-      "since": "2026-11-24"
     },
     "commandcode-quota": {
       "relationship": "none",
@@ -51,10 +34,10 @@
       "since": "2026-11-23"
     },
     "dictation-recovery": {
-      "relationship": "none",
+      "relationship": "partial",
       "intent": "bugfix",
-      "note": "A dictation transcript stays with the composer it was started in: a session or draft switch while it is being transcribed no longer inserts it into whatever is on screen. Origin is keyed by the composer's stable key; the transcript is stored in the origin's draft. Local.",
-      "since": "2026-11-17"
+      "note": "Upstream #7532 merged the origin-keying half: a transcript no longer lands in whatever composer is on screen. Main had also lost the #404 dictate-link flow, so the port keeps that alone: the pendingDraftDictation store members, usePendingDraftDictation, the deepLinks dictate intent, the deepLinkNavigation request and the ChatInput wiring, plus the empty-result and retry gating in useDictation. mobile-voice-launch owns the deepLinks parsing, so this patch does not repeat it.",
+      "since": "2026-11-24"
     },
     "draft-heading-project-picker": {
       "relationship": "none",
@@ -114,14 +97,6 @@
       "note": "Android assist and deep-link launch: the launch intent is rewritten before the bridge reads it, and an assist tap opens a new draft. Kept for the power-button assist launch; a feature request follows.",
       "since": "2026-11-17"
     },
-    "mobile-guest-catalog-failure": {
-      "relationship": "same",
-      "intent": "bugfix",
-      "pr": 7395,
-      "issue": 7228,
-      "note": "Upstream now carries this: PR #7395 merged on 2026-11-24 and closed #7228 with the failure notice. Our patch stays until the next base bump, because the v2.8.0 base predates the merge, and retires then.",
-      "since": "2026-11-18"
-    },
     "mobile-voice-launch": {
       "relationship": "pending",
       "intent": "feature",
@@ -147,8 +122,8 @@
       "relationship": "pending",
       "intent": "feature",
       "issue": 6809,
-      "note": "Feature awaiting acceptance. Draws the permission shield and question mark through one shared component with its own question colour role, and builds only on top of stale-pending-badge.",
-      "since": "2026-11-16"
+      "note": "Feature awaiting acceptance. Draws the permission shield and question mark through one shared component with its own question colour role. It builds on stale-pending-badge's remaining switcher and collapsed-folder marks, which #7530 did not take.",
+      "since": "2026-11-24"
     },
     "question-rows": {
       "relationship": "none",
@@ -170,12 +145,12 @@
       "since": "2026-11-16"
     },
     "stale-pending-badge": {
-      "relationship": "pending",
+      "relationship": "partial",
       "intent": "bugfix",
       "pr": 6804,
       "issue": 6802,
-      "note": "Behaviour only: a session row's badge answers from the directory store once it has read its own requests, and from the cross-directory index before that, so a lost settlement stops showing and a never-opened folder still shows what waits. Ported onto main's split sync modules and timeline hook. PR #6804 was withdrawn on 2026-11-20 while green except the file-size rule on an already-oversized file, branch intact at b68f564; the reviewer's last verdict was Merge. Issue #6802 stays open, so this returns as the same fix in a smaller patch.",
-      "since": "2026-11-16"
+      "note": "Upstream #7530 merged the sync-layer half: a row's badge now answers from the directory store once it has read its own requests, and from the cross-directory index before that. The port keeps only what #7530 did not take: the mobile and desktop switcher pending marks, collapsed-folder scoped counting, and the selectIndexedBlockingRequests and settleGlobalBlockingRequest helpers with their tests and documentation. PR #6804 was withdrawn on 2026-11-20; issue #6802 stays open, so the remainder can return as a smaller PR if it is still wanted.",
+      "since": "2026-11-24"
     },
     "attention-jump-landing": {
       "relationship": "none",

@@ -1,5 +1,5 @@
 diff --git a/packages/ui/src/apps/MobileSessionSwitcher.tsx b/packages/ui/src/apps/MobileSessionSwitcher.tsx
-index 07d6fe2be..945fb2e16 100644
+index 07d6fe2be..b9af09f64 100644
 --- a/packages/ui/src/apps/MobileSessionSwitcher.tsx
 +++ b/packages/ui/src/apps/MobileSessionSwitcher.tsx
 @@ -3,10 +3,12 @@ import { useSessionTurnActivity } from '@/sync/global-session-status';
@@ -35,7 +35,7 @@ index 07d6fe2be..945fb2e16 100644
    const showUnreadDot = !isStreaming && isUnread && (!active || markedUnread);
 +  // The recent list shows parents only: a row stands for its subsessions too,
 +  // so their waiting requests count here, resolved as the desktop row does.
-+  const pendingRequests = usePendingRequests(node, false, resolveGlobalSessionDirectory(session));
++  const pendingRequests = usePendingRequests(node, false, true, resolveGlobalSessionDirectory(session));
 +  const { hasPermission: hasPendingPermission, hasForm: hasPendingForm } = pendingRequests;
 +  const waitingOnUser = hasPendingPermission || hasPendingForm;
    const hasActivityDuration = useHasSessionTurnDuration(session.id, isStreaming);
@@ -53,306 +53,11 @@ index 07d6fe2be..945fb2e16 100644
                    meta={meta}
                    active={session.id === currentSessionId}
                    onSelect={() => {
-diff --git a/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx b/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx
-index fae376da5..4e44f25c8 100644
---- a/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx
-+++ b/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx
-@@ -20,7 +20,6 @@ import { normalizePath } from '@/lib/pathNormalization';
- import { MobileGuestMarks } from './MobileGuestMarks';
- import { refTintStyle } from '@/lib/source-control/prVisualState';
- import { isMultiLineTimelineContext, isPinnedZoneRowKey, sessionExpansionKey, type SessionSidebarRow } from '@/components/session/sidebar/sessionSidebarRowModel';
--import type { SessionNode } from '@/components/session/sidebar/types';
- import { isChatDirectoryPath } from '@/lib/chatDirectories';
- import { useI18n } from '@/lib/i18n';
- import { isSessionPinned } from '@/lib/sessionPins';
-@@ -56,9 +55,15 @@ import { MOBILE_ACTIVE_ROW_CLASS, MobileRowChevron, MobileSlotChevron, MobileTwo
- 
- type SessionRowModel = Extract<SessionSidebarRow, { kind: 'session' }>;
- 
-+/**
-+ * A session in the phone's list: the desktop row's content for a thumb. One
-+ * line is a tree row, its subsession chevron in the slot left of the title
-+ * and its live state on the right before the time. Two lines put the
-+ * branch on the second, with the chevron as its first icon. Swiping reveals
-+ * archive, pin, Track or Done, delete, rename and Copy ID.
-+ */
- const collectDescendantIds = (node: SessionNode): string[] => node.children.flatMap((child) => [child.session.id, ...collectDescendantIds(child)]);
- 
--
- const HandToLeadItems: React.FC<{ session: Session; projectId: string | null }> = ({ session, projectId }) => {
-   const { t } = useI18n();
-   const leads = useProjectLeads(projectId, session.id);
-@@ -95,11 +100,11 @@ export const MobileSessionRow: React.FC<{
-   const showActivityDuration = (isStreaming || showUnread) && hasActivityDuration;
-   const hasChildren = node.children.length > 0;
-   const expanded = row.expanded === true;
--  const familyIds = React.useMemo(
--    () => (hasChildren && !expanded ? [session.id, ...collectDescendantIds(node)] : [session.id]),
--    [expanded, hasChildren, node, session.id],
--  );
--  const pendingRequests = usePendingRequests(familyIds);
-+  // A folded row stands for its subsessions too: their waiting requests count
-+  // here. Its directory resolves as the desktop row's does, so a store that has
-+  // read its requests answers instead of the additive index, and the index
-+  // answers only for a session with no known directory.
-+  const pendingRequests = usePendingRequests(node, expanded, directory || null);
-   const topLevel = !session.parentID;
-   const sessionWorkEnabled = useUIStore((state) => state.sessionWorkEnabled);
-   const pinned = useSessionPinnedStore((state) => isSessionPinned(state.ids, directory || null, session.id));
-diff --git a/packages/ui/src/apps/usePendingRequests.test.tsx b/packages/ui/src/apps/usePendingRequests.test.tsx
-index 4337ea33a..fa8dd9fc6 100644
---- a/packages/ui/src/apps/usePendingRequests.test.tsx
-+++ b/packages/ui/src/apps/usePendingRequests.test.tsx
-@@ -1,36 +1,113 @@
--import { describe, expect, test } from 'bun:test';
-+import { describe, expect, spyOn, test } from 'bun:test';
- import React, { act } from 'react';
- import { createRoot } from 'react-dom/client';
--import { applyGlobalBlockingRequestEvents, resetGlobalBlockingRequests } from '@/sync/global-blocking-requests';
-+import { OpenCode } from '@opencode/client';
-+import { opencodeClient } from '@/lib/opencode/client';
-+import type { Session } from '@/lib/opencode/model';
-+import type { SessionNode } from '@/components/session/sidebar/types';
- import { installHookTestDom } from '@/components/session/sidebar/test-utils/testDom';
-+import {
-+  applyGlobalBlockingRequestEvents,
-+  readHostBlockingRequestsSnapshot,
-+  resetGlobalBlockingRequests,
-+} from '@/sync/global-blocking-requests';
-+import { SyncProvider, useDirectoryStore } from '@/sync/sync-context';
- import { usePendingRequests, type PendingRequests } from './usePendingRequests';
- 
--const FAMILY = ['parent', 'child'] as const;
-+const PARENT_DIR = '/repo';
-+const CHILD_DIR = '/worktrees/feature';
-+
-+// SAFETY: the row lookup reads only id, title and directory, which the fixture sets.
-+const session = (id: string, directory?: string): Session => ({
-+  id,
-+  title: id,
-+  directory,
-+} as Session);
-+
-+/** A parent row with one subagent, as the phone's list builds it. */
-+const familyNode = (parentDirectory?: string, childDirectory?: string): SessionNode => ({
-+  session: session('parent', parentDirectory),
-+  children: [{ session: session('child', childDirectory), children: [], worktree: null }],
-+  worktree: null,
-+});
-+
-+const createSdk = () => OpenCode.make({
-+  baseUrl: 'https://pending.test',
-+  fetch: async (request) => {
-+    const path = new URL(request instanceof Request ? request.url : request.toString()).pathname;
-+    if (path.endsWith('/event')) {
-+      return new Response(new ReadableStream(), { headers: { 'content-type': 'text/event-stream' } });
-+    }
-+    const body = path.endsWith('/location')
-+      ? { directory: '/workspace', project: { id: 'project', directory: '/workspace', canonical: '/workspace' } }
-+      : path.endsWith('/session/active') ? {}
-+      : { data: [] };
-+    return new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
-+  },
-+});
-+
-+type PendingCapture = { renders: number; pending: PendingRequests | null };
-+type StoresCapture = { parent: ReturnType<typeof useDirectoryStore> | null };
-+
-+const withHarness = async (
-+  node: SessionNode,
-+  assert: (capture: PendingCapture, stores: StoresCapture) => Promise<void>,
-+  storeDirectory = PARENT_DIR,
-+  fallbackDirectory: string | null = null,
-+) => {
-+  const dom = installHookTestDom();
-+  const previousSurface = window.__OPENCHAMBER_SURFACE__;
-+  window.__OPENCHAMBER_SURFACE__ = 'desktop';
-+  const mocks = [
-+    spyOn(opencodeClient, 'getFilesystemHomeInfo').mockResolvedValue({ home: '/home' }),
-+    spyOn(opencodeClient, 'getFilesystemHome').mockResolvedValue('/home'),
-+    spyOn(opencodeClient, 'getLocation').mockResolvedValue({
-+      directory: '/workspace',
-+      project: { id: 'project', directory: '/workspace', canonical: '/workspace' },
-+    }),
-+    spyOn(opencodeClient, 'getConfig').mockResolvedValue({}),
-+    spyOn(opencodeClient, 'listProjects').mockResolvedValue([]),
-+  ];
-+  const root = createRoot(dom.container);
-+  const capture: PendingCapture = { renders: 0, pending: null };
-+  const stores: StoresCapture = { parent: null };
-+  const Harness = () => {
-+    capture.renders += 1;
-+    stores.parent = useDirectoryStore(storeDirectory, { bootstrap: false });
-+    capture.pending = usePendingRequests(node, false, fallbackDirectory);
-+    return null;
-+  };
-+  try {
-+    await act(async () => root.render(
-+      <SyncProvider sdk={createSdk()} directory="">
-+        <Harness />
-+      </SyncProvider>,
-+    ));
-+    await assert(capture, stores);
-+  } finally {
-+    await act(async () => root.unmount());
-+    for (const mock of mocks) mock.mockRestore();
-+    window.__OPENCHAMBER_SURFACE__ = previousSurface;
-+    dom.restore();
-+    resetGlobalBlockingRequests();
-+  }
-+};
- 
- describe('usePendingRequests', () => {
--  test('covers the whole family, ignores other sessions, and clears on reply', async () => {
--    const dom = installHookTestDom();
--    const root = createRoot(dom.container);
--    type PendingCapture = { renders: number; pending: PendingRequests | null };
--    const capture: PendingCapture = { renders: 0, pending: null };
--    const Harness = () => {
--      capture.renders += 1;
--      capture.pending = usePendingRequests(FAMILY);
--      return null;
--    };
--    try {
--      await act(async () => root.render(React.createElement(Harness)));
-+  test('covers the whole family across directories, ignores other sessions, and clears on reply', async () => {
-+    await withHarness(familyNode(PARENT_DIR, CHILD_DIR), async (capture) => {
-       expect(capture.pending).toEqual({ hasPermission: false, hasForm: false });
- 
-       // A request in an unrelated session neither shows nor re-renders the row.
-       const idleRenders = capture.renders;
--      await act(async () => applyGlobalBlockingRequestEvents('/other', [{
-+      await act(async () => applyGlobalBlockingRequestEvents(CHILD_DIR, [{
-         type: 'permission.asked', properties: { id: 'p-other', sessionID: 'unrelated', action: 'bash', resources: [] },
-       }]));
-       expect(capture.renders).toBe(idleRenders);
- 
--      // A subagent's permission and the parent's question both land on the row.
--      await act(async () => applyGlobalBlockingRequestEvents('/workspace', [
-+      // A subagent's permission and the parent's question both land on the row,
-+      // even though the two sessions live in different directories.
-+      await act(async () => applyGlobalBlockingRequestEvents(CHILD_DIR, [
-         { type: 'permission.asked', properties: { id: 'p1', sessionID: 'child', action: 'bash', resources: [] } },
-         { type: 'form.created', properties: { form: { id: 'q1', sessionID: 'parent', title: 'Pick', fields: [{ key: 'answer', type: 'boolean' }] } } },
-       ]));
-@@ -38,21 +115,58 @@ describe('usePendingRequests', () => {
- 
-       // A second request of the same kind changes nothing the row shows.
-       const pendingRenders = capture.renders;
--      await act(async () => applyGlobalBlockingRequestEvents('/workspace', [
-+      await act(async () => applyGlobalBlockingRequestEvents(PARENT_DIR, [
-         { type: 'permission.asked', properties: { id: 'p2', sessionID: 'parent', action: 'bash', resources: [] } },
-       ]));
-       expect(capture.renders).toBe(pendingRenders);
- 
--      await act(async () => applyGlobalBlockingRequestEvents('/workspace', [
-+      await act(async () => applyGlobalBlockingRequestEvents(PARENT_DIR, [
-         { type: 'permission.replied', properties: { sessionID: 'child', requestID: 'p1' } },
-         { type: 'permission.replied', properties: { sessionID: 'parent', requestID: 'p2' } },
-         { type: 'form.settled', properties: { sessionID: 'parent', formID: 'q1' } },
-       ]));
-       expect(capture.pending).toEqual({ hasPermission: false, hasForm: false });
--    } finally {
--      await act(async () => root.unmount());
--      resetGlobalBlockingRequests();
--      dom.restore();
--    }
-+    });
-+  });
-+
-+  test('a session with no known directory still counts from the index', async () => {
-+    await withHarness(familyNode(), async (capture) => {
-+      await act(async () => applyGlobalBlockingRequestEvents('/elsewhere', [
-+        { type: 'permission.asked', properties: { id: 'p1', sessionID: 'parent', action: 'bash', resources: [] } },
-+      ]));
-+      // No store can answer for it, so the index is the only source.
-+      expect(capture.pending).toEqual({ hasPermission: true, hasForm: false });
-+    });
-+  });
-+
-+  test('a directory containing a separator still resolves its own store', async () => {
-+    const pipedDirectory = '/repo|drafts';
-+    await withHarness(familyNode(pipedDirectory), async (capture, stores) => {
-+      await act(async () => { await readHostBlockingRequestsSnapshot(async () => ({
-+        sessions: {},
-+        pending: { parent: { permissions: [], forms: [{ id: 'answered', sessionID: 'parent', title: 'Answer' }], pages: [] } },
-+        serverTime: 0,
-+      }), () => pipedDirectory) });
-+      expect(capture.pending).toEqual({ hasPermission: false, hasForm: true });
-+
-+      // The directory's own request snapshots committed and found none.
-+      await act(async () => stores.parent!.setState({ pendingRequestsReady: true }));
-+      expect(capture.pending).toEqual({ hasPermission: false, hasForm: false });
-+    }, pipedDirectory);
-+  });
-+
-+  test('a store that has read its requests outranks a form the index still holds', async () => {
-+    await withHarness(familyNode(PARENT_DIR), async (capture, stores) => {
-+      await act(async () => { await readHostBlockingRequestsSnapshot(async () => ({
-+        sessions: {},
-+        pending: { parent: { permissions: [], forms: [{ id: 'answered', sessionID: 'parent', title: 'Answer' }], pages: [] } },
-+        serverTime: 0,
-+      }), () => PARENT_DIR) });
-+      expect(capture.pending).toEqual({ hasPermission: false, hasForm: true });
-+
-+      // The directory's own bootstrap read its pending requests and found none.
-+      await act(async () => stores.parent!.setState({ pendingRequestsReady: true }));
-+      expect(capture.pending).toEqual({ hasPermission: false, hasForm: false });
-+    });
-   });
- });
-diff --git a/packages/ui/src/apps/usePendingRequests.ts b/packages/ui/src/apps/usePendingRequests.ts
-index b784f6214..29907111d 100644
---- a/packages/ui/src/apps/usePendingRequests.ts
-+++ b/packages/ui/src/apps/usePendingRequests.ts
-@@ -1,20 +1,27 @@
- import React from 'react';
- 
--import { useGlobalBlockingRequestsStore } from '@/sync/global-blocking-requests';
-+import type { SessionNode } from '@/components/session/sidebar/types';
-+import { selectBlockingBadgeSessionScopes } from '@/components/session/sidebar/sessions/sessionNodeItemUtils';
-+import { useSessionBlockingRequests } from '@/sync/sync-context';
-+import type { BlockingRequestKinds } from '@/sync/global-blocking-requests';
- 
--export type PendingRequests = { hasPermission: boolean; hasForm: boolean };
-+export type PendingRequests = BlockingRequestKinds;
- 
--export const usePendingRequests = (sessionIds: readonly string[]): PendingRequests => {
--  const hasPermission = useGlobalBlockingRequestsStore(React.useCallback(
--    (state) => sessionIds.some((id) => Boolean(state.bySession.get(id)?.permissions.length)),
--    [sessionIds],
--  ));
--  const hasForm = useGlobalBlockingRequestsStore(React.useCallback(
--    (state) => sessionIds.some((id) => {
--      const pending = state.bySession.get(id);
--      return Boolean(pending?.forms.length || pending?.pages.length);
--    }),
--    [sessionIds],
--  ));
--  return { hasPermission, hasForm };
-+/**
-+ * Whether a permission request or a form waits for a phone row. It resolves a
-+ * session's directory exactly as the desktop row does — the same scope helper,
-+ * the row's own session and worktree included — so both surfaces show the same
-+ * badge for the same session. A scope whose directory is null has no store to
-+ * answer for it, and the cross-directory index answers there instead.
-+ */
-+export const usePendingRequests = (
-+  node: SessionNode,
-+  isExpanded: boolean,
-+  fallbackDirectory: string | null,
-+): PendingRequests => {
-+  const scopes = React.useMemo(
-+    () => selectBlockingBadgeSessionScopes(node, isExpanded, fallbackDirectory),
-+    [fallbackDirectory, isExpanded, node],
-+  );
-+  return useSessionBlockingRequests(scopes);
- };
 diff --git a/packages/ui/src/components/session/SessionSwitcherDropdown.tsx b/packages/ui/src/components/session/SessionSwitcherDropdown.tsx
-index 5faef6d34..4880e077d 100644
+index 5faef6d34..6b148efaf 100644
 --- a/packages/ui/src/components/session/SessionSwitcherDropdown.tsx
 +++ b/packages/ui/src/components/session/SessionSwitcherDropdown.tsx
-@@ -14,11 +14,13 @@ import { SessionActivityIndicator } from '@/components/session/SessionActivityIn
+@@ -14,12 +14,15 @@ import { SessionActivityIndicator } from '@/components/session/SessionActivityIn
  import { useWaitingBlink } from '@/hooks/useDurationTicker';
  import { useSessionUIStore } from '@/sync/session-ui-store';
  import { useSessionMarkedUnread, useSessionUnread } from '@/sync/session-unread';
@@ -364,23 +69,26 @@ index 5faef6d34..4880e077d 100644
  } from '@/components/session/sidebar/shell/useSwitcherItems';
 +import { selectBlockingBadgeSessionScopes } from '@/components/session/sidebar/sessions/sessionNodeItemUtils';
  import { useUIStore } from '@/stores/useUIStore';
++import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
  import { refreshGlobalSessions, refreshRecentGlobalSessions, resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
  import { formatSessionCompactDateLabel } from './sidebar/utils';
-@@ -195,6 +197,13 @@ function SwitcherNode({ item, depth, variant, expandedParents, toggleParent, clo
+ import type { SessionNode } from './sidebar/types';
+@@ -195,6 +198,14 @@ function SwitcherNode({ item, depth, variant, expandedParents, toggleParent, clo
    const session = node.session;
    const hasChildren = node.children.length > 0;
    const isExpanded = expandedParents.has(session.id);
++  const showSubagentSessions = useSessionDisplayStore((state) => state.showSubagentSessions);
 +  // A folded row stands for its subsessions too: their waiting requests count
 +  // here, exactly as the sidebar's collapsed rows count them.
 +  const blockingScopes = React.useMemo(
-+    () => selectBlockingBadgeSessionScopes(node, isExpanded, resolveGlobalSessionDirectory(session)),
-+    [isExpanded, node, session],
++    () => selectBlockingBadgeSessionScopes(node, isExpanded, resolveGlobalSessionDirectory(session), showSubagentSessions),
++    [isExpanded, node, session, showSubagentSessions],
 +  );
 +  const pendingRequests = useSessionBlockingRequests(blockingScopes);
  
    return (
      <>
-@@ -205,6 +214,7 @@ function SwitcherNode({ item, depth, variant, expandedParents, toggleParent, clo
+@@ -205,6 +216,7 @@ function SwitcherNode({ item, depth, variant, expandedParents, toggleParent, clo
          secondaryMeta={secondaryMeta}
          hasChildren={hasChildren}
          isExpanded={isExpanded}
@@ -388,7 +96,7 @@ index 5faef6d34..4880e077d 100644
          onToggleExpand={hasChildren ? () => toggleParent(session.id) : undefined}
          closeDropdown={closeDropdown}
        />
-@@ -232,11 +242,12 @@ type SwitcherRowProps = {
+@@ -232,11 +244,12 @@ type SwitcherRowProps = {
    secondaryMeta: SecondaryMeta;
    hasChildren: boolean;
    isExpanded: boolean;
@@ -402,7 +110,7 @@ index 5faef6d34..4880e077d 100644
    const { t } = useI18n();
    const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
    const setCurrentSession = useSessionUIStore((state) => state.setCurrentSession);
-@@ -250,6 +261,10 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
+@@ -250,6 +263,10 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
    const isStreaming = turnActivity !== null;
    const runningBlink = useWaitingBlink(isStreaming);
    const showUnreadDot = !isStreaming && isUnread && (!isActive || markedUnread);
@@ -414,25 +122,16 @@ index 5faef6d34..4880e077d 100644
    const timestamp = getSessionActivityTime(session) || Date.now();
    const timeLabel = formatSessionCompactDateLabel(timestamp);
 diff --git a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-index 898a59abd..ab8fcd44c 100644
+index 683cbb3ac..aed9d4184 100644
 --- a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
 +++ b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-@@ -392,7 +392,7 @@ bootstrap work. Selection and activity subscriptions stay session-scoped so a
- structural list update does not make every row observe unrelated streaming
- updates.
- 
--Session-row permission and form badges read the relevant directory-store buckets and show only whether something waits, without a count: one form can hold many questions, and a number that does not drop as the user answers them reads as wrong. A collapsed row covers its own pending requests and those of the descendants it hides; an expanded row covers only its own. The lookup never bootstraps a directory, so an unbootstrapped directory's store holds only live requests; until that store completes a bootstrap, the row lookup also reads forms from the cross-directory index, which the host seed fills at load, so a question already waiting in a project this client never opened still shows after a reload. Mobile rows show the same icon-only badges from the cross-directory index (`apps/usePendingRequests.ts`). A page an agent shows that waits for the user's answer has no directory-store bucket, so the row lookup also reads it from the cross-directory index and shows it as a form.
-+Session-row permission and form badges read the relevant directory-store buckets and show only whether something waits, without a count: one form can hold many questions, and a number that does not drop as the user answers them reads as wrong. A collapsed row covers its own pending requests and those of the descendants it hides; an expanded row covers only its own. Collapsed worktree, folder, group and run headers count their hidden sessions the same way, through `useCollapsedSessionActivityState`. The lookup never bootstraps a directory and never creates a store for one: it reads a store that already exists and leaves a directory nobody opened to the cross-directory index. Until a store's own request snapshots are ready, the row lookup also reads permissions and forms from that index, which the host seed fills at load, so a request already waiting in a project this client never opened still shows after a reload. Once they are ready, the store answers alone, so a form the index kept after a lost settlement stops showing. Mobile rows use the same lookup and icon-only badges: `MobileSessionRow` and `MobileSessionSwitcher` build their scopes with `selectBlockingBadgeSessionScopes`, the helper the desktop row and switcher use, so a session resolves its directory the same way on every surface. A session with no known directory has no store to answer for it, so the index still counts there, on the phone as on the desktop. A page an agent shows that waits for the user's answer has no directory-store bucket, so the row lookup also reads it from the cross-directory index and shows it as a form.
- 
- A session row's menu and the header's session menus (a tab's, the title's)
- are one component, `sessions/SessionActionsMenuItems.tsx`; each surface
-@@ -1612,6 +1612,14 @@ hover, keyboard focus, and always-visible action buttons move them left without
+@@ -1655,6 +1655,14 @@ hover, keyboard focus, and always-visible action buttons move them left without
  
  ## Decisions
  
 +### Why every row resolves a session's directory the same way
 +
-+A blocking-request badge asks which directory store owns a session, and a second resolver — the phone used to read the global session cache by id — answered that question with different fallbacks (no row session, no worktree path, no group directory). One session could then show its badge from its store on the desktop and from the additive index on the phone, which disagreed exactly after a lost settlement. `selectBlockingBadgeSessionScopes` is the only resolver: it walks the row's node, takes the session's own directory, then the node's worktree path, then the caller's group directory, and leaves a session nothing can place in a scope with a null directory where the index answers. The row, the switcher and the phone all pass its scopes to `useSessionBlockingRequests`, so a session shows one badge everywhere. The index-only fallback lives inside that lookup rather than in a second hook, so no surface can accidentally answer from the wrong source.
++A blocking-request badge asks which directory store owns a session, and a second resolver — the phone used to read the global session cache by id — answered that question with different fallbacks (no row session, no worktree path, no group directory). One session could then show its badge from its store on the desktop and from the additive index on the phone, which disagreed exactly after a lost settlement. `selectBlockingBadgeSessionScopes` is the only resolver: it walks the row's node, takes the session's own directory, then the node's worktree path, then the caller's group directory, and drops a session nothing can place. The row, the switcher and the phone all pass its scopes to `useSessionBlockingRequests`, so a session shows one badge everywhere; that lookup reads the cross-directory index only until the owning store's request snapshots are ready, and the store alone after, so no surface keeps a settled badge.
 +
 +### Why a collapsed header subscribes to a serialized directory signature
 +
@@ -518,7 +217,7 @@ index 069e8301e..a2fdd325e 100644
      useGlobalSessionsStore.setState(originalSessions);
      container.remove();
 diff --git a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.behavior.test.tsx b/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.behavior.test.tsx
-index ba70b5102..1407df17b 100644
+index ba70b5102..ddb5ce256 100644
 --- a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.behavior.test.tsx
 +++ b/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.behavior.test.tsx
 @@ -1,20 +1,30 @@
@@ -762,7 +461,7 @@ index ba70b5102..1407df17b 100644
 +      expect(capture.state).toBe('form');
 +
 +      // The directory's own bootstrap read its pending forms and found none.
-+      await act(async () => stores.current!.setState({ pendingRequestsReady: true }));
++      await act(async () => stores.current!.setState({ status: 'complete', requestCoverage: new Set(['other']) }));
 +      expect(capture.state).toBeNull();
 +
 +      // A form the complete store holds still counts.
@@ -774,10 +473,10 @@ index ba70b5102..1407df17b 100644
    });
  });
 diff --git a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityState.ts b/packages/ui/src/components/session/sidebar/sessions/collapsedActivityState.ts
-index 89713dd3f..b7b478727 100644
+index 89713dd3f..1b7481b21 100644
 --- a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityState.ts
 +++ b/packages/ui/src/components/session/sidebar/sessions/collapsedActivityState.ts
-@@ -1,13 +1,14 @@
+@@ -1,13 +1,15 @@
  import React from 'react';
  import type { SessionNode } from '../types';
  import { useGlobalSessionStatusStore } from '@/sync/global-session-status';
@@ -790,11 +489,12 @@ index 89713dd3f..b7b478727 100644
 +import { resolveGlobalSessionDirectory, useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
  import { isSessionUnread } from '@/sync/session-unread';
 +import { useSessionBlockingRequests } from '@/sync/sync-context';
++import { selectIndexedBlockingRequests, useGlobalBlockingRequestsStore } from '@/sync/global-blocking-requests';
 +import { selectBlockingBadgeSessionScopes } from './sessionNodeItemUtils';
  
  export type CollapsedActivityState = 'permission' | 'form' | 'active' | 'unread' | null;
  
-@@ -84,6 +85,19 @@ export const useCollapsedSessionActivityState = ({
+@@ -84,6 +86,19 @@ export const useCollapsedSessionActivityState = ({
      () => (blockingSessionIds && blockingSessionIds.length > 0 ? new Set([...ids.active, ...blockingSessionIds]) : ids.active),
      [blockingSessionIds, ids.active],
    );
@@ -814,7 +514,7 @@ index 89713dd3f..b7b478727 100644
    const active = useGlobalSessionStatusStore(React.useCallback((state): CollapsedActivityState => {
      if (!enabled) return null;
      for (const sessionId of ids.active) {
-@@ -127,16 +141,53 @@ export const useCollapsedSessionActivityState = ({
+@@ -127,16 +142,55 @@ export const useCollapsedSessionActivityState = ({
      }
      return null;
    }, [enabled, ids.unread]));
@@ -837,16 +537,9 @@ index 89713dd3f..b7b478727 100644
 +    // Nothing counted, or nothing to resolve: the signature also tells the memo
 +    // when a counted session's directory becomes known, since the helper below
 +    // reads that resolution from the store.
-+    if (!enabled || blockingDirectorySignature === '') return [];
++    if (!enabled || blockingDirectorySignature === '') return { scopes: [], unplacedSessionIDs: [] };
 +    const sessionIDsByDirectory = new Map<string, string[]>();
-+    const unplacedSessionIDs: string[] = [];
-+    const add = (directory: string | null, sessionID: string) => {
-+      // A session with no known directory has no store to answer for it, so the
-+      // lookup reads the index for it instead.
-+      if (!directory) {
-+        unplacedSessionIDs.push(sessionID);
-+        return;
-+      }
++    const add = (directory: string, sessionID: string) => {
 +      const sessionIDs = sessionIDsByDirectory.get(directory) ?? [];
 +      sessionIDs.push(sessionID);
 +      sessionIDsByDirectory.set(directory, sessionIDs);
@@ -857,32 +550,41 @@ index 89713dd3f..b7b478727 100644
 +        for (const sessionID of scope.sessionIDs) add(scope.directory, sessionID);
 +      }
 +    }
++    // A session listed only as blocking, such as a hidden subagent, may have no
++    // row and no known directory: no store can answer for it, so the index does.
++    const unplacedSessionIDs: string[] = [];
 +    for (const sessionID of blockingSessionIds ?? []) {
 +      const session = useGlobalSessionsStore.getState().entityById.get(sessionID);
-+      add(session ? resolveGlobalSessionDirectory(session) : null, sessionID);
++      const directory = session ? resolveGlobalSessionDirectory(session) : null;
++      if (directory) add(directory, sessionID);
++      else unplacedSessionIDs.push(sessionID);
      }
 -    return result;
 -  }, [enabled, blockingIds]));
-+    const scopes: { directory: string | null; sessionIDs: string[] }[] = [...sessionIDsByDirectory]
-+      .map(([directory, sessionIDs]) => ({ directory, sessionIDs }));
-+    if (unplacedSessionIDs.length > 0) scopes.push({ directory: null, sessionIDs: unplacedSessionIDs });
-+    return scopes;
++    return {
++      scopes: [...sessionIDsByDirectory].map(([directory, sessionIDs]) => ({ directory, sessionIDs })),
++      unplacedSessionIDs,
++    };
 +  }, [blockingDirectorySignature, blockingSessionIds, enabled, nodes]);
-+  const scopedRequests = useSessionBlockingRequests(scopes);
++  const scopedRequests = useSessionBlockingRequests(scopes.scopes);
++  const unplacedRequests = useGlobalBlockingRequestsStore(React.useCallback(
++    (state) => selectIndexedBlockingRequests(state.bySession, scopes.unplacedSessionIDs),
++    [scopes.unplacedSessionIDs],
++  ));
 +  const blocked: CollapsedActivityState = !enabled
 +    ? null
-+    : scopedRequests.hasPermission
++    : scopedRequests.hasPermission || unplacedRequests.hasPermission
 +      ? 'permission'
-+      : scopedRequests.hasForm
++      : scopedRequests.hasForm || unplacedRequests.hasForm
 +        ? 'form'
 +        : null;
    return blocked ?? active ?? waitingOnShell ?? waitingOnImage ?? waitingOnPullRequest ?? waitingOnExtension ?? unread;
  };
 diff --git a/packages/ui/src/components/session/sidebar/sessions/sessionNodeItemUtils.test.ts b/packages/ui/src/components/session/sidebar/sessions/sessionNodeItemUtils.test.ts
-index 2d2112a92..6b49639ec 100644
+index 1ea6a7191..33ef42e3d 100644
 --- a/packages/ui/src/components/session/sidebar/sessions/sessionNodeItemUtils.test.ts
 +++ b/packages/ui/src/components/session/sidebar/sessions/sessionNodeItemUtils.test.ts
-@@ -92,6 +92,33 @@ describe('selectBlockingBadgeSessionScopes', () => {
+@@ -118,6 +118,23 @@ describe('selectBlockingBadgeSessionScopes', () => {
        { directory: '/fallback', sessionIDs: ['root'] },
      ]);
    });
@@ -903,109 +605,11 @@ index 2d2112a92..6b49639ec 100644
 +      { directory: '/worktrees/feature', sessionIDs: ['root'] },
 +    ]);
 +  });
-+
-+  test('a session nothing can place keeps a scope of its own, for the index to answer', () => {
-+    const grandchild: SessionNode = { session: session('grandchild', 'Grandchild'), children: [], worktree: null };
-+    const child: SessionNode = { session: session('child', 'Child'), children: [grandchild], worktree: null };
-+    const root: SessionNode = { session: session('root', 'Root'), children: [child], worktree: null };
-+
-+    expect(selectBlockingBadgeSessionScopes(root, false, null)).toEqual([
-+      { directory: null, sessionIDs: ['root', 'child', 'grandchild'] },
-+    ]);
-+  });
  });
  
  describe('nodeHasPinnedMembershipChange', () => {
-diff --git a/packages/ui/src/components/session/sidebar/sessions/sessionNodeItemUtils.ts b/packages/ui/src/components/session/sidebar/sessions/sessionNodeItemUtils.ts
-index 7587de20b..e2093f54f 100644
---- a/packages/ui/src/components/session/sidebar/sessions/sessionNodeItemUtils.ts
-+++ b/packages/ui/src/components/session/sidebar/sessions/sessionNodeItemUtils.ts
-@@ -64,7 +64,8 @@ export const nodeContainsSessionId = (node: SessionNode, sessionId: string | nul
- };
- 
- export type BlockingBadgeSessionScope = {
--  directory: string;
-+  /** The store that answers for these sessions, or null when none is known. */
-+  directory: string | null;
-   sessionIDs: string[];
- };
- 
-@@ -93,28 +94,60 @@ export const getSessionWorktreeMenuDisabled = ({
-   isMovingToWorktree: boolean;
- }): boolean => !sessionDirectory || isStreaming || isMovingToWorktree;
- 
--export const selectBlockingBadgeSessionScopes = (
-+/**
-+ * Visit the sessions whose blocking-request badges belong to a row: the row's
-+ * own session, and either its workflow agents when expanded or its whole
-+ * subtree when collapsed. Workflow agents have no rows of their own, so an
-+ * expanded row counts them; every descendant of a collapsed row is hidden, so
-+ * it counts all of them.
-+ */
-+const visitBlockingBadgeSessions = (
-   node: SessionNode,
-   isExpanded: boolean,
--  fallbackDirectory: string | null,
--): BlockingBadgeSessionScope[] => {
--  const sessionIDsByDirectory = new Map<string, string[]>();
-+  visitSession: (session: SessionNode['session'], directory: string | null) => void,
-+): void => {
-   const visit = (current: SessionNode): void => {
--    const directory = resolveGlobalSessionDirectory(current.session)
--      ?? normalizePath(current.worktree?.path)
--      ?? fallbackDirectory;
--    if (directory) {
--      const sessionIDs = sessionIDsByDirectory.get(directory) ?? [];
--      sessionIDs.push(current.session.id);
--      sessionIDsByDirectory.set(directory, sessionIDs);
--    }
-+    visitSession(
-+      current.session,
-+      resolveGlobalSessionDirectory(current.session) ?? normalizePath(current.worktree?.path),
-+    );
-     for (const child of current.children) {
-       if (current === node && isExpanded && !isWorkflowAgentSession(child.session)) continue;
-       visit(child);
-     }
-   };
-   visit(node);
--  return [...sessionIDsByDirectory].map(([directory, sessionIDs]) => ({ directory, sessionIDs }));
-+};
-+
-+/**
-+ * Choose which (directory, sessionIDs) scopes a sidebar row's blocking-request
-+ * badges should count, grouped by the directory store each session lives in.
-+ * Desktop, phone and collapsed-header lookups all take these scopes, so a
-+ * session resolves its directory the same way everywhere. Sessions with no
-+ * known directory — and no group fallback — get their own scope with a null
-+ * directory: no store can answer for them, so the lookup reads the index.
-+ */
-+export const selectBlockingBadgeSessionScopes = (
-+  node: SessionNode,
-+  isExpanded: boolean,
-+  fallbackDirectory: string | null,
-+): BlockingBadgeSessionScope[] => {
-+  const sessionIDsByDirectory = new Map<string, string[]>();
-+  const unplacedSessionIDs: string[] = [];
-+  visitBlockingBadgeSessions(node, isExpanded, (session, directory) => {
-+    const resolved = directory ?? fallbackDirectory;
-+    if (!resolved) {
-+      unplacedSessionIDs.push(session.id);
-+      return;
-+    }
-+    const sessionIDs = sessionIDsByDirectory.get(resolved) ?? [];
-+    sessionIDs.push(session.id);
-+    sessionIDsByDirectory.set(resolved, sessionIDs);
-+  });
-+  const scopes: BlockingBadgeSessionScope[] = [...sessionIDsByDirectory]
-+    .map(([directory, sessionIDs]) => ({ directory, sessionIDs }));
-+  if (unplacedSessionIDs.length > 0) scopes.push({ directory: null, sessionIDs: unplacedSessionIDs });
-+  return scopes;
- };
- 
- export const selectFolderRootNodes = (
 diff --git a/packages/ui/src/components/session/sidebar/works/WorktreeWorkRow.marks.test.tsx b/packages/ui/src/components/session/sidebar/works/WorktreeWorkRow.marks.test.tsx
-index 36112e968..2b0d9f3e0 100644
+index 36112e968..8af45eb1a 100644
 --- a/packages/ui/src/components/session/sidebar/works/WorktreeWorkRow.marks.test.tsx
 +++ b/packages/ui/src/components/session/sidebar/works/WorktreeWorkRow.marks.test.tsx
 @@ -29,6 +29,7 @@ mock.module('@/lib/guests/open-url', () => ({
@@ -1016,16 +620,21 @@ index 36112e968..2b0d9f3e0 100644
  
  const WORKTREE = '/trees/app/feature-login';
  
-@@ -60,24 +61,37 @@ const group = (sessions: SessionGroup['sessions'] = []): SessionGroup => ({
+@@ -60,24 +61,42 @@ const group = (sessions: SessionGroup['sessions'] = []): SessionGroup => ({
  });
  
  const noop = () => undefined;
 +// The row reads its blocking requests from the directory stores; this test
 +// exercises only the guest marks, so a runtime whose child stores never exist
 +// leaves the lookup on the cross-directory index and needs no real sync.
++const idleStore = {
++  getState: () => ({ permission: {}, form: {}, status: 'complete', requestCoverage: new Set<string>() }),
++  subscribe: () => () => undefined,
++};
 +const runtime = {
 +  childStores: {
-+    getChild: () => undefined,
++    getChild: () => idleStore,
++    ensureChild: () => idleStore,
 +    pin: () => undefined,
 +    unpin: () => undefined,
 +    subscribeRegistry: () => () => undefined,
@@ -1071,136 +680,11 @@ index 36112e968..2b0d9f3e0 100644
  );
  
  let win: Window;
-diff --git a/packages/ui/src/sync/DOCUMENTATION.md b/packages/ui/src/sync/DOCUMENTATION.md
-index b58f83fa8..5ba2d9881 100644
---- a/packages/ui/src/sync/DOCUMENTATION.md
-+++ b/packages/ui/src/sync/DOCUMENTATION.md
-@@ -1080,7 +1080,16 @@ Per-directory snapshots only cover directories with a store, and on mobile that
- 
- Directories that are not bootstrapped get their initial activity from the host instead: `host-session-status-seed.ts` fetches `/api/sessions/status`, the cross-project map the OpenChamber host keeps from its single upstream event stream, after each global session load. One request, no OpenCode instance creation. The seed is additive only. It adds busy entries (retry collapses to busy; the next live event restores details) for sessions the client has not observed itself, resolves each session's directory from the global session cache, skips entries the host last updated more than 30 minutes ago, and never clears anything: the host payload carries no directory, so absence proves nothing. A live event that arrived first wins. In VS Code the webview shim answers the same route from the extension host's activity watcher, whose phases collapse busy and retry and settle themselves, so every entry it reports is current. The host also reads OpenCode's running list each time its event stream connects and marks those sessions busy, so a turn that started before the host (an external OpenCode, or a host restarted mid-turn) is seeded too. The same read settles host sessions the map held busy that the list leaves out: their idle fell into the host's own stream gap, and without it every client started within the seed's age limit showed them running, a reopened phone included. Sessions of isolated spaces are left alone there, since the host's list never names them. The seed also applies the host's turn starts (`buildHostTurnStarts`): a busy entry's start is its running turn's; an idle entry's is its last turn's and is applied only to a session this device does not see running itself, which is a parent whose subagent or background command keeps that turn open here.
- 
--Pending permissions and forms get the same treatment in `global-blocking-requests.ts`: the dispatcher feeds it `permission.asked`/`permission.replied`, `form.created`/`form.settled`, and `session.deleted` for every directory, and the host seed adds the `pending` map the server keeps from its own stream (`getPendingBlockingRequestsSnapshot` in `session-runtime.js`; dropped on reply, deletion, and OpenCode restart, so it carries no age cutoff). The index keeps only the fields its consumers render (`id`/`sessionID`/`action`/`resources`/`save` for a permission, `id`/`sessionID`/`title` for a form), which is also everything the host can carry. It is additive from the seed and never cleared by absence. Directory stores stay the source for open directories; desktop row badges also count the index's forms while that directory's store has not completed a bootstrap, because such a store learns only of live ones. Once the bootstrap completes, the store alone answers for forms, since its reply and reconnect paths clear forms the index can keep after a lost `form.settled`; a status change notifies form subscribers so rows switch source. The index serves the tray's approval list and any surface without a mounted row. The mobile shell has no global poller, so its sessions sheet runs the seed after the list load it does each time it opens, and again when the stream reconnects while the list is shown (the iPad's sidebar, or a drawer left open in the background), since the events of the gap are lost; without it, phone rows, which read only the index, miss every request already waiting at startup. A page an agent shows that waits for the user's answer (`render.page` with `awaitAnswer`) is a third kind, `pages` (`id` is the tool call id, plus `sessionID`/`title`). OpenCode never hears of that wait, so no directory store holds it: the server announces both ends as `openchamber:page-waiting` and `openchamber:page-settled` (`applyWaitingPageEvent`, placed by the session's directory when the server does not name one) and lists it in the seed's `pages`. Every surface counts it as a form: collapsed and expanded rows, mobile rows, run overviews and the tray, which only opens the session for either. Pages stay apart from `forms` so the form dock never tries to answer one. While one waits, the composer sends a message at once instead of queueing it, because the turn cannot end until the wait does; the message reaches the agent's plugin, which ends the wait.
-+Pending permissions and forms get the same treatment in `global-blocking-requests.ts`: the dispatcher feeds it `permission.asked`/`permission.replied`, `form.created`/`form.settled`, and `session.deleted` for every directory, and the host seed adds the `pending` map the server keeps from its own stream (`getPendingBlockingRequestsSnapshot` in `session-runtime.js`; dropped on reply, deletion, and OpenCode restart, so it carries no age cutoff). The index keeps only the fields its consumers render (`id`/`sessionID`/`action`/`resources`/`save` for a permission, `id`/`sessionID`/`title` for a form), which is also everything the host can carry. It is additive from the seed and never cleared by absence. Directory stores stay the source for open directories; row badges and collapsed group, worktree and run headers also count the index's permissions and forms until that directory's store has read its own request snapshots (`pendingRequestsReady`, committed when both the permission and the form snapshot are in), because such a store knows only the live ones. Once they are in, the store alone answers, since its reply and reconnect paths clear requests the index can keep after a lost settlement, and the readiness change notifies request subscribers so rows switch source. A local clear settles the index too (`settleGlobalBlockingRequest`, called from both store-removal helpers), so the tray's approvals, the phone's attention bell, the sidebar's "In work" facts and the overviews drop the request with the rows instead of waiting for a settlement event the gap may have lost. The index serves the tray's approval list and any surface without a mounted row, and still answers for a session with no known directory. The mobile shell has no global poller, so its sessions sheet runs the seed after the list load it does each time it opens; without it, phone rows miss every request already waiting at startup. Phone rows resolve a session's directory with the same scope helper as desktop rows (`selectBlockingBadgeSessionScopes` through `usePendingRequests`), so one session shows one badge everywhere and opening a chat also clears a form the index kept after a lost settlement. A page an agent shows that waits for the user's answer (`render.page` with `awaitAnswer`) is a third kind, `pages` (`id` is the tool call id, plus `sessionID`/`title`). OpenCode never hears of that wait, so no directory store holds it: the server announces both ends as `openchamber:page-waiting` and `openchamber:page-settled` (`applyWaitingPageEvent`, placed by the session's directory when the server does not name one) and lists it in the seed's `pages`. Every surface counts it as a form: collapsed and expanded rows, mobile rows, run overviews and the tray, which only opens the session for either. Pages stay apart from `forms` so the form dock never tries to answer one. While one waits, the composer sends a message at once instead of queueing it, because the turn cannot end until the wait does; the message reaches the agent's plugin, which ends the wait.
-+
-+### Why pending-request readiness is its own flag and not the bootstrap status
-+
-+A directory store reaches `status: "complete"` only when every critical read resolved, and that set includes the project config and location, which say nothing about pending requests. Gating the badge on it meant a project whose config read failed — a supported state, with its own `ProjectConfigErrorToast` — never trusted its store, so the additive index kept showing requests the store had already cleared, and a failed re-bootstrap of a complete directory dropped the store's authority the same way. `pendingRequestsReady` commits when both request snapshots do, so an unrelated failed read cannot decide a badge. It is never cleared afterwards: the committed snapshot stays the better answer than the index while a new read is in flight or after it fails.
-+
-+### Why a local clear settles the cross-directory index
-+
-+The index was written only by lifecycle events and the host seed, so a reply whose settlement event fell into an SSE gap left its entry there while the store cleared. Every surface that reads only the index then offered a request no row showed. `settleGlobalBlockingRequest` is the one path a local clear takes into the index, called from both store-removal helpers, so all consumers keep reading one answer. Reconciling the index whenever a store became authoritative was the alternative: it would have needed a directory-wide diff on every readiness change, and it would still miss a clear that happens while a store is already ready.
-+
- 
- ### Why page snapshots replace waits while form and permission seeds stay additive
- 
-@@ -1821,7 +1830,9 @@ row's render. Their registry callback attaches the new store's subscription at
- once, so no store update is missed, and defers only the reader's notification
- by one coalesced microtask. Plain `subscribeRegistry` stays synchronous:
- `SessionCacheRetention` must have attached a store before the loader's
--`admitPrefetch` that follows `ensureChild`.
-+`admitPrefetch` that follows `ensureChild`, and `useSessionBlockingRequests`
-+attaches a store's request subscriptions in the same turn it appears, deferring
-+only its own reader notification the same way.
- 
- ### Session switch commit
- 
-diff --git a/packages/ui/src/sync/bootstrap.test.ts b/packages/ui/src/sync/bootstrap.test.ts
-index 94a501d4c..3120f261e 100644
---- a/packages/ui/src/sync/bootstrap.test.ts
-+++ b/packages/ui/src/sync/bootstrap.test.ts
-@@ -106,6 +106,21 @@ describe("bootstrapDirectory", () => {
-     expect(await bootstrap.environment).toBe("failed")
-     expect(input.store.getState().form.session).toEqual([pending])
-     expect(input.store.getState().sessionStatusReady).toBe(true)
-+    // The request snapshots answered for themselves, so row badges trust this
-+    // store even though its bootstrap failed on the config read.
-+    expect(input.store.getState().pendingRequestsReady).toBe(true)
-+  })
-+
-+  test("a failed request snapshot leaves the store without request authority", async () => {
-+    permissions.mockRejectedValue(Object.assign(new Error("permission.list failed"), { status: 400 }))
-+    const input = inputFor()
-+    const bootstrap = bootstrapDirectory(input)
-+    expect(await bootstrap.sessions).toBe("complete")
-+    expect(await bootstrap.environment).toBe("failed")
-+    // The form snapshot committed, the permission one did not: a row badge
-+    // cannot tell what is pending here, so it still reads the index.
-+    expect(input.store.getState().form).toEqual({})
-+    expect(input.store.getState().pendingRequestsReady).toBeUndefined()
-   })
- 
-   test("a failed status snapshot preserves live state and does not grant idle authority", async () => {
-diff --git a/packages/ui/src/sync/bootstrap.ts b/packages/ui/src/sync/bootstrap.ts
-index 31e9af7b6..db4d0daad 100644
---- a/packages/ui/src/sync/bootstrap.ts
-+++ b/packages/ui/src/sync/bootstrap.ts
-@@ -124,6 +124,20 @@ async function initializeDirectory(input: DirectoryBootstrapInput, sessions: Pro
-   commit({ status: "partial" })
-   if (input.isStale?.()) return "stale"
- 
-+  // Row badges trust this store's permission and form buckets only once both
-+  // request snapshots have committed. A flag of their own keeps that question
-+  // away from the unrelated critical reads: a project whose config read fails
-+  // is a supported state, and it must still answer for its own requests. The
-+  // flag is never cleared afterwards, so a failed re-bootstrap keeps the
-+  // snapshot it already committed instead of falling back to the index.
-+  let committedRequestSnapshots = 0
-+  const noteRequestSnapshotCommitted = (): void => {
-+    committedRequestSnapshots += 1
-+    if (committedRequestSnapshots === 2) commit({ pendingRequestsReady: true })
-+  }
-+
-+  // Queue live recovery first. Each read commits independently and a failing
-+  // config read cannot suppress pending form or permission recovery.
-   const critical = Promise.allSettled([
-     sessions.then(async (listed) => {
-       if (listed !== "complete") return
-@@ -140,13 +154,15 @@ async function initializeDirectory(input: DirectoryBootstrapInput, sessions: Pro
-       const form = await readDirectoryFormSnapshot(store, () => (
-         opencodeClient.listPendingForms({ directories: [directory] })
-       ))
--      if (commit({ form })) noteQuestionFormSnapshot(directory, Object.values(form).flat())
-+      if (!commit({ form })) return
-+      noteQuestionFormSnapshot(directory, Object.values(form).flat())
-+      noteRequestSnapshotCommitted()
-     }),
-     read(async () => {
-       const permission = await readDirectoryPermissionSnapshot(store, () => (
-         opencodeClient.listPendingPermissions({ directories: [directory] })
-       ))
--      commit({ permission })
-+      if (commit({ permission })) noteRequestSnapshotCommitted()
-     }),
-     read(() => opencodeClient.getConfig(directory).then((config) => {
-       if (commit({ config })) emitSyncConfigChanged(directory, config)
-diff --git a/packages/ui/src/sync/child-store.ts b/packages/ui/src/sync/child-store.ts
-index 451271664..e7032b3ed 100644
---- a/packages/ui/src/sync/child-store.ts
-+++ b/packages/ui/src/sync/child-store.ts
-@@ -322,7 +322,12 @@ function createDirectoryStore(directory: string, seedSessions: boolean): StoreAp
-     if (state.session !== prev.session) persistSessions(directory, state.session)
-     notifyChangedBlockingRequests(permissionSubscribersByStore, "permissionChangeCallbacks", store, state.permission, prev.permission)
-     notifyChangedBlockingRequests(formSubscribersByStore, "formChangeCallbacks", store, state.form, prev.form)
--    if (state.status !== prev.status) notifyAllFormSubscribers(store)
-+    // Row badges read requests from the cross-directory index until this
-+    // store's own request snapshots are ready, so either change can change
-+    // their answer.
-+    if (state.status !== prev.status || state.pendingRequestsReady !== prev.pendingRequestsReady) {
-+      notifyAllFormSubscribers(store)
-+    }
-     notifyChangedSessionMessages(store, state, prev)
-   })
- 
 diff --git a/packages/ui/src/sync/global-blocking-requests.ts b/packages/ui/src/sync/global-blocking-requests.ts
-index 05586d83b..bc81ad6ac 100644
+index 49b114db8..0b08f5d1a 100644
 --- a/packages/ui/src/sync/global-blocking-requests.ts
 +++ b/packages/ui/src/sync/global-blocking-requests.ts
-@@ -16,10 +16,48 @@ type PendingBlockingRequests = {
-   pages: readonly BlockingPageRequest[];
- };
- 
--type GlobalBlockingRequestsState = {
-+export type GlobalBlockingRequestsState = {
+@@ -20,6 +20,43 @@ type GlobalBlockingRequestsState = {
    bySession: ReadonlyMap<string, PendingBlockingRequests>;
  };
  
@@ -1220,15 +704,14 @@ index 05586d83b..bc81ad6ac 100644
 +
 +/**
 + * Whether any of `sessionIDs` has a request in the index. It is the one copy of
-+ * that scan: a directory store's own buckets answer for its sessions once its
-+ * request snapshots are ready, and this is what remains for sessions no store
-+ * can speak for, a store that has not read them yet, and the surfaces that
-+ * never mount a row. Returns a shared object, so a selector built on it keeps
-+ * its identity while the answer stands.
++ * that scan for a session no directory store can speak for, such as a hidden
++ * subagent listed only as blocking, and for a surface that never mounts a row.
++ * Returns a shared object, so a selector built on it keeps its identity while
++ * the answer stands.
 + */
 +export const selectIndexedBlockingRequests = (
 +  bySession: GlobalBlockingRequestsState['bySession'],
-+  sessionIDs: Iterable<string>,
++  sessionIDs: readonly string[],
 +): BlockingRequestKinds => {
 +  let hasPermission = false;
 +  let hasForm = false;
@@ -1244,520 +727,4 @@ index 05586d83b..bc81ad6ac 100644
 +
  const EMPTY: readonly never[] = [];
  type WaitingPageEvent = Extract<SyncEvent, { type: 'openchamber.page-waiting' | 'openchamber.page-settled' | 'session.deleted' }>;
- const pageSnapshotObservers = new Set<(event: WaitingPageEvent) => void>();
-@@ -177,6 +215,35 @@ export const applyGlobalBlockingRequestEvents = (rawDirectory: string, payloads:
-   reducer.publish();
- };
- 
-+/**
-+ * Drops one request the client has already settled locally from the index.
-+ *
-+ * The index is otherwise written only by lifecycle events and the host seed,
-+ * so a store clear on a successful reply (or a reply the server reported as not
-+ * found) leaves its entry behind until a settlement event the gap may have
-+ * lost. Surfaces that read only the index — the tray's approval list, the
-+ * phone's attention bell, the sidebar's "In work" facts and the overviews —
-+ * then keep offering a request no row shows. Every consumer reads one answer
-+ * once the local clear settles the index too.
-+ */
-+export const settleGlobalBlockingRequest = (
-+  kind: 'permission' | 'form',
-+  sessionID: string,
-+  requestID: string,
-+): void => {
-+  if (!sessionID || !requestID) return;
-+  const reducer = new Reducer(useGlobalBlockingRequestsStore.getState());
-+  reducer.settle(kind === 'permission' ? 'permissions' : 'forms', sessionID, requestID);
-+  reducer.publish();
-+};
-+
-+/**
-+ * Applies the server's announcement that a page an agent showed started or
-+ * stopped waiting for the user's answer. The server names the session's
-+ * directory when it knows it; otherwise `resolveDirectory` finds it, and a
-+ * page whose session this client cannot place is left out until the next
-+ * seed.
-+ */
- export const applyWaitingPageEvent = (
-   event: Extract<SyncEvent, { type: 'openchamber.page-waiting' | 'openchamber.page-settled' }>,
-   resolveDirectory: (sessionId: string) => string | null,
-diff --git a/packages/ui/src/sync/session-actions.test.ts b/packages/ui/src/sync/session-actions.test.ts
-index b9441d85b..102c6d2fc 100644
---- a/packages/ui/src/sync/session-actions.test.ts
-+++ b/packages/ui/src/sync/session-actions.test.ts
-@@ -3,6 +3,11 @@ import type { PermissionRequest } from "@/types/permission"
- import type { WorktreeMetadata } from "@/types/worktree"
- import type { FormRequest } from "@/lib/opencode/model"
- import type { InputState } from "./input-store"
-+import {
-+  applyGlobalBlockingRequestEvents,
-+  resetGlobalBlockingRequests,
-+  useGlobalBlockingRequestsStore,
-+} from "./global-blocking-requests"
- 
- const transportErrors = await import("@/lib/relay/transport-error")
- 
-@@ -5605,6 +5610,54 @@ describe("dismissPermission not-found handling", () => {
-   })
- })
- 
-+describe("a local clear settles the cross-directory index", () => {
-+  beforeEach(() => {
-+    replyCalls.length = 0
-+    permissionReplyError = null
-+    resetGlobalBlockingRequests()
-+  })
-+
-+  afterEach(() => {
-+    resetGlobalBlockingRequests()
-+  })
-+
-+  const indexPermission = (permission: PermissionRequest) => {
-+    applyGlobalBlockingRequestEvents("/test/project", [{ type: "permission.asked", properties: permission }])
-+  }
-+
-+  test("an accepted reply drops the request from the index with the store", async () => {
-+    const permission = buildPermission("perm-live", "session-a")
-+    const store = createStore({ "session-a": [permission] })
-+    const childStores = createChildStores([["/test/project", store]])
-+    indexPermission(permission)
-+    expect(useGlobalBlockingRequestsStore.getState().bySession.get("session-a")?.permissions).toHaveLength(1)
-+
-+    const { setActionRefs, respondToPermission } = await import("./session-actions")
-+    setActionRefs(childStores, () => "/test/project")
-+
-+    await respondToPermission("session-a", "perm-live", "once")
-+
-+    expect(store.getState().permission["session-a"]).toBe(undefined)
-+    // The tray, the phone's bell, "In work" and the overviews read only the
-+    // index, so a local clear must not leave them showing the request.
-+    expect(useGlobalBlockingRequestsStore.getState().bySession.get("session-a")).toBe(undefined)
-+  })
-+
-+  test("a reply the server reports as not found settles the index too", async () => {
-+    const permission = buildPermission("perm-stale", "session-a")
-+    const store = createStore({ "session-a": [permission] })
-+    const childStores = createChildStores([["/test/project", store]])
-+    indexPermission(permission)
-+    permissionReplyError = Object.assign(new Error("permission.reply failed (404): PermissionNotFoundError"), { status: 404 })
-+
-+    const { setActionRefs, dismissPermission } = await import("./session-actions")
-+    setActionRefs(childStores, () => "/test/project")
-+
-+    await expect(dismissPermission("session-a", "perm-stale")).rejects.toThrow()
-+    expect(useGlobalBlockingRequestsStore.getState().bySession.get("session-a")).toBe(undefined)
-+  })
-+})
-+
- describe("dismissOpenPermissionsForSession", () => {
-   beforeEach(() => {
-     replyCalls.length = 0
-diff --git a/packages/ui/src/sync/session-actions.ts b/packages/ui/src/sync/session-actions.ts
-index 0242a4f0e..f5fe2391d 100644
---- a/packages/ui/src/sync/session-actions.ts
-+++ b/packages/ui/src/sync/session-actions.ts
-@@ -10,6 +10,7 @@ import { buildMetadataMergePatch, readForkMessages } from "./session-metadata-he
- import { forkAtTranscriptCut, isTurnBoundary, transcriptCutAfterMessage, transcriptCutForMessage } from "./transcript-cut"
- import { useSessionUIStore, type SentMessage } from "./session-ui-store"
- import { useSelectionStore } from "./selection-store"
-+import { settleGlobalBlockingRequest } from "./global-blocking-requests"
- import {
-   DEFERRED_ANSWER_LEAD_IN,
-   DEFERRED_QUESTION_NOTE,
-@@ -901,9 +902,19 @@ function recoverStaleBlockingRequest(sessionId: string): void {
-   }
- }
- 
--function removeFormRequestFromChildStores(sessionId: string, requestId: string): boolean {
-+function removeFormRequestFromChildStores(sessionId: string, requestId: string, settle = true): boolean {
-   const stores = _childStores
--  if (!stores || !requestId) return false
-+  if (!requestId) return false
-+
-+  // The local clear settles the cross-directory index as well, even when no
-+  // store holds the form: the surfaces that read only the index (the tray's
-+  // approvals, the phone's attention bell, the sidebar's facts and the
-+  // overviews) must drop it with the rows, rather than wait for a settlement
-+  // event an SSE gap may have lost. An optimistic clear passes `false` and
-+  // settles once the server has answered, so a rejected cancel can put the
-+  // request back everywhere.
-+  if (settle) settleGlobalBlockingRequest("form", sessionId, requestId)
-+  if (!stores) return false
- 
-   let removed = false
-   for (const [, store] of stores.children) {
-@@ -973,9 +984,15 @@ function isPermissionRequestNotFoundError(error: unknown): boolean {
-   return /Permission(?:\.)?NotFoundError|Permission request not found/i.test(message)
- }
- 
--function removePermissionRequestFromChildStores(sessionId: string, requestId: string): boolean {
-+function removePermissionRequestFromChildStores(sessionId: string, requestId: string, settle = true): boolean {
-   const stores = _childStores
--  if (!stores || !requestId) return false
-+  if (!requestId) return false
-+
-+  // See removeFormRequestFromChildStores: the index is a consumer of the same
-+  // settlement and has no other way to learn of a local clear. An optimistic
-+  // clear passes `false` and settles once the server has answered.
-+  if (settle) settleGlobalBlockingRequest("permission", sessionId, requestId)
-+  if (!stores) return false
- 
-   let removed = false
-   for (const [, store] of stores.children) {
-@@ -2084,6 +2101,11 @@ export async function respondToPermission(
-     if (await opencodeClient.replyToPermission(sessionId, requestId, response, { directory }) !== true) {
-       throw new Error("Permission reply failed")
-     }
-+    // A successful reply is authoritative: the server no longer waits on this
-+    // request, so clear it locally instead of waiting for `permission.replied`.
-+    // A lost event would leave the badge on a store that answers alone. The
-+    // later event is a no-op.
-+    removePermissionRequestFromChildStores(sessionId, requestId)
-   } catch (error) {
-     if (isPermissionRequestNotFoundError(error)) {
-       removePermissionRequestFromChildStores(sessionId, requestId)
-@@ -2105,6 +2127,9 @@ export async function dismissPermission(
-     if (await opencodeClient.replyToPermission(sessionId, requestId, "reject", { directory }) !== true) {
-       throw new Error("Permission dismissal failed")
-     }
-+    // As in respondToPermission: the accepted dismissal clears the request
-+    // here, so a lost `permission.replied` cannot leave the badge behind.
-+    removePermissionRequestFromChildStores(sessionId, requestId)
-   } catch (error) {
-     if (isPermissionRequestNotFoundError(error)) {
-       removePermissionRequestFromChildStores(sessionId, requestId)
-@@ -2135,16 +2160,26 @@ export async function dismissOpenPermissionsForSession(sessionId: string): Promi
- 
-   if (toDismiss.length === 0) return false
- 
-+  // Optimistically clear the permissions from the local store so the prompt
-+  // disappears immediately, before the reject round-trip. The index keeps the
-+  // request until the server answers, so a failed dismissal restores it
-+  // everywhere instead of leaving the tray and the bell blind to it.
-   for (const { sessionId: scopedSessionId, permission } of toDismiss) {
--    removePermissionRequestFromChildStores(scopedSessionId, permission.id)
-+    removePermissionRequestFromChildStores(scopedSessionId, permission.id, false)
-   }
- 
-   await Promise.all(
-     toDismiss.map(async ({ store, sessionId: scopedSessionId, permission }) => {
-       try {
-         await dismissPermission(scopedSessionId, permission.id)
-+        settleGlobalBlockingRequest("permission", scopedSessionId, permission.id)
-       } catch (error) {
--        if (isPermissionRequestNotFoundError(error)) return
-+        if (isPermissionRequestNotFoundError(error)) {
-+          settleGlobalBlockingRequest("permission", scopedSessionId, permission.id)
-+          return
-+        }
-+        // Swallow: a failed dismissal must not block the send. The permission
-+        // is still pending server-side, so it goes back where it was.
-         console.error("[session-actions] Failed to dismiss open permission on send:", error)
-         restorePermissionRequest(store, scopedSessionId, permission)
-       }
-@@ -2457,8 +2492,11 @@ export async function dismissOpenFormsForSession(
-   }
-   if (toDismiss.length === 0) return { dismissed: false, deferred }
- 
-+  // Optimistically clear the forms from the local store so the prompt
-+  // disappears immediately, before the cancel round-trip. The index keeps the
-+  // form until the server answers, so a failed cancel restores it everywhere.
-   for (const [{ sessionId: scopedSessionId, form }] of toDismiss) {
--    removeFormRequestFromChildStores(scopedSessionId, form.id)
-+    removeFormRequestFromChildStores(scopedSessionId, form.id, false)
-   }
- 
-   await Promise.all(
-@@ -2466,8 +2504,14 @@ export async function dismissOpenFormsForSession(
-       const [{ sessionId: scopedSessionId, form }] = copies
-       try {
-         await cancelForm(scopedSessionId, form.id)
-+        settleGlobalBlockingRequest("form", scopedSessionId, form.id)
-       } catch (error) {
--        if (isFormRequestNotFoundError(error)) return
-+        if (isFormRequestNotFoundError(error)) {
-+          settleGlobalBlockingRequest("form", scopedSessionId, form.id)
-+          return
-+        }
-+        // Swallow: a failed cancellation must not block the send. The form
-+        // is still pending server-side, so each copy goes back where it was.
-         console.error("[session-actions] Failed to cancel open form on send:", error)
-         for (const copy of copies) restoreFormRequest(copy.store, copy.sessionId, copy.form)
-       }
-diff --git a/packages/ui/src/sync/session-blocking-requests.test.tsx b/packages/ui/src/sync/session-blocking-requests.test.tsx
-index 9c4a56085..e5f671b0c 100644
---- a/packages/ui/src/sync/session-blocking-requests.test.tsx
-+++ b/packages/ui/src/sync/session-blocking-requests.test.tsx
-@@ -173,18 +173,21 @@ describe('useSessionBlockingRequests', () => {
-       await withProbe(true, async () => {
-         await act(async () => { await readHostBlockingRequestsSnapshot(async () => ({
-           sessions: {},
--          pending: { child: { permissions: [{ id: 'seeded-permission', sessionID: 'child', action: 'bash', resources: ['*'] }], forms: [], pages: [] } },
-+          pending: { child: { permissions: [permission('seeded-permission', 'child')], forms: [], pages: [] } },
-           serverTime: 0,
-         }), () => CHILD_DIR) })
--        expect(stores!.child.getState().permission.child).toBeUndefined()
--        expect(rendered).toEqual({ hasPermission: true, hasForm: false })
-+        expect(rendered?.hasPermission).toBe(true)
-+
-+        // The directory's own request snapshot read its permissions and found none.
-+        await act(async () => stores!.child.setState({ pendingRequestsReady: true }))
-+        expect(rendered?.hasPermission).toBe(false)
-       })
-     } finally {
-       resetGlobalBlockingRequests()
-     }
-   })
- 
--  test('a store whose bootstrap completed outranks a form the index still holds', async () => {
-+  test('a store that has read its requests outranks a form the index still holds', async () => {
-     resetGlobalBlockingRequests()
-     try {
-       await withProbe(true, async () => {
-@@ -196,11 +199,11 @@ describe('useSessionBlockingRequests', () => {
-         }), () => CHILD_DIR) })
-         expect(rendered?.hasForm).toBe(true)
- 
--        // The directory's own bootstrap read its pending forms and found none.
--        await act(async () => stores!.child.setState({ status: 'complete' }))
-+        // The directory's own request snapshot read its forms and found none.
-+        await act(async () => stores!.child.setState({ pendingRequestsReady: true }))
-         expect(rendered?.hasForm).toBe(false)
- 
--        // A form the complete store holds still shows.
-+        // A form the ready store holds still shows.
-         await act(async () => stores!.child.setState({ form: { child: [form('live-form', 'child')] } }))
-         expect(rendered?.hasForm).toBe(true)
-       })
-@@ -208,4 +211,26 @@ describe('useSessionBlockingRequests', () => {
-       resetGlobalBlockingRequests()
-     }
-   })
-+
-+  test('request snapshots answer even when an unrelated read left the bootstrap partial', async () => {
-+    resetGlobalBlockingRequests()
-+    try {
-+      await withProbe(true, async () => {
-+        await act(async () => { await readHostBlockingRequestsSnapshot(async () => ({
-+          sessions: {},
-+          pending: { child: { permissions: [], forms: [{ id: 'answered-form', sessionID: 'child', title: 'Answer' }], pages: [] } },
-+          serverTime: 0,
-+        }), () => CHILD_DIR) })
-+        expect(rendered?.hasForm).toBe(true)
-+
-+        // Both request snapshots committed, but the project's config read failed,
-+        // so the store never reached `complete`. That read does not decide
-+        // whether a badge is trustworthy.
-+        await act(async () => stores!.child.setState({ pendingRequestsReady: true, status: 'partial' }))
-+        expect(rendered?.hasForm).toBe(false)
-+      })
-+    } finally {
-+      resetGlobalBlockingRequests()
-+    }
-+  })
- })
-diff --git a/packages/ui/src/sync/session-request-hooks.ts b/packages/ui/src/sync/session-request-hooks.ts
-index d7d21b0e4..7e2d28324 100644
---- a/packages/ui/src/sync/session-request-hooks.ts
-+++ b/packages/ui/src/sync/session-request-hooks.ts
-@@ -4,7 +4,8 @@ import type { FormRequest, PermissionRequest, Session } from "@/lib/opencode/mod
- import { subscribeDirectoryPermission, subscribeDirectoryPermissions, subscribeDirectoryForms } from "./child-store"
- import { deriveRecoveredQuestions, useRecoverableQuestionsStore, type RecoveredQuestion } from "./recoverable-questions"
- import { LOCATION_SCOPED_FORM_SESSION_ID } from "./location-scoped-forms"
--import { useGlobalBlockingRequestsStore } from "./global-blocking-requests"
-+import { selectIndexedBlockingRequests, useGlobalBlockingRequestsStore } from "./global-blocking-requests"
-+import type { BlockingRequestKinds } from "./global-blocking-requests"
- import type { State } from "./types"
- import { areRequestArraysReferentiallyEqual, collectScopedBlockingRequests, computeSubtreeIds } from "./scoped-blocking-requests"
- import { useDirectoryStore, useDirectorySync } from "./directory-sync-hooks"
-@@ -52,45 +53,71 @@ export function useSessionPermissions(sessionID: string, directory?: string, opt
-   return React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
- }
- 
--type SessionBlockingRequests = {
--  hasPermission: boolean
--  hasForm: boolean
-+/** Get pending forms for a specific session */
-+export function useSessionForms(sessionID: string, directory?: string) {
-+  return useDirectorySync(
-+    useCallback((state: State) => state.form[sessionID] ?? EMPTY_FORM_REQUESTS, [sessionID]),
-+    directory,
-+  )
- }
- 
--const NO_SESSION_BLOCKING_REQUESTS: SessionBlockingRequests = {
-+const NO_SESSION_BLOCKING_REQUESTS: BlockingRequestKinds = {
-   hasPermission: false,
-   hasForm: false,
- }
- 
- export function useSessionBlockingRequests(
--  scopes: readonly { directory: string; sessionIDs: readonly string[] }[],
--): SessionBlockingRequests {
-+  scopes: readonly { directory: string | null; sessionIDs: readonly string[] }[],
-+): BlockingRequestKinds {
-+  // Runtime only: the current directory is not an input here, and reading the
-+  // directory-bearing context would re-render every sidebar row that shows
-+  // blocking requests whenever the user switches projects.
-   const { childStores } = useSyncRuntime()
--  const scopedStores = React.useMemo(() => scopes.map((scope) => ({
--    sessionIDs: scope.sessionIDs,
--    store: childStores.ensureChild(scope.directory, { bootstrap: false }),
--  })), [childStores, scopes])
-+  // A row asks about directories it has not opened, and consulting a store
-+  // must not create one: a store nobody opened has no snapshot to be
-+  // authoritative about, and creating one here would seed and pin a store for
-+  // every directory a row or a collapsed header mentions.
-   React.useEffect(() => {
--    for (const scope of scopes) childStores.pin(scope.directory)
-+    const directories = scopes.flatMap((scope) => (
-+      scope.directory && childStores.getChild(scope.directory) ? [scope.directory] : []
-+    ))
-+    for (const directory of directories) childStores.pin(directory)
-     return () => {
--      for (const scope of scopes) childStores.unpin(scope.directory)
-+      for (const directory of directories) childStores.unpin(directory)
-     }
-   }, [childStores, scopes])
-   const snapshotRef = useRef(NO_SESSION_BLOCKING_REQUESTS)
-   const getSnapshot = React.useCallback(() => {
-     let hasPermission = false
-     let hasForm = false
-+    // A store this client never bootstrapped knows only live requests, so
-+    // until its own request snapshots are ready, permissions and forms come
-+    // from the index too, which the host seed fills with the ones already
-+    // waiting at load. Once they are ready, the store alone answers, since its
-+    // reply and reconnect paths clear requests the index can keep after a lost
-+    // event.
-     const indexed = useGlobalBlockingRequestsStore.getState().bySession
--    for (const { sessionIDs, store } of scopedStores) {
--      const { permission: permissions, form: forms, status } = store.getState()
--      const storeAuthoritative = status === "complete"
-+    for (const { directory, sessionIDs } of scopes) {
-+      const store = directory ? childStores.getChild(directory) : undefined
-+      if (!store) {
-+        // No known directory, or no store for it: the index is all there is.
-+        const pending = selectIndexedBlockingRequests(indexed, sessionIDs)
-+        hasPermission ||= pending.hasPermission
-+        hasForm ||= pending.hasForm
-+        continue
-+      }
-+      const { permission: permissions, form: forms, pendingRequestsReady } = store.getState()
-       for (const sessionID of sessionIDs) {
--        const pending = indexed.get(sessionID)
-         hasPermission ||= Boolean(permissions[sessionID]?.length)
--          || (!storeAuthoritative && Boolean(pending?.permissions.length))
-         hasForm ||= Boolean(forms[sessionID]?.length)
--          || Boolean(pending?.pages.length)
--          || (!storeAuthoritative && Boolean(pending?.forms.length))
-+          // Pages that wait for the user's answer have no store bucket, so the
-+          // index answers for them whatever the store's readiness.
-+          || Boolean(indexed.get(sessionID)?.pages.length)
-+      }
-+      if (!pendingRequestsReady) {
-+        const pending = selectIndexedBlockingRequests(indexed, sessionIDs)
-+        hasPermission ||= pending.hasPermission
-+        hasForm ||= pending.hasForm
-       }
-     }
-     const previous = snapshotRef.current
-@@ -100,19 +127,61 @@ export function useSessionBlockingRequests(
-     const next = { hasPermission, hasForm }
-     snapshotRef.current = next
-     return next
--  }, [scopedStores])
-+  }, [childStores, scopes])
-   const subscribe = React.useCallback((notify: () => void) => {
--    const unsubscribers = [
--      ...scopedStores.flatMap(({ sessionIDs, store }) => [
--        subscribeDirectoryPermissions(store, sessionIDs, notify),
--        subscribeDirectoryForms(store, sessionIDs, notify),
--      ]),
--      useGlobalBlockingRequestsStore.subscribe(notify),
--    ]
-+    const storeUnsubscribers = new Map<string, () => void>()
-+    let queued = false
-+    let active = true
-+    // A store can appear for a directory this row already asked about, after
-+    // another surface opened it, and the source switches then. The registry
-+    // fires from that surface's render, so the announcement waits a microtask.
-+    const announce = () => {
-+      if (queued) return
-+      queued = true
-+      queueMicrotask(() => {
-+        queued = false
-+        if (active) notify()
-+      })
-+    }
-+    const syncStoreSubscriptions = () => {
-+      const directories = new Set(scopes.flatMap((scope) => (scope.directory ? [scope.directory] : [])))
-+      for (const [directory, unsubscribe] of storeUnsubscribers) {
-+        if (directories.has(directory)) continue
-+        unsubscribe()
-+        storeUnsubscribers.delete(directory)
-+      }
-+      for (const scope of scopes) {
-+        const { directory } = scope
-+        if (!directory || storeUnsubscribers.has(directory)) continue
-+        const store = childStores.getChild(directory)
-+        if (!store) continue
-+        const unsubscribers = [
-+          subscribeDirectoryPermissions(store, scope.sessionIDs, notify),
-+          // Also fires when the store's request snapshots become ready or its
-+          // bootstrap status changes, which switches the source of its forms
-+          // (see getSnapshot).
-+          subscribeDirectoryForms(store, scope.sessionIDs, notify),
-+        ]
-+        storeUnsubscribers.set(directory, () => {
-+          for (const unsubscribe of unsubscribers) unsubscribe()
-+        })
-+      }
-+    }
-+    syncStoreSubscriptions()
-+    const unsubscribeRegistry = childStores.subscribeRegistry(() => {
-+      syncStoreSubscriptions()
-+      announce()
-+    })
-+    // Rare writes; getSnapshot keeps the same object when nothing changed.
-+    const unsubscribeIndex = useGlobalBlockingRequestsStore.subscribe(notify)
-     return () => {
--      for (const unsubscribe of unsubscribers) unsubscribe()
-+      active = false
-+      unsubscribeRegistry()
-+      unsubscribeIndex()
-+      for (const unsubscribe of storeUnsubscribers.values()) unsubscribe()
-+      storeUnsubscribers.clear()
-     }
--  }, [scopedStores])
-+  }, [childStores, scopes])
-   return React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
- }
- 
-diff --git a/packages/ui/src/sync/sync-context.tsx b/packages/ui/src/sync/sync-context.tsx
-index 3c2ec378d..2967a62f7 100644
---- a/packages/ui/src/sync/sync-context.tsx
-+++ b/packages/ui/src/sync/sync-context.tsx
-@@ -959,5 +959,5 @@ export { handleEvent } from "./sync-event-dispatch"
- export { interruptedTurnToolParts, markRecordedInterruptedTurn } from "./interrupted-turn-recovery"
- export { useDirectoryStore, useSessionMessageLoader, useSessionMessageLoadState, useDirectorySync, useSyncDirectory, useChildStoreManager } from "./directory-sync-hooks"
- export { useSessionMessages, useSessionMessagesSelector, useSessionMessagesResolved, useSessionPartsForMessages, useSessionRenderable, useUserMessageHistory } from "./session-message-hooks"
--export { useSessionStatus, useSessionStatusSnapshotReady, useSessionPermissions, useSessionBlockingRequests, collectComposerForms, useScopedBlockingPermissions, useScopedBlockingForms, useRecoveredQuestions } from "./session-request-hooks"
-+export { useSessionStatus, useSessionStatusSnapshotReady, useSessionPermissions, useSessionBlockingRequests, useSessionForms, collectComposerForms, useScopedBlockingPermissions, useScopedBlockingForms, useRecoveredQuestions } from "./session-request-hooks"
- export { buildSessionMessageRecordsSnapshot, readSessionMessageRecordsSnapshot, useSessionMessageRecords } from "./session-message-records"
-diff --git a/packages/ui/src/sync/types.ts b/packages/ui/src/sync/types.ts
-index 13b1e364d..4db03acf5 100644
---- a/packages/ui/src/sync/types.ts
-+++ b/packages/ui/src/sync/types.ts
-@@ -46,6 +46,12 @@ export type State = {
-   sessionStatusInvalidated?: Record<string, true>
-   permission: Record<string, PermissionRequest[]>
-   form: Record<string, FormRequest[]>
-+  /**
-+   * Both pending-request snapshots (permissions and forms) committed at least
-+   * once. Row badges trust this store's buckets only then; a config or location
-+   * read that failed leaves it false rather than deciding the question.
-+   */
-+  pendingRequestsReady?: boolean
-   vcs: Vcs | undefined
-   limit: number
-   message: Record<string, Message[]>
+ const settledByRead = new Set<string>();

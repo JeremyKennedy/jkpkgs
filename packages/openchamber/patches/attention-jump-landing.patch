@@ -229,10 +229,10 @@ index 40bedc10a..615289b38 100644
        if (!opened) return;
        pendingItemRef.current = null;
 diff --git a/packages/ui/src/components/desktop/DOCUMENTATION.md b/packages/ui/src/components/desktop/DOCUMENTATION.md
-index 6a7c3ce83..b4b6fdebf 100644
+index 3007b4dbb..17dc17c98 100644
 --- a/packages/ui/src/components/desktop/DOCUMENTATION.md
 +++ b/packages/ui/src/components/desktop/DOCUMENTATION.md
-@@ -16,6 +16,7 @@ This module owns the desktop instance menu, host-switching UI, project app launc
+@@ -17,6 +17,7 @@ This module owns the desktop instance menu, host-switching UI, project app launc
  - A switch probe publishes its final direct-or-relay outcome once, so an intermediate direct failure does not flash over a usable relay connection.
  - Closing a switch-check dialog preserves the current instance. Cancellation after the direct leg skips relay setup and leaves status reporting to the menu probe; cancellation after a relay probe closes its unadopted tunnel. An ordinary cancelled check has no SSH connection to disconnect.
  - A closing switch dialog retains its host label through the fade-out so its title stays stable.
@@ -483,10 +483,10 @@ index 000000000..dfbe11814
 +  };
 +};
 diff --git a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-index 2fe8e839f..e2d752f7c 100644
+index 8c1ad4da8..dbd584393 100644
 --- a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
 +++ b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-@@ -1331,7 +1331,11 @@ rest it is as quiet as the button was.
+@@ -1374,7 +1374,11 @@ rest it is as quiet as the button was.
  - Project selection on mount preserves launch navigation, including restored
    sessions, links and drafts. Only a later user project switch selects that
    project's remembered session. Unknown ownership keeps the switch pending until
@@ -579,10 +579,10 @@ index 0e6d7b658..fff40b675 100644
        return;
      }
 diff --git a/packages/ui/src/lib/DOCUMENTATION.md b/packages/ui/src/lib/DOCUMENTATION.md
-index 7c524539d..9f7a69bf8 100644
+index f386a1721..6344c6ba0 100644
 --- a/packages/ui/src/lib/DOCUMENTATION.md
 +++ b/packages/ui/src/lib/DOCUMENTATION.md
-@@ -207,6 +207,7 @@ Pairing and connection checks address a server before selecting it. Routing them
+@@ -228,6 +228,7 @@ Pairing and connection checks address a server before selecting it. Routing them
  - The polled folders are the host's projects, the worktrees it lists under them, its chats roots, a `/spaces/<id>` folder and a deleted space's archived chats. A worktree outside every project path is the local half's normal case, so the poll reads `/api/git/project-worktrees` for it; when that read fails the project paths stand alone. A request whose session fell outside the 200-record page is resolved through its own detail route before the rule judges it, so a genuine request in a registered folder is kept and one in an unregistered folder is not shown.
  - The app's own server is a poll target (`local`) only while the window shows a saved host and its page can reach that server (`pageReachesLocalOrigin`: the packaged UI, or a page already on the local origin). A page another instance served is cross-origin to the local server, so it has to be reloaded into the Local UI before it can read this machine; reading it anyway would report Local as unreachable. The read goes straight to the shell's local origin with the local client token and no shared probe, because the shell either runs that loopback server or reports none. The reserved `openchamber:this-instance` entry still names the instance on screen, so the two never describe the same server. The row label is the switcher's own key (`desktopHostSwitcher.instance.local`), so both surfaces name that server the same way in every locale.
  - A jump to the app's own server goes through `activateLocalHost`, not the saved-host lookup, which does not hold Local. The endpoint switches in place on the app's own pages and the clicked session opens; the shell's reload branch is the fallback for a page that cannot switch in place.
@@ -590,7 +590,7 @@ index 7c524539d..9f7a69bf8 100644
  - A poll names no directory, so it never starts an OpenCode location or an MCP server. It uses the saved host's own address, client token and request headers.
  - Reachability is the shared answer (`lib/desktopHostStatus.ts` `probeHost`), not a second probe. A relay answer hands its tunnel to the read, which closes it afterwards; a blocked status (`unreachable`, `wrong-service`, `incompatible`, `relay-limit`) reads nothing.
  - Relay identity comes from `descriptorsEqual` in `lib/relay/runtime-tunnel.ts`, so the switcher's relay and the poller's relay cannot disagree.
-@@ -215,3 +216,7 @@ Pairing and connection checks address a server before selecting it. Routing them
+@@ -236,3 +237,7 @@ Pairing and connection checks address a server before selecting it. Routing them
  - A failed poll keeps the host's last known items and marks it unreachable; a partial answer keeps the half that answered. Offline reads nothing and waits at the retry cap. A failed host backs off, and a hidden window schedules no further cycle.
  - Removing a saved instance drops its rows; a tap on an unreachable host, or one no longer saved, keeps the surface open instead of switching blind.
  - The runtime gate is deliberate: desktop and mobile run the pollers, while web and VS Code do not show cross-instance attention because neither owns a saved-instance switcher.
@@ -1397,10 +1397,10 @@ index 93c1bddf7..9752031ee 100644
 +  return openInstanceAttentionItemWith(item, activateHost, runtimeKeyForDesktopHost({ id: item.hostId }));
  };
 diff --git a/packages/ui/src/sync/DOCUMENTATION.md b/packages/ui/src/sync/DOCUMENTATION.md
-index 5ba2d9881..4027f855d 100644
+index b42357ec4..15d0259b8 100644
 --- a/packages/ui/src/sync/DOCUMENTATION.md
 +++ b/packages/ui/src/sync/DOCUMENTATION.md
-@@ -520,7 +520,22 @@ a trust answer holds no network slot.
+@@ -534,7 +534,22 @@ a trust answer holds no network slot.
  
  Launch restore (`last-session-restore.ts`) and runtime-memory restoration do
  not reopen a session outside every project, because opening it would register
@@ -1425,7 +1425,7 @@ index 5ba2d9881..4027f855d 100644
  `setCurrentSession` gates unknown destinations before fetching messages,
  publishing selection or changing directories. Unknown links resolve session
 diff --git a/packages/ui/src/sync/last-session-restore.ts b/packages/ui/src/sync/last-session-restore.ts
-index 4a24c17de..a7df32ed4 100644
+index d6260eb30..479315085 100644
 --- a/packages/ui/src/sync/last-session-restore.ts
 +++ b/packages/ui/src/sync/last-session-restore.ts
 @@ -4,6 +4,7 @@ import { ensureGlobalSessionsLoaded, refreshGlobalSessions, resolveGlobalSession
@@ -1433,10 +1433,10 @@ index 4a24c17de..a7df32ed4 100644
  import { isSessionAdmitted } from './session-admission';
  import { clearLastActiveSession, readLastActiveSession } from './last-session-cache';
 +import { isSessionOpenHeld } from './pending-session-open';
+ import { isContextWindow } from '@/lib/contextWindow/role';
  
  export type LastSessionRestoreResult =
-     | 'restored'
-@@ -21,7 +22,7 @@ const loadSessionList = (refresh: boolean) =>
+@@ -22,7 +23,7 @@ const loadSessionList = (refresh: boolean) =>
  export const restoreLastActiveSession = async (options: {
      readonly refresh: boolean;
  }): Promise<LastSessionRestoreResult> => {
@@ -1445,7 +1445,7 @@ index 4a24c17de..a7df32ed4 100644
      const runtimeKey = getRuntimeKey();
      const persisted = readLastActiveSession(runtimeKey);
      if (!persisted) return 'none';
-@@ -37,7 +38,7 @@ export const restoreLastActiveSession = async (options: {
+@@ -38,7 +39,7 @@ export const restoreLastActiveSession = async (options: {
      }
  
      const latest = useSessionUIStore.getState();
@@ -1454,7 +1454,7 @@ index 4a24c17de..a7df32ed4 100644
          return 'none';
      }
      if (!isSessionAdmitted(resolveGlobalSessionDirectory(session))) return 'none';
-@@ -53,7 +54,7 @@ type ReopenedSession = { readonly runtimeKey: string; readonly sessionId: string
+@@ -54,7 +55,7 @@ type ReopenedSession = { readonly runtimeKey: string; readonly sessionId: string
  
  const reopenLastActiveSession = (): ReopenedSession | null => {
      const ui = useSessionUIStore.getState();
@@ -1864,10 +1864,10 @@ index 000000000..1373c05e0
 +  return 'opened';
 +};
 diff --git a/packages/ui/src/sync/session-ui-store.ts b/packages/ui/src/sync/session-ui-store.ts
-index 837645d96..4fd15a7d7 100644
+index 97a5ae96f..b4e91acc1 100644
 --- a/packages/ui/src/sync/session-ui-store.ts
 +++ b/packages/ui/src/sync/session-ui-store.ts
-@@ -106,6 +106,7 @@ import { clearLastActiveSession, persistLastActiveSession, readLastActiveSession
+@@ -107,6 +107,7 @@ import { clearLastActiveSession, persistLastActiveSession, readLastActiveSession
  import { createSessionDraftId, useSessionDraftsStore } from "@/stores/useSessionDraftsStore"
  import { persistWorktreeTopology, readPersistedWorktreeTopology } from "./worktree-topology-cache"
  import { rememberRuntimeLiveStatus } from "./runtime-live-memory"
@@ -1875,7 +1875,7 @@ index 837645d96..4fd15a7d7 100644
  import {
    createInputHistoryIdentity,
    useInputHistoryStore,
-@@ -1359,8 +1360,8 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
+@@ -1351,8 +1352,8 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
    restoreForRuntimeSwitch: (apiBaseUrl?: string | null, previousRuntimeKey?: string | null) => {
      const key = runtimeMemoryKey(apiBaseUrl)
      const memory = runtimeSessionMemory.get(key)
@@ -1886,7 +1886,7 @@ index 837645d96..4fd15a7d7 100644
      const restoredDirectory = memory?.directory ?? null
      const availableWorktreesByProject = memory?.availableWorktreesByProject
        ?? readPersistedWorktreeTopology(key)
-@@ -1397,7 +1398,6 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
+@@ -1390,7 +1391,6 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
    },
  
  

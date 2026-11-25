@@ -413,7 +413,7 @@ index 55a4b0015..d8353730f 100644
          </div>
      );
 diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
-index 18144142d..d0f0d96ea 100644
+index 1dab967c4..6298ff069 100644
 --- a/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
 +++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
 @@ -10,7 +10,7 @@ import { I18nProvider } from '@/lib/i18n';
@@ -1181,417 +1181,6 @@ index e570e6273..5a4e7aff0 100644
                  </div>
              ) : null}
          </div>
-diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx.orig b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx.orig
-new file mode 100644
-index 000000000..159573555
---- /dev/null
-+++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.tsx.orig
-@@ -0,0 +1,405 @@
-+import React from 'react';
-+
-+import { useDeviceInfo } from '@/lib/device';
-+import { useI18n } from '@/lib/i18n';
-+import { cn } from '@/lib/utils';
-+import { hasTextSelectionInside } from '@/lib/textSelection';
-+import type { Part } from '@/lib/opencode/model';
-+import { useUIStore } from '@/stores/useUIStore';
-+import {
-+    questionCardState,
-+    questionEntriesForPart,
-+    questionEntryState,
-+    questionPartSuppressed,
-+    questionStateKey,
-+    questionSentence,
-+    selectedOptionLabels,
-+    withoutRecommendationPicks,
-+    type QuestionAnswerEntry,
-+    type QuestionCardState,
-+} from '../lib/questionEntries';
-+import { STICKY_ROW_OFFSET, STICKY_ROW_OFFSET_EVENT } from '../lib/turns/stickyPrompt';
-+import { useQuestionOpen, writeQuestionOpen } from '../lib/questionExpandedState';
-+import { FormDockModeContext } from '../formsInChat';
-+import { stickyHeaderBackground } from './stickyHeaderBackground';
-+import { USER_BUBBLE_TEXT_LINK_CLASS } from '../message/body/userBubbleLinkStyle';
-+import { QuestionAnswerLine, QuestionAnswerRow, QuestionOptionRow } from '../message/parts/QuestionChoices';
-+
-+const RAIL_STYLE: React.CSSProperties = { borderColor: 'var(--status-question)' };
-+
-+// Match the prompt bubble's shape and subtle border without its body-sized
-+// text or full-column footprint. The faint purple fill identifies questions,
-+// and it is painted on the canvas rather than left at the tint's own alpha:
-+// at 55% of a 12.5% tint it was near-clear, so the transcript read through
-+// the card and through the bar that covers the chat while the card is open.
-+const QUESTION_TINT = 'color-mix(in srgb, var(--status-question-background) 55%, transparent)';
-+// The tail corner is the inline end of the block end in either direction, so
-+// it stays the far corner in Arabic.
-+const CARD_STYLE: React.CSSProperties = {
-+    borderRadius: 'var(--radius-xl)',
-+    borderEndEndRadius: 'var(--radius-sm)',
-+    backgroundColor: 'var(--surface-background)',
-+    backgroundImage: `linear-gradient(${QUESTION_TINT}, ${QUESTION_TINT})`,
-+};
-+
-+const LINK_STYLE: React.CSSProperties = { minHeight: 0, minWidth: 0 };
-+
-+/** The share of the screen's height a batch's collapsed list may take. */
-+const COLLAPSED_LIST_SHARE = 0.15;
-+/** Room for the "+N more" line under a cut list. */
-+const MORE_LINE_PX = 24;
-+/** The bar takes over once less than this much of a scrolled-away card is in view. */
-+const BAR_HANDOVER_PX = 40;
-+
-+interface AnsweredEntry {
-+    entry: QuestionAnswerEntry;
-+    /** The answer as shown, or empty when the question went unanswered. */
-+    answer: string;
-+    /**
-+     * Where this question stands, which is not always where its call does: a
-+     * call that got an answer for one of its questions is answered, and the
-+     * question it left blank is not.
-+     */
-+    state: QuestionCardState;
-+}
-+
-+/**
-+ * Hides the rows of a collapsed list that do not fit its share of the screen
-+ * and returns how many it hid. Rows stay laid out (hidden, the list clipped
-+ * under the last shown one) so the next measure still sees them.
-+ */
-+const useCollapsedRows = (listRef: React.RefObject<HTMLDivElement | null>, enabled: boolean, rowsKey: unknown): number => {
-+    const [hidden, setHidden] = React.useState(0);
-+    React.useLayoutEffect(() => {
-+        const list = listRef.current;
-+        if (!enabled || !list) {
-+            setHidden(0);
-+            return;
-+        }
-+        const measure = () => {
-+            const rows = [...list.querySelectorAll<HTMLElement>('[data-question-row]')];
-+            const fitting = (budget: number) => {
-+                let shown = 0;
-+                for (const row of rows) {
-+                    if (row.offsetTop + row.offsetHeight > budget) break;
-+                    shown += 1;
-+                }
-+                return shown;
-+            };
-+            const budget = window.innerHeight * COLLAPSED_LIST_SHARE;
-+            let shown = fitting(budget);
-+            if (shown < rows.length) shown = Math.max(1, fitting(budget - MORE_LINE_PX));
-+            rows.forEach((row, index) => { row.style.visibility = index < shown ? '' : 'hidden'; });
-+            const last = rows[shown - 1];
-+            list.style.height = shown < rows.length && last ? `${last.offsetTop + last.offsetHeight}px` : '';
-+            setHidden(rows.length - shown);
-+        };
-+        measure();
-+        // A narrower column wraps more answers; a shorter screen fits fewer rows.
-+        let width = list.offsetWidth;
-+        const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => {
-+            if (list.offsetWidth === width) return;
-+            width = list.offsetWidth;
-+            measure();
-+        });
-+        observer?.observe(list);
-+        window.addEventListener('resize', measure);
-+        return () => {
-+            observer?.disconnect();
-+            window.removeEventListener('resize', measure);
-+            list.style.height = '';
-+        };
-+    }, [enabled, listRef, rowsKey]);
-+    return hidden;
-+};
-+
-+/**
-+ * Whether a pinned batch card has scrolled away far enough for its bar. The
-+ * list moves the pinned row off its place by `STICKY_ROW_OFFSET`; the card
-+ * draws itself back there, so it scrolls away with the transcript.
-+ *
-+ * The offset is read from the row the list reports, never from the element's
-+ * inherited value on mount: the list reuses a row's container for whatever
-+ * scrolls in next, and the offset it still carries would hand the new row a
-+ * phantom one.
-+ */
-+const useBarHandover = (enabled: boolean) => {
-+    const flowRef = React.useRef<HTMLDivElement>(null);
-+    const [covered, setCovered] = React.useState(false);
-+    React.useEffect(() => {
-+        const flow = flowRef.current;
-+        const chat = flow?.closest<HTMLElement>('[data-scrollbar="chat"]');
-+        if (!enabled || !flow || !chat) {
-+            setCovered(false);
-+            return;
-+        }
-+        const check = (row: HTMLElement) => {
-+            const offset = Number.parseFloat(row.style.getPropertyValue(STICKY_ROW_OFFSET)) || 0;
-+            setCovered(offset > 0 && offset > flow.offsetHeight - BAR_HANDOVER_PX);
-+        };
-+        const onOffset = (event: Event) => {
-+            if (event.target instanceof HTMLElement && event.target.contains(flow)) check(event.target);
-+        };
-+        chat.addEventListener(STICKY_ROW_OFFSET_EVENT, onOffset);
-+        return () => chat.removeEventListener(STICKY_ROW_OFFSET_EVENT, onOffset);
-+    }, [enabled]);
-+    return { flowRef, covered };
-+};
-+
-+interface QuestionCardProps {
-+    answered: readonly AnsweredEntry[];
-+    open: boolean;
-+    onToggle: () => void;
-+    /** Where the card is drawn; the message's column and gap are the caller's. */
-+    placement: 'row' | 'preview';
-+    isMobile: boolean;
-+}
-+
-+/**
-+ * The purple card. Collapsed, one question shows its sentence and answer and
-+ * a batch one line per question (label and answer) as far as fits. Show more
-+ * opens one question straight to its options; a batch first lists every
-+ * question with its answer, and Show options then opens every option.
-+ */
-+const QuestionCard: React.FC<QuestionCardProps> = ({
-+    answered, open, onToggle, placement, isMobile,
-+}) => {
-+    const { t } = useI18n();
-+    const batch = answered.length > 1;
-+    const [optionsShown, setOptionsShown] = React.useState(false);
-+    const listRef = React.useRef<HTMLDivElement>(null);
-+    const hiddenRows = useCollapsedRows(listRef, batch && !open, answered);
-+    const showOptions = open && (!batch || optionsShown);
-+    const toggle = () => {
-+        setOptionsShown(false);
-+        onToggle();
-+    };
-+
-+    const entryBlock = ({ entry, answer, state }: AnsweredEntry, index: number) => {
-+        const picked = selectedOptionLabels(entry.options, entry.answer, entry.multiple);
-+        return (
-+            <div key={`${entry.partId}:${index}`} className="min-w-0 space-y-0.5 border-s-2 ps-2.5" style={RAIL_STYLE}>
-+                <div dir="auto" className={cn('typography-meta text-foreground/70 oc-ui-start-align', !open && 'line-clamp-2')} title={entry.question}>
-+                    {questionSentence(entry.question)}
-+                </div>
-+                {showOptions ? (
-+                    <div className="pt-1">
-+                        {entry.options.map((option) => (
-+                            <QuestionOptionRow key={option.label} option={option} chosen={picked.has(option.label)} multiple={entry.multiple} />
-+                        ))}
-+                        {!answer ? (
-+                            <div className="typography-markdown italic leading-snug text-muted-foreground oc-ui-start-align">
-+                                {t(questionStateKey(state))}
-+                            </div>
-+                        ) : null}
-+                        {picked.size === 0 && answer ? (
-+                            <QuestionAnswerRow multiple={entry.multiple}>
-+                                <QuestionAnswerLine answer={answer} />
-+                            </QuestionAnswerRow>
-+                        ) : null}
-+                    </div>
-+                ) : answer ? (
-+                    <div dir="auto" className={cn('whitespace-pre-wrap break-words typography-markdown font-medium leading-snug text-foreground oc-ui-start-align', !open && 'line-clamp-3')}>
-+                        {answer}
-+                    </div>
-+                ) : (
-+                    <div dir="auto" className="typography-markdown italic leading-snug text-muted-foreground oc-ui-start-align" data-question-card-state={state}>
-+                        {t(questionStateKey(state))}
-+                    </div>
-+                )}
-+            </div>
-+        );
-+    };
-+
-+    return (
-+        <div className={cn('relative z-10 flex flex-col items-end', placement === 'preview' ? 'py-1.5' : undefined)} data-question-turn-header="">
-+            <div className="max-w-[85%]">
-+                <div className="select-text border border-primary/5 px-5 py-3 shadow-none" style={CARD_STYLE}>
-+                    <div
-+                        className={cn(
-+                            'space-y-2.5',
-+                            open ? cn(isMobile ? 'max-h-[30dvh]' : 'max-h-[40dvh]', 'overflow-y-auto overscroll-contain') : 'cursor-pointer',
-+                        )}
-+                        onClick={(event) => {
-+                            // Match UserTextPart: a click opens collapsed content;
-+                            // a drag/double-click selecting text must leave it alone.
-+                            // Open text never collapses on click (Show less does).
-+                            if (!open && !hasTextSelectionInside(event.currentTarget)) toggle();
-+                        }}
-+                    >
-+                        {batch && !open ? (
-+                            <div className="min-w-0 border-s-2 ps-2.5" style={RAIL_STYLE}>
-+                                <div ref={listRef} className="relative grid grid-cols-[fit-content(40%)_minmax(0,1fr)] gap-x-2 gap-y-1 overflow-hidden">
-+                                    {answered.map(({ entry, answer, state }, index) => (
-+                                        <div
-+                                            key={`${entry.partId}:${index}`}
-+                                            data-question-row=""
-+                                            className="col-span-2 grid min-w-0 grid-cols-subgrid items-baseline"
-+                                        >
-+                                            <span dir="auto" className="min-w-0 truncate typography-meta text-foreground/70 oc-ui-start-align" title={entry.question}>
-+                                                {entry.header || questionSentence(entry.question)}
-+                                            </span>
-+                                            {answer ? (
-+                                                <span dir="auto" className="min-w-0 line-clamp-2 break-words typography-markdown font-medium leading-snug text-foreground oc-ui-start-align">
-+                                                    {answer}
-+                                                </span>
-+                                            ) : (
-+                                                <span dir="auto" className="min-w-0 truncate typography-markdown italic leading-snug text-muted-foreground oc-ui-start-align">
-+                                                    {t(questionStateKey(state))}
-+                                                </span>
-+                                            )}
-+                                        </div>
-+                                    ))}
-+                                </div>
-+                                {hiddenRows > 0 ? (
-+                                    <div className="pt-1 typography-meta text-muted-foreground">
-+                                        {t('chat.questionCard.moreQuestions', { count: hiddenRows })}
-+                                    </div>
-+                                ) : null}
-+                            </div>
-+                        ) : answered.map(entryBlock)}
-+                    </div>
-+                    <div className="mt-1 flex min-w-0 items-center justify-end gap-1.5 text-sm text-muted-foreground">
-+                        {open && batch ? (
-+                            <>
-+                                <button
-+                                    type="button"
-+                                    onClick={() => setOptionsShown((shown) => !shown)}
-+                                    className={cn('shrink-0', USER_BUBBLE_TEXT_LINK_CLASS)}
-+                                    style={LINK_STYLE}
-+                                    aria-expanded={optionsShown}
-+                                >
-+                                    {t(optionsShown ? 'chat.questionCard.hideOptions' : 'chat.questionCard.showOptions')}
-+                                </button>
-+                                <span aria-hidden="true">·</span>
-+                            </>
-+                        ) : null}
-+                        <button
-+                            type="button"
-+                            onClick={toggle}
-+                            className={cn('shrink-0', USER_BUBBLE_TEXT_LINK_CLASS)}
-+                            style={LINK_STYLE}
-+                            aria-expanded={open}
-+                        >
-+                            {t(open ? 'chat.message.userText.showLess' : 'chat.message.userText.showMore')}
-+                        </button>
-+                    </div>
-+                </div>
-+            </div>
-+        </div>
-+    );
-+};
-+
-+/**
-+ * A question call as its own transcript row: a purple card with each question
-+ * and the answer it got on a rail, or a line saying it went unanswered. Show
-+ * more opens the card in place (see `QuestionCard`). With the sticky user
-+ * header on, an answered card sticks like a prompt until the next prompt or
-+ * answered question pushes it up. A batch of questions scrolls away instead
-+ * and leaves a one-line bar of its answers, which opens the card where it is.
-+ *
-+ * The card is the body of the message's own row (`ChatMessage`'s body slot), so
-+ * the message keeps its error banner, actions and facts under it.
-+ */
-+export const QuestionTurnHeader: React.FC<{
-+    part: Part;
-+    messageId: string;
-+    /** Set only by a copy that is not the row, such as the bar's opened card. */
-+    open?: boolean;
-+    onToggle?: (partId: string) => void;
-+    /** Off in a fold's preview, where the card never sticks. */
-+    pinnable?: boolean;
-+    placement: 'row' | 'preview';
-+}> = ({ part, messageId, open: controlledOpen, onToggle, pinnable = true, placement }) => {
-+    const { isMobile } = useDeviceInfo();
-+    const { t } = useI18n();
-+    const autoExpandAnsweredQuestions = useUIStore((state) => state.autoExpandAnsweredQuestions);
-+    // The reader's decision is one module cache, so the transcript row and a
-+    // fold's preview of the same part draw the same state.
-+    const readerOpen = useQuestionOpen(part.id, autoExpandAnsweredQuestions);
-+    const open = controlledOpen ?? readerOpen;
-+    const toggle = React.useCallback(() => {
-+        if (onToggle) {
-+            onToggle(part.id);
-+            return;
-+        }
-+        writeQuestionOpen(part.id, !readerOpen);
-+    }, [onToggle, part.id, readerOpen]);
-+    const sticks = useUIStore((state) => state.stickyUserHeader);
-+    const formsInChat = React.useContext(FormDockModeContext) === 'in-chat';
-+    const entries = React.useMemo(() => questionEntriesForPart(part, messageId), [part, messageId]);
-+    const cardState = questionCardState(part);
-+    const answered = React.useMemo<AnsweredEntry[]>(
-+        () => entries.map((entry) => ({
-+            entry,
-+            answer: entry.answer ? withoutRecommendationPicks(entry.answer.trim()) : '',
-+            state: questionEntryState(entry, cardState),
-+        })),
-+        [entries, cardState],
-+    );
-+    const pinned = pinnable && sticks && cardState === 'answered';
-+    const barred = pinned && answered.length > 1;
-+    const { flowRef, covered } = useBarHandover(barred);
-+    const [barOpen, setBarOpen] = React.useState(false);
-+    React.useEffect(() => {
-+        if (!covered) setBarOpen(false);
-+    }, [covered]);
-+
-+    if (answered.length === 0 || cardState === null) return null;
-+    // A waiting question in the chat is drawn once, by the form at the
-+    // transcript's end, which takes the answer.
-+    if (questionPartSuppressed(part, formsInChat)) return null;
-+    const card = (
-+        <QuestionCard
-+            answered={answered} open={open} onToggle={toggle} placement={placement} isMobile={isMobile}
-+        />
-+    );
-+
-+    if (!pinned) return card;
-+    if (!barred) {
-+        return (
-+            <div className={cn('sticky top-0 z-20 [overflow-anchor:none]', isMobile ? '-mt-2 pt-2 pb-4' : '-mt-4 pt-4 pb-9')} data-turn-sticky-header="" style={stickyHeaderBackground(isMobile)}>
-+                {card}
-+            </div>
-+        );
-+    }
-+
-+    const background = stickyHeaderBackground(isMobile);
-+    return (
-+        <div className="relative [overflow-anchor:none]">
-+            <div ref={flowRef} style={{ transform: `translateY(calc(-1 * var(${STICKY_ROW_OFFSET}, 0px)))` }}>
-+                {card}
-+            </div>
-+            {covered ? (
-+                // What covers the top of the chat, so it is the sticky header
-+                // the scroll helpers measure. The bar stays the disclosure it
-+                // was pressed as, so its state is announced, and the card opens
-+                // under it.
-+                <div className={cn('absolute inset-x-0 z-10', isMobile ? '-top-2' : '-top-4')} data-turn-sticky-header="" data-question-bar="" style={background}>
-+                    <div className={cn('chat-message-column relative', isMobile ? 'pt-4 pb-4' : 'pt-7 pb-9')}>
-+                        <div className="flex justify-end">
-+                            <button
-+                                type="button"
-+                                onClick={() => setBarOpen((shown) => !shown)}
-+                                aria-expanded={barOpen}
-+                                className="flex min-w-0 max-w-[85%] items-center gap-2 border border-primary/5 px-3 py-1.5 text-start"
-+                                style={CARD_STYLE}
-+                            >
-+                                <span aria-hidden="true" className="h-4 shrink-0 border-s-2" style={RAIL_STYLE} />
-+                                <span className="shrink-0 typography-meta text-foreground/70">
-+                                    {t('chat.questionCard.answerCount', { count: answered.length })}
-+                                </span>
-+                                <span dir="auto" className="min-w-0 truncate typography-markdown font-medium leading-snug text-foreground oc-ui-start-align">
-+                                    {answered.map(({ answer, state }) => answer || t(questionStateKey(state))).join(', ')}
-+                                </span>
-+                            </button>
-+                        </div>
-+                        {barOpen ? (
-+                            <QuestionCard answered={answered} open onToggle={() => setBarOpen(false)} placement="preview" isMobile={isMobile} />
-+                        ) : null}
-+                    </div>
-+                </div>
-+            ) : null}
-+        </div>
-+    );
-+};
 diff --git a/packages/ui/src/components/chat/components/TurnItem.tsx b/packages/ui/src/components/chat/components/TurnItem.tsx
 index ad848e6fa..bdb35a0d3 100644
 --- a/packages/ui/src/components/chat/components/TurnItem.tsx
@@ -1637,10 +1226,10 @@ index ad848e6fa..bdb35a0d3 100644
                      <div className="relative z-10">
                          {renderMessage(turn.userMessage)}
 diff --git a/packages/ui/src/components/chat/composer/DOCUMENTATION.md b/packages/ui/src/components/chat/composer/DOCUMENTATION.md
-index df091b7ae..81a63739a 100644
+index 14ae31588..04cbdaba2 100644
 --- a/packages/ui/src/components/chat/composer/DOCUMENTATION.md
 +++ b/packages/ui/src/components/chat/composer/DOCUMENTATION.md
-@@ -2200,8 +2200,12 @@ skill, `references/ios-webkit.md`; `lib/iosWebKitMotion.test.ts` guards them.
+@@ -2234,8 +2234,12 @@ skill, `references/ios-webkit.md`; `lib/iosWebKitMotion.test.ts` guards them.
    glide crept in visible one-pixel steps. `keyboardFollowGlide` sets scrollTop
    once and runs the travel as an upward transform on the list's content (an
    upward one adds no scrollable overflow), with the opposite one on a stuck
@@ -2317,7 +1906,7 @@ index 000000000..17bc071ce
 +/** The bubble's padding and hairline, shared so a card lines up with a prompt. */
 +export const USER_BUBBLE_SHELL_CLASS = 'px-5 py-3 shadow-none border border-primary/5';
 diff --git a/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md b/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
-index a5422e7c5..24d00e698 100644
+index 335f96c12..514c5627a 100644
 --- a/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
 +++ b/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
 @@ -33,6 +33,8 @@ Use this doc when you ask an agent to change tool/header/description behavior.
@@ -2380,10 +1969,10 @@ index a5422e7c5..24d00e698 100644
  - OpenChamber's own tools (`openchamber`, `openchamber_*`, and an `execute` script that made exactly one of their calls) use the expandable path. Their result is a versioned envelope (`{ ok, action, data }`, `openChamberToolEnvelope.ts`):
    - The row keeps the tool's name as its title. Once the envelope says the action succeeded, the description is the action's verb from the i18n map (`OPENCHAMBER_ACTION_VERB_KEYS`, "Remembered · Uses bun"); a running, failed, or unreadable call keeps the action's own name (`memory.save`). A history page leaves results out (`toolContentShells.ts`), so the row reads the action and outcome the server kept in the shell marker; without them every reloaded row fell back to `memory.save` until opened.
    - The expanded row draws the action's own view (`OpenChamberToolOutput.tsx`) when `hasOpenChamberView` finds a successful action it knows with the data that view reads; anything else keeps the neutral JSON views, so a changed answer never leaves the row empty. A failed call shows its error message as text. "Show the raw answer" switches to the JSON views.
-@@ -1175,7 +1202,7 @@ Why: only navigation tools use the compact static path; all other tools need obs
-   via text sniffing (`<terminal_context>` blocks, `GitHub issue context (JSON)`
-   and `Linear issue context (JSON)` prefixes).
- - Tools: `ToolPart.tsx`, `ToolPartDiffPreview.tsx`, `PlainDiffFallback.tsx`, `ProgressiveGroup.tsx`, `toolPresentation.tsx`, `toolRenderUtils.ts`, `GuestToolTable.tsx`, `GuestToolCard.tsx`
+@@ -1180,7 +1207,7 @@ Why: only navigation tools use the compact static path; all other tools need obs
+   quote keeps expanding on click, and a whole-file comment with no quote still
+   has it.
+ - Tools: `ToolPart.tsx`, `toolRow/`, `ToolPartDiffPreview.tsx`, `PlainDiffFallback.tsx`, `ProgressiveGroup.tsx`, `toolPresentation.tsx`, `toolRenderUtils.ts`, `GuestToolTable.tsx`, `GuestToolCard.tsx`
 -- Question rows: the card is `chat/components/QuestionTurnHeader.tsx` (row kind in `chat/lib/turns/timelineRows.ts`); `QuestionToolContent.tsx` draws the `ToolPart` copy. Entries come from `chat/lib/questionEntries.ts` and the open state from `chat/lib/questionExpandedState.ts`
 +- Question rows: the card is `chat/components/QuestionTurnHeader.tsx` (row kind in `chat/lib/turns/timelineRows.ts`); `QuestionToolContent.tsx` draws the `ToolPart` copy, and both draw their options and answers from `QuestionChoices.tsx`. Entries come from `chat/lib/questionEntries.ts` and the open state from `chat/lib/questionExpandedState.ts`
  - Reasoning: `ReasoningPart.tsx`
@@ -2792,10 +2381,10 @@ index 0c1d79984..0d6ccd853 100644
                      turnGroupingContext={turnGroupingContext}
                      assistantHeaderMessageId={assistantHeaderMessageId}
 diff --git a/packages/ui/src/lib/i18n/messages/ar.ts b/packages/ui/src/lib/i18n/messages/ar.ts
-index 093bed3a6..8f6549844 100644
+index ad65bd16c..9cf3e8cc2 100644
 --- a/packages/ui/src/lib/i18n/messages/ar.ts
 +++ b/packages/ui/src/lib/i18n/messages/ar.ts
-@@ -80,6 +80,9 @@ import { tooltipsWorkspaceI18n } from './tooltips-workspace.i18n';
+@@ -82,6 +82,9 @@ import { tooltipsWorkspaceI18n } from './tooltips-workspace.i18n';
  import { tooltipsPanelI18n } from './tooltips-panel.i18n';
  import { tooltipsChatI18n } from './tooltips-chat.i18n';
  
@@ -2805,7 +2394,7 @@ index 093bed3a6..8f6549844 100644
  export const dict: Record<I18nKey, string> = {
    'quota.family.zen': 'نماذج Zen',
    'quota.value.requests': 'الطلبات: {count}',
-@@ -2552,17 +2555,17 @@ export const dict: Record<I18nKey, string> = {
+@@ -2564,17 +2567,17 @@ export const dict: Record<I18nKey, string> = {
    'chat.questionCard.inputNeeded': 'مطلوب إدخال',
    'chat.questionCard.fromSubagent': 'من وكيل فرعي',
    'chat.questionCard.questionFallback': 'السؤال {index}',
@@ -2831,10 +2420,10 @@ index 093bed3a6..8f6549844 100644
    'chat.questionCard.next': 'التالي',
    'chat.questionCard.dismiss': 'تجاهل',
 diff --git a/packages/ui/src/lib/i18n/messages/de.ts b/packages/ui/src/lib/i18n/messages/de.ts
-index c15a9eb40..59950d277 100644
+index 53f8e81ad..383cae9b2 100644
 --- a/packages/ui/src/lib/i18n/messages/de.ts
 +++ b/packages/ui/src/lib/i18n/messages/de.ts
-@@ -2371,17 +2371,17 @@ export const dict = {
+@@ -2389,17 +2389,17 @@ export const dict = {
    'chat.questionCard.inputNeeded': 'Eingabe erforderlich',
    'chat.questionCard.fromSubagent': 'Von Subagent',
    'chat.questionCard.questionFallback': 'Frage {index}',
@@ -2860,10 +2449,10 @@ index c15a9eb40..59950d277 100644
    'chat.questionCard.next': 'Weiter',
    'chat.questionCard.dismiss': 'Verwerfen',
 diff --git a/packages/ui/src/lib/i18n/messages/en.ts b/packages/ui/src/lib/i18n/messages/en.ts
-index 368573b2e..7d4c04ba4 100644
+index 3367a77db..de143ec29 100644
 --- a/packages/ui/src/lib/i18n/messages/en.ts
 +++ b/packages/ui/src/lib/i18n/messages/en.ts
-@@ -2654,17 +2654,17 @@ export const dict = {
+@@ -2672,17 +2672,17 @@ export const dict = {
    'chat.questionCard.inputNeeded': 'Input needed',
    'chat.questionCard.fromSubagent': 'From subagent',
    'chat.questionCard.questionFallback': 'Question {index}',
@@ -2887,10 +2476,10 @@ index 368573b2e..7d4c04ba4 100644
    'chat.questionCard.next': 'Next',
    'chat.questionCard.dismiss': 'Dismiss',
 diff --git a/packages/ui/src/lib/i18n/messages/es.ts b/packages/ui/src/lib/i18n/messages/es.ts
-index d125ed34f..71bc8f652 100644
+index af7bd4f85..89bb125b8 100644
 --- a/packages/ui/src/lib/i18n/messages/es.ts
 +++ b/packages/ui/src/lib/i18n/messages/es.ts
-@@ -2622,17 +2622,17 @@ export const dict: Record<I18nKey, string> = {
+@@ -2640,17 +2640,17 @@ export const dict: Record<I18nKey, string> = {
    "chat.questionCard.inputNeeded": "Entrada necesaria",
    "chat.questionCard.fromSubagent": "De un subagente",
    "chat.questionCard.questionFallback": "Pregunta {index}",
@@ -2916,10 +2505,10 @@ index d125ed34f..71bc8f652 100644
    "chat.questionCard.next": "Siguiente",
    "chat.questionCard.dismiss": "Descartar",
 diff --git a/packages/ui/src/lib/i18n/messages/fr.ts b/packages/ui/src/lib/i18n/messages/fr.ts
-index 8447872c0..3e0d79571 100644
+index bbec1165e..31771b771 100644
 --- a/packages/ui/src/lib/i18n/messages/fr.ts
 +++ b/packages/ui/src/lib/i18n/messages/fr.ts
-@@ -2366,17 +2366,17 @@ export const dict = {
+@@ -2382,17 +2382,17 @@ export const dict = {
    'chat.questionCard.inputNeeded': 'Entrée nécessaire',
    'chat.questionCard.fromSubagent': 'Du sous-agent',
    'chat.questionCard.questionFallback': 'Question {index}',
@@ -2945,10 +2534,10 @@ index 8447872c0..3e0d79571 100644
    'chat.questionCard.next': 'Suivant',
    'chat.questionCard.dismiss': 'Ignorer',
 diff --git a/packages/ui/src/lib/i18n/messages/he.ts b/packages/ui/src/lib/i18n/messages/he.ts
-index ba6905479..1aeea1a85 100644
+index a7b897249..8a83bc052 100644
 --- a/packages/ui/src/lib/i18n/messages/he.ts
 +++ b/packages/ui/src/lib/i18n/messages/he.ts
-@@ -2551,17 +2551,17 @@ export const dict = {
+@@ -2563,17 +2563,17 @@ export const dict = {
    'chat.questionCard.inputNeeded': 'נדרש קלט',
    'chat.questionCard.fromSubagent': 'מסוכן משנה',
    'chat.questionCard.questionFallback': 'שאלה {index}',
@@ -2974,10 +2563,10 @@ index ba6905479..1aeea1a85 100644
    'chat.questionCard.next': 'הבא',
    'chat.questionCard.dismiss': 'דלג',
 diff --git a/packages/ui/src/lib/i18n/messages/ja.ts b/packages/ui/src/lib/i18n/messages/ja.ts
-index 4f1ce3563..4a4fccd88 100644
+index b0a2468ef..33ef4c88e 100644
 --- a/packages/ui/src/lib/i18n/messages/ja.ts
 +++ b/packages/ui/src/lib/i18n/messages/ja.ts
-@@ -2650,17 +2650,17 @@ export const dict: Record<I18nKey, string> = {
+@@ -2668,17 +2668,17 @@ export const dict: Record<I18nKey, string> = {
    'chat.questionCard.inputNeeded': '入力が必要',
    'chat.questionCard.fromSubagent': 'サブエージェントから',
    'chat.questionCard.questionFallback': '質問{index}',
@@ -3003,10 +2592,10 @@ index 4f1ce3563..4a4fccd88 100644
    'chat.questionCard.next': '次へ',
    'chat.questionCard.dismiss': '閉じる',
 diff --git a/packages/ui/src/lib/i18n/messages/ko.ts b/packages/ui/src/lib/i18n/messages/ko.ts
-index 059f5aab9..ff09e0e19 100644
+index 43400777f..39179c5d7 100644
 --- a/packages/ui/src/lib/i18n/messages/ko.ts
 +++ b/packages/ui/src/lib/i18n/messages/ko.ts
-@@ -2654,17 +2654,17 @@ export const dict: Record<I18nKey, string> = {
+@@ -2672,17 +2672,17 @@ export const dict: Record<I18nKey, string> = {
    'chat.questionCard.inputNeeded': '입력 필요',
    'chat.questionCard.fromSubagent': '서브 에이전트에서',
    'chat.questionCard.questionFallback': '질문 {index}',
@@ -3032,10 +2621,10 @@ index 059f5aab9..ff09e0e19 100644
    'chat.questionCard.next': '다음',
    'chat.questionCard.dismiss': '닫기',
 diff --git a/packages/ui/src/lib/i18n/messages/nl.ts b/packages/ui/src/lib/i18n/messages/nl.ts
-index 1b3d09f9a..91b0464ff 100644
+index 19cd226d4..7d020ce88 100644
 --- a/packages/ui/src/lib/i18n/messages/nl.ts
 +++ b/packages/ui/src/lib/i18n/messages/nl.ts
-@@ -2654,17 +2654,17 @@ export const dict = {
+@@ -2672,17 +2672,17 @@ export const dict = {
    'chat.questionCard.inputNeeded': 'Invoer nodig',
    'chat.questionCard.fromSubagent': 'Van subagent',
    'chat.questionCard.questionFallback': 'Vraag {index}',
@@ -3061,10 +2650,10 @@ index 1b3d09f9a..91b0464ff 100644
    'chat.questionCard.next': 'Volgende',
    'chat.questionCard.dismiss': 'Sluiten',
 diff --git a/packages/ui/src/lib/i18n/messages/pl.ts b/packages/ui/src/lib/i18n/messages/pl.ts
-index 82ddd5581..8cc6ce88e 100644
+index 994aa50ea..c63b5e91c 100644
 --- a/packages/ui/src/lib/i18n/messages/pl.ts
 +++ b/packages/ui/src/lib/i18n/messages/pl.ts
-@@ -1198,17 +1198,17 @@ export const dict: Record<I18nKey, string> = {
+@@ -1207,17 +1207,17 @@ export const dict: Record<I18nKey, string> = {
    'chat.questionCard.inputNeeded': 'Wymagane wejście',
    'chat.questionCard.fromSubagent': 'Od pod-agenta',
    'chat.questionCard.questionFallback': 'Pytanie {index}',
@@ -3090,10 +2679,10 @@ index 82ddd5581..8cc6ce88e 100644
    'chat.questionCard.next': 'Następne',
    'chat.questionCard.dismiss': 'Odrzuć',
 diff --git a/packages/ui/src/lib/i18n/messages/pt-BR.ts b/packages/ui/src/lib/i18n/messages/pt-BR.ts
-index ffe3ebd84..36b316a79 100644
+index a623c6e2c..0812ca97d 100644
 --- a/packages/ui/src/lib/i18n/messages/pt-BR.ts
 +++ b/packages/ui/src/lib/i18n/messages/pt-BR.ts
-@@ -2624,17 +2624,17 @@ export const dict: Record<I18nKey, string> = {
+@@ -2642,17 +2642,17 @@ export const dict: Record<I18nKey, string> = {
    "chat.questionCard.inputNeeded": "Entrada necessária",
    "chat.questionCard.fromSubagent": "De um subagente",
    "chat.questionCard.questionFallback": "Pergunta {index}",
@@ -3119,10 +2708,10 @@ index ffe3ebd84..36b316a79 100644
    "chat.questionCard.next": "Próximo",
    "chat.questionCard.dismiss": "Descartar",
 diff --git a/packages/ui/src/lib/i18n/messages/tr.ts b/packages/ui/src/lib/i18n/messages/tr.ts
-index 675187a15..b1184476b 100644
+index eafbad77b..c37adb9ae 100644
 --- a/packages/ui/src/lib/i18n/messages/tr.ts
 +++ b/packages/ui/src/lib/i18n/messages/tr.ts
-@@ -2497,17 +2497,17 @@ export const dict = {
+@@ -2513,17 +2513,17 @@ export const dict = {
    'chat.questionCard.inputNeeded': 'Girdi gerekiyor',
    'chat.questionCard.fromSubagent': 'Subagent\'tan',
    'chat.questionCard.questionFallback': 'Soru {index}',
@@ -3148,10 +2737,10 @@ index 675187a15..b1184476b 100644
    'chat.questionCard.next': 'İleri',
    'chat.questionCard.dismiss': 'Yok say',
 diff --git a/packages/ui/src/lib/i18n/messages/uk.ts b/packages/ui/src/lib/i18n/messages/uk.ts
-index 15d7a9f63..0f270e088 100644
+index 4afe28742..e2d830285 100644
 --- a/packages/ui/src/lib/i18n/messages/uk.ts
 +++ b/packages/ui/src/lib/i18n/messages/uk.ts
-@@ -2622,17 +2622,17 @@ export const dict: Record<I18nKey, string> = {
+@@ -2640,17 +2640,17 @@ export const dict: Record<I18nKey, string> = {
    "chat.questionCard.inputNeeded": "Потрібна відповідь",
    "chat.questionCard.fromSubagent": "Від субагента",
    "chat.questionCard.questionFallback": "Питання {index}",
@@ -3177,10 +2766,10 @@ index 15d7a9f63..0f270e088 100644
    "chat.questionCard.next": "Далі",
    "chat.questionCard.dismiss": "Відхилити",
 diff --git a/packages/ui/src/lib/i18n/messages/zh-CN.ts b/packages/ui/src/lib/i18n/messages/zh-CN.ts
-index 5bd651a8f..d082544da 100644
+index 8698c4ea6..9770d0f00 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-CN.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-CN.ts
-@@ -2620,17 +2620,17 @@ export const dict: Record<I18nKey, string> = {
+@@ -2638,17 +2638,17 @@ export const dict: Record<I18nKey, string> = {
    'chat.questionCard.inputNeeded': '需要输入',
    'chat.questionCard.fromSubagent': '来自子智能体',
    'chat.questionCard.questionFallback': '问题 {index}',
@@ -3206,10 +2795,10 @@ index 5bd651a8f..d082544da 100644
    'chat.questionCard.next': '下一个',
    'chat.questionCard.dismiss': '忽略',
 diff --git a/packages/ui/src/lib/i18n/messages/zh-TW.ts b/packages/ui/src/lib/i18n/messages/zh-TW.ts
-index 1a64ea990..d0ad7a39b 100644
+index b78ff89d4..c4fbebf80 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-TW.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-TW.ts
-@@ -2631,17 +2631,17 @@ export const dict: Record<I18nKey, string> = {
+@@ -2649,17 +2649,17 @@ export const dict: Record<I18nKey, string> = {
    'chat.questionCard.inputNeeded': '需要輸入',
    'chat.questionCard.fromSubagent': '來自子 Agent',
    'chat.questionCard.questionFallback': '問題 {index}',
