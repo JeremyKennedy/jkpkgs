@@ -88,9 +88,6 @@ let
       # The reference picker's search across every repository under a
       # project folder, for Gitea and Forgejo.
       ./patches/gitea-references-across.patch
-      # A reconnect without a replay re-read every retained directory, and each
-      # read boots that directory's OpenCode location and its MCP servers.
-      ./patches/reconnect-gap-visible-only.patch
       # Message search scoped every session read to that session's directory,
       # and x-opencode-directory makes OpenCode boot the directory as a
       # location, so indexing a few hundred chats left a few hundred locations
