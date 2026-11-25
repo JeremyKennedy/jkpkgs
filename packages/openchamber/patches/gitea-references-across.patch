@@ -1,3 +1,29 @@
+diff --git a/packages/web/server/lib/gitea/DOCUMENTATION.md b/packages/web/server/lib/gitea/DOCUMENTATION.md
+index da6b39114..fc4a8cdc5 100644
+--- a/packages/web/server/lib/gitea/DOCUMENTATION.md
++++ b/packages/web/server/lib/gitea/DOCUMENTATION.md
+@@ -42,6 +42,7 @@ The standard table's `/issues/update` edits an issue's title and body (`PATCH /i
+ - Reviewers are set as a whole set by numeric user id, like GitLab's. Ids are turned into usernames through the collaborators and the current review requests, then the difference is sent as `POST` (add) and `DELETE` (remove) on `requested_reviewers`. The two calls are not atomic; reconciliation succeeds only when the current set matches. Gitea lists in `requested_reviewers` everyone with a standing review, not only open requests, and a `DELETE` for someone who already reviewed answers 204 and changes nothing. So before any write, a removal reads `/pulls/{n}/reviews` and refuses with `400 GITEA_REVIEWER_HAS_REVIEWED`, naming the logins, when someone to remove has a submitted review (`APPROVED`, `REQUEST_CHANGES` or `COMMENT`, not dismissed). 1.21 answers an empty set as `null`, read as empty.
+ - `head.label` is the bare branch name even for a fork's branch, so `headLabel` is built as `owner:branch` from `head.repo`, the form the worktree flow reads an owner from.
+ - Capabilities off: review threads (no reply or resolve API), uploads (attachments are served to a browser session), stacks, the reference picker.
++- A folder whose remote repository was deleted or renamed reads as having no repository, not as a failed read: the across-repository search skips that remote on 404/410, and the folder's single lookup answers `SOURCE_CONTROL_NO_REPOSITORY` with 404, since a missing target is not a stale one.
+ 
+ ## Enterprise mode
+ 
+@@ -179,3 +180,13 @@ A comment or a review write leaves nothing the sender can read back by id: Gitea
+ A review is a `PENDING` review; only its author reads it, and `/pr/review` submits it with the verdict. Comments sit on one line of one side (`new_position` or `old_position`): Gitea has no range and no comment on a whole file, so `reviewDraftFileComments` is off, and it has no replies or resolving, so threads read `canReply: false, canResolve: false`. Adding a comment is the same `POST /reviews` with `event: PENDING`, since the API has no route to add to a pending review, and a review comment is edited and removed through the issue comment routes; releases that answer those with an empty 204 and change nothing are reported as such. A verdict on a draft begun on an older commit is refused, and the draft still goes out as a comment. None of this has been run against a live instance yet.
+ 
+ `/pr/comment/update|delete` and `/issues/comment/update|delete` edit and remove a comment through `PATCH`/`DELETE /issues/comments/{id}` (kinds `change-request-comment-update|delete`, `issue-comment-update|delete`; a pull request comment is an issue comment here). Both read the comment first and refuse one whose address is not the target: Gitea answers the HTML URL in `issue_url`, and leaves it empty on a pull request comment, where `pull_request_url` names the pull request instead, so both are read as `<origin>/<owner>/<name>/(issues|pulls)/<number>`. A comment carries `canUpdate`/`canDelete`, true only when its author is the connected account. An edit must read back exactly; a delete is `succeeded` when the comment reads 404, and a comment still readable right after a 2xx delete stays `outcome-unknown` rather than failed, since a stale read and a lost write look the same.
++
++## Across-repository reference search
++
++The reference picker can search every repository under a project folder. Gitea has no search that names a set of repositories, so a page is built by reading the newest page of each folder's repository and merging them by activity. That bounds a page to four pages per repository, 200 items at Gitea's 50-item cap; deeper pages stop there rather than pretend the folder holds nothing older. Pages are cached briefly, so paging does not read every repository again for each page.
++
++A pull request read through Gitea's issue search carries no head or base, so only the items that land on the page are read as pull requests before they are mapped. A repository with no remote on the instance is reported as `no-repo`, a folder whose binding changed as `invalid-context`, and a gone account as `disconnected`, the same statuses the GitHub search answers.
++
++The cursor is an offset into a result set plus a hash of the scope that set was read for. The scope changes when a folder's binding, the kind, filters or the query do; the cursor is then not an offset into what this request would read, so the request starts again instead of showing a shifted window.
++
++A single-item lookup accepts `#12` or `12` (a bare number reads every asked repository), or a link to an item on the instance; anything else is a text search. A folder whose remote repository was deleted or renamed reads as having no repository, not as a failed read: the search skips that remote on 404/410, and the folder's single lookup answers `SOURCE_CONTROL_NO_REPOSITORY` with 404, since a missing target is not a stale one.
 diff --git a/packages/web/server/lib/gitea/descriptor.ts b/packages/web/server/lib/gitea/descriptor.ts
 index 0cb4e3a5a..2c4d03aba 100644
 --- a/packages/web/server/lib/gitea/descriptor.ts
@@ -192,7 +218,7 @@ index 0dc784ee6..fb5bbeb24 100644
  });
  
 diff --git a/packages/web/server/lib/gitea/provider.ts b/packages/web/server/lib/gitea/provider.ts
-index 0f9cda95b..59eecd1d6 100644
+index 0f9cda95b..36a15b061 100644
 --- a/packages/web/server/lib/gitea/provider.ts
 +++ b/packages/web/server/lib/gitea/provider.ts
 @@ -4,14 +4,16 @@ import { classifyGiteaFailure, createGiteaClient } from './client.js';
@@ -214,28 +240,20 @@ index 0f9cda95b..59eecd1d6 100644
  import type { BindingMutationTarget } from '../source-control/binding-service-contracts.js';
  import type { GiteaFetch } from './client.js';
  import type { GiteaResourceOptions } from './resources.js';
-@@ -257,7 +259,11 @@ export function createGiteaFamilyProvider(build: GiteaFamilyProviderOptions) {
+@@ -257,7 +259,8 @@ export function createGiteaFamilyProvider(build: GiteaFamilyProviderOptions) {
      if (resolveRepos) options.resolveRepos = resolveRepos;
      const service = createResourceService(options);
      const identity = identityFor(session.instance, session.accountId);
 -    const methods: Record<string, (...args: never[]) => Promise<object>> = service;
-+    // The wrapper table below only needs callables; the service's own typed
-+    // methods are what the handlers use, so the record is narrowed here rather
-+    // than every resource method being widened to Promise<object>.
 +    const methods: Record<string, (...args: never[]) => Promise<object>> =
 +      service as unknown as Record<string, (...args: never[]) => Promise<object>>;
      for (const method of Object.keys(methods)) {
        const operation = methods[method];
        if (!(operation instanceof Function)) continue;
-@@ -309,6 +315,45 @@ export function createGiteaFamilyProvider(build: GiteaFamilyProviderOptions) {
+@@ -309,6 +312,38 @@ export function createGiteaFamilyProvider(build: GiteaFamilyProviderOptions) {
        readChangeRequestFile: ({ session, directory, number, sourceRepo, remote, path, previousPath, status, binary, linked }: PatchRead & Pick<Parameters<Service['changeRequestFileContents']>[2], 'path' | 'previousPath' | 'status' | 'binary'>) => serviceFor(session)
          .changeRequestFileContents(directory, number, { project: projectSelector(sourceRepo), remote, path, previousPath, status, binary, linked }),
        liveSummaries: ({ session, refs, issueRefs }: { session: ProviderSession } & Parameters<Service['liveSummaries']>[0]) => serviceFor(session).liveSummaries({ refs, issueRefs }),
-+      /**
-+       * The picker's search across a folder's repositories. One request spans
-+       * folders and so more than one session; each folder is validated and
-+       * read with its own account, as the GitHub search does.
-+       */
 +      referencesAcross: ({ body, validateReadContext }: {
 +        body: SourceControlJson;
 +        validateReadContext(context: ReadContextRequest): Promise<ProviderReadContext | null>;
@@ -259,8 +277,6 @@ index 0f9cda95b..59eecd1d6 100644
 +            });
 +            return serviceFor(session) as unknown as ReferenceService;
 +          },
-+          // A token the host refuses is written off here too, as a refused
-+          // per-repository read does through the shell.
 +          onFolderFailure: async (error: FolderFailure, identity: TrustedContext) => {
 +            const status = error?.status ?? error?.response?.status;
 +            if (status !== 401 || error?.sourceControlAccountUnavailable) return;
@@ -275,10 +291,10 @@ index 0f9cda95b..59eecd1d6 100644
          const headSha = String(request.headSha || '').toLowerCase();
 diff --git a/packages/web/server/lib/gitea/references-across.test.ts b/packages/web/server/lib/gitea/references-across.test.ts
 new file mode 100644
-index 000000000..4362f626f
+index 000000000..e89f4a119
 --- /dev/null
 +++ b/packages/web/server/lib/gitea/references-across.test.ts
-@@ -0,0 +1,644 @@
+@@ -0,0 +1,645 @@
 +import { beforeEach, describe, expect, it, vi } from 'vitest';
 +import {
 +  issueReference, pullReference, readReferencesAcross, readReferencesAcrossRequest, resetReferencePageCache,
@@ -304,7 +320,7 @@ index 000000000..4362f626f
 +  title: string;
 +  html_url?: string | undefined;
 +  state?: string | undefined;
-+  user?: Record<string, unknown> | undefined;
++  user?: { login?: string | undefined; avatar_url?: string | undefined } | undefined;
 +  labels?: unknown[] | undefined;
 +  comments?: number | undefined;
 +  body?: string | undefined;
@@ -346,8 +362,8 @@ index 000000000..4362f626f
 +
 +type ServiceOptions = {
 +  repo?: FixtureRepo;
-+  detail?: (number: number) => unknown;
-+  item?: (options: Parameters<ReferenceService['readReferenceItem']>[1]) => { repo: RepoRef | null; item: unknown };
++  detail?: (number: number) => RawPullFields;
++  item?: (options: Parameters<ReferenceService['readReferenceItem']>[1]) => { repo: RepoRef | null; item: RawIssueFields | null };
 +};
 +
 +/** One item of the merged page, as the module reports it. */
@@ -374,7 +390,9 @@ index 000000000..4362f626f
 +  primaryRemote: 'origin',
 +});
 +
-+const request = (contexts: ReadContextRequest[], extra: Record<string, unknown> = {}): ReadRequest => {
++type RequestExtra = { kind?: 'issue' | 'pull'; state?: 'open' | 'closed' | 'merged' | 'all' | 'unanswered'; people?: 'any' | 'assigned' | 'created' | 'reviewRequested'; query?: string; page?: number };
++
++const request = (contexts: ReadContextRequest[], extra: RequestExtra = {}): ReadRequest => {
 +  const input = readReferencesAcrossRequest({ contexts, kind: 'issue', ...extra }, 'gitea');
 +  if (!input) throw new Error('the fixture request did not validate');
 +  return input;
@@ -439,10 +457,9 @@ index 000000000..4362f626f
 + * request context, so the folder travels with it, but the module's own trusted
 + * shape does not name it: it is narrowed at the read like any other field.
 + */
-+const folderOf = (trusted: TrustedContext): string => {
-+  const directory = 'directory' in trusted ? trusted.directory : undefined;
-+  if (typeof directory !== 'string') throw new Error('trusted context carries no folder');
-+  return directory;
++const folderOf = (trusted: TrustedContext & { directory?: string | undefined }): string => {
++  if (!trusted.directory) throw new Error('trusted context carries no folder');
++  return trusted.directory;
 +};
 +
 +/** The fixture's service for a folder; the folder maps are total over the bound folders. */
@@ -453,7 +470,7 @@ index 000000000..4362f626f
 +};
 +
 +/** A mapped issue the test reads fields off; a null here is the failure the assertion would report. */
-+const mappedIssue = (raw: unknown, repo: RepoRef, directory: string): NonNullable<ReturnType<typeof issueReference>> => {
++const mappedIssue = (raw: RawIssueFields | RawPullFields, repo: RepoRef, directory: string): NonNullable<ReturnType<typeof issueReference>> => {
 +  const mapped = issueReference(raw, repo, directory);
 +  if (!mapped) throw new Error('the fixture issue did not map');
 +  return mapped;
@@ -646,7 +663,7 @@ index 000000000..4362f626f
 +
 +  it('keeps reading a folder until the window is covered, and stops at the per-folder cap', async () => {
 +    const items = (from: number, to: number) => Array.from({ length: to - from }, (_value, index) => rawIssue(from + index, '2026-10-01T00:00:00Z'));
-+    const pages: Record<number, CandidatePage> = {
++    const pages = {
 +      1: { items: items(1, 51), hasMore: true },
 +      2: { items: items(51, 101), hasMore: true },
 +      3: { items: items(101, 151), hasMore: true },
@@ -738,10 +755,10 @@ index 000000000..4362f626f
 +  });
 +
 +  it('reports each folder it could not read and still answers the others', async () => {
-+    const failures: Record<string, Error> = {
++    const failures = {
 +      '/signed-out': Object.assign(new Error('signed out'), { status: 401 }),
 +      '/stale': Object.assign(new Error('stale'), { code: 'SOURCE_CONTROL_BINDING_STALE' }),
-+    };
++    } satisfies Record<string, Error>;
 +    const failureCalls: { error: FolderFailure; identity: { instance?: string; accountId?: string } }[] = [];
 +    // One account reads every folder, so one service answers them all; a
 +    // folder without a repository on the instance fails its own read.
@@ -886,7 +903,7 @@ index 000000000..4362f626f
 +      '/a': serviceWith({}, { item: itemOf(REPO) }),
 +      '/b': serviceWith({}, { item: itemOf({ id: '9', owner: 'acme', name: 'beta', url: `${ORIGIN}/acme/beta` }) }),
 +    };
-+    const read = (servicesById: Record<string, MockedService>, extra: Record<string, unknown>): Promise<ReferencesPage> => readReferencesAcross({
++    const read = (servicesById: Record<string, MockedService>, extra: RequestExtra): Promise<ReferencesPage> => readReferencesAcross({
 +      input: request([context('/a'), context('/b')], extra),
 +      providerId: 'gitea',
 +      validateReadContext: healthy,
@@ -925,29 +942,10 @@ index 000000000..4362f626f
 +});
 diff --git a/packages/web/server/lib/gitea/references-across.ts b/packages/web/server/lib/gitea/references-across.ts
 new file mode 100644
-index 000000000..4a5cc6feb
+index 000000000..aed29b766
 --- /dev/null
 +++ b/packages/web/server/lib/gitea/references-across.ts
-@@ -0,0 +1,536 @@
-+/**
-+ * The reference picker's search across a folder's repositories, for Gitea and
-+ * Forgejo. The board asks one provider for every repository under a project
-+ * folder; each folder arrives as its own bound read context.
-+ *
-+ * Gitea has no search that names a set of repositories, so a page is built by
-+ * reading the newest page of each folder's repository and merging them by
-+ * activity. That bounds a page to `MAX_PAGES_PER_REPO` pages per repository
-+ * (`4`, 200 items at Gitea's 50-item cap); deeper pages stop there rather than
-+ * pretend the folder holds nothing older. Pages are cached briefly so paging
-+ * does not read every repository again for each page.
-+ *
-+ * A pull request read through Gitea's issue search carries no head or base, so
-+ * only the items that land on the page are read as pull requests before they
-+ * are mapped. A repository with no remote on the instance is reported as
-+ * `no-repo`, a folder whose binding changed as `invalid-context`, and a gone
-+ * account as `disconnected`, the same statuses the GitHub search answers.
-+ */
-+
+@@ -0,0 +1,460 @@
 +import { createHash } from 'node:crypto';
 +import { z } from 'zod';
 +import { isPlainObject, isString } from '../shared/guards.js';
@@ -960,7 +958,6 @@ index 000000000..4a5cc6feb
 +type ProjectRef = { owner: string; repo: string };
 +type Lookup = { number: number; host?: string; project?: ProjectRef };
 +
-+/** What this module needs of a folder's resource service. */
 +export type ReferenceService = {
 +  listReferenceCandidates(directory: string, options: {
 +    kind: 'issue' | 'pull'; state: string; people: string; query: string; page: number; remote: string;
@@ -970,7 +967,6 @@ index 000000000..4a5cc6feb
 +};
 +
 +const PAGE_SIZE = 30;
-+// Gitea caps a page at `[api] MAX_RESPONSE_ITEMS` (50 by default).
 +const REPO_PAGE_LIMIT = 50;
 +const MAX_PAGES_PER_REPO = 4;
 +const ACROSS_CONCURRENCY = 4;
@@ -999,9 +995,7 @@ index 000000000..4a5cc6feb
 +  state: z.enum(['open', 'closed', 'merged', 'all', 'unanswered']).optional(),
 +  people: z.enum(['any', 'assigned', 'created', 'reviewRequested']).optional(),
 +  query: z.string().optional(),
-+  // The first page sends no cursor as null, like the single-repository list.
 +  cursor: z.string().max(100_000).nullable().optional(),
-+  // A forced read (the board's list refresh) skips the page cache.
 +  refresh: z.boolean().optional(),
 +});
 +
@@ -1013,11 +1007,9 @@ index 000000000..4a5cc6feb
 +type AcrossRequest = z.infer<typeof requestSchema>;
 +type AcrossInput = AcrossRequest & { contexts: AcrossContext[]; directories: string[] };
 +
-+/** Validate the JSON read request before any folder or credential access. */
 +export function readReferencesAcrossRequest(body: unknown, providerId: string): AcrossInput | null {
 +  const parsed = requestSchema.safeParse(body);
 +  if (!parsed.success) return null;
-+  // One request goes to one provider; a context of another one is a caller bug.
 +  if (parsed.data.contexts.some((context) => context.provider !== providerId)) return null;
 +  const folders = new Map<string, AcrossContext>();
 +  for (const context of parsed.data.contexts) {
@@ -1031,12 +1023,6 @@ index 000000000..4a5cc6feb
 +  };
 +}
 +
-+/**
-+ * The cursor is an offset into a result set plus a hash of the scope that set
-+ * was read for. The scope changes when a folder's binding, the kind, filters
-+ * or the query do; the cursor is then not an offset into what this request
-+ * would read, so the request starts again instead of showing a shifted window.
-+ */
 +const cursorScope = (input: AcrossInput, kind: string, state: string, people: string, query: string) => createHash('sha256').update(JSON.stringify({
 +  provider: input.contexts.map((context) => [
 +    context.directory, context.repositoryId, context.bindingRevision, context.primaryRemote,
@@ -1060,16 +1046,8 @@ index 000000000..4a5cc6feb
 +};
 +
 +const NUMBERED = /^(\D{0,4})(\d+)$/u;
-+// An item's page on the instance: `/owner/repo/issues/12`,
-+// `/owner/repo/pulls/12`, with an optional trailing `/files`, `/commits`, ...
 +const ITEM_PATH = /^\/([^/]+)\/([^/]+)\/(?:issues|pulls)\/(\d+)(?:\/.*)?$/;
 +
-+/**
-+ * The one item a query names: `#12` or `12` (a bare number reads every asked
-+ * repository), or a link to an item on the instance. Anything else is a text
-+ * search. It mirrors the single-repository list's lookup, which also reads
-+ * the item rather than searching for its number.
-+ */
 +function parseReferenceLookup(query: string): Lookup | null {
 +  const trimmed = query.trim();
 +  const numbered = NUMBERED.exec(trimmed);
@@ -1125,10 +1103,8 @@ index 000000000..4a5cc6feb
 +  });
 +};
 +
-+/** `source` is the folder's primary remote: an item read through `upstream` says so. */
 +const sourceRepoOf = (repo: RepoRef, source = 'origin'): { owner: string; repo: string; source: string } => ({ owner: repo.owner, repo: repo.name, source });
 +
-+/** One issue of the folder's repository as a picker item, or null when it does not map. */
 +export function issueReference(raw: unknown, repo: RepoRef, directory: string, source = 'origin') {
 +  if (!isPlainObject(raw) || integer(raw.number) === null || !text(raw.title) || !text(raw.html_url)) return null;
 +  if (raw.pull_request != null) return null;
@@ -1145,7 +1121,6 @@ index 000000000..4a5cc6feb
 +    labels: labelsOf(raw),
 +    commentCount: integer(raw.comments) ?? 0,
 +    sourceRepo: sourceRepoOf(repo, source),
-+    // Gitea sends no close reason, so a closed issue reads as done.
 +    state: raw.state === 'open' ? 'open' : 'completed',
 +    directory,
 +  };
@@ -1169,7 +1144,6 @@ index 000000000..4a5cc6feb
 +  return mapped;
 +};
 +
-+/** One pull request of the folder's repository as a picker item, or null when it does not map. */
 +export function pullReference(raw: unknown, repo: RepoRef, directory: string, source = 'origin') {
 +  if (!isPlainObject(raw) || integer(raw.number) === null || !text(raw.title) || !text(raw.html_url)) return null;
 +  const headNode = isPlainObject(raw.head) ? raw.head : null;
@@ -1180,8 +1154,6 @@ index 000000000..4a5cc6feb
 +  if (!head || !baseRef || !headSha) return null;
 +  const state = raw.merged === true ? 'merged' : raw.state;
 +  if (state !== 'open' && state !== 'closed' && state !== 'merged') return null;
-+  // Gitea's own work-in-progress prefixes (`[repository.pull-request] WORK_IN_PROGRESS_PREFIXES`).
-+  // A merged or closed pull request is not a draft, whatever its title still says.
 +  const draft = state === 'open' && (raw.draft === true || isDraftTitle(String(raw.title)));
 +  return {
 +    kind: 'pull',
@@ -1213,8 +1185,6 @@ index 000000000..4a5cc6feb
 +  if (error?.sourceControlAccountUnavailable) return 'disconnected';
 +  if ((error?.status ?? error?.response?.status) === 401) return 'disconnected';
 +  if (error?.code === 'SOURCE_CONTROL_NO_REPOSITORY') return 'no-repo';
-+  // A local Git or exec failure carries its exit status as a numeric `code`;
-+  // only this module's own codes are strings.
 +  const code = isString(error?.code) ? error.code : '';
 +  if (code.startsWith('SOURCE_CONTROL_BINDING_') || code.startsWith('SOURCE_CONTROL_LOCK_')
 +    || code === 'INVALID_SOURCE_CONTROL_READ_CONTEXT' || code === 'INVALID_SOURCE_CONTROL_BINDING') {
@@ -1223,11 +1193,8 @@ index 000000000..4a5cc6feb
 +  return 'error';
 +};
 +
-+// Per-repository pages are read again for the next page of the same search;
-+// a short cache keeps paging from re-reading every repository each time.
 +const pageCache = new Map<string, { at: number; value: unknown }>();
 +
-+/** Drop every cached page; tests use it between cases. */
 +export const resetReferencePageCache = () => pageCache.clear();
 +
 +const cachedPage = async <T>(key: string, read: () => Promise<T>, { refresh = false } = {}): Promise<T> => {
@@ -1251,13 +1218,6 @@ index 000000000..4a5cc6feb
 +  return updated ? Date.parse(updated) || 0 : 0;
 +};
 +
-+/**
-+ * The board's search across the folder's repositories. `input` is
-+ * `readReferencesAcrossRequest`'s answer; `validateReadContext` returns the
-+ * trusted context for a folder, and `resolveService` the resource service
-+ * that reads it. `onFolderFailure` sees every folder failure with the
-+ * identity it was read under, so a refused account can be marked invalid.
-+ */
 +export async function readReferencesAcross({
 +  input, providerId, validateReadContext, resolveService, onFolderFailure,
 +}: {
@@ -1278,8 +1238,6 @@ index 000000000..4a5cc6feb
 +  const folders = new Map<string, { trusted?: TrustedContext; service?: ReferenceService; status?: string; repo?: RepoRef | null }>();
 +  const services = new Map<string, ReferenceService>();
 +
-+  // A folder's failure is its own: the caller may mark a refused account, and
-+  // the status keeps the rest of the page answering.
 +  const failed = async (error: FolderFailure, identity: { instance?: string; accountId?: string }) => {
 +    if (onFolderFailure) await onFolderFailure(error, identity);
 +    return failureStatus(error);
@@ -1323,13 +1281,8 @@ index 000000000..4a5cc6feb
 +    };
 +  });
 +
-+  // A link or a number names one item, as on the single-repository list: read
-+  // that item instead of searching for its text, and answer a one-item page.
 +  const lookup = kind === 'issue' || kind === 'pull' ? parseReferenceLookup(query) : null;
 +  if (lookup) {
-+    // A link names one host: folders on another instance cannot answer it, so
-+    // they are not read at all. A bare `#number` has no host and reads every
-+    // folder, as the single-repository list does.
 +    const folderEntries = [...folders.entries()].filter((pair): pair is [string, NonNullable<typeof pair[1]>] => pair[1] !== undefined);
 +    const asked = folderEntries.filter(([, entry]) => {
 +      if (!lookup.host) return true;
@@ -1344,8 +1297,7 @@ index 000000000..4a5cc6feb
 +    const found = await mapLimited(asked, ACROSS_CONCURRENCY, async (pair) => {
 +      if (!pair) return null;
 +      const [directory, entry] = pair;
-+      const trusted = entry.trusted ?? {};
-+      const service = entry.service;
++        const service = entry.service;
 +      if (!service) return null;
 +      if (entry.status) return null;
 +      try {
@@ -1353,8 +1305,6 @@ index 000000000..4a5cc6feb
 +          kind: kind === 'discussion' ? 'issue' : kind, number: lookup.number, remote: String(trusted.primaryRemote ?? 'origin'),
 +        });
 +        entry.repo = result.repo;
-+        // A link names one host and one repository; a folder elsewhere, or
-+        // with another repository, still answers with its repository alone.
 +        if (lookup.host && lookup.host !== String(trusted.instance ?? '').toLowerCase()) return null;
 +        if (!result.item) return null;
 +        if (lookup.project && (!result.repo || !sameRepository(result.repo, lookup.project))) return null;
@@ -1372,8 +1322,6 @@ index 000000000..4a5cc6feb
 +    return { items, cursor: null, hasMore: false, total: items.length, repositories: repositoriesOf() };
 +  }
 +
-+  // Enough pages per repository that the next window can be told to have
-+  // more, within the cap: one more page than the offset itself needs.
 +  const pages = Math.min(MAX_PAGES_PER_REPO, Math.floor((offset + PAGE_SIZE) / REPO_PAGE_LIMIT) + 1);
 +  type Candidate = { raw: JsonObject; repo: RepoRef | null; needsDetail: boolean; directory: string; entry: NonNullable<typeof folders extends Map<string, infer V> ? V : never> };
 +  const candidates: Candidate[] = [];
@@ -1382,10 +1330,7 @@ index 000000000..4a5cc6feb
 +  await mapLimited(pageEntries, ACROSS_CONCURRENCY, async (pair) => {
 +    if (!pair) return;
 +    const [directory, entry] = pair;
-+    const trusted = entry.trusted ?? {};
 +    if (entry.status) return;
-+    // A folder that fails on a later page contributes none of its rows: a
-+    // page that says the folder could not be read must not also show them.
 +    const local: Candidate[] = [];
 +    try {
 +      for (let page = 1; page <= pages; page += 1) {
@@ -1395,8 +1340,7 @@ index 000000000..4a5cc6feb
 +          entry.trusted?.primaryRemote ?? '', kind, state, people, query, page,
 +        ]);
 +        const service = entry.service;
-+        const trusted = entry.trusted ?? {};
-+        if (!service) throw Object.assign(new Error('No service for folder'), { code: 'SOURCE_CONTROL_NO_SERVICE' });
++            if (!service) throw Object.assign(new Error('No service for folder'), { code: 'SOURCE_CONTROL_NO_SERVICE' });
 +        const candidateKind: 'issue' | 'pull' = kind === 'pull' ? 'pull' : 'issue';
 +        const result = await cachedPage(key, () => service.listReferenceCandidates(directory, {
 +          kind: candidateKind, state, people, query, page, remote: String(trusted.primaryRemote ?? 'origin'),
@@ -1433,8 +1377,6 @@ index 000000000..4a5cc6feb
 +      } catch (error) {
 +        const failure = error as FolderFailure;
 +        const status = failure?.status ?? failure?.response?.status;
-+        // A pull request that moved or went away between the list and this
-+        // read is dropped from the page; anything else is not an empty page.
 +        if (status === 404 || status === 410) return null;
 +        if (status === 401) {
 +          if (candidate.entry) candidate.entry.status = await failed(error as FolderFailure, candidate.entry.trusted ?? {});
@@ -1450,7 +1392,6 @@ index 000000000..4a5cc6feb
 +      : issueReference(raw, candidate.repo, candidate.directory, remote);
 +    return mapped ? { candidate, item: mapped } : null;
 +  });
-+  // A folder that a detail read wrote off (401) keeps its rows off the page too.
 +  const shown = candidates.filter((candidate) => !candidate.entry?.status);
 +  const items = read
 +    .filter((entry): entry is NonNullable<typeof entry> => entry !== null && !entry.candidate.entry?.status)
@@ -1466,15 +1407,14 @@ index 000000000..4a5cc6feb
 +  };
 +}
 diff --git a/packages/web/server/lib/gitea/resources.ts b/packages/web/server/lib/gitea/resources.ts
-index e3be9a482..842c0263a 100644
+index e3be9a482..e63530fd4 100644
 --- a/packages/web/server/lib/gitea/resources.ts
 +++ b/packages/web/server/lib/gitea/resources.ts
-@@ -32,6 +32,19 @@ type Remote = string | null | undefined;
+@@ -32,6 +32,17 @@ type Remote = string | null | undefined;
  type Selector = Repository | null | undefined;
  type NetworkOptions = { requireComplete?: boolean; linked?: boolean | undefined };
  type ReadOptions = { remote?: Remote; linked?: boolean | undefined; project?: Selector; includeReferences?: boolean | undefined };
 +
-+/** What the picker's across-repository search asks one folder's repository. */
 +type ReferenceCandidateOptions = {
 +  kind?: 'issue' | 'pull';
 +  state?: 'open' | 'closed' | 'merged' | 'all' | 'unanswered';
@@ -1484,12 +1424,11 @@ index e3be9a482..842c0263a 100644
 +  remote?: Remote;
 +};
 +
-+/** The picker's single-item lookup: a link or `#number`. */
 +type ReferenceItemOptions = { kind?: 'issue' | 'pull'; number: number; remote?: Remote };
  type Ref = { owner: string; repo: string; number: number };
  type ListOptions = {
    labels?: string[] | undefined;
-@@ -131,11 +144,28 @@ export function createGiteaResourceService({
+@@ -131,11 +142,23 @@ export function createGiteaResourceService({
      const resolved = await resolveRepos(directory, origin, remote, { sshUrl });
      const repos: Repo[] = [];
      for (const candidate of resolved.repos) {
@@ -1498,9 +1437,6 @@ index e3be9a482..842c0263a 100644
 +      try {
 +        item = await showRepo({ owner: candidate.owner, name: candidate.name }, candidate.remoteName);
 +      } catch (error) {
-+        // A repository deleted or renamed on the instance is a remote this
-+        // account can no longer read, not a read that broke: the folder reads
-+        // as having no repository, as the module's documentation says.
 +        const status = statusOf(error as Failure);
 +        if (status === 404 || status === 410) continue;
 +        throw error;
@@ -1512,15 +1448,13 @@ index e3be9a482..842c0263a 100644
 +    if (!first) {
 +      throw Object.assign(new Error(`No ${providerLabel} repository found for the repository remotes`), {
 +        code: 'SOURCE_CONTROL_NO_REPOSITORY',
-+        // `no repository` is a missing target, not a stale one (the shell's
-+        // generic mutation answer for a coded error is 409).
 +        status: 404,
 +      });
 +    }
      return [first, ...rest];
    };
  
-@@ -505,6 +535,98 @@ export function createGiteaResourceService({
+@@ -505,6 +528,98 @@ export function createGiteaResourceService({
        return { items, page, hasMore: result.hasMore };
      },
  

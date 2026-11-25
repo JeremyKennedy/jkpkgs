@@ -78,18 +78,15 @@ let
       ./patches/android-notification-dismiss.patch
       ./patches/chat-width-80.patch
       ./patches/in-work-paging-show-more.patch
-      ./patches/mobile-guest-catalog-failure.patch
-      ./patches/changed-file-chip-opens-file-outside-git.patch
       ./patches/question-rows.patch
       ./patches/question-cards.patch
       # A message that hides quotes says how many it hid: keeping one row
       # silently made several quotes read as one.
-      ./patches/collapsed-context-count.patch
       # A collapsed quote has no caption and a question card had no mark, so
       # both read as "a bar and some text". Each now carries its own icon.
       ./patches/context-row-icons.patch
-      # One card shape for one question or many, collapsed or open: a
-      # question line and its answer under it, the rest behind a count.
+      # The reference picker's search across every repository under a
+      # project folder, for Gitea and Forgejo.
       ./patches/gitea-references-across.patch
       # Message search scoped every session read to that session's directory,
       # and x-opencode-directory makes OpenCode boot the directory as a

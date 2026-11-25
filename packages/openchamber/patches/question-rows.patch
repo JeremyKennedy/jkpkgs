@@ -1,16 +1,8 @@
 diff --git a/packages/ui/src/components/chat/ChatContainer.tsx b/packages/ui/src/components/chat/ChatContainer.tsx
-index 784414b53..7c06d9772 100644
+index c56d6dc80..98ba2f102 100644
 --- a/packages/ui/src/components/chat/ChatContainer.tsx
 +++ b/packages/ui/src/components/chat/ChatContainer.tsx
-@@ -45,6 +45,7 @@ import { useWorkStatusPlacement } from './column/useWorkStatusPlacement';
- import { ScrollToReplyStartAction } from './components/ScrollToBottomButton';
- import { deriveMessageRole } from './message/messageRole';
- import { isEmptyTextPart } from './message/partUtils';
-+import { buildQuestionEntriesByTurnId, isPromptSelectorTurn, type QuestionAnswerEntry } from './lib/questionEntries';
- 
- type ChatContainerProps = {
-     active?: boolean;
-@@ -363,6 +364,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
+@@ -364,6 +364,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
          hasRenderableSessionSnapshot,
          loadStatus: sessionMessageLoadState.status,
      });
@@ -20,7 +12,7 @@ index 784414b53..7c06d9772 100644
  
      const { attachComposerSlot, draftPresentationExiting, draftLayoutVisible, floatingComposer } = useComposerPresentation({
          currentSessionId,
-@@ -447,6 +451,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
+@@ -448,6 +451,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
              turnIds={timelineController.turnIds}
              activeTurnId={timelineController.activeTurnId}
              onSelectTurn={handlePromptNavigatorSelect}
@@ -147,18 +139,6 @@ index 00a8d40da..f3e1dd304 100644
  
      const hasEverStreamedRef = React.useRef(false);
  
-diff --git a/packages/ui/src/components/chat/MessageList.tsx b/packages/ui/src/components/chat/MessageList.tsx
-index 3b0c4cce5..f36e72690 100644
---- a/packages/ui/src/components/chat/MessageList.tsx
-+++ b/packages/ui/src/components/chat/MessageList.tsx
-@@ -74,6 +74,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
-     const showTurnChangedFiles = useUIStore((state) => state.showTurnChangedFiles);
-     const showReasoningTraces = useUIStore((state) => state.showReasoningTraces);
-     const collapsibleThinkingBlocks = useUIStore((state) => state.collapsibleThinkingBlocks);
-+    const autoExpandAnsweredQuestions = useUIStore((state) => state.autoExpandAnsweredQuestions);
-     const stickyUserHeader = useUIStore((state) => state.stickyUserHeader);
-     const defaultActivityExpanded = activityRenderMode === 'summary';
-     const reviewTransferDirection = useGlobalSessionsStore((state) => {
 diff --git a/packages/ui/src/components/chat/TimelineDialog.test.tsx b/packages/ui/src/components/chat/TimelineDialog.test.tsx
 index 99a354f16..e185d329b 100644
 --- a/packages/ui/src/components/chat/TimelineDialog.test.tsx
@@ -1328,10 +1308,10 @@ index 8ee43c262..c3fadd995 100644
                      </ScrollableOverlay>
 diff --git a/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
 new file mode 100644
-index 000000000..18144142d
+index 000000000..1dab967c4
 --- /dev/null
 +++ b/packages/ui/src/components/chat/components/QuestionTurnHeader.test.tsx
-@@ -0,0 +1,329 @@
+@@ -0,0 +1,327 @@
 +import React, { act } from 'react';
 +import { createRoot } from 'react-dom/client';
 +import { expect, test } from 'bun:test';
@@ -1640,8 +1620,6 @@ index 000000000..18144142d
 +    try {
 +        const sticky = await mount(card(ask([{ question: 'Ship it?', answer: 'Yes' }])));
 +        expect(sticky).toContain('data-turn-sticky-header');
-+        // The fade sits in the wrapper's bottom reserve, clear of the card.
-+        expect(sticky).toContain('pb-9');
 +        expect(await mount(card(dismissed))).not.toContain('data-turn-sticky-header');
 +        const open = await mount(card(dismissed, true));
 +        expect(container.textContent).toContain('Yes');
@@ -3475,7 +3453,7 @@ index d691548f7..6e04b17a3 100644
              const lastPageMessageId = pages[pages.length - 1]?.messageID;
              const split = lastPageMessageId ? activityMessages.findIndex((message) => message.info.id === lastPageMessageId) + 1 : 0;
 diff --git a/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md b/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
-index 509b161c5..a5422e7c5 100644
+index cc00e46e3..335f96c12 100644
 --- a/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
 +++ b/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
 @@ -29,6 +29,11 @@ Use this doc when you ask an agent to change tool/header/description behavior.
@@ -3533,12 +3511,10 @@ index 509b161c5..a5422e7c5 100644
  - OpenChamber's own tools (`openchamber`, `openchamber_*`, and an `execute` script that made exactly one of their calls) use the expandable path. Their result is a versioned envelope (`{ ok, action, data }`, `openChamberToolEnvelope.ts`):
    - The row keeps the tool's name as its title. Once the envelope says the action succeeded, the description is the action's verb from the i18n map (`OPENCHAMBER_ACTION_VERB_KEYS`, "Remembered · Uses bun"); a running, failed, or unreadable call keeps the action's own name (`memory.save`). A history page leaves results out (`toolContentShells.ts`), so the row reads the action and outcome the server kept in the shell marker; without them every reloaded row fell back to `memory.save` until opened.
    - The expanded row draws the action's own view (`OpenChamberToolOutput.tsx`) when `hasOpenChamberView` finds a successful action it knows with the data that view reads; anything else keeps the neutral JSON views, so a changed answer never leaves the row empty. A failed call shows its error message as text. "Show the raw answer" switches to the JSON views.
-@@ -1140,7 +1174,8 @@ Why: only navigation tools use the compact static path; all other tools need obs
-   `tracker-item` of Linear (`lib/messages/contextParts.ts`). Legacy pre-metadata messages still render
-   via text sniffing (`<terminal_context>` blocks, `GitHub issue context (JSON)`
-   and `Linear issue context (JSON)` prefixes).
--- Tools: `ToolPart.tsx`, `toolRow/`, `ToolPartDiffPreview.tsx`, `PlainDiffFallback.tsx`, `ProgressiveGroup.tsx`, `toolPresentation.tsx`, `toolRenderUtils.ts`, `GuestToolTable.tsx`, `GuestToolCard.tsx`
-+- Tools: `ToolPart.tsx`, `ToolPartDiffPreview.tsx`, `PlainDiffFallback.tsx`, `ProgressiveGroup.tsx`, `toolPresentation.tsx`, `toolRenderUtils.ts`, `GuestToolTable.tsx`, `GuestToolCard.tsx`
+@@ -1146,6 +1180,7 @@ Why: only navigation tools use the compact static path; all other tools need obs
+   quote keeps expanding on click, and a whole-file comment with no quote still
+   has it.
+ - Tools: `ToolPart.tsx`, `toolRow/`, `ToolPartDiffPreview.tsx`, `PlainDiffFallback.tsx`, `ProgressiveGroup.tsx`, `toolPresentation.tsx`, `toolRenderUtils.ts`, `GuestToolTable.tsx`, `GuestToolCard.tsx`
 +- Question rows: the card is `chat/components/QuestionTurnHeader.tsx` (row kind in `chat/lib/turns/timelineRows.ts`); `QuestionToolContent.tsx` draws the `ToolPart` copy. Entries come from `chat/lib/questionEntries.ts` and the open state from `chat/lib/questionExpandedState.ts`
  - Reasoning: `ReasoningPart.tsx`
  - Status/placeholders: `WorkingPlaceholder.tsx`, `SessionActiveSpinner.tsx`, `MigratingPart.tsx`; the dots after a busy label are `components/ui/busy-dots.tsx`
@@ -4111,10 +4087,10 @@ index 494fbde53..d0d9e36e7 100644
    ['chat.sticky-user-header', 'messages'],
    ['chat.inline-assistant-actions', 'messages'],
 diff --git a/packages/ui/src/lib/i18n/messages/ar.settings.ts b/packages/ui/src/lib/i18n/messages/ar.settings.ts
-index b54f94481..39450715d 100644
+index d397038a4..8fd2fb279 100644
 --- a/packages/ui/src/lib/i18n/messages/ar.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/ar.settings.ts
-@@ -2492,6 +2492,12 @@ export const settingsDict = {
+@@ -2509,6 +2509,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'يعرض تفكير النموذج وملخص الضغط فور وصولهما. عند التعطيل، يبقيان مطويين ويُفتحان بنقرة.',
    'settings.openchamber.visual.field.collapsibleUserMessagesAria': 'طي رسائل المستخدم الطويلة',
    'settings.openchamber.visual.field.collapsibleUserMessages': 'طي رسائل المستخدم الطويلة',
@@ -4128,10 +4104,10 @@ index b54f94481..39450715d 100644
    'settings.openchamber.visual.field.stickyUserHeader': 'تثبيت رأس رسالة المستخدم',
    'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'متصفح الطلبات',
 diff --git a/packages/ui/src/lib/i18n/messages/ar.ts b/packages/ui/src/lib/i18n/messages/ar.ts
-index 88269fc3c..093bed3a6 100644
+index 0d38a592c..ad65bd16c 100644
 --- a/packages/ui/src/lib/i18n/messages/ar.ts
 +++ b/packages/ui/src/lib/i18n/messages/ar.ts
-@@ -2552,6 +2552,13 @@ export const dict: Record<I18nKey, string> = {
+@@ -2564,6 +2564,13 @@ export const dict: Record<I18nKey, string> = {
    'chat.questionCard.inputNeeded': 'مطلوب إدخال',
    'chat.questionCard.fromSubagent': 'من وكيل فرعي',
    'chat.questionCard.questionFallback': 'السؤال {index}',
@@ -4145,7 +4121,7 @@ index 88269fc3c..093bed3a6 100644
    'chat.questionCard.selectMultiple': 'اختيار متعدد',
    'chat.questionCard.recommended': 'موصى به',
    'chat.questionCard.other': 'أخرى…',
-@@ -2765,6 +2772,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -2777,6 +2784,7 @@ export const dict: Record<I18nKey, string> = {
    'chat.toolPart.awaitingResponse': 'بانتظار الرد…',
    'chat.toolPart.noOutputProduced': 'لا توجد مخرجات',
    'chat.toolPart.questionsAsked': 'الأسئلة المطروحة: {count}',
@@ -4154,10 +4130,10 @@ index 88269fc3c..093bed3a6 100644
    'chat.toolPart.moreToolCalls': '+{count} أخرى',
    'chat.toolPart.scriptCalls': 'استدعاءات الأدوات',
 diff --git a/packages/ui/src/lib/i18n/messages/de.settings.ts b/packages/ui/src/lib/i18n/messages/de.settings.ts
-index 1e91e18e7..e1801a8c9 100644
+index 5efa03055..06ef7faaa 100644
 --- a/packages/ui/src/lib/i18n/messages/de.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/de.settings.ts
-@@ -2433,6 +2433,12 @@ export const settingsDict = {
+@@ -2450,6 +2450,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'Zeigt die Gedanken des Modells und die Zusammenfassung beim Komprimieren, während sie eintreffen. Wenn aus, bleiben die Blöcke eingeklappt und öffnen sich per Klick.',
    'settings.openchamber.visual.field.collapsibleUserMessagesAria': 'Lange Benutzernachrichten einklappen',
    'settings.openchamber.visual.field.collapsibleUserMessages': 'Lange Benutzernachrichten einklappen',
@@ -4171,10 +4147,10 @@ index 1e91e18e7..e1801a8c9 100644
    'settings.openchamber.visual.field.stickyUserHeader': 'Fixierter Benutzerkopf',
    'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'Prompt-Navigator',
 diff --git a/packages/ui/src/lib/i18n/messages/de.ts b/packages/ui/src/lib/i18n/messages/de.ts
-index 7515d1bb0..c15a9eb40 100644
+index 67b843c9f..53f8e81ad 100644
 --- a/packages/ui/src/lib/i18n/messages/de.ts
 +++ b/packages/ui/src/lib/i18n/messages/de.ts
-@@ -2371,6 +2371,13 @@ export const dict = {
+@@ -2389,6 +2389,13 @@ export const dict = {
    'chat.questionCard.inputNeeded': 'Eingabe erforderlich',
    'chat.questionCard.fromSubagent': 'Von Subagent',
    'chat.questionCard.questionFallback': 'Frage {index}',
@@ -4188,7 +4164,7 @@ index 7515d1bb0..c15a9eb40 100644
    'chat.questionCard.selectMultiple': 'Mehrere auswählen',
    'chat.questionCard.recommended': 'empfohlen',
    'chat.questionCard.other': 'Andere…',
-@@ -2577,6 +2584,7 @@ export const dict = {
+@@ -2595,6 +2602,7 @@ export const dict = {
    'chat.toolPart.awaitingResponse': 'Warte auf Antwort...',
    'chat.toolPart.noOutputProduced': 'Keine Ausgabe erzeugt',
    'chat.toolPart.questionsAsked': 'Gestellte Fragen: {count}',
@@ -4197,10 +4173,10 @@ index 7515d1bb0..c15a9eb40 100644
    'chat.toolPart.moreToolCalls': '+{count} weitere',
    'chat.toolPart.scriptCalls': 'Tool-Aufrufe',
 diff --git a/packages/ui/src/lib/i18n/messages/en.settings.ts b/packages/ui/src/lib/i18n/messages/en.settings.ts
-index 0c293ced9..72ffe76d1 100644
+index cff9b8e70..a325bab39 100644
 --- a/packages/ui/src/lib/i18n/messages/en.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/en.settings.ts
-@@ -2521,6 +2521,12 @@ export const settingsDict = {
+@@ -2538,6 +2538,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'Shows the model\'s thinking and the compaction summary as they arrive. When off, they stay folded and open with a click.',
    'settings.openchamber.visual.field.collapsibleUserMessagesAria': 'Collapse long user messages',
    'settings.openchamber.visual.field.collapsibleUserMessages': 'Collapse long user messages',
@@ -4214,10 +4190,10 @@ index 0c293ced9..72ffe76d1 100644
    'settings.openchamber.visual.field.stickyUserHeader': 'Sticky user header',
    'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'Prompt navigator',
 diff --git a/packages/ui/src/lib/i18n/messages/en.ts b/packages/ui/src/lib/i18n/messages/en.ts
-index bc9bfb4c0..368573b2e 100644
+index acbab5b86..3367a77db 100644
 --- a/packages/ui/src/lib/i18n/messages/en.ts
 +++ b/packages/ui/src/lib/i18n/messages/en.ts
-@@ -2654,6 +2654,13 @@ export const dict = {
+@@ -2672,6 +2672,13 @@ export const dict = {
    'chat.questionCard.inputNeeded': 'Input needed',
    'chat.questionCard.fromSubagent': 'From subagent',
    'chat.questionCard.questionFallback': 'Question {index}',
@@ -4231,7 +4207,7 @@ index bc9bfb4c0..368573b2e 100644
    'chat.questionCard.selectMultiple': 'Select multiple',
    'chat.questionCard.recommended': 'recommended',
    'chat.questionCard.other': 'Other…',
-@@ -2867,6 +2874,7 @@ export const dict = {
+@@ -2885,6 +2892,7 @@ export const dict = {
    'chat.toolPart.awaitingResponse': 'Awaiting response...',
    'chat.toolPart.noOutputProduced': 'No output produced',
    'chat.toolPart.questionsAsked': 'Questions asked: {count}',
@@ -4240,10 +4216,10 @@ index bc9bfb4c0..368573b2e 100644
    'chat.toolPart.moreToolCalls': '+{count} more',
    'chat.toolPart.scriptCalls': 'Tool calls',
 diff --git a/packages/ui/src/lib/i18n/messages/es.settings.ts b/packages/ui/src/lib/i18n/messages/es.settings.ts
-index af9383504..586fb27ca 100644
+index 12104fda1..3b331b14f 100644
 --- a/packages/ui/src/lib/i18n/messages/es.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/es.settings.ts
-@@ -2471,6 +2471,12 @@ export const settingsDict = {
+@@ -2488,6 +2488,12 @@ export const settingsDict = {
    "settings.openchamber.visual.field.expandReasoningWhileStreamingInfo": "Muestra el razonamiento del modelo y el resumen de la compactación a medida que llegan. Si está desactivado, los bloques quedan plegados y se abren con un clic.",
    "settings.openchamber.visual.field.collapsibleUserMessagesAria": "Contraer mensajes largos del usuario",
    "settings.openchamber.visual.field.collapsibleUserMessages": "Contraer mensajes largos del usuario",
@@ -4257,10 +4233,10 @@ index af9383504..586fb27ca 100644
    "settings.openchamber.visual.field.stickyUserHeader": "Encabezado de usuario fijo",
    "settings.openchamber.visual.field.promptNavigatorEnabledAria": "Navegador de prompts",
 diff --git a/packages/ui/src/lib/i18n/messages/es.ts b/packages/ui/src/lib/i18n/messages/es.ts
-index c02d12f72..d125ed34f 100644
+index 74ada49a1..af7bd4f85 100644
 --- a/packages/ui/src/lib/i18n/messages/es.ts
 +++ b/packages/ui/src/lib/i18n/messages/es.ts
-@@ -2622,6 +2622,13 @@ export const dict: Record<I18nKey, string> = {
+@@ -2640,6 +2640,13 @@ export const dict: Record<I18nKey, string> = {
    "chat.questionCard.inputNeeded": "Entrada necesaria",
    "chat.questionCard.fromSubagent": "De un subagente",
    "chat.questionCard.questionFallback": "Pregunta {index}",
@@ -4274,7 +4250,7 @@ index c02d12f72..d125ed34f 100644
    "chat.questionCard.selectMultiple": "Seleccionar múltiples",
    "chat.questionCard.recommended": "recomendado",
    "chat.questionCard.other": "Otro…",
-@@ -2824,6 +2831,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -2842,6 +2849,7 @@ export const dict: Record<I18nKey, string> = {
    "chat.toolPart.awaitingResponse": "Esperando respuesta...",
    "chat.toolPart.noOutputProduced": "No se produjo ninguna salida",
    "chat.toolPart.questionsAsked": 'Preguntas realizadas: {count}',
@@ -4283,10 +4259,10 @@ index c02d12f72..d125ed34f 100644
    "chat.toolPart.moreToolCalls": '+{count} más',
    "chat.toolPart.scriptCalls": 'Llamadas a herramientas',
 diff --git a/packages/ui/src/lib/i18n/messages/fr.settings.ts b/packages/ui/src/lib/i18n/messages/fr.settings.ts
-index 5e8c56e72..aaffdea5d 100644
+index 511bf6ca2..06063a319 100644
 --- a/packages/ui/src/lib/i18n/messages/fr.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/fr.settings.ts
-@@ -2360,6 +2360,12 @@ export const settingsDict = {
+@@ -2377,6 +2377,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'Affiche le raisonnement du modèle et le résumé de compaction au fil de l\'eau. Désactivé, ces blocs restent repliés et s\'ouvrent d\'un clic.',
    'settings.openchamber.visual.field.collapsibleUserMessagesAria': 'Réduire les longs messages utilisateur',
    'settings.openchamber.visual.field.collapsibleUserMessages': 'Réduire les longs messages utilisateur',
@@ -4300,10 +4276,10 @@ index 5e8c56e72..aaffdea5d 100644
    'settings.openchamber.visual.field.stickyUserHeader': 'En-tête utilisateur collant',
    'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'Navigateur de prompts',
 diff --git a/packages/ui/src/lib/i18n/messages/fr.ts b/packages/ui/src/lib/i18n/messages/fr.ts
-index 92942ce41..8447872c0 100644
+index 0d0147e6b..bbec1165e 100644
 --- a/packages/ui/src/lib/i18n/messages/fr.ts
 +++ b/packages/ui/src/lib/i18n/messages/fr.ts
-@@ -2366,6 +2366,13 @@ export const dict = {
+@@ -2382,6 +2382,13 @@ export const dict = {
    'chat.questionCard.inputNeeded': 'Entrée nécessaire',
    'chat.questionCard.fromSubagent': 'Du sous-agent',
    'chat.questionCard.questionFallback': 'Question {index}',
@@ -4317,7 +4293,7 @@ index 92942ce41..8447872c0 100644
    'chat.questionCard.selectMultiple': 'Sélectionnez plusieurs',
    'chat.questionCard.recommended': 'recommandé',
    'chat.questionCard.other': 'Autre…',
-@@ -2560,6 +2567,7 @@ export const dict = {
+@@ -2576,6 +2583,7 @@ export const dict = {
    'chat.toolPart.awaitingResponse': 'En attente de réponse...',
    'chat.toolPart.noOutputProduced': 'Aucune sortie produite',
    'chat.toolPart.questionsAsked': 'Questions posées : {count}',
@@ -4326,10 +4302,10 @@ index 92942ce41..8447872c0 100644
    'chat.toolPart.moreToolCalls': '+{count} de plus',
    'chat.toolPart.scriptCalls': 'Appels d’outils',
 diff --git a/packages/ui/src/lib/i18n/messages/he.settings.ts b/packages/ui/src/lib/i18n/messages/he.settings.ts
-index d1f2ec7e8..a2e87fafe 100644
+index 1727d78a4..0df059f25 100644
 --- a/packages/ui/src/lib/i18n/messages/he.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/he.settings.ts
-@@ -2492,6 +2492,12 @@ export const settingsDict = {
+@@ -2509,6 +2509,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'מציג את החשיבה של המודל ואת סיכום הדחיסה בזמן שהם מגיעים. כשהאפשרות כבויה, הם נשארים מקופלים ונפתחים בלחיצה.',
    'settings.openchamber.visual.field.collapsibleUserMessagesAria': 'קיפול הודעות משתמש ארוכות',
    'settings.openchamber.visual.field.collapsibleUserMessages': 'קיפול הודעות משתמש ארוכות',
@@ -4343,10 +4319,10 @@ index d1f2ec7e8..a2e87fafe 100644
    'settings.openchamber.visual.field.stickyUserHeader': 'כותרת משתמש נצמדת',
    'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'ניווט בין הנחיות',
 diff --git a/packages/ui/src/lib/i18n/messages/he.ts b/packages/ui/src/lib/i18n/messages/he.ts
-index 28946f5b8..ba6905479 100644
+index c35d10519..a7b897249 100644
 --- a/packages/ui/src/lib/i18n/messages/he.ts
 +++ b/packages/ui/src/lib/i18n/messages/he.ts
-@@ -2551,6 +2551,13 @@ export const dict = {
+@@ -2563,6 +2563,13 @@ export const dict = {
    'chat.questionCard.inputNeeded': 'נדרש קלט',
    'chat.questionCard.fromSubagent': 'מסוכן משנה',
    'chat.questionCard.questionFallback': 'שאלה {index}',
@@ -4360,7 +4336,7 @@ index 28946f5b8..ba6905479 100644
    'chat.questionCard.selectMultiple': 'בחירה מרובה',
    'chat.questionCard.recommended': 'מומלץ',
    'chat.questionCard.other': 'אחר…',
-@@ -2764,6 +2771,7 @@ export const dict = {
+@@ -2776,6 +2783,7 @@ export const dict = {
    'chat.toolPart.awaitingResponse': 'ממתין לתגובה…',
    'chat.toolPart.noOutputProduced': 'לא נוצר פלט',
    'chat.toolPart.questionsAsked': 'שאלות שנשאלו: {count}',
@@ -4369,10 +4345,10 @@ index 28946f5b8..ba6905479 100644
    'chat.toolPart.moreToolCalls': '+{count} נוספות',
    'chat.toolPart.scriptCalls': 'קריאות לכלים',
 diff --git a/packages/ui/src/lib/i18n/messages/ja.settings.ts b/packages/ui/src/lib/i18n/messages/ja.settings.ts
-index b54f083f3..47f51351d 100644
+index b67ff3bda..bcf0884c9 100644
 --- a/packages/ui/src/lib/i18n/messages/ja.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/ja.settings.ts
-@@ -2504,6 +2504,12 @@ export const settingsDict = {
+@@ -2521,6 +2521,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'モデルの思考と会話圧縮の要約を届いたそばから表示します。オフのときはブロックが折りたたまれ、クリックで開けます。',
    'settings.openchamber.visual.field.collapsibleUserMessagesAria': '長いユーザーメッセージを折りたたむ',
    'settings.openchamber.visual.field.collapsibleUserMessages': '長いユーザーメッセージを折りたたむ',
@@ -4386,10 +4362,10 @@ index b54f083f3..47f51351d 100644
    'settings.openchamber.visual.field.stickyUserHeader': 'ユーザーヘッダー固定',
    'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'プロンプトナビゲーター',
 diff --git a/packages/ui/src/lib/i18n/messages/ja.ts b/packages/ui/src/lib/i18n/messages/ja.ts
-index c00f3277b..4f1ce3563 100644
+index 707a21447..b0a2468ef 100644
 --- a/packages/ui/src/lib/i18n/messages/ja.ts
 +++ b/packages/ui/src/lib/i18n/messages/ja.ts
-@@ -2650,6 +2650,13 @@ export const dict: Record<I18nKey, string> = {
+@@ -2668,6 +2668,13 @@ export const dict: Record<I18nKey, string> = {
    'chat.questionCard.inputNeeded': '入力が必要',
    'chat.questionCard.fromSubagent': 'サブエージェントから',
    'chat.questionCard.questionFallback': '質問{index}',
@@ -4403,7 +4379,7 @@ index c00f3277b..4f1ce3563 100644
    'chat.questionCard.selectMultiple': '複数選択',
    'chat.questionCard.recommended': '推奨',
    'chat.questionCard.other': 'その他…',
-@@ -2866,6 +2873,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -2884,6 +2891,7 @@ export const dict: Record<I18nKey, string> = {
    'chat.toolPart.awaitingResponse': '応答を待機中...',
    'chat.toolPart.noOutputProduced': '出力は生成されませんでした',
    'chat.toolPart.questionsAsked': '質問数: {count}',
@@ -4412,10 +4388,10 @@ index c00f3277b..4f1ce3563 100644
    'chat.toolPart.moreToolCalls': '他 +{count} 件',
    'chat.toolPart.scriptCalls': 'ツール呼び出し',
 diff --git a/packages/ui/src/lib/i18n/messages/ko.settings.ts b/packages/ui/src/lib/i18n/messages/ko.settings.ts
-index 3fef22039..6b74f3068 100644
+index 70e2719d9..5f785a7c7 100644
 --- a/packages/ui/src/lib/i18n/messages/ko.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/ko.settings.ts
-@@ -2471,6 +2471,12 @@ export const settingsDict = {
+@@ -2488,6 +2488,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': '모델의 생각과 대화 압축 요약을 도착하는 대로 보여줍니다. 끄면 블록이 접힌 채로 있고 클릭하면 열립니다.',
    'settings.openchamber.visual.field.collapsibleUserMessagesAria': '긴 사용자 메시지 접기',
    'settings.openchamber.visual.field.collapsibleUserMessages': '긴 사용자 메시지 접기',
@@ -4429,10 +4405,10 @@ index 3fef22039..6b74f3068 100644
    'settings.openchamber.visual.field.stickyUserHeader': '고정 사용자 헤더',
    'settings.openchamber.visual.field.promptNavigatorEnabledAria': '프롬프트 탐색기',
 diff --git a/packages/ui/src/lib/i18n/messages/ko.ts b/packages/ui/src/lib/i18n/messages/ko.ts
-index b7ff134f1..059f5aab9 100644
+index c87d72b39..43400777f 100644
 --- a/packages/ui/src/lib/i18n/messages/ko.ts
 +++ b/packages/ui/src/lib/i18n/messages/ko.ts
-@@ -2654,6 +2654,13 @@ export const dict: Record<I18nKey, string> = {
+@@ -2672,6 +2672,13 @@ export const dict: Record<I18nKey, string> = {
    'chat.questionCard.inputNeeded': '입력 필요',
    'chat.questionCard.fromSubagent': '서브 에이전트에서',
    'chat.questionCard.questionFallback': '질문 {index}',
@@ -4446,7 +4422,7 @@ index b7ff134f1..059f5aab9 100644
    'chat.questionCard.selectMultiple': '여러 개 선택',
    'chat.questionCard.recommended': '추천',
    'chat.questionCard.other': '기타…',
-@@ -2867,6 +2874,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -2885,6 +2892,7 @@ export const dict: Record<I18nKey, string> = {
    'chat.toolPart.awaitingResponse': '응답 대기 중…',
    'chat.toolPart.noOutputProduced': '출력 없음',
    'chat.toolPart.questionsAsked': '질문 수: {count}',
@@ -4455,10 +4431,10 @@ index b7ff134f1..059f5aab9 100644
    'chat.toolPart.moreToolCalls': '+{count}개 더',
    'chat.toolPart.scriptCalls': '도구 호출',
 diff --git a/packages/ui/src/lib/i18n/messages/nl.settings.ts b/packages/ui/src/lib/i18n/messages/nl.settings.ts
-index 469b8e064..9b9edf161 100644
+index e42f32221..113757c24 100644
 --- a/packages/ui/src/lib/i18n/messages/nl.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/nl.settings.ts
-@@ -2494,6 +2494,12 @@ export const settingsDict = {
+@@ -2511,6 +2511,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'Toont de redenering van het model en de samenvatting bij het inkorten terwijl die binnenkomen. Uit: de blokken blijven ingeklapt en openen met een klik.',
    'settings.openchamber.visual.field.collapsibleUserMessagesAria': 'Vouw lange gebruikersberichten samen',
    'settings.openchamber.visual.field.collapsibleUserMessages': 'Lange gebruikersberichten samenvouwen',
@@ -4472,10 +4448,10 @@ index 469b8e064..9b9edf161 100644
    'settings.openchamber.visual.field.stickyUserHeader': 'Vaste gebruikerskop',
    'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'Promptnavigator',
 diff --git a/packages/ui/src/lib/i18n/messages/nl.ts b/packages/ui/src/lib/i18n/messages/nl.ts
-index f06b58e88..1b3d09f9a 100644
+index 9b8cba4e6..19cd226d4 100644
 --- a/packages/ui/src/lib/i18n/messages/nl.ts
 +++ b/packages/ui/src/lib/i18n/messages/nl.ts
-@@ -2654,6 +2654,13 @@ export const dict = {
+@@ -2672,6 +2672,13 @@ export const dict = {
    'chat.questionCard.inputNeeded': 'Invoer nodig',
    'chat.questionCard.fromSubagent': 'Van subagent',
    'chat.questionCard.questionFallback': 'Vraag {index}',
@@ -4489,7 +4465,7 @@ index f06b58e88..1b3d09f9a 100644
    'chat.questionCard.selectMultiple': 'Meerdere selecteren',
    'chat.questionCard.recommended': 'aanbevolen',
    'chat.questionCard.other': 'Anders…',
-@@ -2867,6 +2874,7 @@ export const dict = {
+@@ -2885,6 +2892,7 @@ export const dict = {
    'chat.toolPart.awaitingResponse': 'Wachten op antwoord...',
    'chat.toolPart.noOutputProduced': 'Geen uitvoer',
    'chat.toolPart.questionsAsked': 'Gestelde vragen: {count}',
@@ -4498,10 +4474,10 @@ index f06b58e88..1b3d09f9a 100644
    'chat.toolPart.moreToolCalls': '+{count} meer',
    'chat.toolPart.scriptCalls': 'Toolaanroepen',
 diff --git a/packages/ui/src/lib/i18n/messages/pl.settings.ts b/packages/ui/src/lib/i18n/messages/pl.settings.ts
-index 61c6755cf..a0490c9c8 100644
+index 19d85c72a..06c8b838d 100644
 --- a/packages/ui/src/lib/i18n/messages/pl.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/pl.settings.ts
-@@ -1383,6 +1383,12 @@ export const settingsDict = {
+@@ -1386,6 +1386,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'Pokazuje rozumowanie modelu i podsumowanie kompaktowania na bieżąco. Gdy wyłączone, bloki są zwinięte i otwierają się kliknięciem.',
    'settings.openchamber.visual.field.collapsibleThinkingBlocksAria': 'Włącz zwijalne bloki rozumowania',
    'settings.openchamber.visual.field.collapsibleUserMessages': 'Zwijaj długie wiadomości użytkownika',
@@ -4515,10 +4491,10 @@ index 61c6755cf..a0490c9c8 100644
    'settings.openchamber.visual.field.showSplitAssistantMessageActions': 'Akcje asystenta w treści',
    'settings.openchamber.visual.field.showSplitAssistantMessageActionsAria': 'Akcje asystenta w treści',
 diff --git a/packages/ui/src/lib/i18n/messages/pl.ts b/packages/ui/src/lib/i18n/messages/pl.ts
-index d6436ba3a..82ddd5581 100644
+index bd3b6de69..994aa50ea 100644
 --- a/packages/ui/src/lib/i18n/messages/pl.ts
 +++ b/packages/ui/src/lib/i18n/messages/pl.ts
-@@ -1198,6 +1198,13 @@ export const dict: Record<I18nKey, string> = {
+@@ -1207,6 +1207,13 @@ export const dict: Record<I18nKey, string> = {
    'chat.questionCard.inputNeeded': 'Wymagane wejście',
    'chat.questionCard.fromSubagent': 'Od pod-agenta',
    'chat.questionCard.questionFallback': 'Pytanie {index}',
@@ -4532,7 +4508,7 @@ index d6436ba3a..82ddd5581 100644
    'chat.questionCard.selectMultiple': 'Wybierz wiele',
    'chat.questionCard.recommended': 'rekomendowane',
    'chat.questionCard.other': 'Inne...',
-@@ -1745,6 +1752,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -1754,6 +1761,7 @@ export const dict: Record<I18nKey, string> = {
    'chat.toolPart.moreRows': '+{count} kolejnych wierszy',
    'chat.toolPart.noOutputProduced': 'Brak wygenerowanego wyniku',
    'chat.toolPart.questionsAsked': 'Zadane pytania: {count}',
@@ -4541,10 +4517,10 @@ index d6436ba3a..82ddd5581 100644
    'chat.toolPart.moreToolCalls': '+{count} więcej',
    'chat.toolPart.scriptCalls': 'Wywołania narzędzi',
 diff --git a/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts b/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
-index 2153da05a..a478b52c1 100644
+index 8be66db71..9360a9c01 100644
 --- a/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
-@@ -2471,6 +2471,12 @@ export const settingsDict = {
+@@ -2488,6 +2488,12 @@ export const settingsDict = {
    "settings.openchamber.visual.field.expandReasoningWhileStreamingInfo": "Mostra o raciocínio do modelo e o resumo da compactação enquanto chegam. Desativado, os blocos ficam recolhidos e abrem com um clique.",
    "settings.openchamber.visual.field.collapsibleUserMessagesAria": "Recolher mensagens longas do usuário",
    "settings.openchamber.visual.field.collapsibleUserMessages": "Recolher mensagens longas do usuário",
@@ -4558,10 +4534,10 @@ index 2153da05a..a478b52c1 100644
    "settings.openchamber.visual.field.stickyUserHeader": "Cabeçalho do usuário fixo",
    "settings.openchamber.visual.field.promptNavigatorEnabledAria": "Navegador de prompts",
 diff --git a/packages/ui/src/lib/i18n/messages/pt-BR.ts b/packages/ui/src/lib/i18n/messages/pt-BR.ts
-index 834ce5c8c..ffe3ebd84 100644
+index 829ace822..a623c6e2c 100644
 --- a/packages/ui/src/lib/i18n/messages/pt-BR.ts
 +++ b/packages/ui/src/lib/i18n/messages/pt-BR.ts
-@@ -2624,6 +2624,13 @@ export const dict: Record<I18nKey, string> = {
+@@ -2642,6 +2642,13 @@ export const dict: Record<I18nKey, string> = {
    "chat.questionCard.inputNeeded": "Entrada necessária",
    "chat.questionCard.fromSubagent": "De um subagente",
    "chat.questionCard.questionFallback": "Pergunta {index}",
@@ -4575,7 +4551,7 @@ index 834ce5c8c..ffe3ebd84 100644
    "chat.questionCard.selectMultiple": "Selecionar múltiplas",
    "chat.questionCard.recommended": "recomendado",
    "chat.questionCard.other": "Outro…",
-@@ -2824,6 +2831,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -2842,6 +2849,7 @@ export const dict: Record<I18nKey, string> = {
    "chat.toolPart.awaitingResponse": "Aguardando resposta...",
    "chat.toolPart.noOutputProduced": "Nenhuma saída produzida",
    "chat.toolPart.questionsAsked": 'Perguntas feitas: {count}',
@@ -4708,10 +4684,10 @@ index 693cdc81f..10125a3e4 100644
      'settings.layout.chat.section.formatting': 'עיצוב',
      'settings.layout.chat.section.sending': 'שליחה',
 diff --git a/packages/ui/src/lib/i18n/messages/tr.settings.ts b/packages/ui/src/lib/i18n/messages/tr.settings.ts
-index becc33f3c..fbd0bca7f 100644
+index a9da37f14..45aac4037 100644
 --- a/packages/ui/src/lib/i18n/messages/tr.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/tr.settings.ts
-@@ -2358,6 +2358,12 @@ export const settingsDict = {
+@@ -2375,6 +2375,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': 'Modelin düşüncelerini ve sıkıştırma özetini geldikçe gösterir. Kapalıyken bloklar daraltılmış kalır ve tıklayınca açılır.',
    'settings.openchamber.visual.field.collapsibleUserMessagesAria': 'Uzun kullanıcı mesajlarını daralt',
    'settings.openchamber.visual.field.collapsibleUserMessages': 'Uzun Kullanıcı Mesajlarını Daralt',
@@ -4725,10 +4701,10 @@ index becc33f3c..fbd0bca7f 100644
    'settings.openchamber.visual.field.stickyUserHeader': 'Yapışkan Kullanıcı Üstbilgisi',
    'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'Prompt gezgini',
 diff --git a/packages/ui/src/lib/i18n/messages/tr.ts b/packages/ui/src/lib/i18n/messages/tr.ts
-index dd610e000..675187a15 100644
+index 4dae444c2..eafbad77b 100644
 --- a/packages/ui/src/lib/i18n/messages/tr.ts
 +++ b/packages/ui/src/lib/i18n/messages/tr.ts
-@@ -2497,6 +2497,13 @@ export const dict = {
+@@ -2513,6 +2513,13 @@ export const dict = {
    'chat.questionCard.inputNeeded': 'Girdi gerekiyor',
    'chat.questionCard.fromSubagent': 'Subagent\'tan',
    'chat.questionCard.questionFallback': 'Soru {index}',
@@ -4742,7 +4718,7 @@ index dd610e000..675187a15 100644
    'chat.questionCard.selectMultiple': 'Çoklu seçim',
    'chat.questionCard.recommended': 'önerilen',
    'chat.questionCard.other': 'Diğer…',
-@@ -2698,6 +2705,7 @@ export const dict = {
+@@ -2714,6 +2721,7 @@ export const dict = {
    'chat.toolPart.awaitingResponse': 'Yanıt bekleniyor...',
    'chat.toolPart.noOutputProduced': 'Çıktı üretilmedi',
    'chat.toolPart.questionsAsked': 'Sorulan sorular: {count}',
@@ -4751,10 +4727,10 @@ index dd610e000..675187a15 100644
    'chat.toolPart.moreToolCalls': '+{count} daha',
    'chat.toolPart.scriptCalls': 'Araç çağrıları',
 diff --git a/packages/ui/src/lib/i18n/messages/uk.settings.ts b/packages/ui/src/lib/i18n/messages/uk.settings.ts
-index 789ac3d3c..b2b8f3677 100644
+index de4f045cf..a2a248ae7 100644
 --- a/packages/ui/src/lib/i18n/messages/uk.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/uk.settings.ts
-@@ -2471,6 +2471,12 @@ export const settingsDict = {
+@@ -2488,6 +2488,12 @@ export const settingsDict = {
    "settings.openchamber.visual.field.expandReasoningWhileStreamingInfo": "Показує міркування моделі та підсумок стиснення розмови, поки вони надходять. Коли вимкнено, блоки згорнуті й відкриваються кліком.",
    "settings.openchamber.visual.field.collapsibleUserMessagesAria": "Згортати довгі повідомлення користувача",
    "settings.openchamber.visual.field.collapsibleUserMessages": "Згортати довгі повідомлення користувача",
@@ -4768,10 +4744,10 @@ index 789ac3d3c..b2b8f3677 100644
    "settings.openchamber.visual.field.stickyUserHeader": "Закріплений заголовок користувача",
    "settings.openchamber.visual.field.promptNavigatorEnabledAria": "Навігатор промптів",
 diff --git a/packages/ui/src/lib/i18n/messages/uk.ts b/packages/ui/src/lib/i18n/messages/uk.ts
-index f4a298ad5..15d7a9f63 100644
+index 52a79a6d5..4afe28742 100644
 --- a/packages/ui/src/lib/i18n/messages/uk.ts
 +++ b/packages/ui/src/lib/i18n/messages/uk.ts
-@@ -2622,6 +2622,13 @@ export const dict: Record<I18nKey, string> = {
+@@ -2640,6 +2640,13 @@ export const dict: Record<I18nKey, string> = {
    "chat.questionCard.inputNeeded": "Потрібна відповідь",
    "chat.questionCard.fromSubagent": "Від субагента",
    "chat.questionCard.questionFallback": "Питання {index}",
@@ -4785,7 +4761,7 @@ index f4a298ad5..15d7a9f63 100644
    "chat.questionCard.selectMultiple": "Вибрати кілька",
    "chat.questionCard.recommended": "рекомендований",
    "chat.questionCard.other": "Інше…",
-@@ -2824,6 +2831,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -2842,6 +2849,7 @@ export const dict: Record<I18nKey, string> = {
    "chat.toolPart.awaitingResponse": "Очікування відповіді...",
    "chat.toolPart.noOutputProduced": "Вивід відсутній",
    "chat.toolPart.questionsAsked": 'Поставлено запитань: {count}',
@@ -4794,10 +4770,10 @@ index f4a298ad5..15d7a9f63 100644
    "chat.toolPart.moreToolCalls": 'ще +{count}',
    "chat.toolPart.scriptCalls": 'Виклики інструментів',
 diff --git a/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts b/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
-index c41349e9e..cc5ae7ce5 100644
+index 6a3a76a96..6f2040615 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
-@@ -2471,6 +2471,12 @@ export const settingsDict = {
+@@ -2488,6 +2488,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': '在内容到达时实时显示模型的推理和对话压缩摘要。关闭后这些块保持折叠，点击即可展开。',
    'settings.openchamber.visual.field.collapsibleUserMessagesAria': '折叠较长的用户消息',
    'settings.openchamber.visual.field.collapsibleUserMessages': '折叠较长的用户消息',
@@ -4811,10 +4787,10 @@ index c41349e9e..cc5ae7ce5 100644
    'settings.openchamber.visual.field.stickyUserHeader': '固定用户消息头',
    'settings.openchamber.visual.field.promptNavigatorEnabledAria': '提示词导航',
 diff --git a/packages/ui/src/lib/i18n/messages/zh-CN.ts b/packages/ui/src/lib/i18n/messages/zh-CN.ts
-index ec4337898..5bd651a8f 100644
+index 17fc4e30d..8698c4ea6 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-CN.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-CN.ts
-@@ -2620,6 +2620,13 @@ export const dict: Record<I18nKey, string> = {
+@@ -2638,6 +2638,13 @@ export const dict: Record<I18nKey, string> = {
    'chat.questionCard.inputNeeded': '需要输入',
    'chat.questionCard.fromSubagent': '来自子智能体',
    'chat.questionCard.questionFallback': '问题 {index}',
@@ -4828,7 +4804,7 @@ index ec4337898..5bd651a8f 100644
    'chat.questionCard.selectMultiple': '可多选',
    'chat.questionCard.recommended': '推荐',
    'chat.questionCard.other': '其他…',
-@@ -2833,6 +2840,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -2851,6 +2858,7 @@ export const dict: Record<I18nKey, string> = {
    'chat.toolPart.awaitingResponse': '等待响应...',
    'chat.toolPart.noOutputProduced': '未产生输出',
    'chat.toolPart.questionsAsked': '已提问：{count}',
@@ -4837,10 +4813,10 @@ index ec4337898..5bd651a8f 100644
    'chat.toolPart.moreToolCalls': '还有 +{count} 个',
    'chat.toolPart.scriptCalls': '工具调用',
 diff --git a/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts b/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
-index 41a228fcc..7d1973459 100644
+index f1b24752d..d8ef37153 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
-@@ -2349,6 +2349,12 @@ export const settingsDict = {
+@@ -2366,6 +2366,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.expandReasoningWhileStreamingInfo': '在內容到達時即時顯示模型的推理和對話壓縮摘要。關閉後這些區塊保持摺疊，點擊即可展開。',
    'settings.openchamber.visual.field.collapsibleUserMessagesAria': '收合較長的使用者訊息',
    'settings.openchamber.visual.field.collapsibleUserMessages': '收合較長的使用者訊息',
@@ -4854,10 +4830,10 @@ index 41a228fcc..7d1973459 100644
    'settings.openchamber.visual.field.stickyUserHeader': '固定使用者訊息標頭',
    'settings.openchamber.visual.field.promptNavigatorEnabledAria': '提示詞導覽',
 diff --git a/packages/ui/src/lib/i18n/messages/zh-TW.ts b/packages/ui/src/lib/i18n/messages/zh-TW.ts
-index fe7cc6df4..1a64ea990 100644
+index 8b63838c5..b78ff89d4 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-TW.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-TW.ts
-@@ -2631,6 +2631,13 @@ export const dict: Record<I18nKey, string> = {
+@@ -2649,6 +2649,13 @@ export const dict: Record<I18nKey, string> = {
    'chat.questionCard.inputNeeded': '需要輸入',
    'chat.questionCard.fromSubagent': '來自子 Agent',
    'chat.questionCard.questionFallback': '問題 {index}',
@@ -4871,7 +4847,7 @@ index fe7cc6df4..1a64ea990 100644
    'chat.questionCard.selectMultiple': '可複選',
    'chat.questionCard.recommended': '推薦',
    'chat.questionCard.other': '其他…',
-@@ -2844,6 +2851,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -2862,6 +2869,7 @@ export const dict: Record<I18nKey, string> = {
    'chat.toolPart.awaitingResponse': '等待回應...',
    'chat.toolPart.noOutputProduced': '未產生輸出',
    'chat.toolPart.questionsAsked': '已提問：{count}',
@@ -4880,7 +4856,7 @@ index fe7cc6df4..1a64ea990 100644
    'chat.toolPart.moreToolCalls': '還有 +{count} 個',
    'chat.toolPart.scriptCalls': '工具呼叫',
 diff --git a/packages/ui/src/lib/opencode/client.test.ts b/packages/ui/src/lib/opencode/client.test.ts
-index da6928da4..743e61fa2 100644
+index afc775678..67060d84d 100644
 --- a/packages/ui/src/lib/opencode/client.test.ts
 +++ b/packages/ui/src/lib/opencode/client.test.ts
 @@ -4,6 +4,7 @@ import { isAmbiguousSendFailure } from '@/sync/send-failure-classification'
@@ -4891,7 +4867,7 @@ index da6928da4..743e61fa2 100644
  
  // The generated `@opencode/client` runs for real here; only the runtime
  // transport (`runtimeFetch`) and runtime identity are replaced. That keeps
-@@ -810,7 +811,7 @@ describe("messages and config", () => {
+@@ -1140,7 +1141,7 @@ describe("messages and config", () => {
      responses.push(new TypeError("Failed to fetch"), json({ data: [], cursor: {} }), json({ data: [], cursor: {} }))
      await opencodeClient.getSessionMessages("ses_1", { limit: 20, partShells: true })
      await opencodeClient.getSessionMessages("ses_1", { limit: 20, partShells: true })
@@ -4900,7 +4876,7 @@ index da6928da4..743e61fa2 100644
    })
  
    describe("a page asked before the capability is known", () => {
-@@ -831,7 +832,7 @@ describe("messages and config", () => {
+@@ -1160,7 +1161,7 @@ describe("messages and config", () => {
        runtimeKey = "shells-first-page"
        responses.push(capable(), emptyPage())
        await opencodeClient.getSessionMessages("ses_1", { limit: 20, partShells: true })
@@ -4909,7 +4885,7 @@ index da6928da4..743e61fa2 100644
      })
  
      test("waits once per check for a check that does not answer", async () => {
-@@ -854,7 +855,7 @@ describe("messages and config", () => {
+@@ -1183,7 +1184,7 @@ describe("messages and config", () => {
          answer(capable())
          await settle()
          await opencodeClient.getSessionMessages("ses_1", { limit: 20, partShells: true })
@@ -4918,7 +4894,7 @@ index da6928da4..743e61fa2 100644
        } finally {
          jest.useRealTimers()
        }
-@@ -891,7 +892,7 @@ describe("messages and config", () => {
+@@ -1220,7 +1221,7 @@ describe("messages and config", () => {
        responses.push(new Error("relay tunnel reset: relay keepalive timeout"), json({ data: [], cursor: {} }))
        await expect(opencodeClient.getSessionMessages("ses_1", { limit: 20, partShells: true })).rejects.toThrow("transport failure")
        await opencodeClient.getSessionMessages("ses_1", { limit: 20, partShells: true })
@@ -4952,10 +4928,10 @@ index 66110000a..e0d7d5d3f 100644
  const CONTENT_SHELL_METADATA_KEY = "openchamberContentShell"
  
 diff --git a/packages/ui/src/lib/settings/registry.ts b/packages/ui/src/lib/settings/registry.ts
-index 2c1828095..8d9b66a39 100644
+index 1e2e2186a..da399bbd4 100644
 --- a/packages/ui/src/lib/settings/registry.ts
 +++ b/packages/ui/src/lib/settings/registry.ts
-@@ -414,6 +414,8 @@ export const SETTINGS_REGISTRY = {
+@@ -443,6 +443,8 @@ export const SETTINGS_REGISTRY = {
    promptNavigatorEnabled: field({ scope: 'profile', perSurface: true, parse: parseBoolean, ui: uiStore('promptNavigatorEnabled', (v) => useUIStore.getState().setPromptNavigatorEnabled(v)) }),
    chatWidth: field({ scope: 'profile', perSurface: true, parse: parseChatWidth, ui: uiStore('chatWidth', (v) => useUIStore.getState().setChatWidth(v)) }),
    wideChatLayoutEnabled: field({ scope: 'profile', perSurface: true, parse: parseBoolean }),
@@ -4965,10 +4941,10 @@ index 2c1828095..8d9b66a39 100644
    showToolFileIcons: field({ scope: 'profile', parse: parseBoolean, ui: uiStore('showToolFileIcons', (v) => useUIStore.getState().setShowToolFileIcons(v)) }),
    codeBlockLineWrap: field({ scope: 'profile', parse: parseBoolean, ui: uiStore('codeBlockLineWrap', (v) => useUIStore.getState().setCodeBlockLineWrap(v)) }),
 diff --git a/packages/ui/src/lib/settings/search.ts b/packages/ui/src/lib/settings/search.ts
-index c13035f80..a4ca84ec9 100644
+index 874104f0f..b731f23a1 100644
 --- a/packages/ui/src/lib/settings/search.ts
 +++ b/packages/ui/src/lib/settings/search.ts
-@@ -423,6 +423,20 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
+@@ -398,6 +398,20 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
      titleKey: 'settings.openchamber.visual.field.promptNavigatorEnabled',
      keywords: ['prompt', 'navigator', 'navigation', 'timeline', 'scroll'],
    },
@@ -4990,10 +4966,10 @@ index c13035f80..a4ca84ec9 100644
      id: 'chat.collapsible-user-messages',
      page: 'chat',
 diff --git a/packages/ui/src/stores/ui/initialState.ts b/packages/ui/src/stores/ui/initialState.ts
-index 40f04a5b3..d3d983b10 100644
+index aa1a508f2..3cda596d2 100644
 --- a/packages/ui/src/stores/ui/initialState.ts
 +++ b/packages/ui/src/stores/ui/initialState.ts
-@@ -228,6 +228,8 @@ export const createInitialUIState = (): Pick<UIStore,
+@@ -231,6 +231,8 @@ export const createInitialUIState = (): Pick<UIStore,
    | 'collapsibleUserMessages'
    | 'stickyUserHeader'
    | 'promptNavigatorEnabled'
@@ -5002,7 +4978,7 @@ index 40f04a5b3..d3d983b10 100644
    | 'showSplitAssistantMessageActions'
    | 'allowPromptingSubagentSessions'
    | 'savePastedImagesAsFiles'
-@@ -461,6 +463,8 @@ export const createInitialUIState = (): Pick<UIStore,
+@@ -467,6 +469,8 @@ export const createInitialUIState = (): Pick<UIStore,
    collapsibleUserMessages: true,
    stickyUserHeader: false,
    promptNavigatorEnabled: true,
@@ -5012,10 +4988,10 @@ index 40f04a5b3..d3d983b10 100644
    allowPromptingSubagentSessions: false,
    savePastedImagesAsFiles: false,
 diff --git a/packages/ui/src/stores/ui/persistence.ts b/packages/ui/src/stores/ui/persistence.ts
-index 7bfd89bb8..e45d1cf76 100644
+index 927c8d182..891102e8c 100644
 --- a/packages/ui/src/stores/ui/persistence.ts
 +++ b/packages/ui/src/stores/ui/persistence.ts
-@@ -428,6 +428,8 @@ export const uiStorePersistOptions = {
+@@ -433,6 +433,8 @@ const uiStorePersistOptions = {
      collapsibleUserMessages: state.collapsibleUserMessages,
      stickyUserHeader: state.stickyUserHeader,
      promptNavigatorEnabled: state.promptNavigatorEnabled,
@@ -5051,10 +5027,10 @@ index e5f7ffad4..c492f5b11 100644
    setAllowPromptingSubagentSessions: (value) => {
      set({ allowPromptingSubagentSessions: value });
 diff --git a/packages/ui/src/stores/ui/types.ts b/packages/ui/src/stores/ui/types.ts
-index 29deda75f..f17c46faf 100644
+index d76fcc849..fe16c254e 100644
 --- a/packages/ui/src/stores/ui/types.ts
 +++ b/packages/ui/src/stores/ui/types.ts
-@@ -339,6 +339,10 @@ export interface UIStore {
+@@ -343,6 +343,10 @@ export interface UIStore {
    collapsibleUserMessages: boolean;
    stickyUserHeader: boolean;
    promptNavigatorEnabled: boolean;
@@ -5065,7 +5041,7 @@ index 29deda75f..f17c46faf 100644
    showSplitAssistantMessageActions: boolean;
    allowPromptingSubagentSessions: boolean;
    savePastedImagesAsFiles: boolean;
-@@ -611,6 +615,10 @@ export interface UIStore {
+@@ -620,6 +624,10 @@ export interface UIStore {
    setCollapsibleUserMessages: (value: boolean) => void;
    setStickyUserHeader: (value: boolean) => void;
    setPromptNavigatorEnabled: (value: boolean) => void;
@@ -5077,10 +5053,10 @@ index 29deda75f..f17c46faf 100644
    setAllowPromptingSubagentSessions: (value: boolean) => void;
    setSavePastedImagesAsFiles: (value: boolean) => void;
 diff --git a/packages/vscode/src/settings-registry.json b/packages/vscode/src/settings-registry.json
-index bdaa3e554..8eec0d374 100644
+index 8ce49306b..6a163e51e 100644
 --- a/packages/vscode/src/settings-registry.json
 +++ b/packages/vscode/src/settings-registry.json
-@@ -480,6 +480,12 @@
+@@ -493,6 +493,12 @@
        "scope": "profile",
        "perSurface": true
      },
@@ -5135,10 +5111,10 @@ index c52ef0e10..0d29576ac 100644
  
    test('keeps which action an OpenChamber envelope answers and whether it succeeded', () => {
 diff --git a/packages/web/server/lib/settings/settings-helpers.test.js b/packages/web/server/lib/settings/settings-helpers.test.js
-index 6ebb4a4de..13c57e879 100644
+index 5b005a69a..3a956b0e0 100644
 --- a/packages/web/server/lib/settings/settings-helpers.test.js
 +++ b/packages/web/server/lib/settings/settings-helpers.test.js
-@@ -328,6 +328,16 @@ describe('settings helpers', () => {
+@@ -370,6 +370,16 @@ describe('settings helpers', () => {
      expect(helpers.sanitizeSettingsUpdate({ collapsibleUserMessages: 'true' })).toEqual({});
    });
  
@@ -5155,7 +5131,7 @@ index 6ebb4a4de..13c57e879 100644
    it('sanitizes and returns the persisted editor font size', () => {
      const helpers = createTestHelpers();
  
-@@ -999,7 +1009,7 @@ describe('settings registry gate', () => {
+@@ -1042,7 +1052,7 @@ describe('settings registry gate', () => {
      workStatusPanelEnabled: true, workStatusHiddenSections: ['mcp'], workStatusHiddenSectionsExplicit: true, workStatusSectionOrder: ['mcp', 'session'], workStatusSectionOrderExplicit: true,
      showReasoningTraces: true, streamingAutoFollowEnabled: true, collapsibleThinkingBlocks: true, expandReasoningWhileStreaming: true, showTextJustificationActivity: true,
      chatRenderMode: 'live', activityRenderMode: 'summary', mermaidRenderingMode: 'svg', userMessageRenderingMode: 'markdown', collapsibleUserMessages: true,
@@ -5165,10 +5141,10 @@ index 6ebb4a4de..13c57e879 100644
      codeBlockLineWrap: true, tableCellWrap: true, copyMessagesAsPlainText: true, showTurnChangedFiles: true, toolJsonViewMode: 'raw',
      timeFormatPreference: '24h', weekStartPreference: 'monday', messageStreamTransport: 'ws', diffLayoutPreference: 'inline', diffWrapLines: true, diffHideWhitespace: true,
 diff --git a/packages/web/server/lib/settings/settings-helpers.ts b/packages/web/server/lib/settings/settings-helpers.ts
-index fcb39f75b..739cf2815 100644
+index 5287b882c..d7c377da0 100644
 --- a/packages/web/server/lib/settings/settings-helpers.ts
 +++ b/packages/web/server/lib/settings/settings-helpers.ts
-@@ -245,6 +245,7 @@ type BooleanSettingsKey =
+@@ -163,6 +163,7 @@ type BooleanSettingsKey =
    | 'promptNavigatorEnabled' | 'wideChatLayoutEnabled' | 'showSplitAssistantMessageActions' | 'directoryShowHidden'
    | 'filesViewShowGitignored' | 'reportUsage' | 'responseStyleEnabled' | 'dictationEnabled' | 'dictationAutoSend'
    | 'sidebarHideEmptyWorktrees'
@@ -5176,7 +5152,7 @@ index fcb39f75b..739cf2815 100644
    | 'sttCorrectTranscript' | (typeof AGENT_TOOL_BOOLEAN_KEYS)[number];
  
  type StringSettingsKey =
-@@ -1199,7 +1200,15 @@ export const createSettingsHelpers = (dependencies: SettingsHelpersDependencies)
+@@ -1089,7 +1090,15 @@ export const createSettingsHelpers = (dependencies: SettingsHelpersDependencies)
      if (isBoolean(candidate.wideChatLayoutEnabled)) {
        result.wideChatLayoutEnabled = candidate.wideChatLayoutEnabled;
      }
@@ -5194,10 +5170,10 @@ index fcb39f75b..739cf2815 100644
      }
      if (isNumber(candidate.fontSize) && Number.isFinite(candidate.fontSize)) {
 diff --git a/packages/web/server/lib/settings/settings-registry.json b/packages/web/server/lib/settings/settings-registry.json
-index bdaa3e554..8eec0d374 100644
+index 8ce49306b..6a163e51e 100644
 --- a/packages/web/server/lib/settings/settings-registry.json
 +++ b/packages/web/server/lib/settings/settings-registry.json
-@@ -480,6 +480,12 @@
+@@ -493,6 +493,12 @@
        "scope": "profile",
        "perSurface": true
      },

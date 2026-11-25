@@ -7,6 +7,7 @@
   cloudflared,
   coreutils,
   curl,
+  fetchurl,
   git,
   gnugrep,
   gnutar,
@@ -30,6 +31,16 @@
 let
   source = callPackage ./source.nix { inherit openchamberSource; };
   inherit (source) bun version src;
+
+  # The web build bundles the OpenCode server and downloads its optional
+  # Claude Agent SDK peer from npm. The sandbox has no network, so the
+  # tarball is fetched here and unpacked into the script's cache. The
+  # version is pinned by @opencode/core; the core build checks it, so an
+  # upstream bump fails loudly instead of downloading again.
+  claudeAgentSdk = fetchurl {
+    url = "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk/-/claude-agent-sdk-0.3.301.tgz";
+    hash = "sha256-HPD2phKUy37dPvJoKCgTm6mZ990mPkbXXUE13dOlWwU=";
+  };
 
   # Runtime PATH parity with upstream's Docker image. The OpenCode CLI is
   # jkpkgs' own; the dotfiles instances attach to the managed OpenCode
@@ -113,6 +124,16 @@ let
       for dir in packages/*/node_modules; do
         [ -d "$dir" ] && patchShebangs "$dir"
       done
+
+      coreManifest=$(find node_modules/.bun -path '*/@opencode/core/package.json' -print -quit)
+      sdkVersion=$(node -p "require('./$coreManifest').peerDependencies['@anthropic-ai/claude-agent-sdk']")
+      if [ "$sdkVersion" != "0.3.301" ]; then
+        echo "openchamber: @opencode/core wants @anthropic-ai/claude-agent-sdk $sdkVersion, but package.nix pins 0.3.301" >&2
+        exit 1
+      fi
+      sdkCache="packages/web/.cache/opencode-server/@anthropic-ai+claude-agent-sdk@$sdkVersion"
+      mkdir -p "$sdkCache"
+      tar -xzf ${claudeAgentSdk} -C "$sdkCache"
     '';
 
     buildPhase = ''
