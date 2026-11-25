@@ -104,6 +104,10 @@ let
       # each row's click or answer to the window that supplied it. It sits on
       # the attention fix because both touch the same runtime and sync files.
       ./patches/tray-instances.patch
+      # The attention popover lists another instance's sessions by that
+      # instance's sidebar row rule, the same one its own view uses, so a
+      # session its sidebar hides is not listed from elsewhere either.
+      ./patches/attention-row-parity.patch
     ];
   };
 in

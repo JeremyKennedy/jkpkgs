@@ -1,0 +1,2759 @@
+diff --git a/packages/ui/src/apps/MobileInstanceAttentionBadge.test.tsx b/packages/ui/src/apps/MobileInstanceAttentionBadge.test.tsx
+index d2ac48dfa..5037eab76 100644
+--- a/packages/ui/src/apps/MobileInstanceAttentionBadge.test.tsx
++++ b/packages/ui/src/apps/MobileInstanceAttentionBadge.test.tsx
+@@ -63,14 +63,14 @@ test('shows how many sessions on that server wait for the user', async () => {
+   const store = useInstanceAttentionStore.getState();
+   store.applyPoll('host-b', 'bee', {
+     sessions: [
+-      { id: 'ses_a', directory: '/repo', title: 'A', archived: false, idle: 10 },
+-      { id: 'ses_b', directory: '/repo', title: 'B', archived: false, idle: 20 },
++      { id: 'ses_a', directory: '/repo', title: 'A', archived: false, unread: true, unreadWithError: false, idle: 10 },
++      { id: 'ses_b', directory: '/repo', title: 'B', archived: false, unread: true, unreadWithError: false, idle: 20 },
+     ],
+     pending: new Map([['ses_a', { permissions: 1, forms: 0, pages: 0 }]]),
+     busy: new Set(),
+   }, 100);
+   store.applyPoll('host-c', 'cedar', {
+-    sessions: [{ id: 'ses_c', directory: '/repo', title: 'C', archived: false, idle: 30 }],
++    sessions: [{ id: 'ses_c', directory: '/repo', title: 'C', archived: false, unread: true, unreadWithError: false, idle: 30 }],
+     pending: new Map(),
+     busy: new Set(),
+   }, 100);
+@@ -84,7 +84,7 @@ test('shows how many sessions on that server wait for the user', async () => {
+ 
+ test('one waiting session reads in the singular', async () => {
+   useInstanceAttentionStore.getState().applyPoll('host-b', 'bee', {
+-    sessions: [{ id: 'ses_a', directory: '/repo', title: 'A', archived: false, idle: 10 }],
++    sessions: [{ id: 'ses_a', directory: '/repo', title: 'A', archived: false, unread: true, unreadWithError: false, idle: 10 }],
+     pending: new Map([['ses_a', { permissions: 1, forms: 0, pages: 0 }]]),
+     busy: new Set(),
+   }, 100);
+@@ -97,7 +97,7 @@ test('one waiting session reads in the singular', async () => {
+ 
+ test('no badge for a server with nothing waiting', async () => {
+   useInstanceAttentionStore.getState().applyPoll('host-b', 'bee', {
+-    sessions: [{ id: 'ses_a', directory: '/repo', title: 'A', archived: false, idle: 10, viewed: 10 }],
++    sessions: [{ id: 'ses_a', directory: '/repo', title: 'A', archived: false, unread: false, unreadWithError: false, idle: 10 }],
+     pending: new Map(),
+     busy: new Set(),
+   }, 100);
+diff --git a/packages/ui/src/apps/MobileInstanceAttentionBell.test.tsx b/packages/ui/src/apps/MobileInstanceAttentionBell.test.tsx
+index add01a54e..3f3a96a11 100644
+--- a/packages/ui/src/apps/MobileInstanceAttentionBell.test.tsx
++++ b/packages/ui/src/apps/MobileInstanceAttentionBell.test.tsx
+@@ -265,7 +265,7 @@ const render = async (open: boolean): Promise<void> => {
+ 
+ const seed = (): void => {
+   useInstanceAttentionStore.getState().applyPoll('host-b', 'bee', {
+-    sessions: [{ id: 'ses_a', directory: '/repo', title: 'Unify sessions', archived: false, idle: 10 }],
++    sessions: [{ id: 'ses_a', directory: '/repo', title: 'Unify sessions', archived: false, unread: true, unreadWithError: false, idle: 10 }],
+     pending: new Map([['ses_a', { permissions: 1, forms: 0, pages: 0 }]]),
+     busy: new Set(),
+   }, 100);
+@@ -356,7 +356,7 @@ test('opening the sheet reads the connections again', async () => {
+ 
+ test('a row on this connection opens the session without connecting', async () => {
+   useInstanceAttentionStore.getState().applyPoll(LOCAL_INSTANCE_ATTENTION_HOST_ID, 'This instance', {
+-    sessions: [{ id: 'ses_local', directory: '/repo', title: 'Local queue', archived: false, idle: 10 }],
++    sessions: [{ id: 'ses_local', directory: '/repo', title: 'Local queue', archived: false, unread: true, unreadWithError: false, idle: 10 }],
+     pending: new Map(),
+     busy: new Set(),
+   }, 100);
+diff --git a/packages/ui/src/apps/mobileInstanceAttention.identity.test.ts b/packages/ui/src/apps/mobileInstanceAttention.identity.test.ts
+index 446f1eabc..1609aa1eb 100644
+--- a/packages/ui/src/apps/mobileInstanceAttention.identity.test.ts
++++ b/packages/ui/src/apps/mobileInstanceAttention.identity.test.ts
+@@ -10,7 +10,7 @@ const flush = async () => {
+ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+ 
+ const answered: InstanceAttentionPoll = {
+-  sessions: [{ id: 'ses_a', directory: '/repo', title: 'Session', archived: false, idle: 10 }],
++  sessions: [{ id: 'ses_a', directory: '/repo', title: 'Session', archived: false, unread: true, unreadWithError: false, idle: 10 }],
+   pending: new Map(),
+   busy: new Set(),
+ };
+diff --git a/packages/ui/src/components/desktop/DesktopInstanceMenu.test.tsx b/packages/ui/src/components/desktop/DesktopInstanceMenu.test.tsx
+index 4ce964bec..9405c4be0 100644
+--- a/packages/ui/src/components/desktop/DesktopInstanceMenu.test.tsx
++++ b/packages/ui/src/components/desktop/DesktopInstanceMenu.test.tsx
+@@ -164,12 +164,12 @@ const render = async (): Promise<void> => {
+ const seed = (): void => {
+   const store = useInstanceAttentionStore.getState();
+   store.applyPoll('host-b', 'bee', {
+-    sessions: [{ id: 'ses_a', directory: '/repo', title: 'Unify sessions', archived: false, idle: 10 }],
++    sessions: [{ id: 'ses_a', directory: '/repo', title: 'Unify sessions', archived: false, unread: true, unreadWithError: false, idle: 10 }],
+     pending: new Map([['ses_a', { permissions: 1, forms: 0, pages: 0 }]]),
+     busy: new Set(),
+   }, 100);
+   store.applyPoll('host-c', 'cedar', {
+-    sessions: [{ id: 'ses_b', directory: '/repo', title: 'Sidebar queue', archived: false, idle: 20, viewed: 0 }],
++    sessions: [{ id: 'ses_b', directory: '/repo', title: 'Sidebar queue', archived: false, unread: true, unreadWithError: false, idle: 20 }],
+     pending: new Map(),
+     busy: new Set(),
+   }, 100);
+@@ -221,7 +221,7 @@ test('a waiting row starts the shared switch-and-open path', async () => {
+ 
+ test('a single waiting session reads in the singular', async () => {
+   useInstanceAttentionStore.getState().applyPoll('host-b', 'bee', {
+-    sessions: [{ id: 'ses_a', directory: '/repo', title: 'Unify sessions', archived: false, idle: 10 }],
++    sessions: [{ id: 'ses_a', directory: '/repo', title: 'Unify sessions', archived: false, unread: true, unreadWithError: false, idle: 10 }],
+     pending: new Map([['ses_a', { permissions: 1, forms: 0, pages: 0 }]]),
+     busy: new Set(),
+   }, 100);
+@@ -235,7 +235,7 @@ test('a single waiting session reads in the singular', async () => {
+ test('the trigger total and the list include this instance beside the polled ones', async () => {
+   seed();
+   useInstanceAttentionStore.getState().applyPoll(LOCAL_INSTANCE_ATTENTION_HOST_ID, 'This instance', {
+-    sessions: [{ id: 'ses_local', directory: '/repo', title: 'Local queue', archived: false, idle: 30 }],
++    sessions: [{ id: 'ses_local', directory: '/repo', title: 'Local queue', archived: false, unread: true, unreadWithError: false, idle: 30 }],
+     pending: new Map([['ses_local', { permissions: 0, forms: 1, pages: 0 }]]),
+     busy: new Set(),
+   }, 100);
+diff --git a/packages/ui/src/components/layout/TitlebarLeftControls.test.tsx b/packages/ui/src/components/layout/TitlebarLeftControls.test.tsx
+index 055dd9bd8..452df6e32 100644
+--- a/packages/ui/src/components/layout/TitlebarLeftControls.test.tsx
++++ b/packages/ui/src/components/layout/TitlebarLeftControls.test.tsx
+@@ -69,6 +69,8 @@ const seedAttention = (count: number): void => {
+       directory: '/repo',
+       title: `Session ${index}`,
+       archived: false,
++      unread: true,
++      unreadWithError: false,
+       idle: 10 + index,
+     })),
+     pending: new Map(),
+diff --git a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
+index 735e77964..aae0962ad 100644
+--- a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
++++ b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
+@@ -1875,7 +1875,7 @@ group order reads those ranks too.
+ 
+ ### Tray rows
+ 
+-The desktop tray and the dock badge list a session exactly when the sidebar gives it a row (maintainer decision 2026-11-24). One module decides that for both: `list/sidebarSessionTree.ts`. The sidebar's collection (`useSessionProjectCollection`) builds its tree from it: which sessions are listed (`buildSidebarSessionTree`, the known-directory filter and the live gap), how they nest (`nestingParentById`, from `resolveSessionNestingParentId`), and which are nested and so not roots (`collectNestedSessionIds`). The tray (`hooks/useTraySync.ts`) builds the same tree and ownership index from the same stores and asks `resolveSidebarSessionRows` which roots have a row. A root has one when it is a managed chat (Chats section), when the ownership index places it in a project, worktree or space group, or, failing both, when it is pinned to the default list (Pinned section). The In work and custom sections draw from the project groups, so they add no session of their own. View state stays out: collapsed groups, search, single-project mode and show-more limits hide a row, they do not decide whether it exists.
++The desktop tray and the dock badge list a session exactly when the sidebar gives it a row (maintainer decision 2026-11-24). One module decides that for both: `list/sidebarSessionTree.ts`. The sidebar's collection (`useSessionProjectCollection`) builds its tree from it: which sessions are listed (`buildSidebarSessionTree`, the known-directory filter and the live gap), how they nest (`nestingParentById`, from `resolveSessionNestingParentId`), and which are nested and so not roots (`collectNestedSessionIds`). The tray (`hooks/useTraySync.ts`) builds the same tree and ownership index from the same stores (`list/sidebarRows.ts`, `readSidebarRowBase`) and asks `resolveSidebarSessionRows` which roots have a row. The attention popover uses the same builder: for the instance on screen from these stores, and for a polled instance from its own answers (`buildSidebarRowBase`), so it lists a session only through a row that instance's sidebar draws (see *Cross-instance attention* in `lib/DOCUMENTATION.md`). A root has one when it is a managed chat (Chats section), when the ownership index places it in a project, worktree or space group, or, failing both, when it is pinned to the default list (Pinned section). The In work and custom sections draw from the project groups, so they add no session of their own. View state stays out: collapsed groups, search, single-project mode and show-more limits hide a row, they do not decide whether it exists.
+ 
+ What this means in the tray:
+ 
+@@ -1886,6 +1886,6 @@ What this means in the tray:
+ - A session is nested, and so not a root, when the session it nests under is listed, active or archived. A child of an archived parent therefore has no row of its own while its parent is out of the active list.
+ - A project session whose nesting chain loops without reaching a root is listed as a root in its project group (`isInNestingCycle` in `useSessionGrouping`), and the rest of the loop nests under it. The sidebar picks the first member in its own order and the tray the first in tree order, so the loop has one row either way.
+ 
+-The parity test (`hooks/useTraySync.test.tsx`, *tray rows follow the sidebar row rule*) renders one fixture per kind of session the tray meets and checks the tray's rows against both the shared rule and the sidebar's projection. Rejected: a tray-side copy of the rule (`sessionHasSidebarRow`), which had fallen behind on nesting and space ownership.
++The parity test (`hooks/useTraySync.test.tsx`, *tray rows follow the sidebar row rule*) renders one fixture per kind of session the tray meets and checks the tray's rows against both the shared rule and the sidebar's projection. Rejected: a tray-side copy of the rule (`sessionHasSidebarRow`), which had fallen behind on nesting and space ownership. `lib/instanceAttentionParity.test.tsx` does the same for the attention popover, comparing the local half, the polled half and the sidebar's projection on one fixture set.
+ 
+ The tray rebuilds the tree only when one of its inputs changes (global active and archived sessions, projects, worktrees, spaces, OpenCode's projects, the directory stores' sessions): the 5 s poll and flushes for status or quota changes reuse it.
+diff --git a/packages/ui/src/components/session/sidebar/list/sidebarRows.ts b/packages/ui/src/components/session/sidebar/list/sidebarRows.ts
+new file mode 100644
+index 000000000..5f477a780
+--- /dev/null
++++ b/packages/ui/src/components/session/sidebar/list/sidebarRows.ts
+@@ -0,0 +1,108 @@
++import type { Project as OpenCodeProject, Session } from '@/lib/opencode/model';
++import { normalizePath } from '@/lib/pathNormalization';
++import { getBtwOriginalSessionID, isBtwSession } from '@/lib/sessionBtwMetadata';
++import { mergeSidebarSpaces, useSpacesStore, type SpaceMark } from '@/lib/spaces/spaces-store';
++import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
++import { useProjectsStore } from '@/stores/useProjectsStore';
++import { useGlobalSyncStore } from '@/sync/global-sync-store';
++import { useSessionUIStore } from '@/sync/session-ui-store';
++import { getAllSyncSessionMap } from '@/sync/sync-refs';
++import type { WorktreeMetadata } from '@/types/worktree';
++import { createSessionOwnershipIndex } from '../sessions/sessionOwnership';
++import { buildKnownSessionDirectories } from './sessionListDirectories';
++import {
++  buildSidebarSessionTree,
++  collectNestedSessionIds,
++  filterSidebarArchivedSessions,
++  resolveSidebarSessionRows,
++  type SidebarSessionTree,
++} from './sidebarSessionTree';
++
++export type SidebarRowSources = {
++  activeSessions: readonly Session[];
++  archivedSessions: readonly Session[];
++  
++  liveSessions: readonly Session[];
++  projects: Array<{ id: string; path: string }>;
++  worktreesByProject: Map<string, WorktreeMetadata[]>;
++  spaces: readonly SpaceMark[];
++  authoritativeProjects: readonly Pick<OpenCodeProject, 'id' | 'worktree'>[];
++  
++  isChatDirectory?: (directory: string | null | undefined) => boolean;
++};
++
++type SidebarRowBase = {
++  tree: SidebarSessionTree;
++  nestedSessionIds: ReadonlySet<string>;
++  ownerBySessionId: ReadonlyMap<string, unknown>;
++};
++
++export type SidebarZones = { chats: boolean; pinned: boolean };
++
++const EVERY_SIDEBAR_ZONE: SidebarZones = { chats: true, pinned: true };
++
++export const buildSidebarRowBase = (sources: SidebarRowSources): SidebarRowBase => {
++  const isVSCode = false;
++  const { activeSessions, archivedSessions, projects, worktreesByProject, isChatDirectory } = sources;
++  const knownDirectories = buildKnownSessionDirectories(projects, worktreesByProject, { includeWorktrees: true });
++  const globalIds = new Set([...activeSessions, ...archivedSessions].map((session) => session.id));
++  const liveSessions = sources.liveSessions.filter((session) => !globalIds.has(session.id));
++  const tree = buildSidebarSessionTree({ globalActiveSessions: activeSessions, liveSessions, knownDirectories, isVSCode, isChatDirectory });
++  const archived = filterSidebarArchivedSessions(archivedSessions, knownDirectories, isVSCode, isChatDirectory);
++  const normalizedProjects = projects.flatMap((project) => {
++    const normalizedPath = normalizePath(project.path);
++    return normalizedPath ? [{ id: project.id, normalizedPath }] : [];
++  });
++  const ownership = createSessionOwnershipIndex(
++    tree.projectSessions, normalizedProjects, worktreesByProject, isVSCode, archived, sources.authoritativeProjects, sources.spaces,
++  );
++  return { tree, nestedSessionIds: collectNestedSessionIds(tree, archived), ownerBySessionId: ownership.bySessionId };
++};
++
++type SessionRowOf = ReadonlyMap<string, string | null>;
++
++export const resolveSessionRowOf = (
++  base: SidebarRowBase,
++  judgedSessions: Iterable<Session>,
++  pinnedSessionIds: Set<string>,
++): SessionRowOf => {
++  const rootOf = resolveSidebarSessionRows(base.tree, base.nestedSessionIds, {
++    ownerBySessionId: base.ownerBySessionId, pinnedSessionIds, zones: EVERY_SIDEBAR_ZONE,
++  }).rootOf;
++  const rowOf = new Map<string, string | null>();
++  const btwOriginals = new Map<string, string>();
++  for (const session of judgedSessions) {
++    const original = isBtwSession(session) ? getBtwOriginalSessionID(session) : null;
++    if (original) btwOriginals.set(session.id, original);
++    else rowOf.set(session.id, rootOf.get(session.id) ?? null);
++  }
++  for (const [sessionId, original] of btwOriginals) {
++    const originalRow = rowOf.get(original);
++    if (originalRow !== undefined) rowOf.set(sessionId, originalRow);
++  }
++  return rowOf;
++};
++
++let windowRowBaseCache: { inputs: readonly unknown[]; base: SidebarRowBase } | null = null;
++
++export const readSidebarRowBase = (): SidebarRowBase => {
++  const { activeSessions, archivedSessions } = useGlobalSessionsStore.getState();
++  const projects = useProjectsStore.getState().projects;
++  const worktreesByProject = useSessionUIStore.getState().availableWorktreesByProject;
++  const { spaces, journey } = useSpacesStore.getState();
++  const authoritativeProjects = useGlobalSyncStore.getState().projects;
++  const live = getAllSyncSessionMap();
++  const inputs = [activeSessions, archivedSessions, projects, worktreesByProject, spaces, journey, authoritativeProjects, live];
++  if (windowRowBaseCache && windowRowBaseCache.inputs.every((input, index) => input === inputs[index])) return windowRowBaseCache.base;
++  const base = buildSidebarRowBase({
++    activeSessions,
++    archivedSessions,
++    liveSessions: [...live.values()],
++    projects,
++    worktreesByProject,
++    spaces: mergeSidebarSpaces(spaces, journey),
++    authoritativeProjects,
++  });
++  windowRowBaseCache = { inputs, base };
++  return base;
++};
+diff --git a/packages/ui/src/components/session/sidebar/list/sidebarSessionTree.ts b/packages/ui/src/components/session/sidebar/list/sidebarSessionTree.ts
+index 1e42330e2..3f5d0fea4 100644
+--- a/packages/ui/src/components/session/sidebar/list/sidebarSessionTree.ts
++++ b/packages/ui/src/components/session/sidebar/list/sidebarSessionTree.ts
+@@ -17,6 +17,7 @@ type SidebarSessionTreeInput = {
+   knownDirectories: Set<string>;
+   isVSCode: boolean;
+   globalStructure?: GlobalSessionStructure;
++  isChatDirectory?: (directory: string | null | undefined) => boolean;
+ };
+ 
+ type SidebarSessionPartitions = {
+@@ -31,13 +32,14 @@ const nestingParentResolver = (sessionById: ReadonlyMap<string, Session>) => (
+ export const partitionSidebarSessions = (
+   sessions: readonly Session[],
+   isVSCode: boolean,
++  isChatDirectory: (directory: string | null | undefined) => boolean = isChatDirectoryPath,
+ ): SidebarSessionPartitions => {
+   const projectSessions: Session[] = [];
+   const chatSessions: Session[] = [];
+   const excludeChats = isVSCode && !isVSCodeWithoutWorkspace();
+   for (const session of sessions) {
+     if (isBtwSession(session)) continue;
+-    if (isChatDirectoryPath(session.directory)) {
++    if (isChatDirectory(session.directory)) {
+       if (excludeChats) continue;
+       chatSessions.push(session);
+       continue;
+@@ -104,11 +106,12 @@ export const buildSidebarSessionTree = ({
+   knownDirectories,
+   isVSCode,
+   globalStructure,
++  isChatDirectory,
+ }: SidebarSessionTreeInput) => {
+   countSyncPerformance('sidebarStructureBuilds');
+   const indexedGlobalSessions = globalActiveSessions ?? [];
+   const visibleSessions = mergeSidebarSessionSources(indexedGlobalSessions, liveSessions);
+-  const partition = partitionSidebarSessions(visibleSessions, isVSCode);
++  const partition = partitionSidebarSessions(visibleSessions, isVSCode, isChatDirectory);
+   const knownDirectoryKeys = toKnownDirectoryKeys(knownDirectories, isVSCode);
+   const projectSessions = keepKnownSessionsWithDescendants(
+     partition.projectSessions,
+@@ -142,10 +145,11 @@ export const filterSidebarArchivedSessions = (
+   archivedSessions: readonly Session[],
+   knownDirectories: Set<string>,
+   isVSCode: boolean,
++  isChatDirectory: (directory: string | null | undefined) => boolean = isChatDirectoryPath,
+ ): Session[] => {
+   const known = toKnownDirectoryKeys(knownDirectories, isVSCode);
+   return archivedSessions.filter((session) => (
+-    isChatDirectoryPath(session.directory) ? !isVSCode : isKnownActiveSessionDirectory(session, known, isVSCode)
++    isChatDirectory(session.directory) ? !isVSCode : isKnownActiveSessionDirectory(session, known, isVSCode)
+   ));
+ };
+ 
+diff --git a/packages/ui/src/hooks/useInstanceAttentionPolling.identity.test.ts b/packages/ui/src/hooks/useInstanceAttentionPolling.identity.test.ts
+index 7550ab1d3..a7681b5f5 100644
+--- a/packages/ui/src/hooks/useInstanceAttentionPolling.identity.test.ts
++++ b/packages/ui/src/hooks/useInstanceAttentionPolling.identity.test.ts
+@@ -5,7 +5,7 @@ import type { DesktopHostProbe } from '@/lib/desktopHostStatus';
+ import type { InstanceAttentionPoll } from '@/lib/instanceAttention';
+ 
+ const answered: InstanceAttentionPoll = {
+-  sessions: [{ id: 'ses_a', directory: '/repo', title: 'Session', archived: false, idle: 10 }],
++  sessions: [{ id: 'ses_a', directory: '/repo', title: 'Session', archived: false, unread: true, unreadWithError: false, idle: 10 }],
+   pending: new Map(),
+   busy: new Set(),
+ };
+diff --git a/packages/ui/src/hooks/useInstanceAttentionPolling.test.ts b/packages/ui/src/hooks/useInstanceAttentionPolling.test.ts
+index f15a3a013..a5be422ab 100644
+--- a/packages/ui/src/hooks/useInstanceAttentionPolling.test.ts
++++ b/packages/ui/src/hooks/useInstanceAttentionPolling.test.ts
+@@ -58,6 +58,8 @@ const session = (id: string): InstanceSessionSummary => ({
+   directory: '/repo',
+   title: `Session ${id}`,
+   archived: false,
++  unread: true,
++  unreadWithError: false,
+   idle: 10,
+ });
+ 
+diff --git a/packages/ui/src/hooks/useInstanceAttentionPreview.ts b/packages/ui/src/hooks/useInstanceAttentionPreview.ts
+index cd6ee263b..eff167787 100644
+--- a/packages/ui/src/hooks/useInstanceAttentionPreview.ts
++++ b/packages/ui/src/hooks/useInstanceAttentionPreview.ts
+@@ -33,7 +33,8 @@ export const useInstanceAttentionPreview = (): void => {
+           directory: '/home/jeremy/dev/openchamber',
+           title: 'Unify sessions across instances',
+           idle: now - 40_000,
+-          viewed: now - 40_000,
++          unread: false,
++          unreadWithError: false,
+           archived: false,
+           updated: now - 40_000,
+         },
+@@ -50,9 +51,9 @@ export const useInstanceAttentionPreview = (): void => {
+           directory: '/home/jeremy/dev/openchamber',
+           title: 'Sidebar attention queue',
+           idle: now - 90_000,
+-          viewed: now - 180_000,
++          unread: true,
++          unreadWithError: false,
+           archived: false,
+-          outcome: 'succeeded',
+           updated: now - 90_000,
+         },
+       ],
+diff --git a/packages/ui/src/hooks/useLocalInstanceAttention.test.tsx b/packages/ui/src/hooks/useLocalInstanceAttention.test.tsx
+index 222afb33f..ed77284e7 100644
+--- a/packages/ui/src/hooks/useLocalInstanceAttention.test.tsx
++++ b/packages/ui/src/hooks/useLocalInstanceAttention.test.tsx
+@@ -11,6 +11,9 @@ import { setSessionParentResolver, useGlobalSessionStatusStore } from '@/sync/gl
+ import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
+ import { useProjectsStore } from '@/stores/useProjectsStore';
+ import { useInstanceAttentionStore } from '@/stores/useInstanceAttentionStore';
++import { opencodeClient } from '@/lib/opencode/client';
++import { ChildStoreManager } from '@/sync/child-store';
++import { setSyncRefs } from '@/sync/sync-refs';
+ 
+ const actualI18n = await import('@/lib/i18n');
+ mock.module('@/lib/i18n', () => ({
+@@ -31,6 +34,16 @@ const session = (id: string, overrides: Partial<Session> = {}): Session => ({
+   ...overrides,
+ });
+ 
++/** The global list as the store keeps it: the records by id, split into active and archived. */
++const seedSessions = (sessions: Session[]): void => {
++  useGlobalSessionsStore.setState({
++    hasLoaded: true,
++    entityById: new Map(sessions.map((entry) => [entry.id, entry])),
++    activeSessions: sessions.filter((entry) => entry.time.archived === undefined),
++    archivedSessions: sessions.filter((entry) => entry.time.archived !== undefined),
++  });
++};
++
+ const Probe = ({ enabled }: { enabled: boolean }): React.ReactNode => {
+   useLocalInstanceAttention(enabled);
+   return null;
+@@ -53,12 +66,12 @@ beforeEach(() => {
+   }
+   useInstanceAttentionStore.getState().reset();
+   useGlobalBlockingRequestsStore.setState({ bySession: new Map() });
+-  useGlobalSessionsStore.setState({ entityById: new Map<string, Session>() });
++  seedSessions([]);
+   useGlobalSessionStatusStore.setState({ activeSessionIds: new Set<string>() });
+   useBackgroundShellsStore.setState({ sessionIds: new Set<string>() });
+   setSessionParentResolver((sessionId) => useGlobalSessionsStore.getState().entityById.get(sessionId)?.parentID);
+-  // The hook only lists sessions the app can open, so the fixture project has
+-  // to be admitted for its sessions to reach the store.
++  // The hook only lists sessions the sidebar shows, so the fixture project has
++  // to be registered for its sessions to reach the store.
+   useProjectsStore.setState({ projects: [{ id: 'project', path: '/repo' }], activeProjectId: 'project' });
+ });
+ 
+@@ -88,12 +101,10 @@ const localItems = () => useInstanceAttentionStore.getState().items
+   .filter((item) => item.hostId === LOCAL_INSTANCE_ATTENTION_HOST_ID);
+ 
+ test('the hook publishes this instance’s waiting sessions into the attention store', async () => {
+-  useGlobalSessionsStore.setState({
+-    entityById: new Map([
+-      ['ses_unread', session('ses_unread')],
+-      ['ses_read', session('ses_read', { time: { created: 1, updated: 10, idle: 10, viewed: 10 } })],
+-    ]),
+-  });
++  seedSessions([
++    session('ses_unread'),
++    session('ses_read', { time: { created: 1, updated: 10, idle: 10, viewed: 10 } }),
++  ]);
+   useGlobalBlockingRequestsStore.setState({
+     bySession: new Map([
+       ['ses_read', {
+@@ -121,8 +132,9 @@ test('a host switch that cleared the list makes the hook read it again', async (
+   useGlobalSessionsStore.setState({
+     hasLoaded: false,
+     entityById: new Map<string, Session>(),
++    activeSessions: [],
+     loadSessions: async () => {
+-      useGlobalSessionsStore.setState({ hasLoaded: true, entityById: new Map([[after.id, after]]) });
++      useGlobalSessionsStore.setState({ hasLoaded: true, entityById: new Map([[after.id, after]]), activeSessions: [after] });
+       return { activeSessions: [after], archivedSessions: [] };
+     },
+   });
+@@ -134,7 +146,7 @@ test('a host switch that cleared the list makes the hook read it again', async (
+ });
+ 
+ test('unmounting clears the local entry', async () => {
+-  useGlobalSessionsStore.setState({ entityById: new Map([['ses_unread', session('ses_unread')]]) });
++  seedSessions([session('ses_unread')]);
+   await mount();
+   expect(localItems()).toHaveLength(1);
+ 
+@@ -147,14 +159,14 @@ test('unmounting clears the local entry', async () => {
+ });
+ 
+ test('a disabled subscriber publishes nothing', async () => {
+-  useGlobalSessionsStore.setState({ entityById: new Map([['ses_unread', session('ses_unread')]]) });
++  seedSessions([session('ses_unread')]);
+   await mount(false);
+ 
+   expect(useInstanceAttentionStore.getState().items).toEqual([]);
+ });
+ 
+ test('a session waiting on a background shell is not unread', async () => {
+-  useGlobalSessionsStore.setState({ entityById: new Map([['ses_shell', session('ses_shell')]]) });
++  seedSessions([session('ses_shell')]);
+   useBackgroundShellsStore.setState({ sessionIds: new Set(['ses_shell']) });
+   await mount();
+ 
+@@ -162,25 +174,15 @@ test('a session waiting on a background shell is not unread', async () => {
+ });
+ 
+ test('a parent whose subagent is still running is not unread', async () => {
+-  useGlobalSessionsStore.setState({
+-    entityById: new Map([
+-      ['ses_parent', session('ses_parent')],
+-      ['ses_child', session('ses_child', { parentID: 'ses_parent' })],
+-    ]),
+-  });
++  seedSessions([session('ses_parent'), session('ses_child', { parentID: 'ses_parent' })]);
+   useGlobalSessionStatusStore.setState({ activeSessionIds: new Set(['ses_child']) });
+   await mount();
+ 
+   expect(localItems()).toEqual([]);
+ });
+ 
+-test('a pending request for a session the app has not admitted is left out', async () => {
+-  useGlobalSessionsStore.setState({
+-    entityById: new Map([
+-      ['ses_known', session('ses_known')],
+-      ['ses_elsewhere', session('ses_elsewhere', { directory: '/elsewhere' })],
+-    ]),
+-  });
++test('a pending request for a session the sidebar gives no row is left out', async () => {
++  seedSessions([session('ses_known'), session('ses_elsewhere', { directory: '/elsewhere' })]);
+   useGlobalBlockingRequestsStore.setState({
+     bySession: new Map([
+       ['ses_elsewhere', {
+@@ -196,14 +198,68 @@ test('a pending request for a session the app has not admitted is left out', asy
+   expect(localItems().map((item) => item.sessionId)).toEqual(['ses_known']);
+ });
+ 
+-test('a session in a folder the app has not admitted is left out', async () => {
++test('a session in a folder the sidebar does not show is left out', async () => {
++  seedSessions([session('ses_known'), session('ses_elsewhere', { directory: '/elsewhere' })]);
++  await mount();
++
++  expect(localItems().map((item) => item.sessionId)).toEqual(['ses_known']);
++});
++
++test('a streamed turn that changes no item does not touch the attention store', async () => {
++  const sessions = Array.from({ length: 300 }, (_, index) => session(`ses_${index}`, {
++    time: { created: 1, updated: 10, idle: 10, viewed: index === 0 ? undefined : 10 },
++  }));
++  seedSessions(sessions);
++  await mount();
++  expect(localItems().map((item) => item.sessionId)).toEqual(['ses_0']);
++
++  let notified = 0;
++  const stop = useInstanceAttentionStore.subscribe(() => { notified += 1; });
++  for (let event = 0; event < 100; event += 1) {
++    const streamed = sessions.map((entry, index) => (index === 1 ? { ...entry, time: { ...entry.time, updated: 20 + event } } : entry));
++    await act(async () => seedSessions(streamed));
++  }
++  stop();
++
++  expect(notified).toBe(0);
++});
++
++type PendingBySession = ReturnType<typeof useGlobalBlockingRequestsStore.getState>['bySession'];
++
++const waitingOn = (...entries: Array<[sessionId: string, directory: string]>): PendingBySession => new Map(
++  entries.map(([sessionId, directory]) => [sessionId, {
++    directory,
++    permissions: [{ id: `per_${sessionId}`, sessionID: sessionId, action: 'edit', resources: ['file'] }],
++    forms: [],
++    pages: [],
++  }]),
++);
++
++test('nothing is published for this instance before its session list has loaded', async () => {
+   useGlobalSessionsStore.setState({
+-    entityById: new Map([
+-      ['ses_known', session('ses_known')],
+-      ['ses_elsewhere', session('ses_elsewhere', { directory: '/elsewhere' })],
+-    ]),
++    hasLoaded: false,
++    entityById: new Map<string, Session>(),
++    activeSessions: [],
++    loadSessions: async () => { throw new Error('server unavailable'); },
+   });
++  useGlobalBlockingRequestsStore.setState({ bySession: waitingOn(['ses_hidden', '/elsewhere']) });
+   await mount();
++  await act(async () => { await Promise.resolve(); });
+ 
+-  expect(localItems().map((item) => item.sessionId)).toEqual(['ses_known']);
++  expect(useInstanceAttentionStore.getState().hosts[LOCAL_INSTANCE_ATTENTION_HOST_ID]).toBeUndefined();
++  expect(localItems()).toEqual([]);
++});
++
++test('a pending request is untitled only for a session no store of this window holds', async () => {
++  const childStores = new ChildStoreManager();
++  setSyncRefs(opencodeClient.getSdkClient(), childStores, '/repo');
++  const liveOnly = session('ses_live_hidden', { directory: '/elsewhere/live' });
++  childStores.ensureChild(liveOnly.directory, { bootstrap: false }).setState((state) => ({ session: [...state.session, liveOnly] }));
++  seedSessions([session('ses_known', { time: { created: 1, updated: 10, idle: 10, viewed: 10 } }), session('ses_hidden', { directory: '/elsewhere' })]);
++  useGlobalBlockingRequestsStore.setState({
++    bySession: waitingOn(['ses_hidden', '/elsewhere'], ['ses_live_hidden', '/elsewhere/live'], ['ses_unknown', '/somewhere']),
++  });
++  await mount();
++
++  expect(localItems().map((item) => [item.sessionId, item.kind, item.title])).toEqual([['ses_unknown', 'permission', '']]);
+ });
+diff --git a/packages/ui/src/hooks/useLocalInstanceAttention.ts b/packages/ui/src/hooks/useLocalInstanceAttention.ts
+index 1ef49a468..2707b061d 100644
+--- a/packages/ui/src/hooks/useLocalInstanceAttention.ts
++++ b/packages/ui/src/hooks/useLocalInstanceAttention.ts
+@@ -12,39 +12,17 @@ import { useBackgroundShellsStore } from '@/sync/background-shells';
+ import { settleGlobalBlockingRequest, useGlobalBlockingRequestsStore } from '@/sync/global-blocking-requests';
+ import { collectOpenTurnSessionIds, useGlobalSessionStatusStore } from '@/sync/global-session-status';
+ import { usePrWatchStore } from '@/sync/pr-watch';
+-import { isSessionAdmitted } from '@/sync/session-admission';
+ import { useWorkflowActivityStore } from '@/sync/workflow-activity';
++import { getAllSyncSessionMap } from '@/sync/sync-refs';
+ import { useGlobalSessionsStore, ensureGlobalSessionsLoaded } from '@/stores/useGlobalSessionsStore';
+ import { subscribeInstanceAttentionRefresh } from './useInstanceAttentionPolling';
+ import { useInstanceAttentionStore } from '@/stores/useInstanceAttentionStore';
+ import { useProjectsStore } from '@/stores/useProjectsStore';
+-import type { Session } from '@/lib/opencode/model';
+-
+-// One string per admitted session, carrying every field the attention rule
+-// reads. Subscribing to this instead of `entityById` keeps a streamed event on
+-// an unrelated or archived session from rebuilding and sorting the whole
+-// published list; the effect reads the live map when the signature changes.
+-const FIELD_SEPARATOR = '\u0001';
+-const SESSION_SEPARATOR = '\u0002';
+-
+-const admittedSessionSignature = (entityById: ReadonlyMap<string, Session>): string => {
+-  const parts: string[] = [];
+-  for (const session of entityById.values()) {
+-    if (!isSessionAdmitted(session.directory)) continue;
+-    parts.push([
+-      session.id,
+-      session.parentID ?? '',
+-      session.directory,
+-      session.title,
+-      session.time.idle ?? '',
+-      session.time.viewed ?? '',
+-      session.time.archived ?? '',
+-      session.time.updated ?? '',
+-      session.outcome ?? '',
+-    ].join(FIELD_SEPARATOR));
+-  }
+-  return parts.join(SESSION_SEPARATOR);
+-};
++import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
++import { useSpacesStore } from '@/lib/spaces/spaces-store';
++import { useGlobalSyncStore } from '@/sync/global-sync-store';
++import { useSessionUIStore } from '@/sync/session-ui-store';
++import { readSidebarRowBase, resolveSessionRowOf } from '@/components/session/sidebar/list/sidebarRows';
+ 
+ /**
+  * Publishes this window's own waiting sessions into the attention store, as
+@@ -60,10 +38,17 @@ export const useLocalInstanceAttention = (enabled: boolean): void => {
+   const { t } = useI18n();
+   const hostLabel = t('instanceAttention.localInstance');
+   const bySession = useGlobalBlockingRequestsStore((state) => state.bySession);
+-  // Only sessions the app can open right now: a row in a folder that has not
+-  // been admitted stops at the trust prompt and appears to do nothing. This is
+-  // the same rule the sidebar's links obey, not a heuristic about age.
++  // Only sessions the sidebar shows, as their own row or inside one: the rows
++  // come from the sidebar's rule over these stores (`sidebarRows.ts`), the
++  // same rule a window polling this instance applies to its answers.
++  const activeSessions = useGlobalSessionsStore((state) => state.activeSessions);
++  const archivedSessions = useGlobalSessionsStore((state) => state.archivedSessions);
+   const projects = useProjectsStore((state) => state.projects);
++  const worktreesByProject = useSessionUIStore((state) => state.availableWorktreesByProject);
++  const spaces = useSpacesStore((state) => state.spaces);
++  const journey = useSpacesStore((state) => state.journey);
++  const authoritativeProjects = useGlobalSyncStore((state) => state.projects);
++  const pinnedSessionIds = useSessionPinnedStore((state) => state.ids);
+   const activeSessionIds = useGlobalSessionStatusStore((state) => state.activeSessionIds);
+   // A session whose turn is still open is not unread: it runs itself, waits on
+   // a workflow, a background command, an image or its pull request, or keeps a
+@@ -73,10 +58,6 @@ export const useLocalInstanceAttention = (enabled: boolean): void => {
+   const shellSessionIds = useBackgroundShellsStore((state) => state.sessionIds);
+   const imageSessionIds = useBackgroundImagesStore((state) => state.sessionIds);
+   const prWatches = usePrWatchStore((state) => state.bySession);
+-  const signature = useGlobalSessionsStore(React.useCallback(
+-    (state) => (enabled ? admittedSessionSignature(state.entityById) : ''),
+-    [enabled],
+-  ));
+   const loaded = useGlobalSessionsStore((state) => state.hasLoaded);
+ 
+   React.useEffect(() => {
+@@ -111,17 +92,16 @@ export const useLocalInstanceAttention = (enabled: boolean): void => {
+   }, [enabled, loaded]);
+ 
+   React.useEffect(() => {
+-    if (!enabled) return;
+-    const sessions = [...useGlobalSessionsStore.getState().entityById.values()]
+-      .filter((session) => isSessionAdmitted(session.directory));
+-    const admittedIds = new Set(sessions.map((session) => session.id));
+-    // A pending request only names a session the surfaces can open: the
+-    // attention list would otherwise add an untitled row for a session the
+-    // admission filter deliberately left out.
++    if (!enabled || !loaded) return;
++    const base = readSidebarRowBase();
++    const indexed = useGlobalSessionsStore.getState().entityById;
++    const live = getAllSyncSessionMap();
++    const candidates = new Map([...activeSessions, ...base.tree.sessions].map((session) => [session.id, session]));
+     const pending = new Map<string, InstancePendingCounts>();
+     for (const [sessionId, entry] of bySession) {
+-      if (!admittedIds.has(sessionId)) continue;
+       if (entry.permissions.length === 0 && entry.forms.length === 0 && entry.pages.length === 0) continue;
++      const held = candidates.get(sessionId) ?? indexed.get(sessionId) ?? live.get(sessionId);
++      if (held) candidates.set(sessionId, held);
+       pending.set(sessionId, {
+         permissions: entry.permissions.length,
+         forms: entry.forms.length,
+@@ -132,7 +112,7 @@ export const useLocalInstanceAttention = (enabled: boolean): void => {
+       LOCAL_INSTANCE_ATTENTION_HOST_ID,
+       hostLabel,
+       localInstanceAttentionPoll(
+-        sessions,
++        candidates.values(),
+         pending,
+         collectOpenTurnSessionIds(activeSessionIds, [
+           workflowSessionIds,
+@@ -140,20 +120,28 @@ export const useLocalInstanceAttention = (enabled: boolean): void => {
+           imageSessionIds,
+           prWatches.keys(),
+         ]),
++        resolveSessionRowOf(base, candidates.values(), pinnedSessionIds),
+       ),
+       Date.now(),
+     );
+   }, [
+     activeSessionIds,
++    activeSessions,
++    archivedSessions,
++    authoritativeProjects,
+     bySession,
+     enabled,
+     hostLabel,
+     imageSessionIds,
++    journey,
++    loaded,
++    pinnedSessionIds,
+     prWatches,
+     projects,
+     shellSessionIds,
+-    signature,
++    spaces,
+     workflowSessionIds,
++    worktreesByProject,
+   ]);
+ 
+   React.useEffect(() => {
+diff --git a/packages/ui/src/hooks/useTraySync.ts b/packages/ui/src/hooks/useTraySync.ts
+index 44377ead0..b5975678f 100644
+--- a/packages/ui/src/hooks/useTraySync.ts
++++ b/packages/ui/src/hooks/useTraySync.ts
+@@ -3,7 +3,7 @@ import type { Session } from '@/lib/opencode/model';
+ import { canUseElectronDesktopIPC, invokeDesktop, isDesktopLocalOriginActive } from '@/lib/desktop';
+ import { getRuntimeApiBaseUrl } from '@/lib/runtime-switch';
+ import { desktopHostsGet, getDesktopHostApiUrl, locationMatchesHost, redactSensitiveUrl } from '@/lib/desktopHosts';
+-import { getAllSyncSessionMap, getSyncChildStores } from '@/sync/sync-refs';
++import { getSyncChildStores } from '@/sync/sync-refs';
+ import { useBackgroundShellsStore } from '@/sync/background-shells';
+ import { useBackgroundImagesStore } from '@/sync/background-images';
+ import { collectOpenTurnSessionIds, useGlobalSessionStatusStore } from '@/sync/global-session-status';
+@@ -37,18 +37,10 @@ import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
+ import { resolveProjectForSessionDirectory, normalizeProjectPath } from '@/lib/projectResolution';
+ import { isSessionDirectoryAdmitted } from '@/sync/session-admission-rule';
+ import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
+-import { mergeSidebarSpaces, useSpacesStore } from '@/lib/spaces/spaces-store';
++import { useSpacesStore } from '@/lib/spaces/spaces-store';
+ import { useGlobalSyncStore } from '@/sync/global-sync-store';
+-import { normalizePath } from '@/lib/pathNormalization';
+-import { buildKnownSessionDirectories } from '@/components/session/sidebar/list/sessionListDirectories';
+-import {
+-  buildSidebarSessionTree,
+-  collectNestedSessionIds,
+-  filterSidebarArchivedSessions,
+-  resolveSidebarSessionRows,
+-  type SidebarSessionTree,
+-} from '@/components/session/sidebar/list/sidebarSessionTree';
+-import { createSessionOwnershipIndex } from '@/components/session/sidebar/sessions/sessionOwnership';
++import { resolveSidebarSessionRows } from '@/components/session/sidebar/list/sidebarSessionTree';
++import { readSidebarRowBase, type SidebarZones } from '@/components/session/sidebar/list/sidebarRows';
+ import { findWorktreeHoldingDirectory } from '@/lib/worktrees/worktreePaths';
+ import type { ProjectEntry } from '@/lib/api/types';
+ import type { WorktreeMetadata } from '@/types/worktree';
+@@ -281,42 +273,6 @@ const collectLiveData = (): LiveData => {
+   return { statusById, branchByDirectory, approvals, titleById, authoritativeDirectories };
+ };
+ 
+-type SidebarRowBase = {
+-  tree: SidebarSessionTree;
+-  nestedSessionIds: ReadonlySet<string>;
+-  ownerBySessionId: ReadonlyMap<string, unknown>;
+-};
+-
+-let rowBaseCache: { inputs: readonly unknown[]; base: SidebarRowBase } | null = null;
+-
+-const readSidebarRowBase = (): SidebarRowBase => {
+-  const { activeSessions, archivedSessions } = useGlobalSessionsStore.getState();
+-  const projects = useProjectsStore.getState().projects;
+-  const worktreesByProject = useSessionUIStore.getState().availableWorktreesByProject;
+-  const { spaces, journey } = useSpacesStore.getState();
+-  const authoritativeProjects = useGlobalSyncStore.getState().projects;
+-  const live = getAllSyncSessionMap();
+-  const inputs = [activeSessions, archivedSessions, projects, worktreesByProject, spaces, journey, authoritativeProjects, live];
+-  if (rowBaseCache && rowBaseCache.inputs.every((input, index) => input === inputs[index])) return rowBaseCache.base;
+-
+-  const isVSCode = false;
+-  const knownDirectories = buildKnownSessionDirectories(projects, worktreesByProject, { includeWorktrees: true });
+-  const globalIds = new Set([...activeSessions, ...archivedSessions].map((session) => session.id));
+-  const liveSessions = [...live.values()].filter((session) => !globalIds.has(session.id));
+-  const tree = buildSidebarSessionTree({ globalActiveSessions: activeSessions, liveSessions, knownDirectories, isVSCode });
+-  const archived = filterSidebarArchivedSessions(archivedSessions, knownDirectories, isVSCode);
+-  const normalizedProjects = projects.flatMap((project) => {
+-    const normalizedPath = normalizePath(project.path);
+-    return normalizedPath ? [{ id: project.id, normalizedPath }] : [];
+-  });
+-  const ownership = createSessionOwnershipIndex(
+-    tree.projectSessions, normalizedProjects, worktreesByProject, isVSCode, archived, authoritativeProjects, mergeSidebarSpaces(spaces, journey),
+-  );
+-  const base = { tree, nestedSessionIds: collectNestedSessionIds(tree, archived), ownerBySessionId: ownership.bySessionId };
+-  rowBaseCache = { inputs, base };
+-  return base;
+-};
+-
+ const buildSnapshot = (instanceName: string, includeTray: boolean): TraySnapshot => {
+   const allSessions = useGlobalSessionsStore.getState().activeSessions;
+   const projects = useProjectsStore.getState().projects;
+@@ -325,7 +281,7 @@ const buildSnapshot = (instanceName: string, includeTray: boolean): TraySnapshot
+   const rowBase = readSidebarRowBase();
+   const pinnedSessionIds = useSessionPinnedStore.getState().ids;
+   const display = useSessionDisplayStore.getState();
+-  const rowsIn = (zones: { chats: boolean; pinned: boolean }) => resolveSidebarSessionRows(
++  const rowsIn = (zones: SidebarZones) => resolveSidebarSessionRows(
+     rowBase.tree, rowBase.nestedSessionIds, { ownerBySessionId: rowBase.ownerBySessionId, pinnedSessionIds, zones },
+   );
+ 
+diff --git a/packages/ui/src/lib/DOCUMENTATION.md b/packages/ui/src/lib/DOCUMENTATION.md
+index 9f7a69bf8..9d7288730 100644
+--- a/packages/ui/src/lib/DOCUMENTATION.md
++++ b/packages/ui/src/lib/DOCUMENTATION.md
+@@ -196,15 +196,19 @@ Pairing and connection checks address a server before selecting it. Routing them
+ 
+ ### Ownership
+ 
+-`lib/instanceAttention.ts` owns the global wire reads (`/api/session`, `/api/sessions/status`, `/api/config/settings` and `/api/fs/home` for the folders a host opens, `/api/git/project-worktrees` for the worktrees outside them, and a session's own detail route for a request that fell outside the page), the ordering and subagent attribution, and the relay transport. `lib/attentionDirectories.ts` owns the folder rule both halves apply. `hooks/useInstanceAttentionPolling.ts` owns the desktop poller and its reachability decisions; `hooks/useLocalInstanceAttention.ts` publishes this window's own instance from the live stores. `stores/useInstanceAttentionStore.ts` holds the one sorted list every surface reads. `lib/instanceAttentionJump.ts` owns the shared switch-and-open path, and `lib/desktopHostActions.ts` owns the saved-host switch and the return to the app's own server.
++`lib/instanceAttention.ts` owns the global wire reads (`/api/session`, `/api/sessions/status`, `/api/config/settings` and `/api/fs/home` for the folders a host opens, `/api/git/project-worktrees` for the worktrees outside them, and a session's own detail route for a request that fell outside the page), the projection both halves share (`instanceSessionSummary`), the ordering and row attribution, and the relay transport. Which sessions an instance lists is the sidebar's own row rule (`components/session/sidebar/list/sidebarRows.ts`), fed this window's stores by the local half and a host's own answers by the poller. `hooks/useInstanceAttentionPolling.ts` owns the desktop poller and its reachability decisions; `hooks/useLocalInstanceAttention.ts` publishes this window's own instance from the live stores. `stores/useInstanceAttentionStore.ts` holds the one sorted list every surface reads. `lib/instanceAttentionJump.ts` owns the shared switch-and-open path, and `lib/desktopHostActions.ts` owns the saved-host switch and the return to the app's own server.
+ 
+ ### Invariants
+ 
+-- Both halves apply one folder rule, so the drawer cannot show a session the instance on screen hides. The local half filters with `isSessionAdmitted`; a polled half filters with the folders that host reports. A host that cannot answer (an unreadable settings or home route) leaves its rows standing rather than reading as "no folders", while a host that answers without any project is a real answer and admits only chats roots and spaces.
++- A session is an item for an instance exactly when that instance's sidebar gives it a row or nests it inside one, and it reports through that row: a subagent, an operator child (linked by metadata, with no `parentID`), a review or a /btw session lights its root's row, and a session with no row is never listed. Both halves build the rows with `buildSidebarRowBase` and `resolveSessionRowOf` over every zone, so the list for an instance is the same whether the window shows it or polls it. A /btw session, which the sidebar keeps out of its tree and shows inside its original, takes the original's row.
++- A failed or partial read never hides a waiting session. The row map says, per session, which row it sits in or that it has none (`null`); a session the map does not name is unknown and is shown on its own, under its loaded top-level parent, as before rows existed. Rows travel with the sessions they judged: a poll whose session list answered but whose settings or home read failed carries no rows, so every session is unknown, instead of judging newer sessions by older rows. A pending request whose session is in no list (its detail read failed, or it never had one) is an untitled item. The local half publishes nothing until this window's global session list has loaded, and passes the sessions that can make an item (active ones, live-gap ones, and those with a pending request that the global list or a directory store holds), so its untitled fallback covers only a request for a session no store of this window holds; without the load check, every request for a hidden session became an untitled row that opened into a trust prompt. A pending session whose parent chain (`parentID`, or the metadata parent link `projectSession` folds into it) cannot be read in full is left unknown too, so it shows on its own rather than vanishing with a parent the sidebar could not place. A host that answers without any project is a real answer and lists only chats and pinned sessions.
++- A host's session records go through `projectSession`, the projection this window's own client uses, so parent links from metadata, review and /btw origins, pins and unread marks read the same on both halves. The reader requires only what the row rule cannot do without (an id, a folder, an update time) and fills the counters it does not read; a record without those is left out, and a page in which no record could be read is a failed read, not an empty host. Metadata that is not a JSON object is dropped; it cannot carry a parent link, which only lives in an object.
++- A failed turn is `failed` only while `isSessionUnreadWithError` holds, as in the tray: a session marked unread after its failed turn was seen is plain unread.
++- This window's own publish leaves the store untouched when it changes no item, so a streamed turn does not re-render the surfaces. Each publish still rebuilds the sidebar tree when the global list changed (the builder is cached by input identity and shared with the tray); at 300 sessions, 100 streamed updates cost 100 builds and about 60 ms in all, and 3,000 archived sessions beside them add about 70 ms, so it is not debounced.
+ - `lib/pendingFormVerification.ts` decides which indexed forms the server's own form list no longer holds: the host's cross-directory index keeps a form whose settlement event it missed (a question tool call that ended `error` never sent one), so the drawer asks OpenCode again for the directories of the forms it would show. A directory that could not be read keeps its forms, since absence from an unreadable answer proves nothing. The local half applies the plan and settles the index; a polled host's rows are filtered from the same answer inside the reader.
+ - A pending form is checked against OpenCode's own form list before it becomes a row: the host's cross-directory index keeps a form whose settlement event it missed (a question tool call that ended `error` never sent one), so a polled host's rows are filtered by `/api/form` for that host, and the local half settles the index's stale forms from the same read when it mounts or the drawer is refreshed. A failed read keeps the form, since absence from an unreadable answer proves nothing.
+ - The local half reads this window's own session list when the store holds none. A host switch clears that list, and the phone has no global poller to refill it, so without the read the drawer showed only the other instances' rows until the sessions sheet was opened.
+-- The polled folders are the host's projects, the worktrees it lists under them, its chats roots, a `/spaces/<id>` folder and a deleted space's archived chats. A worktree outside every project path is the local half's normal case, so the poll reads `/api/git/project-worktrees` for it; when that read fails the project paths stand alone. A request whose session fell outside the 200-record page is resolved through its own detail route before the rule judges it, so a genuine request in a registered folder is kept and one in an unregistered folder is not shown.
++- A host's rows are built from its projects (`/api/config/settings`), the worktrees its git lists under them (`/api/git/project-worktrees`, the read this window's topology also comes from), its chats roots (`/api/fs/home`), the space marks its session page carries, and the pins its session records carry. When the worktree read fails the project paths stand alone. What a poll cannot see stays out: a pin another window keeps only in its own storage, OpenCode's project list (the ownership fallback for a session outside every registered folder), and sessions a host's directory stores hold before its global list. A request whose session fell outside the 200-record page is read through its own detail route and judged with the rest, so a genuine request in a registered folder is kept and one without a row is not shown.
+ - The app's own server is a poll target (`local`) only while the window shows a saved host and its page can reach that server (`pageReachesLocalOrigin`: the packaged UI, or a page already on the local origin). A page another instance served is cross-origin to the local server, so it has to be reloaded into the Local UI before it can read this machine; reading it anyway would report Local as unreachable. The read goes straight to the shell's local origin with the local client token and no shared probe, because the shell either runs that loopback server or reports none. The reserved `openchamber:this-instance` entry still names the instance on screen, so the two never describe the same server. The row label is the switcher's own key (`desktopHostSwitcher.instance.local`), so both surfaces name that server the same way in every locale.
+ - A jump to the app's own server goes through `activateLocalHost`, not the saved-host lookup, which does not hold Local. The endpoint switches in place on the app's own pages and the clicked session opens; the shell's reload branch is the fallback for a page that cannot switch in place.
+ - A jump to another instance holds the clicked session for the target runtime key before switching (`sync/pending-session-open.ts`) and opens it only after the switch landed on that key, the new instance has its project list, and the session has been read by id. An activation that did not switch (a relay restore that stopped: no shell, host gone, already active) or that left another runtime active is not a jump: the hold is released and the row stays. A session the new instance cannot open (gone, or its folder not added) shows a toast instead of leaving the user on another session.
+@@ -212,11 +216,15 @@ Pairing and connection checks address a server before selecting it. Routing them
+ - Reachability is the shared answer (`lib/desktopHostStatus.ts` `probeHost`), not a second probe. A relay answer hands its tunnel to the read, which closes it afterwards; a blocked status (`unreachable`, `wrong-service`, `incompatible`, `relay-limit`) reads nothing.
+ - Relay identity comes from `descriptorsEqual` in `lib/relay/runtime-tunnel.ts`, so the switcher's relay and the poller's relay cannot disagree.
+ - A `busy`/`retry` entry older than `HOST_STATUS_SEED_MAX_AGE_MS` is not current activity. An open turn suppresses unread for the session and every ancestor, matching the sidebar's `collectOpenTurnSessionIds`.
+-- Unread reuses `sync/session-unread.ts`; a child's pending request attributes to its top-level parent, and archived sessions never ask.
++- Unread is `isSessionUnread` from `sync/session-unread.ts` on the full session, the rule the sidebar's dot reads, marks included; archived sessions never ask.
+ - A failed poll keeps the host's last known items and marks it unreachable; a partial answer keeps the half that answered. Offline reads nothing and waits at the retry cap. A failed host backs off, and a hidden window schedules no further cycle.
+ - Removing a saved instance drops its rows; a tap on an unreachable host, or one no longer saved, keeps the surface open instead of switching blind.
+ - The runtime gate is deliberate: desktop and mobile run the pollers, while web and VS Code do not show cross-instance attention because neither owns a saved-instance switcher.
+ 
++### Why the sidebar's row rule and not a folder rule of its own
++
++The two halves used to judge sessions differently: the local half took the parent links from the projected sessions and filtered folders with `isSessionAdmitted`, while the poller read only the wire `parentID` and filtered with the folders a host reported. An operator child, whose parent link lives only in metadata, was nested and silent on the instance that ran it and an unread row of its own from every other window. Neither half matched the sidebar either: a review session's unread turn was its own row there, and an unread mark was ignored. One rule, the one the sidebar and the tray already share, fed each instance's own data, removes all three differences. A second copy of the folder rule (`lib/attentionDirectories.ts`) was rejected because it would drift from the sidebar the way the tray's copy once did.
++
+ ### Why a jump holds the session across the switch and not selects it at click time
+ 
+ The click runs on the old instance; right after the switch the new one has neither its project list nor its session list, so a session in a folder it does not know yet could not be selected and its deferred open was cancelled by whatever selected next: the switch's own restore of that runtime's last session, the launch restore, the settings bootstrap adopting the saved active project, or the sidebar reacting to that project. The user landed on the previous session or a draft. The held open opens through the same opener a `?session=` route uses, after the bootstrap settings sync, and those automatic writers stand aside while it is held; any navigation by the user drops it.
+diff --git a/packages/ui/src/lib/attentionDirectories.test.ts b/packages/ui/src/lib/attentionDirectories.test.ts
+deleted file mode 100644
+index a6d864b12..000000000
+--- a/packages/ui/src/lib/attentionDirectories.test.ts
++++ /dev/null
+@@ -1,73 +0,0 @@
+-import { describe, expect, test } from 'bun:test';
+-
+-import { isAttentionDirectoryAdmitted, legacyChatsRootForHome } from './attentionDirectories';
+-
+-const directories = (overrides: Partial<Parameters<typeof isAttentionDirectoryAdmitted>[1]> = {}) => ({
+-  roots: ['/home/me/dev', '/home/me/dev/deadlock'],
+-  chatRoots: ['/home/me/.local/share/openchamber/chats', '/home/me/.config/openchamber/chats'],
+-  ...overrides,
+-});
+-
+-describe('the attention directory rule', () => {
+-  test('a session anywhere under a project is admitted, not only at its root', () => {
+-    const project = directories();
+-    expect(isAttentionDirectoryAdmitted('/home/me/dev/deadlock', project)).toBe(true);
+-    expect(isAttentionDirectoryAdmitted('/home/me/dev/deadlock/.worktrees/repair', project)).toBe(true);
+-    expect(isAttentionDirectoryAdmitted('/home/me/dev/scoredo', project)).toBe(true);
+-  });
+-
+-  test('a folder no project holds is left out, which is the sidebar rule', () => {
+-    const project = directories();
+-    expect(isAttentionDirectoryAdmitted('/tmp/opencode/qcards-proj', project)).toBe(false);
+-    expect(isAttentionDirectoryAdmitted('/Users/me/dev', project)).toBe(false);
+-    // A sibling whose name merely starts with a project's does not belong to it.
+-    expect(isAttentionDirectoryAdmitted('/home/me/dev-other', project)).toBe(false);
+-  });
+-
+-  test('the chat roots are admitted, both the configured and the legacy one', () => {
+-    const project = directories({ roots: [] });
+-    expect(isAttentionDirectoryAdmitted('/home/me/.local/share/openchamber/chats/2026-11-21/session-a', project)).toBe(true);
+-    expect(isAttentionDirectoryAdmitted('/home/me/.config/openchamber/chats/2026-11-12/session-b', project)).toBe(true);
+-  });
+-
+-  test('an isolated space is admitted by its own folder name', () => {
+-    expect(isAttentionDirectoryAdmitted('/spaces/0123456789ab/app', directories({ roots: [] }))).toBe(true);
+-    // A path that only looks like a space is still judged by the roots.
+-    expect(isAttentionDirectoryAdmitted('/spaces/not-a-space/app', directories({ roots: [] }))).toBe(false);
+-  });
+-
+-  test('a project registered at a filesystem root admits everything under it', () => {
+-    expect(isAttentionDirectoryAdmitted('/home/me/dev/x', directories({ roots: ['/'], chatRoots: [] }))).toBe(true);
+-    expect(isAttentionDirectoryAdmitted('D:/dev/x', directories({ roots: ['D:/'], chatRoots: [] }))).toBe(true);
+-    expect(isAttentionDirectoryAdmitted('C:/dev/x', directories({ roots: ['C:'], chatRoots: [] }))).toBe(true);
+-  });
+-
+-  test('a chat archived from a deleted space is admitted', () => {
+-    expect(isAttentionDirectoryAdmitted('/home/me/.local/share/openchamber/spaces/archive/0123456789ab', directories())).toBe(true);
+-    expect(isAttentionDirectoryAdmitted('/data/spaces/archive/0123456789ab/app', directories({ roots: [] }))).toBe(true);
+-  });
+-
+-  test('a reported path cannot climb out of a root it names', () => {
+-    expect(isAttentionDirectoryAdmitted('/home/me/dev/deadlock/../../secret', directories())).toBe(false);
+-    expect(isAttentionDirectoryAdmitted('/home/me/dev/../../../etc', directories())).toBe(false);
+-  });
+-
+-  test('an unreadable folder is not admitted, and no answer admits everything', () => {
+-    expect(isAttentionDirectoryAdmitted(null, directories())).toBe(false);
+-    expect(isAttentionDirectoryAdmitted('', directories())).toBe(false);
+-    // Absent means the server did not say; the rows keep standing.
+-    expect(isAttentionDirectoryAdmitted('/tmp/anything', undefined)).toBe(true);
+-  });
+-
+-  test('a trailing slash and a Windows spelling still match their root', () => {
+-    expect(isAttentionDirectoryAdmitted('/home/me/dev/deadlock/', directories())).toBe(true);
+-    expect(isAttentionDirectoryAdmitted('C:\\dev\\app', directories({ roots: ['C:/dev'] }))).toBe(true);
+-  });
+-
+-  test('the legacy chats root comes from the home folder the server reported', () => {
+-    expect(legacyChatsRootForHome('/home/me')).toBe('/home/me/.config/openchamber/chats');
+-    expect(legacyChatsRootForHome('/home/me/')).toBe('/home/me/.config/openchamber/chats');
+-    expect(legacyChatsRootForHome(null)).toBeNull();
+-    expect(legacyChatsRootForHome('')).toBeNull();
+-  });
+-});
+diff --git a/packages/ui/src/lib/attentionDirectories.ts b/packages/ui/src/lib/attentionDirectories.ts
+deleted file mode 100644
+index 6270a26cb..000000000
+--- a/packages/ui/src/lib/attentionDirectories.ts
++++ /dev/null
+@@ -1,33 +0,0 @@
+-import { normalizePath } from '@/lib/pathNormalization';
+-
+-export type AttentionDirectories = {
+-  roots: readonly string[];
+-  chatRoots: readonly string[];
+-};
+-
+-const SPACE_DIRECTORY = /^\/spaces\/[0-9a-f]{12}(?:\/|$)/;
+-const SPACE_ARCHIVE_DIRECTORY = /\/spaces\/archive\/[0-9a-f]{12}(?:\/|$)/;
+-const DROPS_OUT_OF_ROOT = /\/\.\.(?:\/|$)/;
+-
+-const holds = (directory: string, root: string): boolean => (
+-  directory === root
+-  || directory.startsWith(root.endsWith('/') ? root : `${root}/`)
+-);
+-
+-export const legacyChatsRootForHome = (home: string | null | undefined): string | null => {
+-  const normalized = normalizePath(home);
+-  return normalized ? `${normalized}/.config/openchamber/chats` : null;
+-};
+-
+-export const isAttentionDirectoryAdmitted = (
+-  directory: string | null | undefined,
+-  directories: AttentionDirectories | undefined,
+-): boolean => {
+-  if (!directories) return true;
+-  const normalized = normalizePath(directory);
+-  if (!normalized) return false;
+-  if (SPACE_DIRECTORY.test(normalized) || SPACE_ARCHIVE_DIRECTORY.test(normalized)) return true;
+-  if (DROPS_OUT_OF_ROOT.test(normalized)) return false;
+-  return directories.chatRoots.some((root) => holds(normalized, root))
+-    || directories.roots.some((root) => holds(normalized, root));
+-};
+diff --git a/packages/ui/src/lib/chatDirectories.ts b/packages/ui/src/lib/chatDirectories.ts
+index fe0a08eca..41c45f217 100644
+--- a/packages/ui/src/lib/chatDirectories.ts
++++ b/packages/ui/src/lib/chatDirectories.ts
+@@ -13,7 +13,7 @@ const chatsRootListeners = new Set<() => void>();
+ const joinPath = (base: string, ...parts: string[]): string =>
+   [base.replace(/[\\/]+$/, ''), ...parts].join('/');
+ 
+-function legacyRootForHome(home: string | null | undefined): string | null {
++export function legacyRootForHome(home: string | null | undefined): string | null {
+   const normalized = normalizePath(home);
+   return normalized ? joinPath(normalized, '.config', 'openchamber', 'chats') : null;
+ }
+@@ -52,6 +52,11 @@ export function getChatsRootFromDirectory(directory: string | null | undefined):
+   return root;
+ }
+ 
++export const chatRootsMatcher = (roots: readonly string[]) => (directory: string | null | undefined): boolean => {
++  const normalized = normalizePath(directory);
++  return normalized !== null && roots.some((root) => isWithinRoot(normalized, root));
++};
++
+ export function isChatDirectoryPath(directory: string | null | undefined): boolean {
+   return getChatsRootFromDirectory(directory) !== null;
+ }
+diff --git a/packages/ui/src/lib/instanceAttention.test.ts b/packages/ui/src/lib/instanceAttention.test.ts
+index a4ab4f984..31dfd2622 100644
+--- a/packages/ui/src/lib/instanceAttention.test.ts
++++ b/packages/ui/src/lib/instanceAttention.test.ts
+@@ -6,28 +6,56 @@ import {
+   collectInstanceAttention,
+   INSTANCE_ATTENTION_SESSION_LIMIT,
+   instanceAttentionKey,
++  instanceSessionSummary,
+   readInstanceAttention,
++  type InstanceAttentionPoll,
+   type InstanceAttentionSnapshot,
+   type InstancePendingCounts,
+   type InstanceSessionSummary,
+ } from './instanceAttention';
++import { compact } from './opencode/model';
+ import { HOST_STATUS_SEED_MAX_AGE_MS } from './opencode/session-status';
+ 
+-const session = (overrides: Partial<InstanceSessionSummary> = {}): InstanceSessionSummary => ({
+-  id: 'ses_a',
+-  directory: '/repo',
+-  title: 'Session A',
+-  archived: false,
+-  ...overrides,
+-});
++type SessionFixture = {
++  id?: string;
++  parentID?: string;
++  directory?: string;
++  title?: string;
++  idle?: number;
++  viewed?: number;
++  archived?: boolean;
++  outcome?: 'succeeded' | 'failed' | 'interrupted';
++};
++
++/** A full session through the shared projection, so the unread rule is the app's own. */
++const session = ({ id = 'ses_a', directory = '/repo', title = 'Session A', idle, viewed, archived, parentID, outcome }: SessionFixture = {}): InstanceSessionSummary => instanceSessionSummary(compact({
++  id,
++  parentID,
++  projectID: 'project',
++  directory,
++  title,
++  cost: 0,
++  tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
++  outcome,
++  time: compact({ created: 1, updated: 1, idle, viewed, archived: archived ? 1 : undefined }),
++}));
+ 
+ const snapshot = (
+   hostId: string,
+   sessions: InstanceSessionSummary[],
+   pending: Map<string, InstancePendingCounts> = new Map(),
+   busy: ReadonlySet<string> = new Set(),
+-  directories?: InstanceAttentionSnapshot['directories'],
+-): InstanceAttentionSnapshot => ({ hostId, hostLabel: `host ${hostId}`, sessions, pending, busy, directories });
++  rows?: InstanceAttentionSnapshot['rows'],
++): InstanceAttentionSnapshot => ({ hostId, hostLabel: `host ${hostId}`, sessions, pending, busy, rows });
++
++const itemsOf = (poll: InstanceAttentionPoll) => collectInstanceAttention([{
++  hostId: 'host-b',
++  hostLabel: 'Build box',
++  sessions: poll.sessions ?? [],
++  pending: poll.pending ?? new Map(),
++  busy: poll.busy ?? undefined,
++  rows: poll.rows,
++}]);
+ 
+ describe('cross-instance attention aggregation', () => {
+   test('orders a pending permission above a question, a failed turn and an unseen turn', () => {
+@@ -59,33 +87,32 @@ describe('cross-instance attention aggregation', () => {
+     expect(items.map((item) => item.sessionId)).toEqual(['ses_root']);
+   });
+ 
+-  test('a polled host shows only the sessions in folders it opens', () => {
+-    const hostDirectories = {
+-      roots: ['/repo'],
+-      chatRoots: ['/home/me/.local/share/openchamber/chats'],
+-    };
+-    const items = collectInstanceAttention([snapshot('host-b', [
+-      session({ id: 'ses_project', directory: '/repo', idle: 10 }),
+-      session({ id: 'ses_worktree', directory: '/repo/.worktrees/repair', idle: 20 }),
+-      session({ id: 'ses_chat', directory: '/home/me/.local/share/openchamber/chats/2026-11-21/session-a', idle: 30 }),
+-      session({ id: 'ses_outside', directory: '/tmp/opencode/qcards-proj', idle: 40 }),
+-      session({ id: 'ses_archived', directory: '/tmp/opencode/qcards-proj', idle: 50, archived: true }),
+-    ], new Map(), new Set(), hostDirectories)]);
+-
+-    expect(items.map((item) => item.sessionId).sort()).toEqual(['ses_chat', 'ses_project', 'ses_worktree']);
+-  });
+-
+-  test('a pending request in a folder the host does not open is left out too', () => {
+-    const hostDirectories = { roots: ['/repo'], chatRoots: [] };
++  test('a session judged to have no row is left out, pending request or not', () => {
+     const items = collectInstanceAttention([snapshot('host-b', [
+       session({ id: 'ses_outside', directory: '/tmp/opencode/qcards-proj', idle: 10 }),
+       session({ id: 'ses_inside', directory: '/repo', idle: 20 }),
+     ], new Map([
+       ['ses_outside', { permissions: 1, forms: 0, pages: 0 }],
+       ['ses_inside', { permissions: 0, forms: 1, pages: 0 }],
+-    ]), new Set(), hostDirectories)]);
++      ['ses_unlisted', { permissions: 1, forms: 0, pages: 0 }],
++    ]), new Set(), new Map([['ses_inside', 'ses_inside'], ['ses_outside', null]]))]);
+ 
+-    expect(items.map((item) => [item.sessionId, item.kind])).toEqual([['ses_inside', 'question']]);
++    // A request for a session the rows never judged is not dropped: it shows untitled.
++    expect(items.map((item) => [item.sessionId, item.kind, item.title])).toEqual([
++      ['ses_unlisted', 'permission', ''],
++      ['ses_inside', 'question', 'Session A'],
++    ]);
++  });
++
++  test('a session nested under a row reports to that row, unread included', () => {
++    // A review or /btw session nests under its original without a parentID;
++    // its unseen turn lights the original's row, as in the sidebar and tray.
++    const items = collectInstanceAttention([snapshot('host-b', [
++      session({ id: 'ses_origin', viewed: 5, idle: 5 }),
++      session({ id: 'ses_review', idle: 30 }),
++    ], new Map(), new Set(), new Map([['ses_origin', 'ses_origin'], ['ses_review', 'ses_origin']]))]);
++
++    expect(items.map((item) => [item.sessionId, item.kind, item.at])).toEqual([['ses_origin', 'unread', 30]]);
+   });
+ 
+   test('a host that did not say which folders it opens keeps every row', () => {
+@@ -222,22 +249,19 @@ describe('reading a saved instance', () => {
+       worktrees: [{ path: '/repo' }, { path: '/repo/.worktrees/elsewhere' }],
+     }],
+   };
++  const wireSession = (id: string, directory = '/repo') => ({
++    id,
++    projectID: 'proj',
++    location: { directory },
++    title: id,
++    cost: 0,
++    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
++    time: { created: 1, updated: 2, idle: 2 },
++  });
+   const sessionPayload: JsonValue = {
+     data: [
+-      {
+-        id: 'ses_waiting',
+-        projectID: 'proj',
+-        location: { directory: '/repo' },
+-        title: 'Waiting',
+-        time: { created: 1, updated: 2, idle: 2 },
+-      },
+-      {
+-        id: 'ses_seen',
+-        projectID: 'proj',
+-        location: { directory: '/repo' },
+-        title: 'Seen',
+-        time: { created: 1, updated: 2, idle: 2, viewed: 2 },
+-      },
++      { ...wireSession('ses_waiting'), title: 'Waiting' },
++      { ...wireSession('ses_seen'), title: 'Seen', time: { created: 1, updated: 2, idle: 2, viewed: 2 } },
+     ],
+   };
+ 
+@@ -287,13 +311,7 @@ describe('reading a saved instance', () => {
+     ]);
+     expect(poll.pending?.get('ses_waiting')).toEqual({ permissions: 1, forms: 0, pages: 0 });
+     expect(poll.busy).toEqual(new Set());
+-    expect(poll.directories).toEqual({
+-      roots: ['/repo', '/repo/.worktrees/elsewhere'],
+-      chatRoots: [
+-        '/home/me/.local/share/openchamber/chats',
+-        '/home/me/.config/openchamber/chats',
+-      ],
+-    });
++    expect(poll.rows).toEqual(new Map([['ses_waiting', 'ses_waiting'], ['ses_seen', 'ses_seen']]));
+   });
+ 
+   test('a form the host still reports but OpenCode no longer holds is left out', async () => {
+@@ -321,14 +339,7 @@ describe('reading a saved instance', () => {
+     }) as typeof fetch;
+ 
+     const poll = await readInstanceAttention({ ...transport, fetchImpl });
+-    const items = collectInstanceAttention([{
+-      hostId: 'host-b',
+-      hostLabel: 'Build box',
+-      sessions: poll.sessions ?? [],
+-      pending: poll.pending ?? new Map(),
+-      busy: poll.busy ?? undefined,
+-      directories: poll.directories,
+-    }]);
++    const items = itemsOf(poll);
+ 
+     expect(poll.pending?.has('ses_waiting')).toBe(false);
+     expect(items.map((item) => item.kind)).not.toContain('question');
+@@ -375,30 +386,41 @@ describe('reading a saved instance', () => {
+       if (url.includes('/api/config/settings')) return response({});
+       if (url.includes('/api/fs/home')) return response(homePayload);
+       if (url.includes('/api/git/project-worktrees')) return response({ projects: [] });
+-      return response({ data: [] });
++      return response({ data: [wireSession('ses_somewhere', '/repo')] });
+     }) as typeof fetch;
+ 
+     const poll = await readInstanceAttention({ ...transport, fetchImpl });
+ 
+-    expect(poll.directories).toEqual({
+-      roots: [],
+-      chatRoots: [
+-        '/home/me/.local/share/openchamber/chats',
+-        '/home/me/.config/openchamber/chats',
+-      ],
+-    });
++    // Rows that hold nothing, which hide the session, not missing rows that would show it.
++    expect(poll.rows).toEqual(new Map([['ses_somewhere', null]]));
++    expect(itemsOf(poll)).toEqual([]);
+   });
+ 
+-  test('a worktree the host lists outside its projects is admitted', async () => {
+-    const items = collectInstanceAttention([snapshot('host-b', [
+-      session({ id: 'ses_worktree', directory: '/elsewhere/repair', idle: 10 }),
+-      session({ id: 'ses_outside', directory: '/tmp/opencode/qcards-proj', idle: 20 }),
+-    ], new Map(), new Set(), {
+-      roots: ['/repo', '/elsewhere/repair'],
+-      chatRoots: [],
+-    })]);
+-
+-    expect(items.map((item) => item.sessionId)).toEqual(['ses_worktree']);
++  test('the host\'s sidebar rule picks the rows: project, its worktrees and chats in, anything else out', async () => {
++    const record = (id: string, directory: string, time: Record<string, number> = {}) => ({
++      ...wireSession(id, directory), time: { created: 1, updated: 2, idle: 2, ...time },
++    });
++    // SAFETY: the stub answers each route the reader calls with JSON.
++    const fetchImpl = (async (input: string | URL | Request) => {
++      const url = String(input);
++      if (url.includes('/api/sessions/status')) return response({ sessions: {}, pending: {}, serverTime: 1_000 });
++      if (url.includes('/api/config/settings')) return response(settingsPayload);
++      if (url.includes('/api/fs/home')) return response(homePayload);
++      if (url.includes('/api/git/project-worktrees')) {
++        return response({ projects: [{ directory: '/repo', worktrees: [{ path: '/repo' }, { path: '/elsewhere/repair' }] }] });
++      }
++      return response({ data: [
++        record('ses_project', '/repo/packages/ui'),
++        record('ses_worktree', '/elsewhere/repair'),
++        record('ses_chat', '/home/me/.local/share/openchamber/chats/2026-11-21/session-a'),
++        record('ses_outside', '/tmp/opencode/qcards-proj'),
++        record('ses_archived', '/repo', { archived: 3 }),
++      ] });
++    }) as typeof fetch;
++
++    const items = itemsOf(await readInstanceAttention({ ...transport, fetchImpl }));
++
++    expect(items.map((item) => item.sessionId).sort()).toEqual(['ses_chat', 'ses_project', 'ses_worktree']);
+   });
+ 
+   test('a pending request whose session fell outside the page is resolved, then judged', async () => {
+@@ -419,20 +441,12 @@ describe('reading a saved instance', () => {
+       if (url.includes('/api/config/settings')) return response(settingsPayload);
+       if (url.includes('/api/fs/home')) return response(homePayload);
+       if (url.includes('/api/git/project-worktrees')) return response({ projects: [] });
+-      if (url.includes('/api/session/ses_offpage_inside')) return response({ data: { location: { directory: '/repo' } } });
+-      if (url.includes('/api/session/ses_offpage_outside')) return response({ data: { location: { directory: '/tmp/opencode/qcards-proj' } } });
++      if (url.includes('/api/session/ses_offpage_inside')) return response({ data: wireSession('ses_offpage_inside', '/repo') });
++      if (url.includes('/api/session/ses_offpage_outside')) return response({ data: wireSession('ses_offpage_outside', '/tmp/opencode/qcards-proj') });
+       return response({ data: [] });
+     }) as typeof fetch;
+ 
+-    const poll = await readInstanceAttention({ ...transport, fetchImpl });
+-    const items = collectInstanceAttention([{
+-      hostId: 'host-b',
+-      hostLabel: 'Build box',
+-      sessions: poll.sessions ?? [],
+-      pending: poll.pending ?? new Map(),
+-      busy: poll.busy ?? undefined,
+-      directories: poll.directories,
+-    }]);
++    const items = itemsOf(await readInstanceAttention({ ...transport, fetchImpl }));
+ 
+     expect(items.map((item) => item.sessionId)).toEqual(['ses_offpage_inside']);
+   });
+@@ -451,7 +465,7 @@ describe('reading a saved instance', () => {
+ 
+     const poll = await readInstanceAttention({ ...transport, fetchImpl });
+ 
+-    expect(poll.directories).toBeUndefined();
++    expect(poll.rows).toBeUndefined();
+     expect(poll.sessions).toHaveLength(2);
+   });
+ 
+@@ -513,6 +527,20 @@ describe('reading a saved instance', () => {
+     expect(poll.pending).toBeNull();
+   });
+ 
++  test('a page where no record can be read is a failed read, not an empty host', async () => {
++    // SAFETY: same stub shape as above; the list holds only records without a folder.
++    const fetchImpl = (async (input: string | URL | Request) => (
++      String(input).includes('/api/sessions/status')
++        ? response(statusPayload)
++        : response({ data: [{ id: 'ses_a', title: 'no folder' }, { id: 'ses_b' }] })
++    )) as typeof fetch;
++
++    const poll = await readInstanceAttention({ ...transport, fetchImpl });
++
++    expect(poll.sessions).toBeNull();
++    expect(poll.pending?.size).toBe(1);
++  });
++
+   test('a relay pseudo-URL without a tunnel has no address to read', async () => {
+     const poll = await readInstanceAttention({ url: 'relay://server-1' });
+ 
+diff --git a/packages/ui/src/lib/instanceAttention.ts b/packages/ui/src/lib/instanceAttention.ts
+index c7b0b5274..a902aba1c 100644
+--- a/packages/ui/src/lib/instanceAttention.ts
++++ b/packages/ui/src/lib/instanceAttention.ts
+@@ -2,8 +2,15 @@ import type { JsonValue } from '@opencode/client';
+ import { z } from 'zod';
+ 
+ import { normalizeHostUrl } from '@/lib/desktopHosts';
+-import { isAttentionDirectoryAdmitted, legacyChatsRootForHome, type AttentionDirectories } from '@/lib/attentionDirectories';
+-import { normalizePath } from '@/lib/pathNormalization';
++import {
++  instanceSidebarRows,
++  projectSessionRecords,
++  readHostWorktrees,
++  readInstanceFolders,
++} from '@/lib/instanceAttentionRows';
++import type { Session } from '@/lib/opencode/model';
++import { spaceMarkSchema } from '@/lib/spaces/spaces-store';
++import type { WorktreeMetadata } from '@/types/worktree';
+ import {
+   hostSessionStatusSnapshotSchema,
+   HOST_STATUS_SEED_MAX_AGE_MS,
+@@ -12,7 +19,7 @@ import {
+ import { descriptorsEqual, getActiveRelayDescriptor, getActiveRelayTunnel } from '@/lib/relay/runtime-tunnel';
+ import { createRelayTunnelClient, type RelayTunnelClient } from '@/lib/relay/tunnel-client';
+ import { addRuntimeProxyHeaders, fetchBypassingRuntimeBridge, sanitizeHeadersForBrowser } from '@/lib/runtime-fetch';
+-import { isUnreadSessionFields } from '@/sync/session-unread';
++import { isSessionUnread, isSessionUnreadWithError } from '@/sync/session-unread';
+ 
+ // Cross-instance attention: what a saved desktop instance needs from the user
+ // while this window shows another one. The sidebar already reports the active
+@@ -30,19 +37,21 @@ import { isUnreadSessionFields } from '@/sync/session-unread';
+ 
+ export type InstanceAttentionKind = 'permission' | 'question' | 'failed' | 'unread';
+ 
+-/** Only the fields the attention rule reads; the wire schema below fills them. */
++/** Only the fields the attention rule reads, taken from a session by `instanceSessionSummary`. */
+ export type InstanceSessionSummary = {
+   id: string;
+   parentID?: string;
+   directory: string | null;
+   title: string;
+   idle?: number;
+-  viewed?: number;
++  unread: boolean;
++  unreadWithError: boolean;
+   archived: boolean;
+   updated?: number;
+-  outcome?: 'succeeded' | 'failed' | 'interrupted';
+ };
+ 
++export type InstanceSidebarRows = ReadonlyMap<string, string | null>;
++
+ export type InstancePendingCounts = {
+   permissions: number;
+   forms: number;
+@@ -56,7 +65,7 @@ export type InstanceAttentionSnapshot = {
+   pending: ReadonlyMap<string, InstancePendingCounts>;
+   /** Sessions whose turn is still open on that host, so they are not unread. */
+   busy?: ReadonlySet<string>;
+-  directories?: AttentionDirectories;
++  rows?: InstanceSidebarRows;
+ };
+ 
+ export type InstanceAttentionItem = {
+@@ -93,9 +102,21 @@ export type InstanceAttentionPoll = {
+    * the previous answer stands instead of every session reading as finished.
+    */
+   busy: ReadonlySet<string> | null;
+-  directories?: AttentionDirectories;
++  rows?: InstanceSidebarRows;
+ };
+ 
++export const instanceSessionSummary = (session: Session): InstanceSessionSummary => ({
++  id: session.id,
++  parentID: session.parentID,
++  directory: session.directory,
++  title: session.title,
++  idle: session.time.idle,
++  unread: isSessionUnread(session),
++  unreadWithError: isSessionUnreadWithError(session),
++  archived: session.time.archived !== undefined,
++  updated: session.time.updated,
++});
++
+ export const instanceAttentionKey = (hostId: string, sessionId: string): string => `${hostId}:${sessionId}`;
+ 
+ const KIND_ORDER = {
+@@ -105,14 +126,6 @@ const KIND_ORDER = {
+   unread: 3,
+ } satisfies Record<InstanceAttentionKind, number>;
+ 
+-/**
+- * A finished turn nobody has seen yet. The rule is the sidebar's own
+- * (`isSessionUnread` in `sync/session-unread.ts`), read over the projection:
+- * OpenCode owns `time.idle`/`time.viewed`, and a child session reports to its
+- * parent instead of to the user.
+- */
+-const isFinishedUnseen = (session: InstanceSessionSummary): boolean => isUnreadSessionFields(session);
+-
+ /**
+  * The reason a top-level session asks for the user. Pending requests are read
+  * apart from this because a busy session still has to show its permission or
+@@ -123,9 +136,9 @@ const kindOf = (session: InstanceSessionSummary, busy: ReadonlySet<string> | und
+   // is the only live signal for another instance. An idle entry still carries
+   // its last turn's start, so only busy/retry means the turn is open.
+   if (busy?.has(session.id)) return null;
+-  if (!isFinishedUnseen(session)) return null;
++  if (!session.unread) return null;
+   // The tray shows a failed turn only while it is unread (`session-unread.ts`).
+-  return session.outcome === 'failed' ? 'failed' : 'unread';
++  return session.unreadWithError ? 'failed' : 'unread';
+ };
+ 
+ const pendingKindOf = (pending: InstancePendingCounts | undefined): InstanceAttentionKind | null => {
+@@ -142,9 +155,10 @@ const atOf = (session: InstanceSessionSummary | undefined): number => (
+ );
+ 
+ /**
+- * The top-level session a child belongs to, when the parent is inside the same
+- * page. A child whose parent is outside the page is its own row: opening it
+- * shows its own subtree, which includes the pending request.
++ * Without the instance's rows: the top-level session a child belongs to, when
++ * the parent is inside the same page. A child whose parent is outside the page
++ * is its own row: opening it shows its own subtree, which includes the pending
++ * request.
+  */
+ const topLevelOwner = (
+   session: InstanceSessionSummary,
+@@ -186,14 +200,15 @@ const busyWithAncestors = (
+ };
+ 
+ /**
+- * One item per session that needs the user, strongest reason first. A pending
+- * permission outranks a question, a failed unseen turn and an ordinary unseen
+- * turn. Archived sessions never need the user.
++ * One item per sidebar row that needs the user, strongest reason first. A
++ * pending permission outranks a question, a failed unseen turn and an ordinary
++ * unseen turn. Archived sessions never need the user.
+  *
+- * A child session's pending request is attributed to its top-level parent: the
+- * sidebar counts subagent activity toward the family, and opening the parent
+- * shows the child's request in its scope. A child with no pending request is
+- * not an item; its parent carries its unread mark.
++ * A session is an item only through the row that instance's sidebar gives it
++ * (`rows`): a session nested under a row (a subagent, an operator child, a
++ * review or /btw session) reports to that row, and one with no row at all is
++ * left out. The rows come from the sidebar's own rule on both halves, so the
++ * popover lists a session exactly when its instance's sidebar shows it.
+  */
+ export const collectInstanceAttention = (
+   snapshots: readonly InstanceAttentionSnapshot[],
+@@ -230,20 +245,18 @@ export const collectInstanceAttention = (
+   for (const snapshot of snapshots) {
+     const sessionsById = new Map(snapshot.sessions.map((session) => [session.id, session]));
+     const busy = busyWithAncestors(snapshot.busy, sessionsById);
++    const rowOf = (session: InstanceSessionSummary): InstanceSessionSummary | undefined => {
++      const rowId = snapshot.rows?.get(session.id);
++      if (rowId === null) return undefined;
++      return (rowId === undefined ? undefined : sessionsById.get(rowId)) ?? topLevelOwner(session, sessionsById);
++    };
+     for (const session of snapshot.sessions) {
+       if (session.archived) continue;
+-      if (!isAttentionDirectoryAdmitted(session.directory, snapshot.directories)) continue;
+-      const pendingKind = pendingKindOf(snapshot.pending.get(session.id));
+-      if (session.parentID) {
+-        if (!pendingKind) continue;
+-        const owner = topLevelOwner(session, sessionsById);
+-        if (owner.archived) continue;
+-        addItem(snapshot, owner, pendingKind, Math.max(atOf(owner), atOf(session)));
+-        continue;
+-      }
+-      const kind = pendingKind ?? kindOf(session, busy);
++      const row = rowOf(session);
++      if (!row || row.archived) continue;
++      const kind = pendingKindOf(snapshot.pending.get(session.id)) ?? kindOf(session, busy);
+       if (!kind) continue;
+-      addItem(snapshot, session, kind, atOf(session));
++      addItem(snapshot, row, kind, Math.max(atOf(row), atOf(session)));
+     }
+     // A permission or question can name a session the bounded list did not
+     // return. Its directory is unknown here, but the session's own detail
+@@ -256,6 +269,8 @@ export const collectInstanceAttention = (
+         id: sessionId,
+         directory: null,
+         title: '',
++        unread: false,
++        unreadWithError: false,
+         archived: false,
+       }, kind, 0);
+     }
+@@ -275,36 +290,14 @@ export const collectInstanceAttention = (
+ // top; an older unread turn beyond this page is not counted until it moves up.
+ export const INSTANCE_ATTENTION_SESSION_LIMIT = 200;
+ 
+-const sessionListRecordSchema = z.object({
+-  id: z.string().min(1),
+-  parentID: z.string().optional(),
+-  location: z.object({ directory: z.string() }).passthrough().optional(),
+-  title: z.string().optional(),
+-  outcome: z.enum(['succeeded', 'failed', 'interrupted']).optional(),
+-  time: z.object({
+-    idle: z.number().optional(),
+-    viewed: z.number().optional(),
+-    archived: z.number().optional(),
+-    updated: z.number().optional(),
+-  }).passthrough().optional(),
+-}).passthrough();
+-
+ const sessionListSchema = z.union([
+-  z.object({ data: z.array(sessionListRecordSchema) }).passthrough(),
+-  z.array(sessionListRecordSchema),
++  z.object({
++    data: z.array(z.unknown()),
++    spaces: z.array(spaceMarkSchema).optional().catch(undefined),
++  }).passthrough(),
++  z.array(z.unknown()),
+ ]);
+ 
+-const settingsSchema = z.object({
+-  projects: z.array(z.object({ path: z.string() }).passthrough()).optional(),
+-}).passthrough();
+-
+-const homeSchema = z.object({
+-  home: z.string(),
+-  chatsRoot: z.string().optional(),
+-  canonicalChatsRoot: z.string().optional(),
+-  canonicalLegacyChatsRoot: z.string().optional(),
+-}).passthrough();
+-
+ const formRecordSchema = z.object({
+   id: z.string().min(1),
+   sessionID: z.string().min(1),
+@@ -338,7 +331,7 @@ const readDirectoryFormCounts = async (
+ 
+ const withVerifiedForms = async (
+   root: string,
+-  sessions: readonly InstanceSessionSummary[],
++  sessions: readonly { id: string; directory: string | null }[],
+   pending: ReadonlyMap<string, InstancePendingCounts>,
+   headers: Headers,
+   fetchImpl: typeof fetch,
+@@ -371,18 +364,6 @@ const withVerifiedForms = async (
+   return next;
+ };
+ 
+-const projectSessionSummary = (record: z.infer<typeof sessionListRecordSchema>): InstanceSessionSummary => ({
+-  id: record.id,
+-  parentID: record.parentID,
+-  directory: record.location?.directory ?? null,
+-  title: record.title ?? '',
+-  idle: record.time?.idle,
+-  viewed: record.time?.viewed,
+-  archived: record.time?.archived !== undefined,
+-  updated: record.time?.updated,
+-  outcome: record.outcome,
+-});
+-
+ const pendingCounts = (snapshot: HostSessionStatusSnapshot): ReadonlyMap<string, InstancePendingCounts> => {
+   const pending = new Map<string, InstancePendingCounts>();
+   for (const [sessionId, entry] of Object.entries(snapshot.pending ?? {})) {
+@@ -458,110 +439,54 @@ const readJson = async (
+   }
+ };
+ 
+-const worktreeListSchema = z.array(z.object({ path: z.string() }).passthrough());
++const sessionDetailSchema = z.object({ data: z.unknown() }).passthrough();
+ 
+-const readHostWorktrees = async (
++const readSessionRecord = async (
+   url: string,
+-  directories: readonly string[],
+   headers: Headers,
+   fetchImpl: typeof fetch,
+   signal: AbortSignal | undefined,
+-): Promise<readonly string[]> => {
+-  if (directories.length === 0) return directories;
+-  let projects: unknown;
+-  try {
+-    addRuntimeProxyHeaders(url, headers);
+-    const response = await fetchImpl(url, {
+-      method: 'POST',
+-      headers: new Headers({ ...Object.fromEntries(headers), 'Content-Type': 'application/json' }),
+-      body: JSON.stringify({ directories }),
+-      signal,
+-    });
+-    if (!response.ok) return directories;
+-    const body = await response.json().catch(() => null);
+-    projects = z.object({ projects: z.unknown() }).passthrough().safeParse(body).data?.projects;
+-  } catch {
+-    return directories;
+-  }
+-  const parsed = z.array(z.object({ worktrees: worktreeListSchema.nullable().optional() }).passthrough()).safeParse(projects);
+-  if (!parsed.success) return directories;
+-  const roots = new Set<string>(directories);
+-  for (const project of parsed.data) {
+-    for (const worktree of project.worktrees ?? []) {
+-      const normalized = normalizePath(worktree.path);
+-      if (normalized) roots.add(normalized);
+-    }
+-  }
+-  return [...roots];
+-};
+-
+-const readInstanceDirectories = async (
+-  read: (path: string) => Promise<JsonValue | null>,
+-  readWorktrees: (directories: readonly string[]) => Promise<readonly string[]>,
+-): Promise<AttentionDirectories | undefined> => {
+-  const [settingsPayload, homePayload] = await Promise.all([
+-    read('/api/config/settings'),
+-    read('/api/fs/home'),
+-  ]);
+-  const settings = settingsSchema.safeParse(settingsPayload);
+-  const home = homeSchema.safeParse(homePayload);
+-  if (!settings.success || !home.success) return undefined;
+-  const chatRoots = [
+-    home.data.chatsRoot,
+-    home.data.canonicalChatsRoot,
+-    home.data.canonicalLegacyChatsRoot,
+-    legacyChatsRootForHome(home.data.home),
+-  ].flatMap((root) => {
+-    const normalized = normalizePath(root);
+-    return normalized ? [normalized] : [];
+-  });
+-  const projectRoots = (settings.data.projects ?? []).flatMap((project) => {
+-    const normalized = normalizePath(project.path);
+-    return normalized ? [normalized] : [];
+-  });
+-  return {
+-    roots: await readWorktrees(projectRoots),
+-    chatRoots,
+-  };
+-};
+-
+-const sessionDetailSchema = z.object({
+-  data: z.object({ location: z.object({ directory: z.string() }).passthrough().optional() }).passthrough(),
+-}).passthrough();
+-
+-const readSessionDirectory = async (
+-  url: string,
+-  headers: Headers,
+-  fetchImpl: typeof fetch,
+-  signal: AbortSignal | undefined,
+-): Promise<string | null> => {
++): Promise<Session | null> => {
+   try {
+     addRuntimeProxyHeaders(url, headers);
+     const response = await fetchImpl(url, { method: 'GET', headers, signal });
+     if (!response.ok) return null;
+     const detail = sessionDetailSchema.safeParse(await response.json().catch(() => null));
+-    return detail.success ? (detail.data.data.location?.directory ?? null) : null;
++    return detail.success ? (projectSessionRecords([detail.data.data])?.[0] ?? null) : null;
+   } catch {
+     return null;
+   }
+ };
+ 
+-const withPendingSessions = async (
+-  sessions: readonly InstanceSessionSummary[],
++const MAX_ANCESTOR_DEPTH = 8;
++
++const withPendingFamilies = async (
++  sessions: readonly Session[],
+   pending: ReadonlyMap<string, InstancePendingCounts>,
+-  readDirectory: (sessionId: string) => Promise<string | null>,
+-): Promise<readonly InstanceSessionSummary[]> => {
+-  const known = new Set(sessions.map((session) => session.id));
+-  const missing = [...pending.keys()].filter((sessionId) => !known.has(sessionId));
+-  if (missing.length === 0) return sessions;
+-  const resolved = await Promise.all(missing.map(async (sessionId) => ({
+-    sessionId,
+-    directory: await readDirectory(sessionId),
+-  })));
+-  const additions = resolved.flatMap(({ sessionId, directory }): InstanceSessionSummary[] => (
+-    directory === null ? [] : [{ id: sessionId, directory, title: '', archived: false }]
+-  ));
+-  return additions.length === 0 ? sessions : [...sessions, ...additions];
++  readSession: (sessionId: string) => Promise<Session | null>,
++): Promise<{ sessions: readonly Session[]; unresolved: ReadonlySet<string> }> => {
++  const known = new Map(sessions.map((session) => [session.id, Promise.resolve<Session | null>(session)]));
++  const sessionOf = (sessionId: string): Promise<Session | null> => {
++    const existing = known.get(sessionId);
++    if (existing) return existing;
++    const read = readSession(sessionId);
++    known.set(sessionId, read);
++    return read;
++  };
++  const unresolved = new Set<string>();
++  await Promise.all([...pending.keys()].map(async (sessionId) => {
++    let current = await sessionOf(sessionId);
++    for (let depth = 0; current?.parentID; depth += 1) {
++      const parent = depth < MAX_ANCESTOR_DEPTH ? await sessionOf(current.parentID) : null;
++      if (!parent) {
++        unresolved.add(sessionId);
++        return;
++      }
++      current = parent;
++    }
++  }));
++  const fetched = (await Promise.all(known.values())).filter((session): session is Session => session !== null);
++  return { sessions: fetched, unresolved };
+ };
+ 
+ export const readInstanceAttention = async (
+@@ -576,7 +501,7 @@ export const readInstanceAttention = async (
+   const fetchImpl = transport.fetchImpl ?? fetchBypassingRuntimeBridge;
+   const root = baseUrl.replace(/\/+$/, '');
+   const read = (path: string): Promise<JsonValue | null> => readJson(`${root}${path}`, headers, fetchImpl, options.signal);
+-  const readWorktrees = (directories: readonly string[]): Promise<readonly string[]> => readHostWorktrees(
++  const readWorktrees = (directories: readonly string[]): Promise<Map<string, WorktreeMetadata[]>> => readHostWorktrees(
+     `${root}/api/git/project-worktrees`,
+     directories,
+     headers,
+@@ -584,35 +509,36 @@ export const readInstanceAttention = async (
+     options.signal,
+   );
+ 
+-  const [sessionsPayload, statusPayload, directories] = await Promise.all([
++  const [sessionsPayload, statusPayload, folders] = await Promise.all([
+     readJson(`${root}/api/session?limit=${INSTANCE_ATTENTION_SESSION_LIMIT}`, headers, fetchImpl, options.signal),
+     readJson(`${root}/api/sessions/status`, headers, fetchImpl, options.signal),
+-    readInstanceDirectories(read, readWorktrees),
++    readInstanceFolders(read, readWorktrees),
+   ]);
+ 
+   const sessionList = sessionListSchema.safeParse(sessionsPayload);
+   const status = hostSessionStatusSnapshotSchema.safeParse(statusPayload);
+-  const records = sessionList.success
+-    ? (Array.isArray(sessionList.data) ? sessionList.data : sessionList.data.data)
++  const listed = sessionList.success
++    ? projectSessionRecords(Array.isArray(sessionList.data) ? sessionList.data : sessionList.data.data)
+     : null;
+-  const sessions = records ? records.map(projectSessionSummary) : null;
++  const spaces = sessionList.success && !Array.isArray(sessionList.data) ? sessionList.data.spaces ?? [] : [];
+   const rawPending = status.success ? pendingCounts(status.data) : null;
+-  const withOffPage = sessions && rawPending && directories
+-    ? await withPendingSessions(sessions, rawPending, (sessionId) => readSessionDirectory(
++  const families = listed && rawPending && folders
++    ? await withPendingFamilies(listed, rawPending, (sessionId) => readSessionRecord(
+       `${root}/api/session/${encodeURIComponent(sessionId)}`,
+       headers,
+       fetchImpl,
+       options.signal,
+     ))
+-    : sessions;
+-  const pending = rawPending && withOffPage
+-    ? await withVerifiedForms(root, withOffPage, rawPending, headers, fetchImpl, options.signal)
++    : null;
++  const sessions = families?.sessions ?? listed;
++  const pending = rawPending && sessions
++    ? await withVerifiedForms(root, sessions, rawPending, headers, fetchImpl, options.signal)
+     : rawPending;
+   return {
+-    sessions: withOffPage,
++    sessions: sessions ? sessions.map(instanceSessionSummary) : null,
+     pending,
+     busy: status.success ? busySessionIds(status.data) : null,
+-    directories,
++    rows: sessions && folders ? instanceSidebarRows(sessions, spaces, folders, families?.unresolved) : undefined,
+   };
+ };
+ 
+diff --git a/packages/ui/src/lib/instanceAttentionJump.test.ts b/packages/ui/src/lib/instanceAttentionJump.test.ts
+index 7659bbcfa..e62a29c60 100644
+--- a/packages/ui/src/lib/instanceAttentionJump.test.ts
++++ b/packages/ui/src/lib/instanceAttentionJump.test.ts
+@@ -137,7 +137,7 @@ afterEach(() => {
+ 
+ const seed = (): void => {
+   useInstanceAttentionStore.getState().applyPoll('host-b', 'Build box', {
+-    sessions: [{ id: 'ses_a', directory: '/repo', title: 'Session A', archived: false, idle: 10 }],
++    sessions: [{ id: 'ses_a', directory: '/repo', title: 'Session A', archived: false, unread: true, unreadWithError: false, idle: 10 }],
+     pending: new Map([['ses_a', { permissions: 1, forms: 0, pages: 0 }]]),
+     busy: new Set(),
+   }, 100);
+@@ -145,7 +145,7 @@ const seed = (): void => {
+ 
+ const seedLocal = (): void => {
+   useInstanceAttentionStore.getState().applyPoll(LOCAL_HOST_ID, 'Local', {
+-    sessions: [{ id: 'ses_navi', directory: '/repo', title: 'Session Navi', archived: false, idle: 10 }],
++    sessions: [{ id: 'ses_navi', directory: '/repo', title: 'Session Navi', archived: false, unread: true, unreadWithError: false, idle: 10 }],
+     pending: new Map([['ses_navi', { permissions: 1, forms: 0, pages: 0 }]]),
+     busy: new Set(),
+   }, 100);
+diff --git a/packages/ui/src/lib/instanceAttentionParity.test.tsx b/packages/ui/src/lib/instanceAttentionParity.test.tsx
+new file mode 100644
+index 000000000..8472b6d2a
+--- /dev/null
++++ b/packages/ui/src/lib/instanceAttentionParity.test.tsx
+@@ -0,0 +1,388 @@
++import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
++import React, { act } from 'react';
++import type { Root } from 'react-dom/client';
++import { Window } from 'happy-dom';
++import type { SessionInfo } from '@opencode/client';
++
++import { useLocalInstanceAttention } from '@/hooks/useLocalInstanceAttention';
++import { I18nProvider } from '@/lib/i18n';
++import { buildSidebarSessionProjection } from '@/components/session/sidebar/list/sessionCollection';
++import { buildKnownSessionDirectories } from '@/components/session/sidebar/list/sessionListDirectories';
++import { createSessionOwnershipIndex } from '@/components/session/sidebar/sessions/sessionOwnership';
++import { collectInstanceAttention, LOCAL_INSTANCE_ATTENTION_HOST_ID, readInstanceAttention } from '@/lib/instanceAttention';
++import type { Session } from '@/lib/opencode/model';
++import { projectSession } from '@/lib/opencode/projection';
++import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
++import { useInstanceAttentionStore } from '@/stores/useInstanceAttentionStore';
++import { useProjectsStore } from '@/stores/useProjectsStore';
++import { useGlobalBlockingRequestsStore } from '@/sync/global-blocking-requests';
++import { setSessionParentResolver, useGlobalSessionStatusStore } from '@/sync/global-session-status';
++import { useSessionUIStore } from '@/sync/session-ui-store';
++import { getBtwOriginalSessionID } from '@/lib/sessionBtwMetadata';
++import { isSessionUnread } from '@/sync/session-unread';
++import type { WorktreeMetadata } from '@/types/worktree';
++
++// One instance, seen three ways: its own sidebar, its own attention list (the
++// window shows it), and the attention list another window builds by polling
++// it. Each fixture feeds the same records and the same folders to all three,
++// and the two lists must agree with each other and with the sidebar.
++
++
++const PROJECT = '/repo';
++const KNOWN_WORKTREE = '/worktrees/known';
++// An OpenCode-managed worktree of the project, outside its folder.
++const AGENT_WORKTREE = '/tmp/opencode/pillfix';
++
++const record = (id: string, directory: string, overrides: Partial<SessionInfo> = {}): SessionInfo => ({
++  id,
++  projectID: 'project',
++  location: { directory },
++  title: id,
++  cost: 0,
++  tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
++  time: { created: 1, updated: 10, idle: 10, viewed: 10 },
++  ...overrides,
++});
++const unseen = { time: { created: 1, updated: 20, idle: 20 } };
++const archived = { time: { created: 1, updated: 20, idle: 20, archived: 30 } };
++const permission = (sessionId: string) => ({ id: `per_${sessionId}`, sessionID: sessionId, action: 'edit', resources: ['file'] });
++
++type Fixture = {
++  kind: string;
++  records: SessionInfo[];
++  /** Sessions with a pending permission. */
++  waiting?: string[];
++  /** The worktrees this instance knows besides its project root. */
++  worktrees: string[];
++  /** The rows the attention list must show, as [row, kind]. */
++  items: Array<[string, string]>;
++  /** Sessions the instance holds beyond the page the poller lists; read one by one. */
++  offPage?: SessionInfo[];
++  /** Reads that fail on the polled host. */
++  fails?: { settings?: boolean; detail?: string[] };
++  /** Fields the polled host leaves out of its session records. */
++  omitOnWire?: string[];
++  /** What the poller must still show when a read failed: unsure means shown. */
++  polledItems?: Array<[string, string]>;
++};
++
++const fixtures: Fixture[] = [
++  { kind: 'plain unread session', records: [record('ses_plain', PROJECT, unseen)], worktrees: [], items: [['ses_plain', 'unread']] },
++  { kind: 'seen session', records: [record('ses_seen', PROJECT)], worktrees: [], items: [] },
++  {
++    kind: 'subagent with a pending permission',
++    records: [record('ses_parent', PROJECT), record('ses_sub', PROJECT, { parentID: 'ses_parent', ...unseen })],
++    waiting: ['ses_sub'],
++    worktrees: [],
++    items: [['ses_parent', 'permission']],
++  },
++  {
++    // The reported session: dispatched with ownWork, so OpenCode stores no
++    // parentID and the link lives in metadata only. Unread, not archived, in
++    // an agent worktree; its parent is a read lead session in the project.
++    kind: 'operator child in an agent worktree the instance knows',
++    records: [
++      record('ses_lead', PROJECT, { metadata: { openchamber: { lead: { at: 1 } } } }),
++      record('ses_df1c7a4ebffe7h7gU5tWp7sAx7', AGENT_WORKTREE, {
++        title: 'Fix PR 7460 review',
++        metadata: { openchamber: { kind: 'operator-child', parentID: 'ses_lead' } },
++        outcome: 'succeeded',
++        ...unseen,
++      }),
++    ],
++    worktrees: [AGENT_WORKTREE],
++    items: [],
++  },
++  {
++    kind: 'operator child in an agent worktree the instance does not know',
++    records: [
++      record('ses_lead', PROJECT, { metadata: { openchamber: { lead: { at: 1 } } } }),
++      record('ses_df1c7a4ebffe7h7gU5tWp7sAx7', AGENT_WORKTREE, {
++        title: 'Fix PR 7460 review',
++        metadata: { openchamber: { kind: 'operator-child', parentID: 'ses_lead' } },
++        ...unseen,
++      }),
++    ],
++    worktrees: [],
++    items: [],
++  },
++  {
++    kind: 'operator child with a pending permission',
++    records: [
++      record('ses_lead', PROJECT),
++      record('ses_child', AGENT_WORKTREE, { metadata: { openchamber: { kind: 'operator-child', parentID: 'ses_lead' } } }),
++    ],
++    waiting: ['ses_child'],
++    worktrees: [AGENT_WORKTREE],
++    items: [['ses_lead', 'permission']],
++  },
++  {
++    // A review session nests under the session it reviews, without a parentID;
++    // the sidebar rolls its unseen turn into the original's row.
++    kind: 'review session of a read original',
++    records: [
++      record('ses_origin', PROJECT),
++      record('ses_review', PROJECT, { title: 'Review: ses_origin', metadata: { openchamber: { kind: 'review', originalSessionID: 'ses_origin' } }, ...unseen }),
++    ],
++    worktrees: [],
++    items: [['ses_origin', 'unread']],
++  },
++  {
++    kind: 'session the user marked unread',
++    records: [record('ses_marked', PROJECT, { metadata: { openchamber: { markedUnread: { at: 5 } } } })],
++    worktrees: [],
++    items: [['ses_marked', 'unread']],
++  },
++  {
++    kind: 'failed settings read on the polled host',
++    records: [record('ses_plain', PROJECT, unseen), record('ses_outside', '/tmp/opencode/qcards-proj', unseen)],
++    waiting: ['ses_outside'],
++    worktrees: [],
++    items: [['ses_plain', 'unread']],
++    fails: { settings: true },
++    polledItems: [['ses_outside', 'permission'], ['ses_plain', 'unread']],
++  },
++  {
++    kind: 'off-page pending session whose detail read fails',
++    records: [record('ses_plain', PROJECT)],
++    offPage: [record('ses_offpage', PROJECT)],
++    waiting: ['ses_offpage'],
++    worktrees: [],
++    items: [['ses_offpage', 'permission']],
++    fails: { detail: ['ses_offpage'] },
++  },
++  {
++    // A dispatched child in an agent worktree the instance does not list,
++    // whose parent also fell off the page: the parent is read too.
++    kind: 'off-page pending child with an off-page parent',
++    records: [record('ses_plain', PROJECT)],
++    offPage: [
++      record('ses_lead', PROJECT),
++      record('ses_child', AGENT_WORKTREE, { metadata: { openchamber: { kind: 'operator-child', parentID: 'ses_lead' } } }),
++    ],
++    waiting: ['ses_child'],
++    worktrees: [],
++    items: [['ses_lead', 'permission']],
++  },
++  {
++    kind: 'off-page pending child whose parent cannot be read',
++    records: [record('ses_plain', PROJECT)],
++    offPage: [
++      record('ses_lead', PROJECT),
++      record('ses_child', AGENT_WORKTREE, { metadata: { openchamber: { kind: 'operator-child', parentID: 'ses_lead' } } }),
++    ],
++    waiting: ['ses_child'],
++    worktrees: [],
++    items: [['ses_lead', 'permission']],
++    fails: { detail: ['ses_lead'] },
++    polledItems: [['ses_child', 'permission']],
++  },
++  {
++    kind: 'record without the fields the row rule does not read',
++    records: [record('ses_bare', PROJECT, unseen)],
++    omitOnWire: ['projectID', 'cost', 'tokens', 'title'],
++    worktrees: [],
++    items: [['ses_bare', 'unread']],
++  },
++  {
++    kind: '/btw session with a pending permission',
++    records: [
++      record('ses_origin', PROJECT),
++      record('ses_btw', PROJECT, { metadata: { openchamber: { kind: 'btw', originalSessionID: 'ses_origin' } } }),
++    ],
++    waiting: ['ses_btw'],
++    worktrees: [],
++    items: [['ses_origin', 'permission']],
++  },
++  {
++    kind: 'session marked unread after its failed turn was seen',
++    records: [record('ses_marked_failed', PROJECT, {
++      outcome: 'failed',
++      metadata: { openchamber: { markedUnread: { at: 30 } } },
++    })],
++    worktrees: [],
++    items: [['ses_marked_failed', 'unread']],
++  },
++  { kind: 'archived unread session', records: [record('ses_archived', PROJECT, archived)], worktrees: [], items: [] },
++  {
++    kind: 'unread session in a folder outside every project',
++    records: [record('ses_outside', '/tmp/opencode/qcards-proj', unseen)],
++    waiting: ['ses_outside'],
++    worktrees: [],
++    items: [],
++  },
++  {
++    kind: 'unread session in a known worktree',
++    records: [record('ses_worktree', KNOWN_WORKTREE, unseen)],
++    worktrees: [KNOWN_WORKTREE],
++    items: [['ses_worktree', 'unread']],
++  },
++];
++
++const worktreeMap = (paths: string[]): Map<string, WorktreeMetadata[]> => new Map(paths.length === 0 ? [] : [[
++  PROJECT,
++  paths.map((path) => ({ path, projectDirectory: PROJECT, branch: '', label: '' })),
++]]);
++
++const sorted = (items: Array<{ sessionId: string; kind: string }>) => items
++  .map((item): [string, string] => [item.sessionId, item.kind])
++  .sort(([left], [right]) => left.localeCompare(right));
++
++/** The rows the instance's own sidebar draws, and the sessions inside each. */
++const sidebarRows = (sessions: Session[], worktrees: Map<string, WorktreeMetadata[]>): Map<string, Set<string>> => {
++  const active = sessions.filter((session) => session.time.archived === undefined);
++  const projection = buildSidebarSessionProjection({
++    globalActiveSessions: active,
++    liveSessions: [],
++    knownDirectories: buildKnownSessionDirectories([{ path: PROJECT }], worktrees, { includeWorktrees: true }),
++    isVSCode: false,
++    pinnedSessionIds: new Set(),
++    sessionOrderRanks: new Map(),
++  });
++  const owners = createSessionOwnershipIndex(projection.projectSessions, [{ id: 'project', normalizedPath: PROJECT }], worktrees, false).bySessionId;
++  const nested = new Set([...projection.childrenMap.values()].flat().map((session) => session.id));
++  const rows = new Map<string, Set<string>>();
++  for (const root of projection.projectSessions) {
++    if (nested.has(root.id) || !owners.has(root.id)) continue;
++    const members = new Set<string>();
++    const visit = (id: string) => {
++      if (members.has(id)) return;
++      members.add(id);
++      for (const child of projection.childrenMap.get(id) ?? []) visit(child.id);
++    };
++    visit(root.id);
++    for (const session of sessions) {
++      const original = getBtwOriginalSessionID(session);
++      if (original && members.has(original)) members.add(session.id);
++    }
++    rows.set(root.id, members);
++  }
++  return rows;
++};
++
++const pollInstance = async (fixture: Fixture) => {
++  const status = {
++    sessions: {},
++    pending: Object.fromEntries((fixture.waiting ?? []).map((id) => [id, { permissions: [permission(id)], forms: [], pages: [] }])),
++    serverTime: 1_000,
++  };
++  // SAFETY: the stub answers every route the reader calls with JSON, from the
++  // same fixture the local stores are seeded with.
++  const fetchImpl = (async (input: string | URL | Request) => {
++    const url = String(input);
++    if (url.includes('/api/sessions/status')) return Response.json(status);
++    if (url.includes('/api/config/settings')) {
++      return fixture.fails?.settings ? new Response(null, { status: 500 }) : Response.json({ projects: [{ id: 'project', path: PROJECT }] });
++    }
++    const detail = /\/api\/session\/([^/?]+)$/.exec(new URL(url).pathname)?.[1];
++    if (detail) {
++      const found = fixture.offPage?.find((entry) => entry.id === detail);
++      return found && !fixture.fails?.detail?.includes(detail) ? Response.json({ data: found }) : new Response(null, { status: 404 });
++    }
++    if (url.includes('/api/fs/home')) return Response.json({ home: '/home/me', chatsRoot: '/home/me/.local/share/openchamber/chats' });
++    if (url.includes('/api/git/project-worktrees')) {
++      return Response.json({ projects: [{ directory: PROJECT, worktrees: [{ path: PROJECT }, ...fixture.worktrees.map((path) => ({ path }))] }] });
++    }
++    const omitted = new Set(fixture.omitOnWire ?? []);
++    return Response.json({ data: fixture.records.map((entry) => Object.fromEntries(Object.entries(entry).filter(([key]) => !omitted.has(key)))) });
++  }) as typeof fetch;
++  const poll = await readInstanceAttention({ url: 'http://instance.test', fetchImpl });
++  return collectInstanceAttention([{
++    ...poll,
++    hostId: 'polled',
++    hostLabel: 'polled',
++    sessions: poll.sessions ?? [],
++    pending: poll.pending ?? new Map(),
++    busy: poll.busy ?? undefined,
++  }]);
++};
++
++const Probe = (): React.ReactNode => {
++  useLocalInstanceAttention(true);
++  return null;
++};
++
++let dom: Window;
++let root: Root | null = null;
++const globals = new Map<string, PropertyDescriptor | undefined>();
++
++const showInstance = async (fixture: Fixture, sessions: Session[], worktrees: Map<string, WorktreeMetadata[]>) => {
++  useGlobalSessionsStore.setState({
++    hasLoaded: true,
++    entityById: new Map(sessions.map((session) => [session.id, session])),
++    activeSessions: sessions.filter((session) => session.time.archived === undefined),
++    archivedSessions: sessions.filter((session) => session.time.archived !== undefined),
++  });
++  useSessionUIStore.setState({ availableWorktreesByProject: worktrees });
++  useGlobalBlockingRequestsStore.setState({
++    bySession: new Map((fixture.waiting ?? []).map((id) => [id, {
++      directory: sessions.find((session) => session.id === id)?.directory ?? PROJECT,
++      permissions: [{ ...permission(id), sessionID: id }],
++      forms: [],
++      pages: [],
++    }])),
++  });
++  const host = document.createElement('div');
++  document.body.append(host);
++  const { createRoot } = await import('react-dom/client');
++  const created = createRoot(host);
++  root = created;
++  await act(async () => created.render(<I18nProvider><Probe /></I18nProvider>));
++  return useInstanceAttentionStore.getState().items.filter((item) => item.hostId === LOCAL_INSTANCE_ATTENTION_HOST_ID);
++};
++
++beforeEach(() => {
++  dom = new Window({ url: 'http://localhost' });
++  const values = {
++    window: dom, document: dom.document, navigator: dom.navigator,
++    Node: dom.Node, Element: dom.Element, HTMLElement: dom.HTMLElement,
++    Event: dom.Event, MouseEvent: dom.MouseEvent, IS_REACT_ACT_ENVIRONMENT: true,
++  };
++  for (const [name, value] of Object.entries(values)) {
++    globals.set(name, Object.getOwnPropertyDescriptor(globalThis, name));
++    Object.defineProperty(globalThis, name, { configurable: true, writable: true, value });
++  }
++  useInstanceAttentionStore.getState().reset();
++  useGlobalSessionStatusStore.setState({ activeSessionIds: new Set<string>() });
++  setSessionParentResolver((sessionId) => useGlobalSessionsStore.getState().entityById.get(sessionId)?.parentID);
++  useProjectsStore.setState({ projects: [{ id: 'project', path: PROJECT }], activeProjectId: 'project' });
++});
++
++afterEach(async () => {
++  const mounted = root;
++  root = null;
++  if (mounted) await act(async () => mounted.unmount());
++  for (const [name, descriptor] of globals) {
++    if (descriptor) Object.defineProperty(globalThis, name, descriptor);
++    else Reflect.deleteProperty(globalThis, name);
++  }
++  globals.clear();
++  await dom.happyDOM.abort();
++  dom.close();
++});
++
++describe('one instance lists the same attention rows however it is reached', () => {
++  for (const fixture of fixtures) {
++    test(fixture.kind, async () => {
++      // What this window's client makes of the same records (`opencodeClient`).
++      const sessions = [...fixture.records, ...(fixture.offPage ?? [])].map(projectSession);
++      const worktrees = worktreeMap(fixture.worktrees);
++
++      const local = sorted(await showInstance(fixture, sessions, worktrees));
++      const polled = sorted(await pollInstance(fixture));
++      const rows = sidebarRows(sessions, worktrees);
++
++      expect(local).toEqual(fixture.items);
++      expect(polled).toEqual(fixture.polledItems ?? local);
++      // Every item is a row the sidebar draws, and every waiting session the
++      // sidebar draws inside a row is listed through that row.
++      for (const [sessionId] of local) expect(rows.has(sessionId)).toBe(true);
++      const waiting = new Set([
++        ...(fixture.waiting ?? []),
++        ...sessions.filter(isSessionUnread).map((session) => session.id),
++      ]);
++      const shownRowsWithWaiting = [...rows].filter(([, members]) => [...members].some((id) => waiting.has(id))).map(([rowId]) => rowId).sort();
++      expect(local.map(([sessionId]) => sessionId)).toEqual(shownRowsWithWaiting);
++    });
++  }
++});
+diff --git a/packages/ui/src/lib/instanceAttentionRelay.test.ts b/packages/ui/src/lib/instanceAttentionRelay.test.ts
+index 71d318bd4..7582ee5da 100644
+--- a/packages/ui/src/lib/instanceAttentionRelay.test.ts
++++ b/packages/ui/src/lib/instanceAttentionRelay.test.ts
+@@ -12,7 +12,15 @@ const relay = {
+ };
+ 
+ const sessionPayload: JsonValue = {
+-  data: [{ id: 'ses_a', location: { directory: '/repo' }, title: 'A', time: { idle: 1 } }],
++  data: [{
++    id: 'ses_a',
++    projectID: 'project',
++    location: { directory: '/repo' },
++    title: 'A',
++    cost: 0,
++    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
++    time: { created: 1, updated: 1, idle: 1 },
++  }],
+ };
+ const statusPayload: JsonValue = {
+   sessions: {},
+diff --git a/packages/ui/src/lib/instanceAttentionRows.ts b/packages/ui/src/lib/instanceAttentionRows.ts
+new file mode 100644
+index 000000000..fa98b343a
+--- /dev/null
++++ b/packages/ui/src/lib/instanceAttentionRows.ts
+@@ -0,0 +1,168 @@
++import { z } from 'zod';
++
++import {
++  buildSidebarRowBase,
++  resolveSessionRowOf,
++  type SidebarRowSources,
++} from '@/components/session/sidebar/list/sidebarRows';
++import { chatRootsMatcher, legacyRootForHome } from '@/lib/chatDirectories';
++import type { JsonValue, Session } from '@/lib/opencode/model';
++import { projectSession } from '@/lib/opencode/projection';
++import { normalizePath } from '@/lib/pathNormalization';
++import { addRuntimeProxyHeaders } from '@/lib/runtime-fetch';
++import { getRuntimeKey } from '@/lib/runtime-switch';
++import { getPinnedSessionKey, isSessionPinnedInMetadata } from '@/lib/sessionPins';
++import type { WorktreeMetadata } from '@/types/worktree';
++
++const NO_TOKENS = { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } };
++
++const sessionRecordSchema = z.object({
++  id: z.string().min(1),
++  parentID: z.string().optional().catch(undefined),
++  projectID: z.string().catch(''),
++  location: z.object({ directory: z.string() }).passthrough(),
++  title: z.string().optional().catch(undefined),
++  cost: z.number().catch(0),
++  tokens: z.object({
++    input: z.number(),
++    output: z.number(),
++    reasoning: z.number(),
++    cache: z.object({ read: z.number(), write: z.number() }).passthrough(),
++  }).passthrough().catch(NO_TOKENS),
++  outcome: z.enum(['succeeded', 'failed', 'interrupted']).optional().catch(undefined),
++  time: z.object({
++    created: z.number().optional().catch(undefined),
++    updated: z.number(),
++    idle: z.number().optional().catch(undefined),
++    viewed: z.number().optional().catch(undefined),
++    archived: z.number().optional().catch(undefined),
++  }).passthrough(),
++  metadata: z.record(z.string(), z.json()).optional().catch(undefined),
++  fork: z.object({
++    sessionID: z.string(),
++    boundary: z.object({ type: z.enum(['before', 'through']), messageID: z.string() }),
++  }).optional().catch(undefined),
++}).passthrough();
++
++export const projectSessionRecords = (records: readonly unknown[]): Session[] | null => {
++  const sessions = records.flatMap((record) => {
++    const parsed = sessionRecordSchema.safeParse(record);
++    if (!parsed.success) return [];
++    const { time } = parsed.data;
++    return [projectSession({ ...parsed.data, time: { ...time, created: time.created ?? time.updated } })];
++  });
++  return records.length > 0 && sessions.length === 0 ? null : sessions;
++};
++
++const settingsSchema = z.object({
++  projects: z.array(z.object({ id: z.string().optional(), path: z.string() }).passthrough()).optional(),
++}).passthrough();
++
++const homeSchema = z.object({
++  home: z.string(),
++  chatsRoot: z.string().optional(),
++  canonicalChatsRoot: z.string().optional(),
++  canonicalLegacyChatsRoot: z.string().optional(),
++}).passthrough();
++
++const worktreeListSchema = z.array(z.object({ path: z.string(), branch: z.string().optional() }).passthrough());
++
++export const readHostWorktrees = async (
++  url: string,
++  directories: readonly string[],
++  headers: Headers,
++  fetchImpl: typeof fetch,
++  signal: AbortSignal | undefined,
++): Promise<Map<string, WorktreeMetadata[]>> => {
++  const byProject = new Map<string, WorktreeMetadata[]>();
++  if (directories.length === 0) return byProject;
++  let projects: unknown;
++  try {
++    addRuntimeProxyHeaders(url, headers);
++    const response = await fetchImpl(url, {
++      method: 'POST',
++      headers: new Headers({ ...Object.fromEntries(headers), 'Content-Type': 'application/json' }),
++      body: JSON.stringify({ directories }),
++      signal,
++    });
++    if (!response.ok) return byProject;
++    const body = await response.json().catch(() => null);
++    projects = z.object({ projects: z.unknown() }).passthrough().safeParse(body).data?.projects;
++  } catch {
++    return byProject;
++  }
++  const parsed = z.array(z.object({
++    directory: z.string(),
++    worktrees: worktreeListSchema.nullable().optional(),
++  }).passthrough()).safeParse(projects);
++  if (!parsed.success) return byProject;
++  for (const project of parsed.data) {
++    const projectDirectory = normalizePath(project.directory);
++    if (!projectDirectory) continue;
++    const worktrees = (project.worktrees ?? []).flatMap((worktree): WorktreeMetadata[] => {
++      const path = normalizePath(worktree.path);
++      const branch = worktree.branch?.replace(/^refs\/heads\//, '').trim() ?? '';
++      return path ? [{ path, projectDirectory, branch, label: branch }] : [];
++    });
++    if (worktrees.length > 0) byProject.set(projectDirectory, worktrees);
++  }
++  return byProject;
++};
++
++type InstanceFolders = Pick<SidebarRowSources, 'projects' | 'worktreesByProject' | 'isChatDirectory'>;
++
++export const readInstanceFolders = async (
++  read: (path: string) => Promise<JsonValue | null>,
++  readWorktrees: (directories: readonly string[]) => Promise<Map<string, WorktreeMetadata[]>>,
++): Promise<InstanceFolders | undefined> => {
++  const [settingsPayload, homePayload] = await Promise.all([
++    read('/api/config/settings'),
++    read('/api/fs/home'),
++  ]);
++  const settings = settingsSchema.safeParse(settingsPayload);
++  const home = homeSchema.safeParse(homePayload);
++  if (!settings.success || !home.success) return undefined;
++  const chatRoots = [
++    home.data.chatsRoot,
++    home.data.canonicalChatsRoot,
++    home.data.canonicalLegacyChatsRoot,
++    legacyRootForHome(home.data.home),
++  ].flatMap((root) => {
++    const normalized = normalizePath(root);
++    return normalized ? [normalized] : [];
++  });
++  const projects = (settings.data.projects ?? []).flatMap((project) => {
++    const path = normalizePath(project.path);
++    return path ? [{ id: project.id ?? path, path }] : [];
++  });
++  return {
++    projects,
++    worktreesByProject: await readWorktrees(projects.map((project) => project.path)),
++    isChatDirectory: chatRootsMatcher(chatRoots),
++  };
++};
++
++export const instanceSidebarRows = (
++  sessions: readonly Session[],
++  spaces: SidebarRowSources['spaces'],
++  folders: InstanceFolders,
++  unresolved: ReadonlySet<string> = new Set(),
++): ReadonlyMap<string, string | null> => {
++  const runtimeKey = getRuntimeKey();
++  const pinnedSessionIds = new Set(sessions.flatMap((session) => {
++    if (!isSessionPinnedInMetadata(session)) return [];
++    const key = getPinnedSessionKey(runtimeKey, session.directory, session.id);
++    return key ? [key] : [];
++  }));
++  const base = buildSidebarRowBase({
++    activeSessions: sessions.filter((session) => session.time.archived === undefined),
++    archivedSessions: sessions.filter((session) => session.time.archived !== undefined),
++    liveSessions: [],
++    spaces,
++    authoritativeProjects: [],
++    ...folders,
++  });
++  const rowOf = new Map(resolveSessionRowOf(base, sessions, pinnedSessionIds));
++  for (const sessionId of unresolved) rowOf.delete(sessionId);
++  return rowOf;
++};
+diff --git a/packages/ui/src/lib/localInstanceAttention.test.ts b/packages/ui/src/lib/localInstanceAttention.test.ts
+index c97011f05..016dbcaa2 100644
+--- a/packages/ui/src/lib/localInstanceAttention.test.ts
++++ b/packages/ui/src/lib/localInstanceAttention.test.ts
+@@ -7,6 +7,7 @@ import {
+   type InstancePendingCounts,
+ } from '@/lib/instanceAttention';
+ import { localInstanceAttentionPoll } from '@/lib/localInstanceAttention';
++import { buildSidebarRowBase, resolveSessionRowOf } from '@/components/session/sidebar/list/sidebarRows';
+ import type { Session } from '@/lib/opencode/model';
+ 
+ const session = (overrides: Partial<Session> = {}): Session => ({
+@@ -32,13 +33,24 @@ const derive = (
+   pending: ReadonlyMap<string, InstancePendingCounts> = new Map(),
+   busy: ReadonlySet<string> = new Set(),
+ ): InstanceAttentionItem[] => {
+-  const poll = localInstanceAttentionPoll(sessions, pending, busy);
++  // The rows the sidebar gives these sessions in a window with one project at /repo.
++  const rows = resolveSessionRowOf(buildSidebarRowBase({
++    activeSessions: sessions.filter((entry) => entry.time.archived === undefined),
++    archivedSessions: sessions.filter((entry) => entry.time.archived !== undefined),
++    liveSessions: [],
++    projects: [{ id: 'project', path: '/repo' }],
++    worktreesByProject: new Map(),
++    spaces: [],
++    authoritativeProjects: [],
++  }), sessions, new Set());
++  const poll = localInstanceAttentionPoll(sessions, pending, busy, rows);
+   return collectInstanceAttention([{
+     hostId: LOCAL_INSTANCE_ATTENTION_HOST_ID,
+     hostLabel: 'This instance',
+     sessions: poll.sessions ?? [],
+     pending: poll.pending ?? new Map(),
+     busy: poll.busy ?? undefined,
++    rows: poll.rows,
+   }]);
+ };
+ 
+diff --git a/packages/ui/src/lib/localInstanceAttention.ts b/packages/ui/src/lib/localInstanceAttention.ts
+index 74eb96007..d1e4cfd32 100644
+--- a/packages/ui/src/lib/localInstanceAttention.ts
++++ b/packages/ui/src/lib/localInstanceAttention.ts
+@@ -1,49 +1,38 @@
+ import type { Session } from '@/lib/opencode/model';
+-import type {
+-  InstanceAttentionPoll,
+-  InstancePendingCounts,
+-  InstanceSessionSummary,
++import {
++  instanceSessionSummary,
++  type InstanceAttentionPoll,
++  type InstancePendingCounts,
++  type InstanceSidebarRows,
+ } from '@/lib/instanceAttention';
+ 
+ // The instance this window shows, in the shape the attention rule already
+-// reads. The polled hosts answer from two global routes; this one is derived
+-// from the app's own live stores instead, so the waiting sessions of the
+-// instance the user is looking at appear in the same list and the same total
+-// as the instances they are not.
++// reads. The polled hosts answer from global routes; this one is derived from
++// the app's own live stores instead, so the waiting sessions of the instance
++// the user is looking at appear in the same list and the same total as the
++// instances they are not.
+ //
+ // Nothing here reads the network. The sidebar already holds these facts:
+ // `useGlobalBlockingRequestsStore` for requests waiting on an answer,
+-// `useGlobalSessionsStore` for titles, parents, unread turns and failed ones.
++// `useGlobalSessionsStore` for titles, parents, unread turns and failed ones,
++// and the sidebar's own rows for which of them it shows.
+ 
+ /**
+- * One local session as the shared rule reads it. `archived` follows the same
+- * rule as the sidebar: any archive stamp, from any path, puts the session away.
+- */
+-const toSummary = (session: Session): InstanceSessionSummary => ({
+-  id: session.id,
+-  parentID: session.parentID,
+-  directory: session.directory,
+-  title: session.title,
+-  idle: session.time.idle,
+-  viewed: session.time.viewed,
+-  archived: session.time.archived !== undefined,
+-  updated: session.time.updated,
+-  outcome: session.outcome,
+-});
+-
+-/**
+- * The local half of the attention list. The unread rule is the app's own
+- * (`sync/session-unread.ts`), which is also what the sidebar shows. `busy`
+- * comes from the live session status store, so a turn that is still running is
+- * never reported as unread, the same way the remote path uses the host's status
+- * route.
++ * The local half of the attention list. Sessions go through the same
++ * projection as a polled host's (`instanceSessionSummary`), and `rows` are the
++ * sidebar's own, so a session is an item here exactly when it is one for a
++ * window polling this instance. `busy` comes from the live session status
++ * store, so a turn that is still running is never reported as unread, the same
++ * way the remote path uses the host's status route.
+  */
+ export const localInstanceAttentionPoll = (
+   sessions: Iterable<Session>,
+   pending: ReadonlyMap<string, InstancePendingCounts>,
+-  busy: ReadonlySet<string> = new Set(),
++  busy: ReadonlySet<string>,
++  rows: InstanceSidebarRows,
+ ): InstanceAttentionPoll => ({
+-  sessions: [...sessions].map(toSummary),
++  sessions: [...sessions].map(instanceSessionSummary),
+   pending,
+   busy,
++  rows,
+ });
+diff --git a/packages/ui/src/stores/useInstanceAttentionStore.test.ts b/packages/ui/src/stores/useInstanceAttentionStore.test.ts
+index b1817e859..2b4157606 100644
+--- a/packages/ui/src/stores/useInstanceAttentionStore.test.ts
++++ b/packages/ui/src/stores/useInstanceAttentionStore.test.ts
+@@ -1,27 +1,42 @@
+ import { beforeEach, describe, expect, test } from 'bun:test';
+ 
+ import {
++  instanceSessionSummary,
+   LOCAL_INSTANCE_ATTENTION_HOST_ID,
+   type InstanceAttentionPoll,
+   type InstancePendingCounts,
+   type InstanceSessionSummary,
+ } from '@/lib/instanceAttention';
++import { compact } from '@/lib/opencode/model';
+ import { useInstanceAttentionStore } from './useInstanceAttentionStore';
+ 
+-const session = (overrides: Partial<InstanceSessionSummary> = {}): InstanceSessionSummary => ({
+-  id: 'ses_a',
+-  directory: '/repo',
+-  title: 'Session A',
+-  archived: false,
+-  ...overrides,
++const session = ({ id = 'ses_a', directory = '/repo', title = 'Session A', idle }: {
++  id?: string;
++  directory?: string;
++  title?: string;
++  idle?: number;
++} = {}): InstanceSessionSummary => instanceSessionSummary({
++  id,
++  projectID: 'project',
++  directory,
++  title,
++  cost: 0,
++  tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
++  time: compact({ created: 1, updated: 1, idle }),
+ });
+ 
+ const poll = (
+   sessions: InstanceSessionSummary[] | null,
+   pending: Map<string, InstancePendingCounts> | null,
+   busy: ReadonlySet<string> | null = new Set(),
+-  directories?: InstanceAttentionPoll['directories'],
+-): InstanceAttentionPoll => ({ sessions, pending, busy, directories });
++  rows?: InstanceAttentionPoll['rows'],
++): InstanceAttentionPoll => ({ sessions, pending, busy, rows });
++
++/** The shown sessions are their own sidebar row; the hidden ones were judged to have none. */
++const rowsFor = (shown: string[], hidden: string[] = []) => new Map<string, string | null>([
++  ...shown.map((id): [string, string] => [id, id]),
++  ...hidden.map((id): [string, null] => [id, null]),
++]);
+ 
+ beforeEach(() => {
+   useInstanceAttentionStore.getState().reset();
+@@ -92,7 +107,7 @@ describe('cross-instance attention store', () => {
+     expect(state.items.map((item) => item.sessionId)).toEqual(['ses_a']);
+   });
+ 
+-  test('a polled host shows only the sessions in folders it says it opens', () => {
++  test('a polled host shows only the sessions its sidebar gives a row', () => {
+     const store = useInstanceAttentionStore.getState();
+     store.applyPoll('host-b', 'Build box', poll(
+       [
+@@ -101,33 +116,63 @@ describe('cross-instance attention store', () => {
+       ],
+       new Map(),
+       new Set(),
+-      { roots: ['/repo'], chatRoots: [] },
++      rowsFor(['ses_inside'], ['ses_outside']),
+     ), 100);
+ 
+     expect(useInstanceAttentionStore.getState().items.map((item) => item.sessionId)).toEqual(['ses_inside']);
+   });
+ 
+-  test('a directory answer that failed keeps the one before it', () => {
++  test('a folder answer that failed shows the newer sessions instead of judging them by older rows', () => {
+     const store = useInstanceAttentionStore.getState();
+     store.applyPoll('host-b', 'Build box', poll(
+       [session({ id: 'ses_inside', directory: '/repo', idle: 10 })],
+       new Map(),
+       new Set(),
+-      { roots: ['/repo'], chatRoots: [] },
++      rowsFor(['ses_inside']),
+     ), 100);
+-    // The next poll answered its sessions but not the folder list.
++    // The next poll answered its sessions, one of them new and waiting, but not the folder list.
+     store.applyPoll('host-b', 'Build box', poll(
+-      [session({ id: 'ses_inside', directory: '/repo', idle: 10 })],
+-      new Map(),
++      [session({ id: 'ses_inside', directory: '/repo', idle: 10 }), session({ id: 'ses_new', directory: '/repo', idle: 20 })],
++      new Map([['ses_new', { permissions: 1, forms: 0, pages: 0 }], ['ses_offpage', { permissions: 0, forms: 1, pages: 0 }]]),
+       new Set(),
+       undefined,
+     ), 200);
+ 
++    expect(useInstanceAttentionStore.getState().items.map((item) => [item.sessionId, item.kind])).toEqual([
++      ['ses_new', 'permission'],
++      ['ses_offpage', 'question'],
++      ['ses_inside', 'unread'],
++    ]);
++  });
++
++  test('a failed session read keeps the rows that judged the sessions it keeps', () => {
++    const store = useInstanceAttentionStore.getState();
++    store.applyPoll('host-b', 'Build box', poll(
++      [session({ id: 'ses_inside', idle: 10 }), session({ id: 'ses_outside', directory: '/tmp/x', idle: 20 })],
++      new Map(),
++      new Set(),
++      rowsFor(['ses_inside'], ['ses_outside']),
++    ), 100);
++    store.applyPoll('host-b', 'Build box', poll(null, new Map()), 200);
++
+     expect(useInstanceAttentionStore.getState().items.map((item) => item.sessionId)).toEqual(['ses_inside']);
+-    expect(useInstanceAttentionStore.getState().hosts['host-b']?.directories).toEqual({ roots: ['/repo'], chatRoots: [] });
+   });
+ 
+-  test('an unreachable host keeps the folders it last answered', () => {
++  test('a publish of this window that changes no item leaves the store untouched', () => {
++    const store = useInstanceAttentionStore.getState();
++    store.applyPoll(LOCAL_INSTANCE_ATTENTION_HOST_ID, 'This instance', poll([session({ id: 'ses_local', idle: 10 })], new Map()), 100);
++    const before = useInstanceAttentionStore.getState();
++    let notified = 0;
++    const stop = useInstanceAttentionStore.subscribe(() => { notified += 1; });
++    store.applyPoll(LOCAL_INSTANCE_ATTENTION_HOST_ID, 'This instance', poll([session({ id: 'ses_local', idle: 10 }), session({ id: 'ses_read' })], new Map()), 200);
++    store.applyPoll(LOCAL_INSTANCE_ATTENTION_HOST_ID, 'This instance', poll([session({ id: 'ses_local', idle: 30 })], new Map()), 300);
++    stop();
++
++    expect(notified).toBe(1);
++    expect(before.items).not.toBe(useInstanceAttentionStore.getState().items);
++  });
++
++  test('an unreachable host keeps the rows it last answered', () => {
+     const store = useInstanceAttentionStore.getState();
+     store.applyPoll('host-b', 'Build box', poll(
+       [
+@@ -136,7 +181,7 @@ describe('cross-instance attention store', () => {
+       ],
+       new Map(),
+       new Set(),
+-      { roots: ['/repo'], chatRoots: [] },
++      rowsFor(['ses_inside'], ['ses_outside']),
+     ), 100);
+     store.markUnreachable('host-b', 'Build box', 200);
+ 
+diff --git a/packages/ui/src/stores/useInstanceAttentionStore.ts b/packages/ui/src/stores/useInstanceAttentionStore.ts
+index 079bb4ccc..fd98fc5c6 100644
+--- a/packages/ui/src/stores/useInstanceAttentionStore.ts
++++ b/packages/ui/src/stores/useInstanceAttentionStore.ts
+@@ -1,13 +1,14 @@
+ import { create } from 'zustand';
+ 
+-import type { AttentionDirectories } from '@/lib/attentionDirectories';
+ import {
+   collectInstanceAttention,
++  isLocalInstanceAttentionHost,
+   LOCAL_INSTANCE_ATTENTION_HOST_ID,
+   type InstanceAttentionItem,
+   type InstanceAttentionPoll,
+   type InstancePendingCounts,
+   type InstanceSessionSummary,
++  type InstanceSidebarRows,
+ } from '@/lib/instanceAttention';
+ 
+ // Holds what the saved instances other than the active one last told us, plus
+@@ -21,7 +22,7 @@ type InstanceAttentionHostRecord = {
+   sessions: readonly InstanceSessionSummary[] | null;
+   pending: ReadonlyMap<string, InstancePendingCounts> | null;
+   busy: ReadonlySet<string> | null;
+-  directories?: AttentionDirectories;
++  rows?: InstanceSidebarRows;
+ };
+ 
+ type InstanceAttentionStoreState = {
+@@ -48,7 +49,7 @@ const rebuild = (
+     sessions: record.sessions ?? [],
+     pending: record.pending ?? new Map(),
+     busy: record.busy ?? undefined,
+-    directories: record.directories,
++    rows: record.rows,
+   })),
+ );
+ 
+@@ -67,6 +68,14 @@ const withoutHosts = (
+   return next;
+ };
+ 
++const sameItems = (left: readonly InstanceAttentionItem[], right: readonly InstanceAttentionItem[]): boolean => (
++  left.length === right.length && left.every((item, index) => {
++    const other = right[index];
++    return other !== undefined && item.key === other.key && item.kind === other.kind && item.at === other.at
++      && item.title === other.title && item.directory === other.directory && item.hostLabel === other.hostLabel;
++  })
++);
++
+ const EMPTY_HOSTS: Readonly<Record<string, InstanceAttentionHostRecord>> = {};
+ 
+ export const useInstanceAttentionStore = create<InstanceAttentionStoreState>((set, get) => ({
+@@ -84,12 +93,14 @@ export const useInstanceAttentionStore = create<InstanceAttentionStoreState>((se
+     // Pending and busy come from the same status route; a failed status read
+     // keeps the last open turns instead of treating every session as finished.
+     const busy = poll.pending === null ? previous?.busy ?? null : poll.busy;
+-    const directories = poll.directories ?? previous?.directories;
++    const rows = poll.sessions === null ? previous?.rows : poll.rows;
+     const hosts = {
+       ...get().hosts,
+-      [hostId]: { label, status: 'ok' as const, checkedAt, sessions, pending, busy, directories },
++      [hostId]: { label, status: 'ok' as const, checkedAt, sessions, pending, busy, rows },
+     };
+-    set({ hosts, items: rebuild(hosts) });
++    const items = rebuild(hosts);
++    if (isLocalInstanceAttentionHost(hostId) && previous?.label === label && sameItems(get().items, items)) return;
++    set({ hosts, items });
+   },
+ 
+   markUnreachable: (hostId, label, checkedAt) => {
+@@ -103,7 +114,7 @@ export const useInstanceAttentionStore = create<InstanceAttentionStoreState>((se
+         sessions: previous?.sessions ?? null,
+         pending: previous?.pending ?? null,
+         busy: previous?.busy ?? null,
+-        directories: previous?.directories,
++        rows: previous?.rows,
+       },
+     };
+     // The last known items stay: an unreachable host did not answer "nothing".
+diff --git a/packages/ui/src/sync/session-unread.ts b/packages/ui/src/sync/session-unread.ts
+index 7f23b7089..699636f41 100644
+--- a/packages/ui/src/sync/session-unread.ts
++++ b/packages/ui/src/sync/session-unread.ts
+@@ -25,14 +25,6 @@ const markOf = (session: Session): number | null => {
+ 
+ const hasUnreadMark = (session: Session): boolean => markOf(session) !== null
+ 
+-/** The fields the unread rule reads, for records that are not full sessions. */
+-export type UnreadSessionFields = {
+-  parentID?: string
+-  idle?: number
+-  viewed?: number
+-  archived?: boolean
+-}
+-
+ /**
+  * Only top-level sessions are announced; a subtask reports to its parent. An
+  * archived session is put away, whichever path archived it, so it is never
+@@ -47,17 +39,6 @@ const hasUnseenTurn = (session: Session): boolean => {
+   return idle !== undefined && (viewed === undefined || viewed < idle)
+ }
+ 
+-/** The unread rule over the bare fields, for records that are not sessions. */
+-const isUnreadFields = (
+-  parentID: string | undefined,
+-  idle: number | undefined,
+-  viewed: number | undefined,
+-  archived: boolean,
+-): boolean => {
+-  if (parentID || archived) return false
+-  return idle !== undefined && (viewed === undefined || viewed < idle)
+-}
+-
+ export const isSessionUnread = (session: Session | undefined): boolean => (
+   canSessionBeUnread(session) && (hasUnseenTurn(session) || hasUnreadMark(session))
+ )
+@@ -66,16 +47,6 @@ export const isSessionMarkedUnread = (session: Session | undefined): boolean =>
+   canSessionBeUnread(session) && hasUnreadMark(session)
+ )
+ 
+-/**
+- * The same rule over a record that only carries the fields it reads, such as a
+- * projection of another instance's session list.
+- */
+-export const isUnreadSessionFields = (session: UnreadSessionFields | undefined): boolean => (
+-  !session
+-    ? false
+-    : isUnreadFields(session.parentID, session.idle, session.viewed, session.archived === true)
+-)
+-
+ /** Unread, and the turn that left it unread failed. */
+ export const isSessionUnreadWithError = (session: Session | undefined): boolean => (
+   canSessionBeUnread(session) && hasUnseenTurn(session) && session.outcome === "failed"
