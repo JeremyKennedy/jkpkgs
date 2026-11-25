@@ -1,0 +1,2133 @@
+diff --git a/packages/ui/src/apps/mobileConnections.ts b/packages/ui/src/apps/mobileConnections.ts
+index eda6a9044..f73c3b5d4 100644
+--- a/packages/ui/src/apps/mobileConnections.ts
++++ b/packages/ui/src/apps/mobileConnections.ts
+@@ -386,7 +386,7 @@ export const readHealthServerId = async (response: MobileFetchResponse): Promise
+ };
+ 
+ /** What an unauthenticated /health answer says about a direct candidate. */
+-export type DirectCandidateIdentity = 'match' | 'mismatch' | 'unreachable';
++type DirectCandidateIdentity = 'match' | 'mismatch' | 'unreachable';
+ 
+ // One comparison for every direct transport, so the connect flow and the
+ // background attention poll cannot drift apart. A health answer that could not
+diff --git a/packages/ui/src/components/chat/ChatContainer.tsx b/packages/ui/src/components/chat/ChatContainer.tsx
+index 98ba2f102..bf98b73d0 100644
+--- a/packages/ui/src/components/chat/ChatContainer.tsx
++++ b/packages/ui/src/components/chat/ChatContainer.tsx
+@@ -170,6 +170,20 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
+     useAutoOpenDraft({ autoOpenDraft, liveSessionId, draftOpen });
+ 
+     const { composerOverlayHeight, onStatusOverlayNode } = useStatusOverlayHeight();
++    const entryReplyMessageId = React.useMemo(() => {
++        if (sessionMessages.length === 0) {
++            return sessionMessageLoadState.status === 'idle' || sessionMessageLoadState.status === 'loading'
++                ? undefined
++                : null;
++        }
++        for (let index = sessionMessages.length - 1; index >= 0; index -= 1) {
++            const record = sessionMessages[index];
++            if (!record || deriveMessageRole(record.info).role !== 'assistant') continue;
++            if (!record.parts.some((part) => part.type === 'text' && !isEmptyTextPart(part))) continue;
++            return record.info.id;
++        }
++        return null;
++    }, [sessionMessageLoadState.status, sessionMessages]);
+     const {
+         scrollRef,
+         scrollNode,
+@@ -202,6 +216,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
+         messageListRef,
+         sessionIsWorking,
+         revealGate,
++        entryReplyMessageId,
+     });
+     const { chatRootRef, chatSearch, messageSearchEnabled, closeChatSearch } = useChatSearch({ active, currentSessionId });
+     const {
+diff --git a/packages/ui/src/components/chat/ChatInput.tsx b/packages/ui/src/components/chat/ChatInput.tsx
+index 19f20e354..87cb2f596 100644
+--- a/packages/ui/src/components/chat/ChatInput.tsx
++++ b/packages/ui/src/components/chat/ChatInput.tsx
+@@ -13,7 +13,6 @@ import { useComposerAutocompleteState } from './composer/input/useComposerAutoco
+ import { useComposerColumn } from './composer/input/useComposerColumn';
+ import { useComposerCompletions } from './composer/input/useComposerCompletions';
+ import { useComposerControls } from './composer/input/useComposerControls';
+-import { useInputStore } from '@/sync/input-store';
+ import { useComposerDictation } from './composer/input/useComposerDictation';
+ import { useComposerDictationState } from './composer/input/useComposerDictationState';
+ import { usePendingDraftDictation } from './composer/input/usePendingDraftDictation';
+diff --git a/packages/ui/src/components/chat/column/useColumnTimelineScroll.ts b/packages/ui/src/components/chat/column/useColumnTimelineScroll.ts
+index 56c9a2cc7..7ce49ae28 100644
+--- a/packages/ui/src/components/chat/column/useColumnTimelineScroll.ts
++++ b/packages/ui/src/components/chat/column/useColumnTimelineScroll.ts
+@@ -17,6 +17,7 @@ export const useColumnTimelineScroll = ({
+     messageListRef,
+     sessionIsWorking,
+     revealGate,
++    entryReplyMessageId,
+ }: {
+     pinned: boolean;
+     currentSessionId: string | null;
+@@ -26,6 +27,7 @@ export const useColumnTimelineScroll = ({
+     messageListRef: React.RefObject<MessageListHandle | null>;
+     sessionIsWorking: boolean;
+     revealGate: TimelineRevealGate;
++    entryReplyMessageId?: string | null;
+ }) => {
+     const { t } = useI18n();
+     const activeTurnChangeRef = React.useRef<(turnId: string | null) => void>(() => {});
+@@ -63,6 +65,7 @@ export const useColumnTimelineScroll = ({
+         pinned,
+         revealGate,
+         onActiveTurnChange: handleActiveTurnChange,
++        entryReplyMessageId,
+     });
+     const { goToBottom } = scroll;
+ 
+diff --git a/packages/ui/src/components/chat/lib/questionEntries.ts b/packages/ui/src/components/chat/lib/questionEntries.ts
+index 840728005..8c63edc46 100644
+--- a/packages/ui/src/components/chat/lib/questionEntries.ts
++++ b/packages/ui/src/components/chat/lib/questionEntries.ts
+@@ -82,7 +82,7 @@ const unescapeQuoted = (value: string): string => value.replace(/\\(["\\])/g, '$
+  * the label needs the marker gone.
+  */
+ const RECOMMENDATION_SUFFIX = ' (Recommended)';
+-export const withoutRecommendation = (value: string): string => (
++const withoutRecommendation = (value: string): string => (
+     value.endsWith(RECOMMENDATION_SUFFIX)
+         ? value.slice(0, -RECOMMENDATION_SUFFIX.length)
+         : value
+diff --git a/packages/ui/src/components/chat/lib/questionExpandedState.ts b/packages/ui/src/components/chat/lib/questionExpandedState.ts
+index d08de789e..d7389ad60 100644
+--- a/packages/ui/src/components/chat/lib/questionExpandedState.ts
++++ b/packages/ui/src/components/chat/lib/questionExpandedState.ts
+@@ -19,7 +19,6 @@ const expandedToolsStateCache = new Map<string, Set<string>>();
+ // The reader's own decision for a question row, by part id: open or closed.
+ const questionOpenChoices = new Map<string, boolean>();
+ const questionOpenListeners = new Set<() => void>();
+-let questionOpenRevision = 0;
+ 
+ const trimCache = (cache: Map<string, unknown>, key: string): void => {
+     if (cache.size >= EXPANDED_TOOLS_CACHE_MAX && !cache.has(key)) {
+@@ -41,7 +40,6 @@ export const writeExpandedToolsCache = (messageId: string, value: Set<string>):
+ };
+ 
+ const notifyQuestionOpen = (): void => {
+-    questionOpenRevision += 1;
+     for (const listener of questionOpenListeners) listener();
+ };
+ 
+@@ -53,12 +51,6 @@ export const subscribeQuestionOpen = (listener: () => void): (() => void) => {
+     };
+ };
+ 
+-/**
+- * A value that changes with any question row's open state. A size estimate
+- * keys on it so a row the reader toggled is estimated at the shape it draws.
+- */
+-export const readQuestionOpenRevision = (): number => questionOpenRevision;
+-
+ /** Whether a question row is open; without a decision it follows the setting. */
+ export const isQuestionOpen = (partId: string, autoExpandAnsweredQuestions: boolean): boolean =>
+     questionOpenChoices.get(partId) ?? autoExpandAnsweredQuestions;
+diff --git a/packages/ui/src/components/chat/lib/scroll/sessionEntryPosition.test.ts b/packages/ui/src/components/chat/lib/scroll/sessionEntryPosition.test.ts
+new file mode 100644
+index 000000000..61720d0c8
+--- /dev/null
++++ b/packages/ui/src/components/chat/lib/scroll/sessionEntryPosition.test.ts
+@@ -0,0 +1,72 @@
++import { describe, expect, test } from 'bun:test';
++
++import { resolveSessionEntryDecision } from './sessionEntryPosition';
++
++const anchor = { messageId: 'message-1', offsetTop: -40 };
++
++describe('resolveSessionEntryDecision', () => {
++    test('keeps the remembered position by default', () => {
++        expect(resolveSessionEntryDecision({
++            position: 'last-position',
++            sessionIsWorking: false,
++            remembered: anchor,
++            replyMessageId: 'reply-1',
++        })).toEqual({ kind: 'remembered', anchor });
++    });
++
++    test('opens at the end when nothing was remembered', () => {
++        expect(resolveSessionEntryDecision({
++            position: 'last-position',
++            sessionIsWorking: false,
++            remembered: null,
++            replyMessageId: 'reply-1',
++        })).toEqual({ kind: 'follow-end' });
++    });
++
++    test('lands on the newest reply prose', () => {
++        expect(resolveSessionEntryDecision({
++            position: 'last-reply',
++            sessionIsWorking: false,
++            remembered: anchor,
++            replyMessageId: 'reply-9',
++        })).toEqual({ kind: 'reply-start', messageId: 'reply-9' });
++    });
++
++    test('waits while the messages are loading', () => {
++        expect(resolveSessionEntryDecision({
++            position: 'last-reply',
++            sessionIsWorking: false,
++            remembered: anchor,
++            replyMessageId: undefined,
++        })).toEqual({ kind: 'pending' });
++    });
++
++    test('opens at the end when the session has no reply', () => {
++        expect(resolveSessionEntryDecision({
++            position: 'last-reply',
++            sessionIsWorking: false,
++            remembered: anchor,
++            replyMessageId: null,
++        })).toEqual({ kind: 'follow-end' });
++    });
++
++    test('opens at the top of the conversation', () => {
++        expect(resolveSessionEntryDecision({
++            position: 'conversation-start',
++            sessionIsWorking: false,
++            remembered: anchor,
++            replyMessageId: 'reply-9',
++        })).toEqual({ kind: 'conversation-start' });
++    });
++
++    test('follows a working session whatever the setting says', () => {
++        for (const position of ['last-position', 'last-reply', 'conversation-start'] as const) {
++            expect(resolveSessionEntryDecision({
++                position,
++                sessionIsWorking: true,
++                remembered: anchor,
++                replyMessageId: 'reply-9',
++            })).toEqual({ kind: 'follow-end' });
++        }
++    });
++});
+diff --git a/packages/ui/src/components/chat/lib/scroll/sessionEntryPosition.ts b/packages/ui/src/components/chat/lib/scroll/sessionEntryPosition.ts
+new file mode 100644
+index 000000000..315b3f1d5
+--- /dev/null
++++ b/packages/ui/src/components/chat/lib/scroll/sessionEntryPosition.ts
+@@ -0,0 +1,40 @@
++import type { SessionEntryPosition } from '@/lib/sessionEntryPosition';
++
++import type { MessageViewportAnchor } from './messageViewportAnchor';
++
++type SessionEntryDecision =
++    | { readonly kind: 'pending' }
++    | { readonly kind: 'follow-end' }
++    | { readonly kind: 'remembered'; readonly anchor: MessageViewportAnchor }
++    | { readonly kind: 'reply-start'; readonly messageId: string }
++    | { readonly kind: 'conversation-start' };
++
++export const resolveSessionEntryDecision = ({
++    position,
++    sessionIsWorking,
++    remembered,
++    replyMessageId,
++}: {
++    position: SessionEntryPosition;
++    sessionIsWorking: boolean;
++    remembered: MessageViewportAnchor | null;
++    replyMessageId: string | null | undefined;
++}): SessionEntryDecision => {
++    if (sessionIsWorking) {
++        return { kind: 'follow-end' };
++    }
++    if (position === 'last-position') {
++        return remembered
++            ? { kind: 'remembered', anchor: remembered }
++            : { kind: 'follow-end' };
++    }
++    if (position === 'last-reply') {
++        if (replyMessageId === undefined) {
++            return { kind: 'pending' };
++        }
++        return replyMessageId
++            ? { kind: 'reply-start', messageId: replyMessageId }
++            : { kind: 'follow-end' };
++    }
++    return { kind: 'conversation-start' };
++};
+diff --git a/packages/ui/src/components/sections/openchamber/ChatSettings.tsx b/packages/ui/src/components/sections/openchamber/ChatSettings.tsx
+index e35742c8d..b184eeef7 100644
+--- a/packages/ui/src/components/sections/openchamber/ChatSettings.tsx
++++ b/packages/ui/src/components/sections/openchamber/ChatSettings.tsx
+@@ -32,7 +32,7 @@ import { updateDesktopSettings } from '@/lib/persistence';
+ import { useInputHistoryStore } from '@/stores/useInputHistoryStore';
+ import { useMessageQueueStore, type FollowUpBehavior } from '@/stores/messageQueueStore';
+ import { selectSafetyNetAvailable, useRoutingStore } from '@/stores/useRoutingStore';
+-import { DEFAULT_SELECTION_APPROVAL_TEXT, useUIStore, type ChatWidth, type DocumentAttachBehavior, type LargeTextPasteBehavior } from '@/stores/useUIStore';
++import { DEFAULT_SELECTION_APPROVAL_TEXT, useUIStore, type ChatWidth, type DocumentAttachBehavior, type LargeTextPasteBehavior, type SessionEntryPosition } from '@/stores/useUIStore';
+ 
+ import { MessageSearchSettings } from './MessageSearchSettings';
+ import { SessionGoalCheckerField, SessionGoalMaxTurnsField } from './SessionGoalCheckerField';
+@@ -69,6 +69,12 @@ const CHAT_WIDTH_OPTIONS: ChipOption<ChatWidth>[] = [
+   { id: 'full', labelKey: 'settings.openchamber.visual.option.chatWidth.full.label' },
+ ];
+ 
++const SESSION_ENTRY_POSITION_OPTIONS: ChipOption<SessionEntryPosition>[] = [
++  { id: 'last-position', labelKey: 'settings.openchamber.visual.option.sessionEntryPosition.lastPosition.label' },
++  { id: 'last-reply', labelKey: 'settings.openchamber.visual.option.sessionEntryPosition.lastReply.label' },
++  { id: 'conversation-start', labelKey: 'settings.openchamber.visual.option.sessionEntryPosition.conversationStart.label' },
++];
++
+ const FOLLOW_UP_BEHAVIOR_OPTIONS: ChipOption<FollowUpBehavior>[] = [
+   { id: 'steer', labelKey: 'settings.openchamber.visual.option.followUpBehavior.steer.label' },
+   { id: 'queue', labelKey: 'settings.openchamber.visual.option.followUpBehavior.queue.label' },
+@@ -147,6 +153,8 @@ const MessagesTab: React.FC = () => {
+   const setStreamingAutoFollowEnabled = useUIStore((state) => state.setStreamingAutoFollowEnabled);
+   const chatWidth = useUIStore((state) => state.chatWidth);
+   const setChatWidth = useUIStore((state) => state.setChatWidth);
++  const sessionEntryPosition = useUIStore((state) => state.sessionEntryPosition);
++  const setSessionEntryPosition = useUIStore((state) => state.setSessionEntryPosition);
+   const promptNavigatorEnabled = useUIStore((state) => state.promptNavigatorEnabled);
+   const setPromptNavigatorEnabled = useUIStore((state) => state.setPromptNavigatorEnabled);
+   const autoExpandAnsweredQuestions = useUIStore((state) => state.autoExpandAnsweredQuestions);
+@@ -176,6 +184,7 @@ const MessagesTab: React.FC = () => {
+   const mermaidOptions = useChipOptions(MERMAID_RENDERING_OPTIONS);
+   const diffLayoutOptions = useChipOptions(DIFF_LAYOUT_OPTIONS);
+   const chatWidthOptions = useChipOptions(CHAT_WIDTH_OPTIONS);
++  const sessionEntryPositionOptions = useChipOptions(SESSION_ENTRY_POSITION_OPTIONS);
+ 
+   const handleActivityRenderModeChange = (mode: 'collapsed' | 'text' | 'summary') => {
+     setActivityRenderMode(mode);
+@@ -260,6 +269,18 @@ const MessagesTab: React.FC = () => {
+             aria-label={t('settings.openchamber.visual.field.chatWidth')}
+           />
+         </SettingsFieldRow>
++        <SettingsFieldRow
++          label={t('settings.openchamber.visual.field.sessionEntryPosition')}
++          info={t('settings.openchamber.visual.field.sessionEntryPositionInfo')}
++          settingsItem="chat.session-entry-position"
++        >
++          <SettingsChipGroup
++            value={sessionEntryPosition}
++            options={sessionEntryPositionOptions}
++            onChange={setSessionEntryPosition}
++            aria-label={t('settings.openchamber.visual.field.sessionEntryPositionAria')}
++          />
++        </SettingsFieldRow>
+         <div className={SETTINGS_OPTION_STACK_CLASS}>
+           <SettingsCheckboxRow
+             checked={streamingAutoFollowEnabled}
+diff --git a/packages/ui/src/components/sections/openchamber/chatSettingsTabs.ts b/packages/ui/src/components/sections/openchamber/chatSettingsTabs.ts
+index d0d9e36e7..9710006aa 100644
+--- a/packages/ui/src/components/sections/openchamber/chatSettingsTabs.ts
++++ b/packages/ui/src/components/sections/openchamber/chatSettingsTabs.ts
+@@ -24,6 +24,7 @@ const SEARCH_TARGET_TABS = new Map<string, ChatSettingsTab>([
+   ['chat.questions-in-prompt-selector', 'messages'],
+   ['chat.collapsible-user-messages', 'messages'],
+   ['chat.sticky-user-header', 'messages'],
++  ['chat.session-entry-position', 'messages'],
+   ['chat.inline-assistant-actions', 'messages'],
+   ['chat.selection-approval-text', 'messages'],
+   ['chat.user-message-rendering', 'messages'],
+diff --git a/packages/ui/src/components/session/sidebar/list/sidebarSessionTree.ts b/packages/ui/src/components/session/sidebar/list/sidebarSessionTree.ts
+index 5c1915b70..98ad26ab3 100644
+--- a/packages/ui/src/components/session/sidebar/list/sidebarSessionTree.ts
++++ b/packages/ui/src/components/session/sidebar/list/sidebarSessionTree.ts
+@@ -31,7 +31,7 @@ const nestingParentResolver = (sessionById: ReadonlyMap<string, Session>) => (
+   (session: Session): string | null => resolveSessionNestingParentId(session, (id) => sessionById.get(id))
+ );
+ 
+-export const partitionSidebarSessions = (
++const partitionSidebarSessions = (
+   sessions: readonly Session[],
+   isVSCode: boolean,
+   isChatDirectory: (directory: string | null | undefined) => boolean = isChatDirectoryPath,
+@@ -55,7 +55,7 @@ export const toKnownDirectoryKeys = (knownDirectories: Set<string>, isVSCode: bo
+   new Set([...knownDirectories].map((directory) => isVSCode ? directory.toLowerCase() : directory))
+ );
+ 
+-export const isKnownActiveSessionDirectory = (
++const isKnownActiveSessionDirectory = (
+   session: Session,
+   knownDirectories: Set<string>,
+   isVSCode: boolean,
+@@ -77,7 +77,7 @@ const hasExactActiveAssociation = (
+   return Boolean(association && normalizePath(resolveGlobalSessionDirectory(session)) === normalizePath(association.directory));
+ };
+ 
+-export const keepKnownSessionsWithDescendants = (
++const keepKnownSessionsWithDescendants = (
+   sessions: readonly Session[],
+   isKnown: (session: Session) => boolean,
+   anchors: readonly Session[],
+diff --git a/packages/ui/src/components/views/files/previews/pdfZoom.ts b/packages/ui/src/components/views/files/previews/pdfZoom.ts
+index 6933ab4fd..1be0b5253 100644
+--- a/packages/ui/src/components/views/files/previews/pdfZoom.ts
++++ b/packages/ui/src/components/views/files/previews/pdfZoom.ts
+@@ -22,7 +22,7 @@ const PDF_POINT_TO_CSS_PX = 96 / 72;
+ const MAX_CANVAS_PIXELS = 8_000_000;
+ const MAX_CANVAS_SIDE = 8192;
+ 
+-export type PageSize = { width: number; height: number };
++type PageSize = { width: number; height: number };
+ 
+ /** The width fit gives every page: the pane less the gap on each side. */
+ export const fitPageWidth = (viewportWidth: number): number => (
+diff --git a/packages/ui/src/hooks/useChatTimelineScroll.test.tsx b/packages/ui/src/hooks/useChatTimelineScroll.test.tsx
+index fcc3a2d12..81b0def0e 100644
+--- a/packages/ui/src/hooks/useChatTimelineScroll.test.tsx
++++ b/packages/ui/src/hooks/useChatTimelineScroll.test.tsx
+@@ -23,6 +23,8 @@ let missing: number;
+ let checkLinkedMessage: (() => Promise<'exists' | 'missing'>) | undefined;
+ let contentLength: number;
+ let working: boolean;
++let entryReplyMessageId: string | null | undefined;
++let replyStartScrolls: string[];
+ let dom: Window;
+ let alignAnchor: (anchor: MessageViewportAnchor) => 'aligned' | 'missing';
+ const descriptors = new Map<string, PropertyDescriptor | undefined>();
+@@ -30,10 +32,11 @@ const descriptors = new Map<string, PropertyDescriptor | undefined>();
+ function Harness() {
+     scroll = useChatTimelineScroll({
+         currentSessionId: 'session', currentSessionKey: 'runtime\n/repo\nsession', composerOverlayHeight: 0,
+-        messageListRef: { current: { alignViewportAnchor: (anchor) => alignAnchor(anchor) } }, sessionIsWorking: working,
++        messageListRef: { current: { alignViewportAnchor: (anchor) => alignAnchor(anchor), scrollToReplyStart: (messageId) => { replyStartScrolls.push(messageId); return true; } } }, sessionIsWorking: working,
+         checkLinkedMessage,
+         loadHistoryUntilMessage: async () => { loads += 1; return false; },
+         onLinkedMessageMissing: () => { missing += 1; },
++        entryReplyMessageId,
+     });
+     const { registerList } = scroll;
+     React.useLayoutEffect(() => {
+@@ -68,6 +71,7 @@ const frame = async () => {
+ beforeEach(() => {
+     dom = new Window({ url: 'https://app.test' });
+     frames = new Map(); subscribers = new Set(); writes = 0; listOffsets = []; loads = 0; missing = 0; checkLinkedMessage = undefined; contentLength = 2000; working = true; alignAnchor = () => 'missing';
++    entryReplyMessageId = undefined; replyStartScrolls = [];
+     let nextFrame = 0;
+     const request = (callback: FrameRequestCallback) => { frames.set(++nextFrame, callback); return nextFrame; };
+     const cancel = (id: number) => { frames.delete(id); };
+@@ -230,6 +234,83 @@ for (const leaving of ['first reading position', 'changed reading position', 'en
+     });
+ }
+ 
++test('opens at the start of the last reply when the setting says so', async () => {
++    working = false;
++    entryReplyMessageId = 'reply-9';
++    useUIStore.getState().setSessionEntryPosition('last-reply');
++    try {
++        await render('visible');
++        await frame();
++        expect(replyStartScrolls).toEqual(['reply-9']);
++        expect(scroll.userOwnsScroll).toBe(true);
++    } finally {
++        useUIStore.getState().setSessionEntryPosition('last-position');
++    }
++});
++
++test('opens at the top of the conversation', async () => {
++    working = false;
++    useUIStore.getState().setSessionEntryPosition('conversation-start');
++    try {
++        await render('visible');
++        await frame();
++        expect(listOffsets).toEqual([0]);
++        expect(scroll.userOwnsScroll).toBe(true);
++    } finally {
++        useUIStore.getState().setSessionEntryPosition('last-position');
++    }
++});
++
++test('keeps following the end while the session is working', async () => {
++    working = true;
++    entryReplyMessageId = 'reply-9';
++    useUIStore.getState().setSessionEntryPosition('last-reply');
++    try {
++        await render('visible');
++        await frame();
++        expect(replyStartScrolls).toEqual([]);
++        expect(scroll.userOwnsScroll).toBe(false);
++        expect(node.scrollTop).toBe(1500);
++    } finally {
++        useUIStore.getState().setSessionEntryPosition('last-position');
++    }
++});
++
++test('waits for a loading session and opens at the reply once it lands', async () => {
++    working = false;
++    entryReplyMessageId = undefined;
++    useUIStore.getState().setSessionEntryPosition('last-reply');
++    try {
++        await render('visible');
++        await frame();
++        expect(replyStartScrolls).toEqual([]);
++        entryReplyMessageId = 'reply-9';
++        await render('visible');
++        await frame();
++        expect(replyStartScrolls).toEqual(['reply-9']);
++        expect(scroll.userOwnsScroll).toBe(true);
++    } finally {
++        useUIStore.getState().setSessionEntryPosition('last-position');
++    }
++});
++
++test('applies the entry position once, not on every later render', async () => {
++    working = false;
++    entryReplyMessageId = 'reply-9';
++    useUIStore.getState().setSessionEntryPosition('last-reply');
++    try {
++        await render('visible');
++        await frame();
++        expect(replyStartScrolls).toEqual(['reply-9']);
++        entryReplyMessageId = 'reply-10';
++        await render('visible');
++        await frame();
++        expect(replyStartScrolls).toEqual(['reply-9']);
++    } finally {
++        useUIStore.getState().setSessionEntryPosition('last-position');
++    }
++});
++
+ test('clears return-to-end reassert timers across a hidden interval', async () => {
+     await render('visible'); await frame();
+     act(() => scroll.goToBottom());
+diff --git a/packages/ui/src/hooks/useChatTimelineScroll.ts b/packages/ui/src/hooks/useChatTimelineScroll.ts
+index 8bd947a97..73568f489 100644
+--- a/packages/ui/src/hooks/useChatTimelineScroll.ts
++++ b/packages/ui/src/hooks/useChatTimelineScroll.ts
+@@ -14,10 +14,9 @@ import {
+     type MessageViewportAnchor,
+     type ViewportAnchorAlignment,
+ } from '@/components/chat/lib/scroll/messageViewportAnchor';
+-import { readSessionScrollPosition, rememberOutgoingSessionScrollPosition } from '@/components/chat/lib/scroll/sessionScrollMemory';
++import { rememberOutgoingSessionScrollPosition } from '@/components/chat/lib/scroll/sessionScrollMemory';
+ import { REPLY_START_GAP_PX } from '@/components/chat/lib/scroll/scrollGaps';
+ import {
+-    isWaitingPageRevealPending,
+     pendingWaitingPageID,
+     releaseWaitingPageRevealOutside,
+     subscribeRequestReveal,
+@@ -59,6 +58,8 @@ import {
+     onTabStep,
+ } from '@/components/chat/lib/scroll/timelineScrollIntent';
+ 
++import { useSessionEntryPosition } from './useSessionEntryPosition';
++
+ export interface TimelineListHandle {
+     getState: () => TimelineListMeasurementState & {
+         readonly scroll: number;
+@@ -83,8 +84,11 @@ export type LinkedMessageState = 'exists' | 'missing' | 'unknown';
+ 
+ interface TimelineAnchorHandle {
+     alignViewportAnchor: (anchor: MessageViewportAnchor) => ViewportAnchorAlignment;
++    scrollToReplyStart?: (messageId: string, options?: { behavior?: ScrollBehavior }) => boolean;
+ }
+ 
++export type { TimelineAnchorHandle };
++
+ interface UseChatTimelineScrollOptions {
+     currentSessionId: string | null;
+     currentSessionKey: string | null;
+@@ -97,6 +101,7 @@ interface UseChatTimelineScrollOptions {
+     pinned?: boolean;
+     revealGate?: TimelineRevealGate | null;
+     onActiveTurnChange?: (turnId: string | null) => void;
++    entryReplyMessageId?: string | null;
+ }
+ 
+ interface UseChatTimelineScrollResult {
+@@ -211,7 +216,7 @@ const findFollowStops = (node: HTMLElement, stopAfterUserMessage: boolean, reply
+     return stops;
+ };
+ 
+-type PositionTarget =
++export type PositionTarget =
+     | { readonly kind: 'remembered'; readonly anchor: MessageViewportAnchor }
+     | { readonly kind: 'link'; readonly anchor: MessageViewportAnchor; readonly request: MessageFocusRequest };
+ 
+@@ -240,6 +245,7 @@ export const useChatTimelineScroll = ({
+     pinned = false,
+     revealGate = null,
+     onActiveTurnChange,
++    entryReplyMessageId,
+ }: UseChatTimelineScrollOptions): UseChatTimelineScrollResult => {
+     const sessionIsWorkingRef = React.useRef(sessionIsWorking);
+     sessionIsWorkingRef.current = sessionIsWorking;
+@@ -319,6 +325,9 @@ export const useChatTimelineScroll = ({
+     checkLinkedMessageRef.current = checkLinkedMessage;
+     const currentSessionIdRef = React.useRef(currentSessionId);
+     currentSessionIdRef.current = currentSessionId;
++    const sessionEntryPosition = useUIStore((state) => state.sessionEntryPosition);
++    const sessionEntryPositionRef = React.useRef(sessionEntryPosition);
++    sessionEntryPositionRef.current = sessionEntryPosition;
+ 
+     const cancelShowButtonTimer = React.useCallback(() => {
+         if (showButtonTimerRef.current !== null) {
+@@ -1098,38 +1107,27 @@ export const useChatTimelineScroll = ({
+         hideScrollButton();
+     }, [currentSessionId, currentSessionKey, hideScrollButton, pinned]);
+ 
+-    React.useLayoutEffect(() => {
+-        if (!currentSessionKey || !scrollNode) return;
+-        const releaseReveal = revealGate?.hold() ?? null;
+-        if (scrollRef.current === scrollNode && handledEntryKeyRef.current !== currentSessionKey) {
+-            handledEntryKeyRef.current = currentSessionKey;
+-            const linkRequest = peekMessageFocus(currentSessionIdRef.current);
+-            const remembered = !pinned && isWaitingPageRevealPending(currentSessionIdRef.current)
+-                ? null
+-                : readSessionScrollPosition(currentSessionKey);
+-            const target: PositionTarget | null = linkRequest
+-                ? linkTarget(linkRequest, scrollNode)
+-                : remembered ? { kind: 'remembered', anchor: remembered } : null;
+-            if (target && showPositionTarget(target, scrollNode, currentSessionKey, revealGate, releaseReveal)) {
+-                restoredEntryKeyRef.current = currentSessionKey;
+-                return () => releaseReveal?.();
+-            }
+-        }
+-        let frame: number | null = null;
+-        const settle = () => {
+-            frame = null;
+-            if (!userOwnsScrollRef.current && modeRef.current === 'following-end') {
+-                const end = scrollNode.scrollHeight - scrollNode.clientHeight;
+-                if (end - scrollNode.scrollTop > 1) scrollNode.scrollTop = end;
+-            }
+-            releaseReveal?.();
+-        };
+-        frame = requestAnimationFrame(settle);
+-        return () => {
+-            if (frame !== null) cancelAnimationFrame(frame);
+-            releaseReveal?.();
+-        };
+-    }, [currentSessionKey, pinned, revealGate, scrollNode, showPositionTarget]);
++    useSessionEntryPosition({
++        currentSessionKey,
++        scrollNode,
++        scrollRef,
++        pinned,
++        revealGate,
++        currentSessionIdRef,
++        sessionIsWorkingRef,
++        sessionEntryPositionRef,
++        entryReplyMessageId,
++        handledEntryKeyRef,
++        restoredEntryKeyRef,
++        userOwnsScrollRef,
++        modeRef,
++        showPositionTarget,
++        linkTarget,
++        onManualNavigation,
++        jumpToEnd,
++        messageListRef,
++        listRef,
++    });
+ 
+     React.useEffect(() => {
+         if (!scrollNode || !currentSessionKey) return;
+diff --git a/packages/ui/src/hooks/useDictation.ts b/packages/ui/src/hooks/useDictation.ts
+index 04a3a1799..d6e8db11a 100644
+--- a/packages/ui/src/hooks/useDictation.ts
++++ b/packages/ui/src/hooks/useDictation.ts
+@@ -34,11 +34,11 @@ export type DictationStatus = 'idle' | 'recording' | 'uploading' | 'failed';
+ export const DICTATION_EMPTY_RECORDING = 'empty_recording';
+ export const DICTATION_NO_SPEECH = 'no_speech';
+ /** The microphone never started (permission, no device, no AudioContext). */
+-export const DICTATION_START_FAILED = 'start_failed';
+-export const DICTATION_EMPTY_RECORDING_MESSAGE = 'Nothing was recorded. Check your microphone and try again.';
+-export const DICTATION_NO_SPEECH_MESSAGE = 'No speech was transcribed. Check your microphone and try again.';
++const DICTATION_START_FAILED = 'start_failed';
++const DICTATION_EMPTY_RECORDING_MESSAGE = 'Nothing was recorded. Check your microphone and try again.';
++const DICTATION_NO_SPEECH_MESSAGE = 'No speech was transcribed. Check your microphone and try again.';
+ /** Said while recording when nothing is reaching the capture (another app took the mic). */
+-export const DICTATION_MIC_SILENT_MESSAGE = 'No sound from the microphone. Check the mic or close other voice apps.';
++const DICTATION_MIC_SILENT_MESSAGE = 'No sound from the microphone. Check the mic or close other voice apps.';
+ 
+ /** Below this normalized level the capture is treated as hearing nothing. */
+ const MIC_SILENT_LEVEL = 0.002;
+diff --git a/packages/ui/src/hooks/useSessionEntryPosition.ts b/packages/ui/src/hooks/useSessionEntryPosition.ts
+new file mode 100644
+index 000000000..3cbede9df
+--- /dev/null
++++ b/packages/ui/src/hooks/useSessionEntryPosition.ts
+@@ -0,0 +1,124 @@
++import React from 'react';
++
++import type { TimelineRevealGate } from '@/components/chat/timelineRevealGate';
++import { resolveSessionEntryDecision } from '@/components/chat/lib/scroll/sessionEntryPosition';
++import { readSessionScrollPosition } from '@/components/chat/lib/scroll/sessionScrollMemory';
++import type { TimelineScrollMode } from '@/components/chat/lib/scroll/timelineScrollAnchoring';
++import { peekMessageFocus, type MessageFocusRequest } from '@/lib/router/messageFocus';
++import type { SessionEntryPosition } from '@/lib/sessionEntryPosition';
++import { isWaitingPageRevealPending } from '@/sync/request-reveal';
++import type { PositionTarget, TimelineAnchorHandle, TimelineListHandle } from './useChatTimelineScroll';
++
++export const useSessionEntryPosition = ({
++    currentSessionKey,
++    scrollNode,
++    scrollRef,
++    pinned,
++    revealGate,
++    currentSessionIdRef,
++    sessionIsWorkingRef,
++    sessionEntryPositionRef,
++    entryReplyMessageId,
++    handledEntryKeyRef,
++    restoredEntryKeyRef,
++    userOwnsScrollRef,
++    modeRef,
++    showPositionTarget,
++    linkTarget,
++    onManualNavigation,
++    jumpToEnd,
++    messageListRef,
++    listRef,
++}: {
++    currentSessionKey: string | null;
++    scrollNode: HTMLDivElement | null;
++    scrollRef: React.RefObject<HTMLDivElement | null>;
++    pinned: boolean;
++    revealGate: TimelineRevealGate | null;
++    currentSessionIdRef: React.RefObject<string | null>;
++    sessionIsWorkingRef: React.RefObject<boolean>;
++    sessionEntryPositionRef: React.RefObject<SessionEntryPosition>;
++    entryReplyMessageId?: string | null;
++    handledEntryKeyRef: React.RefObject<string | null>;
++    restoredEntryKeyRef: React.RefObject<string | null>;
++    userOwnsScrollRef: React.RefObject<boolean>;
++    modeRef: React.RefObject<TimelineScrollMode>;
++    showPositionTarget: (
++        target: PositionTarget,
++        node: HTMLElement,
++        sessionKey: string,
++        gate: TimelineRevealGate | null,
++        releaseReveal: (() => void) | null,
++    ) => boolean;
++    linkTarget: (request: MessageFocusRequest, node: HTMLElement) => PositionTarget;
++    onManualNavigation: () => void;
++    jumpToEnd: (mode: 'instant' | 'smooth', passStops: boolean) => void;
++    messageListRef: React.RefObject<TimelineAnchorHandle | null>;
++    listRef: React.RefObject<TimelineListHandle | null>;
++}) => {
++    React.useLayoutEffect(() => {
++        if (!currentSessionKey || !scrollNode) return;
++        const releaseReveal = revealGate?.hold() ?? null;
++        if (scrollRef.current === scrollNode && handledEntryKeyRef.current !== currentSessionKey) {
++            const linkRequest = peekMessageFocus(currentSessionIdRef.current);
++            if (linkRequest) {
++                handledEntryKeyRef.current = currentSessionKey;
++                if (showPositionTarget(linkTarget(linkRequest, scrollNode), scrollNode, currentSessionKey, revealGate, releaseReveal)) {
++                    restoredEntryKeyRef.current = currentSessionKey;
++                    return () => releaseReveal?.();
++                }
++            } else {
++                const remembered = !pinned && isWaitingPageRevealPending(currentSessionIdRef.current)
++                    ? null
++                    : readSessionScrollPosition(currentSessionKey);
++                const decision = resolveSessionEntryDecision({
++                    position: sessionEntryPositionRef.current,
++                    sessionIsWorking: sessionIsWorkingRef.current,
++                    remembered,
++                    replyMessageId: entryReplyMessageId,
++                });
++                if (decision.kind === 'remembered') {
++                    handledEntryKeyRef.current = currentSessionKey;
++                    if (showPositionTarget({ kind: 'remembered', anchor: decision.anchor }, scrollNode, currentSessionKey, revealGate, releaseReveal)) {
++                        restoredEntryKeyRef.current = currentSessionKey;
++                        return () => releaseReveal?.();
++                    }
++                } else if (decision.kind === 'reply-start') {
++                    handledEntryKeyRef.current = currentSessionKey;
++                    onManualNavigation();
++                    const landed = messageListRef.current?.scrollToReplyStart?.(decision.messageId, { behavior: 'auto' }) ?? false;
++                    if (landed) {
++                        restoredEntryKeyRef.current = currentSessionKey;
++                    } else {
++                        jumpToEnd('instant', true);
++                    }
++                    releaseReveal?.();
++                    return;
++                } else if (decision.kind === 'conversation-start') {
++                    handledEntryKeyRef.current = currentSessionKey;
++                    onManualNavigation();
++                    void listRef.current?.scrollToOffset({ offset: 0, animated: false });
++                    restoredEntryKeyRef.current = currentSessionKey;
++                    releaseReveal?.();
++                    return;
++                } else if (decision.kind === 'follow-end') {
++                    handledEntryKeyRef.current = currentSessionKey;
++                }
++            }
++        }
++        let frame: number | null = null;
++        const settle = () => {
++            frame = null;
++            if (!userOwnsScrollRef.current && modeRef.current === 'following-end') {
++                const end = scrollNode.scrollHeight - scrollNode.clientHeight;
++                if (end - scrollNode.scrollTop > 1) scrollNode.scrollTop = end;
++            }
++            releaseReveal?.();
++        };
++        frame = requestAnimationFrame(settle);
++        return () => {
++            if (frame !== null) cancelAnimationFrame(frame);
++            releaseReveal?.();
++        };
++    }, [currentSessionKey, entryReplyMessageId, jumpToEnd, linkTarget, onManualNavigation, pinned, revealGate, scrollNode, showPositionTarget]);
++};
+diff --git a/packages/ui/src/lib/i18n/messages/ar.settings.ts b/packages/ui/src/lib/i18n/messages/ar.settings.ts
+index 8fd2fb279..17515cf3f 100644
+--- a/packages/ui/src/lib/i18n/messages/ar.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/ar.settings.ts
+@@ -2517,6 +2517,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.questionsInPromptSelectorInfo': 'يعرض كل سؤال مجاب عنه تحت المطالبة الخاصة به في منتقي المطالبات.',
+   'settings.openchamber.visual.field.stickyUserHeaderAria': 'تثبيت رأس رسالة المستخدم',
+   'settings.openchamber.visual.field.stickyUserHeader': 'تثبيت رأس رسالة المستخدم',
++  'settings.openchamber.visual.field.sessionEntryPosition': "أين تُفتح الجلسة",
++  'settings.openchamber.visual.field.sessionEntryPositionAria': "أين تُفتح الجلسة",
++  'settings.openchamber.visual.field.sessionEntryPositionInfo': "الموضع الأخير يعيد فتح المحادثة حيث تركتها. بداية الرد الأخير تفتح عند أول نص في أحدث رد، أسفل رأس المستخدم المثبت عند تفعيله. بداية المحادثة تفتح في الأعلى. الجلسة التي ما زالت تعمل تُفتح عند نهايتها.",
++  'settings.openchamber.visual.option.sessionEntryPosition.lastPosition.label': "الموضع الأخير",
++  'settings.openchamber.visual.option.sessionEntryPosition.lastReply.label': "بداية الرد الأخير",
++  'settings.openchamber.visual.option.sessionEntryPosition.conversationStart.label': "بداية المحادثة",
+   'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'متصفح الطلبات',
+   'settings.openchamber.visual.field.promptNavigatorEnabled': 'متصفح الطلبات',
+   'settings.openchamber.visual.field.autoSaveEnabledAria': 'الحفظ التلقائي للملفات',
+diff --git a/packages/ui/src/lib/i18n/messages/de.settings.ts b/packages/ui/src/lib/i18n/messages/de.settings.ts
+index 06ef7faaa..7d2f31eca 100644
+--- a/packages/ui/src/lib/i18n/messages/de.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/de.settings.ts
+@@ -2458,6 +2458,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.questionsInPromptSelectorInfo': 'Zeigt jede beantwortete Frage unter ihrem Prompt im Prompt-Auswahlmenü.',
+   'settings.openchamber.visual.field.stickyUserHeaderAria': 'Fixierter Benutzerheader',
+   'settings.openchamber.visual.field.stickyUserHeader': 'Fixierter Benutzerkopf',
++  'settings.openchamber.visual.field.sessionEntryPosition': "Wo eine Sitzung geöffnet wird",
++  'settings.openchamber.visual.field.sessionEntryPositionAria': "Wo eine Sitzung geöffnet wird",
++  'settings.openchamber.visual.field.sessionEntryPositionInfo': "Letzte Position öffnet den Chat dort, wo du ihn verlassen hast. Anfang der letzten Antwort öffnet beim ersten Text der neuesten Antwort, unter dem fixierten Benutzerheader, wenn dieser eingeschaltet ist. Anfang der Unterhaltung öffnet ganz oben. Eine Sitzung, die noch arbeitet, öffnet an ihrem Ende.",
++  'settings.openchamber.visual.option.sessionEntryPosition.lastPosition.label': "Letzte Position",
++  'settings.openchamber.visual.option.sessionEntryPosition.lastReply.label': "Anfang der letzten Antwort",
++  'settings.openchamber.visual.option.sessionEntryPosition.conversationStart.label': "Anfang der Unterhaltung",
+   'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'Prompt-Navigator',
+   'settings.openchamber.visual.field.promptNavigatorEnabled': 'Prompt-Navigator',
+   'settings.openchamber.visual.field.chatWidth': 'Chatbreite',
+diff --git a/packages/ui/src/lib/i18n/messages/en.settings.ts b/packages/ui/src/lib/i18n/messages/en.settings.ts
+index a325bab39..e5587dd68 100644
+--- a/packages/ui/src/lib/i18n/messages/en.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/en.settings.ts
+@@ -2546,6 +2546,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.questionsInPromptSelectorInfo': 'Shows each answered question under its prompt in the prompt selector.',
+   'settings.openchamber.visual.field.stickyUserHeaderAria': 'Sticky user header',
+   'settings.openchamber.visual.field.stickyUserHeader': 'Sticky user header',
++  'settings.openchamber.visual.field.sessionEntryPosition': "Where a session opens",
++  'settings.openchamber.visual.field.sessionEntryPositionAria': "Where a session opens",
++  'settings.openchamber.visual.field.sessionEntryPositionInfo': "Last position reopens the chat where you left it. Start of the last reply opens at the first text of the newest answer, below the sticky user header when that is on. Start of the conversation opens at the top. A session that is still working opens at its end.",
++  'settings.openchamber.visual.option.sessionEntryPosition.lastPosition.label': "Last position",
++  'settings.openchamber.visual.option.sessionEntryPosition.lastReply.label': "Last reply start",
++  'settings.openchamber.visual.option.sessionEntryPosition.conversationStart.label': "Conversation start",
+   'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'Prompt navigator',
+   'settings.openchamber.visual.field.promptNavigatorEnabled': 'Prompt navigator',
+   'settings.openchamber.visual.field.autoSaveEnabledAria': 'Auto-save files',
+diff --git a/packages/ui/src/lib/i18n/messages/es.settings.ts b/packages/ui/src/lib/i18n/messages/es.settings.ts
+index 3b331b14f..ebef6a6ff 100644
+--- a/packages/ui/src/lib/i18n/messages/es.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/es.settings.ts
+@@ -2496,6 +2496,12 @@ export const settingsDict = {
+   "settings.openchamber.visual.field.questionsInPromptSelectorInfo": "Muestra cada pregunta respondida bajo su prompt en el selector de prompts.",
+   "settings.openchamber.visual.field.stickyUserHeaderAria": "Encabezado del usuario fijo",
+   "settings.openchamber.visual.field.stickyUserHeader": "Encabezado de usuario fijo",
++  'settings.openchamber.visual.field.sessionEntryPosition': "Dónde se abre una sesión",
++  'settings.openchamber.visual.field.sessionEntryPositionAria': "Dónde se abre una sesión",
++  'settings.openchamber.visual.field.sessionEntryPositionInfo': "Última posición reabre el chat donde lo dejaste. Inicio de la última respuesta abre en el primer texto de la respuesta más reciente, bajo el encabezado de usuario fijo cuando está activado. Inicio de la conversación abre arriba del todo. Una sesión que sigue trabajando se abre en su final.",
++  'settings.openchamber.visual.option.sessionEntryPosition.lastPosition.label': "Última posición",
++  'settings.openchamber.visual.option.sessionEntryPosition.lastReply.label': "Inicio de la última respuesta",
++  'settings.openchamber.visual.option.sessionEntryPosition.conversationStart.label': "Inicio de la conversación",
+   "settings.openchamber.visual.field.promptNavigatorEnabledAria": "Navegador de prompts",
+   "settings.openchamber.visual.field.promptNavigatorEnabled": "Navegador de prompts",
+   "settings.openchamber.visual.field.autoSaveEnabledAria": "Guardado automático de archivos",
+diff --git a/packages/ui/src/lib/i18n/messages/fr.settings.ts b/packages/ui/src/lib/i18n/messages/fr.settings.ts
+index 06063a319..5b265a15b 100644
+--- a/packages/ui/src/lib/i18n/messages/fr.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/fr.settings.ts
+@@ -2385,6 +2385,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.questionsInPromptSelectorInfo': 'Affiche chaque question répondue sous son prompt dans le sélecteur de prompts.',
+   'settings.openchamber.visual.field.stickyUserHeaderAria': 'En-tête utilisateur collant',
+   'settings.openchamber.visual.field.stickyUserHeader': 'En-tête utilisateur collant',
++  'settings.openchamber.visual.field.sessionEntryPosition': "Où une session s'ouvre",
++  'settings.openchamber.visual.field.sessionEntryPositionAria': "Où une session s'ouvre",
++  'settings.openchamber.visual.field.sessionEntryPositionInfo': "Dernière position rouvre le chat là où vous l'avez quitté. Début de la dernière réponse ouvre au premier texte de la réponse la plus récente, sous l'en-tête utilisateur épinglé lorsqu'il est activé. Début de la conversation ouvre tout en haut. Une session qui travaille encore s'ouvre à sa fin.",
++  'settings.openchamber.visual.option.sessionEntryPosition.lastPosition.label': "Dernière position",
++  'settings.openchamber.visual.option.sessionEntryPosition.lastReply.label': "Début de la dernière réponse",
++  'settings.openchamber.visual.option.sessionEntryPosition.conversationStart.label': "Début de la conversation",
+   'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'Navigateur de prompts',
+   'settings.openchamber.visual.field.promptNavigatorEnabled': 'Navigateur de prompts',
+   'settings.openchamber.visual.field.autoSaveEnabledAria': 'Enregistrement automatique des fichiers',
+diff --git a/packages/ui/src/lib/i18n/messages/he.settings.ts b/packages/ui/src/lib/i18n/messages/he.settings.ts
+index 0df059f25..11a261864 100644
+--- a/packages/ui/src/lib/i18n/messages/he.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/he.settings.ts
+@@ -2517,6 +2517,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.questionsInPromptSelectorInfo': 'מציג כל שאלה שנענתה תחת ההנחיה שלה בבורר ההנחיות.',
+   'settings.openchamber.visual.field.stickyUserHeaderAria': 'כותרת משתמש נצמדת',
+   'settings.openchamber.visual.field.stickyUserHeader': 'כותרת משתמש נצמדת',
++  'settings.openchamber.visual.field.sessionEntryPosition': "היכן נפתחת שיחה",
++  'settings.openchamber.visual.field.sessionEntryPositionAria': "היכן נפתחת שיחה",
++  'settings.openchamber.visual.field.sessionEntryPositionInfo': "מיקום אחרון פותח את הצ'אט במקום שבו עזבת אותו. תחילת התשובה האחרונה פותחת בטקסט הראשון של התשובה החדשה ביותר, מתחת לכותרת המשתמש המוצמדת כשזו מופעלת. תחילת השיחה פותחת בראש. שיחה שעדיין עובדת נפתחת בסופה.",
++  'settings.openchamber.visual.option.sessionEntryPosition.lastPosition.label': "מיקום אחרון",
++  'settings.openchamber.visual.option.sessionEntryPosition.lastReply.label': "תחילת התשובה האחרונה",
++  'settings.openchamber.visual.option.sessionEntryPosition.conversationStart.label': "תחילת השיחה",
+   'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'ניווט בין הנחיות',
+   'settings.openchamber.visual.field.promptNavigatorEnabled': 'ניווט בין הנחיות',
+   'settings.openchamber.visual.field.autoSaveEnabledAria': 'שמירה אוטומטית של קבצים',
+diff --git a/packages/ui/src/lib/i18n/messages/ja.settings.ts b/packages/ui/src/lib/i18n/messages/ja.settings.ts
+index bcf0884c9..19e7a0089 100644
+--- a/packages/ui/src/lib/i18n/messages/ja.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/ja.settings.ts
+@@ -2529,6 +2529,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.questionsInPromptSelectorInfo': 'セレクターで、各回答済みの質問を対応するプロンプトの下に表示します。',
+   'settings.openchamber.visual.field.stickyUserHeaderAria': 'ユーザーヘッダー固定',
+   'settings.openchamber.visual.field.stickyUserHeader': 'ユーザーヘッダー固定',
++  'settings.openchamber.visual.field.sessionEntryPosition': "セッションを開く位置",
++  'settings.openchamber.visual.field.sessionEntryPositionAria': "セッションを開く位置",
++  'settings.openchamber.visual.field.sessionEntryPositionInfo': "最後の位置は、離れた場所でチャットを開きます。最後の返信の開始は、最新の返信の最初のテキストで開き、固定ユーザーヘッダーがオンのときはその下に置きます。会話の開始は最上部で開きます。まだ作業中のセッションはその終わりで開きます。",
++  'settings.openchamber.visual.option.sessionEntryPosition.lastPosition.label': "最後の位置",
++  'settings.openchamber.visual.option.sessionEntryPosition.lastReply.label': "最後の返信の開始",
++  'settings.openchamber.visual.option.sessionEntryPosition.conversationStart.label': "会話の開始",
+   'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'プロンプトナビゲーター',
+   'settings.openchamber.visual.field.promptNavigatorEnabled': 'プロンプトナビゲーター',
+   'settings.openchamber.visual.field.autoSaveEnabledAria': 'ファイルの自動保存',
+diff --git a/packages/ui/src/lib/i18n/messages/ko.settings.ts b/packages/ui/src/lib/i18n/messages/ko.settings.ts
+index 5f785a7c7..59591687c 100644
+--- a/packages/ui/src/lib/i18n/messages/ko.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/ko.settings.ts
+@@ -2496,6 +2496,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.questionsInPromptSelectorInfo': '선택기에서 각 답변한 질문을 해당 프롬프트 아래에 표시합니다.',
+   'settings.openchamber.visual.field.stickyUserHeaderAria': '고정 사용자 헤더',
+   'settings.openchamber.visual.field.stickyUserHeader': '고정 사용자 헤더',
++  'settings.openchamber.visual.field.sessionEntryPosition': "세션을 여는 위치",
++  'settings.openchamber.visual.field.sessionEntryPositionAria': "세션을 여는 위치",
++  'settings.openchamber.visual.field.sessionEntryPositionInfo': "마지막 위치는 떠난 곳에서 채팅을 엽니다. 마지막 답변 시작은 가장 최근 답변의 첫 텍스트에서 열고, 고정 사용자 헤더가 켜져 있으면 그 아래에 놓습니다. 대화 시작은 맨 위에서 엽니다. 아직 작업 중인 세션은 끝에서 열립니다.",
++  'settings.openchamber.visual.option.sessionEntryPosition.lastPosition.label': "마지막 위치",
++  'settings.openchamber.visual.option.sessionEntryPosition.lastReply.label': "마지막 답변 시작",
++  'settings.openchamber.visual.option.sessionEntryPosition.conversationStart.label': "대화 시작",
+   'settings.openchamber.visual.field.promptNavigatorEnabledAria': '프롬프트 탐색기',
+   'settings.openchamber.visual.field.promptNavigatorEnabled': '프롬프트 탐색기',
+   'settings.openchamber.visual.field.autoSaveEnabledAria': '파일 자동 저장',
+diff --git a/packages/ui/src/lib/i18n/messages/nl.settings.ts b/packages/ui/src/lib/i18n/messages/nl.settings.ts
+index 113757c24..650094ca9 100644
+--- a/packages/ui/src/lib/i18n/messages/nl.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/nl.settings.ts
+@@ -2519,6 +2519,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.questionsInPromptSelectorInfo': 'Toont elke beantwoorde vraag onder de bijbehorende prompt in de promptkiezer.',
+   'settings.openchamber.visual.field.stickyUserHeaderAria': 'Vaste gebruikerskop',
+   'settings.openchamber.visual.field.stickyUserHeader': 'Vaste gebruikerskop',
++  'settings.openchamber.visual.field.sessionEntryPosition': "Waar een sessie opent",
++  'settings.openchamber.visual.field.sessionEntryPositionAria': "Waar een sessie opent",
++  'settings.openchamber.visual.field.sessionEntryPositionInfo': "Laatste positie opent de chat waar je hem verliet. Begin van het laatste antwoord opent bij de eerste tekst van het nieuwste antwoord, onder de vastgezette gebruikerskop wanneer die aan staat. Begin van het gesprek opent bovenaan. Een sessie die nog bezig is, opent aan het einde.",
++  'settings.openchamber.visual.option.sessionEntryPosition.lastPosition.label': "Laatste positie",
++  'settings.openchamber.visual.option.sessionEntryPosition.lastReply.label': "Begin van het laatste antwoord",
++  'settings.openchamber.visual.option.sessionEntryPosition.conversationStart.label': "Begin van het gesprek",
+   'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'Promptnavigator',
+   'settings.openchamber.visual.field.promptNavigatorEnabled': 'Promptnavigator',
+   'settings.openchamber.visual.field.autoSaveEnabledAria': 'Bestanden automatisch opslaan',
+diff --git a/packages/ui/src/lib/i18n/messages/pl.settings.ts b/packages/ui/src/lib/i18n/messages/pl.settings.ts
+index 06c8b838d..972623a0a 100644
+--- a/packages/ui/src/lib/i18n/messages/pl.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/pl.settings.ts
+@@ -1416,6 +1416,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.showTurnChangedFilesAria': 'Pokaż zmienione pliki w ukończonych turach',
+   'settings.openchamber.visual.field.spacingDensity': 'Gęstość odstępów',
+   'settings.openchamber.visual.field.stickyUserHeader': 'Przyklejony nagłówek użytkownika',
++  'settings.openchamber.visual.field.sessionEntryPosition': "Gdzie otwiera się sesja",
++  'settings.openchamber.visual.field.sessionEntryPositionAria': "Gdzie otwiera się sesja",
++  'settings.openchamber.visual.field.sessionEntryPositionInfo': "Ostatnia pozycja otwiera czat tam, gdzie go zostawiłeś. Początek ostatniej odpowiedzi otwiera przy pierwszym tekście najnowszej odpowiedzi, pod przyklejonym nagłówkiem użytkownika, gdy jest włączony. Początek rozmowy otwiera na samej górze. Sesja, która nadal pracuje, otwiera się na jej końcu.",
++  'settings.openchamber.visual.option.sessionEntryPosition.lastPosition.label': "Ostatnia pozycja",
++  'settings.openchamber.visual.option.sessionEntryPosition.lastReply.label': "Początek ostatniej odpowiedzi",
++  'settings.openchamber.visual.option.sessionEntryPosition.conversationStart.label': "Początek rozmowy",
+   'settings.openchamber.visual.field.stickyUserHeaderAria': 'Przyklejony nagłówek użytkownika',
+   'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'Nawigator promptów',
+   'settings.openchamber.visual.field.promptNavigatorEnabled': 'Nawigator promptów',
+diff --git a/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts b/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
+index 9360a9c01..c72ed65d3 100644
+--- a/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
+@@ -2496,6 +2496,12 @@ export const settingsDict = {
+   "settings.openchamber.visual.field.questionsInPromptSelectorInfo": "Mostra cada pergunta respondida sob o seu prompt no seletor de prompts.",
+   "settings.openchamber.visual.field.stickyUserHeaderAria": "Cabeçalho do usuário fixo",
+   "settings.openchamber.visual.field.stickyUserHeader": "Cabeçalho do usuário fixo",
++  'settings.openchamber.visual.field.sessionEntryPosition': "Onde uma sessão abre",
++  'settings.openchamber.visual.field.sessionEntryPositionAria': "Onde uma sessão abre",
++  'settings.openchamber.visual.field.sessionEntryPositionInfo': "Última posição reabre o chat onde você o deixou. Início da última resposta abre no primeiro texto da resposta mais recente, abaixo do cabeçalho de usuário fixo quando ele está ativado. Início da conversa abre no topo. Uma sessão que ainda está trabalhando abre no fim dela.",
++  'settings.openchamber.visual.option.sessionEntryPosition.lastPosition.label': "Última posição",
++  'settings.openchamber.visual.option.sessionEntryPosition.lastReply.label': "Início da última resposta",
++  'settings.openchamber.visual.option.sessionEntryPosition.conversationStart.label': "Início da conversa",
+   "settings.openchamber.visual.field.promptNavigatorEnabledAria": "Navegador de prompts",
+   "settings.openchamber.visual.field.promptNavigatorEnabled": "Navegador de prompts",
+   "settings.openchamber.visual.field.autoSaveEnabledAria": "Salvamento automático de arquivos",
+diff --git a/packages/ui/src/lib/i18n/messages/tr.settings.ts b/packages/ui/src/lib/i18n/messages/tr.settings.ts
+index 45aac4037..4fffb41ad 100644
+--- a/packages/ui/src/lib/i18n/messages/tr.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/tr.settings.ts
+@@ -2383,6 +2383,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.questionsInPromptSelectorInfo': 'Her yanıtlanan soruyu istem seçicide kendi isteminin altında gösterir.',
+   'settings.openchamber.visual.field.stickyUserHeaderAria': 'Yapışkan kullanıcı üstbilgisi',
+   'settings.openchamber.visual.field.stickyUserHeader': 'Yapışkan Kullanıcı Üstbilgisi',
++  'settings.openchamber.visual.field.sessionEntryPosition': "Bir oturumun nerede açılacağı",
++  'settings.openchamber.visual.field.sessionEntryPositionAria': "Bir oturumun nerede açılacağı",
++  'settings.openchamber.visual.field.sessionEntryPositionInfo': "Son konum sohbeti bıraktığınız yerde açar. Son yanıtın başlangıcı, en yeni yanıtın ilk metninde, sabitlenmiş kullanıcı üstbilgisi açıksa onun altında açar. Konuşmanın başlangıcı en üstte açar. Hâlâ çalışan bir oturum kendi sonunda açılır.",
++  'settings.openchamber.visual.option.sessionEntryPosition.lastPosition.label': "Son konum",
++  'settings.openchamber.visual.option.sessionEntryPosition.lastReply.label': "Son yanıtın başlangıcı",
++  'settings.openchamber.visual.option.sessionEntryPosition.conversationStart.label': "Konuşmanın başlangıcı",
+   'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'Prompt gezgini',
+   'settings.openchamber.visual.field.promptNavigatorEnabled': 'Prompt Gezgini',
+   'settings.openchamber.visual.field.autoSaveEnabledAria': 'Dosyaları otomatik kaydet',
+diff --git a/packages/ui/src/lib/i18n/messages/uk.settings.ts b/packages/ui/src/lib/i18n/messages/uk.settings.ts
+index a2a248ae7..d88a253d6 100644
+--- a/packages/ui/src/lib/i18n/messages/uk.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/uk.settings.ts
+@@ -2496,6 +2496,12 @@ export const settingsDict = {
+   "settings.openchamber.visual.field.questionsInPromptSelectorInfo": "Показує кожну відповідь на запитання під її запитом у виборі запитів.",
+   "settings.openchamber.visual.field.stickyUserHeaderAria": "Закріплений заголовок користувача",
+   "settings.openchamber.visual.field.stickyUserHeader": "Закріплений заголовок користувача",
++  'settings.openchamber.visual.field.sessionEntryPosition': "Де відкривається сесія",
++  'settings.openchamber.visual.field.sessionEntryPositionAria': "Де відкривається сесія",
++  'settings.openchamber.visual.field.sessionEntryPositionInfo': "Остання позиція відкриває чат там, де ви його залишили. Початок останньої відповіді відкриває на першому тексті найновішої відповіді, під закріпленим заголовком користувача, якщо він увімкнений. Початок розмови відкриває на самому верху. Сесія, яка ще працює, відкривається на її кінці.",
++  'settings.openchamber.visual.option.sessionEntryPosition.lastPosition.label': "Остання позиція",
++  'settings.openchamber.visual.option.sessionEntryPosition.lastReply.label': "Початок останньої відповіді",
++  'settings.openchamber.visual.option.sessionEntryPosition.conversationStart.label': "Початок розмови",
+   "settings.openchamber.visual.field.promptNavigatorEnabledAria": "Навігатор промптів",
+   "settings.openchamber.visual.field.promptNavigatorEnabled": "Навігатор промптів",
+   "settings.openchamber.visual.field.autoSaveEnabledAria": "Автозбереження файлів",
+diff --git a/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts b/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
+index 6f2040615..6a9ab2d3a 100644
+--- a/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
+@@ -2496,6 +2496,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.questionsInPromptSelectorInfo': '在选择器中于对应提示下显示每个已回答的问题。',
+   'settings.openchamber.visual.field.stickyUserHeaderAria': '固定用户消息头',
+   'settings.openchamber.visual.field.stickyUserHeader': '固定用户消息头',
++  'settings.openchamber.visual.field.sessionEntryPosition': "会话打开位置",
++  'settings.openchamber.visual.field.sessionEntryPositionAria': "会话打开位置",
++  'settings.openchamber.visual.field.sessionEntryPositionInfo': "上次位置会在你离开的地方重新打开聊天。最后回复开头会定位到最新回复的第一段文字，在固定用户消息头开启时位于其下方。对话开头会定位到最顶部。仍在工作的会话会在其末尾打开。",
++  'settings.openchamber.visual.option.sessionEntryPosition.lastPosition.label': "上次位置",
++  'settings.openchamber.visual.option.sessionEntryPosition.lastReply.label': "最后回复开头",
++  'settings.openchamber.visual.option.sessionEntryPosition.conversationStart.label': "对话开头",
+   'settings.openchamber.visual.field.promptNavigatorEnabledAria': '提示词导航',
+   'settings.openchamber.visual.field.promptNavigatorEnabled': '提示词导航',
+   'settings.openchamber.visual.field.autoSaveEnabledAria': '自动保存文件',
+diff --git a/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts b/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
+index d8ef37153..04bc2bb1a 100644
+--- a/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
++++ b/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
+@@ -2374,6 +2374,12 @@ export const settingsDict = {
+   'settings.openchamber.visual.field.questionsInPromptSelectorInfo': '在選擇器中於對應提示下顯示每個已回答的問題。',
+   'settings.openchamber.visual.field.stickyUserHeaderAria': '固定使用者訊息標頭',
+   'settings.openchamber.visual.field.stickyUserHeader': '固定使用者訊息標頭',
++  'settings.openchamber.visual.field.sessionEntryPosition': "工作階段開啟位置",
++  'settings.openchamber.visual.field.sessionEntryPositionAria': "工作階段開啟位置",
++  'settings.openchamber.visual.field.sessionEntryPositionInfo': "上次位置會在你離開的地方重新開啟對話。最後回覆開頭會定位到最新回覆的第一段文字，在固定使用者訊息標頭開啟時位於其下方。對話開頭會定位到最上方。仍在工作的階段會在其結尾開啟。",
++  'settings.openchamber.visual.option.sessionEntryPosition.lastPosition.label': "上次位置",
++  'settings.openchamber.visual.option.sessionEntryPosition.lastReply.label': "最後回覆開頭",
++  'settings.openchamber.visual.option.sessionEntryPosition.conversationStart.label': "對話開頭",
+   'settings.openchamber.visual.field.promptNavigatorEnabledAria': '提示詞導覽',
+   'settings.openchamber.visual.field.promptNavigatorEnabled': '提示詞導覽',
+   'settings.openchamber.visual.field.autoSaveEnabledAria': '自動儲存檔案',
+diff --git a/packages/ui/src/lib/instanceAttention.ts b/packages/ui/src/lib/instanceAttention.ts
+index a902aba1c..0f806bac8 100644
+--- a/packages/ui/src/lib/instanceAttention.ts
++++ b/packages/ui/src/lib/instanceAttention.ts
+@@ -656,7 +656,7 @@ export const countInstanceAttentionItems = (
+ };
+ 
+ /** The host record fields the unreachable note reads. */
+-export type InstanceAttentionHostView = {
++type InstanceAttentionHostView = {
+   label: string;
+   status: 'ok' | 'error';
+ };
+diff --git a/packages/ui/src/lib/pendingFormVerification.ts b/packages/ui/src/lib/pendingFormVerification.ts
+index 60cec2f07..ae4121927 100644
+--- a/packages/ui/src/lib/pendingFormVerification.ts
++++ b/packages/ui/src/lib/pendingFormVerification.ts
+@@ -5,7 +5,7 @@ export type PendingFormsBySession = ReadonlyMap<string, {
+   forms: readonly PendingFormLike[];
+ }>;
+ 
+-export type StalePendingForm = { sessionId: string; formId: string };
++type StalePendingForm = { sessionId: string; formId: string };
+ 
+ export const planStalePendingForms = async (
+   bySession: PendingFormsBySession,
+diff --git a/packages/ui/src/lib/sessionEntryPosition.ts b/packages/ui/src/lib/sessionEntryPosition.ts
+new file mode 100644
+index 000000000..f5f90d4e8
+--- /dev/null
++++ b/packages/ui/src/lib/sessionEntryPosition.ts
+@@ -0,0 +1,3 @@
++export type SessionEntryPosition = 'last-position' | 'last-reply' | 'conversation-start';
++
++export const DEFAULT_SESSION_ENTRY_POSITION: SessionEntryPosition = 'last-position';
+diff --git a/packages/ui/src/lib/settings/registry.ts b/packages/ui/src/lib/settings/registry.ts
+index da399bbd4..938447db5 100644
+--- a/packages/ui/src/lib/settings/registry.ts
++++ b/packages/ui/src/lib/settings/registry.ts
+@@ -442,6 +442,7 @@ export const SETTINGS_REGISTRY = {
+   stickyUserHeader: field({ scope: 'profile', perSurface: true, parse: parseBoolean, ui: uiStore('stickyUserHeader', (v) => useUIStore.getState().setStickyUserHeader(v)) }),
+   promptNavigatorEnabled: field({ scope: 'profile', perSurface: true, parse: parseBoolean, ui: uiStore('promptNavigatorEnabled', (v) => useUIStore.getState().setPromptNavigatorEnabled(v)) }),
+   chatWidth: field({ scope: 'profile', perSurface: true, parse: parseChatWidth, ui: uiStore('chatWidth', (v) => useUIStore.getState().setChatWidth(v)) }),
++  sessionEntryPosition: field({ scope: 'profile', perSurface: true, parse: parseOneOf(['last-position', 'last-reply', 'conversation-start']), ui: uiStore('sessionEntryPosition', (v) => useUIStore.getState().setSessionEntryPosition(v)) }),
+   wideChatLayoutEnabled: field({ scope: 'profile', perSurface: true, parse: parseBoolean }),
+   autoExpandAnsweredQuestions: field({ scope: 'profile', parse: parseBoolean, ui: uiStore('autoExpandAnsweredQuestions', (v) => useUIStore.getState().setAutoExpandAnsweredQuestions(v)) }),
+   listQuestionsInPromptSelector: field({ scope: 'profile', parse: parseBoolean, ui: uiStore('listQuestionsInPromptSelector', (v) => useUIStore.getState().setListQuestionsInPromptSelector(v)) }),
+@@ -639,12 +640,7 @@ export const SETTINGS_REGISTRY = {
+     parse: parseMobileKeyboardModeValue,
+     ui: uiStore('mobileKeyboardMode', (v) => useUIStore.getState().setMobileKeyboardMode(v)),
+   }),
+-  desktopWindowControlsPosition: field<DesktopWindowControlsPosition>({
+-    scope: 'device',
+-    surfaces: ['desktop'],
+-    parse: parseDesktopWindowControlsPosition,
+-    ui: uiStore('desktopWindowControlsPosition', (v) => useUIStore.getState().setDesktopWindowControlsPosition(v)),
+-  }),
++  desktopWindowControlsPosition: field<DesktopWindowControlsPosition>({ scope: 'device', surfaces: ['desktop'], parse: parseDesktopWindowControlsPosition, ui: uiStore('desktopWindowControlsPosition', (v) => useUIStore.getState().setDesktopWindowControlsPosition(v)) }),
+   desktopWindowControlsStyle: field<DesktopWindowControlsStyle>({
+     scope: 'device',
+     surfaces: ['desktop'],
+diff --git a/packages/ui/src/lib/settings/search-chat-reading.ts b/packages/ui/src/lib/settings/search-chat-reading.ts
+new file mode 100644
+index 000000000..ed5968167
+--- /dev/null
++++ b/packages/ui/src/lib/settings/search-chat-reading.ts
+@@ -0,0 +1,43 @@
++import type { SettingsSearchItem } from './search';
++
++export const CHAT_READING_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
++  {
++    id: 'chat.streaming-auto-follow',
++    page: 'chat',
++    titleKey: 'settings.openchamber.visual.field.streamingAutoFollow',
++    descriptionKey: 'settings.openchamber.visual.field.streamingAutoFollowInfo',
++    keywords: ['autoscroll', 'auto-scroll', 'follow', 'stick to bottom', 'streaming'],
++  },
++  {
++    id: 'chat.sticky-user-header',
++    page: 'chat',
++    titleKey: 'settings.openchamber.visual.field.stickyUserHeader',
++    keywords: ['sticky', 'pin', 'prompt', 'header', 'user messages'],
++  },
++  {
++    id: 'chat.session-entry-position',
++    page: 'chat',
++    titleKey: 'settings.openchamber.visual.field.sessionEntryPosition',
++    descriptionKey: 'settings.openchamber.visual.field.sessionEntryPositionInfo',
++    keywords: ['open', 'scroll', 'entry', 'resume', 'reading position', 'last reply', 'conversation start'],
++  },
++  {
++    id: 'chat.prompt-navigator',
++    page: 'chat',
++    titleKey: 'settings.openchamber.visual.field.promptNavigatorEnabled',
++    keywords: ['prompt', 'navigator', 'navigation', 'timeline', 'scroll'],
++  },
++  {
++    id: 'chat.width',
++    page: 'chat',
++    titleKey: 'settings.openchamber.visual.field.chatWidth',
++    descriptionKey: 'settings.openchamber.visual.field.chatWidthInfo',
++    keywords: ['layout', 'wide', 'wider', 'full', 'width', 'column', 'messages'],
++  },
++  {
++    id: 'chat.message-appearance',
++    page: 'chat',
++    titleKey: 'settings.layout.chat.section.reading',
++    keywords: ['layout', 'messages', 'appearance'],
++  },
++];
+diff --git a/packages/ui/src/lib/settings/search.ts b/packages/ui/src/lib/settings/search.ts
+index b731f23a1..bf72e3234 100644
+--- a/packages/ui/src/lib/settings/search.ts
++++ b/packages/ui/src/lib/settings/search.ts
+@@ -11,6 +11,7 @@ import type { SettingsPageSlug, SettingsRuntimeContext } from './metadata';
+ import { getSettingsPageMeta } from './metadata';
+ import { OPENCHAMBER_TOOLS_SEARCH_ITEMS } from './search-openchamber-tools';
+ import { CHAT_SENDING_SEARCH_ITEMS } from './search-chat-sending';
++import { CHAT_READING_SEARCH_ITEMS } from './search-chat-reading';
+ import { SESSION_DEFAULTS_SEARCH_ITEMS } from './search-session-defaults';
+ import { SIDEBAR_SESSION_SEARCH_ITEMS } from './search-sidebar-sessions';
+ import { SESSION_COST_SEARCH_ITEMS, SESSION_GOAL_SEARCH_ITEMS } from './search-session-limits';
+@@ -379,25 +380,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
+     titleKey: 'settings.openchamber.visual.section.reasoning',
+     keywords: ['thinking', 'traces', 'collapse', 'expand', 'streaming'],
+   },
+-  {
+-    id: 'chat.streaming-auto-follow',
+-    page: 'chat',
+-    titleKey: 'settings.openchamber.visual.field.streamingAutoFollow',
+-    descriptionKey: 'settings.openchamber.visual.field.streamingAutoFollowInfo',
+-    keywords: ['autoscroll', 'auto-scroll', 'follow', 'stick to bottom', 'streaming'],
+-  },
+-  {
+-    id: 'chat.sticky-user-header',
+-    page: 'chat',
+-    titleKey: 'settings.openchamber.visual.field.stickyUserHeader',
+-    keywords: ['sticky', 'pin', 'prompt', 'header', 'user messages'],
+-  },
+-  {
+-    id: 'chat.prompt-navigator',
+-    page: 'chat',
+-    titleKey: 'settings.openchamber.visual.field.promptNavigatorEnabled',
+-    keywords: ['prompt', 'navigator', 'navigation', 'timeline', 'scroll'],
+-  },
++  ...CHAT_READING_SEARCH_ITEMS,
+   {
+     id: 'chat.auto-expand-questions',
+     page: 'chat',
+@@ -418,19 +401,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
+     titleKey: 'settings.openchamber.visual.field.collapsibleUserMessages',
+     keywords: ['collapse', 'expand', 'clamp', 'long messages', 'user messages'],
+   },
+-  {
+-    id: 'chat.width',
+-    page: 'chat',
+-    titleKey: 'settings.openchamber.visual.field.chatWidth',
+-    descriptionKey: 'settings.openchamber.visual.field.chatWidthInfo',
+-    keywords: ['layout', 'wide', 'wider', 'full', 'width', 'column', 'messages'],
+-  },
+-  {
+-    id: 'chat.message-appearance',
+-    page: 'chat',
+-    titleKey: 'settings.layout.chat.section.reading',
+-    keywords: ['layout', 'messages', 'appearance'],
+-  },
+   {
+     id: 'chat.code-block-line-wrap',
+     page: 'chat',
+diff --git a/packages/ui/src/stores/ui/initialState.ts b/packages/ui/src/stores/ui/initialState.ts
+index 3cda596d2..96e547bbc 100644
+--- a/packages/ui/src/stores/ui/initialState.ts
++++ b/packages/ui/src/stores/ui/initialState.ts
+@@ -5,6 +5,7 @@ import { getStoredMobileKeyboardMode } from '@/lib/mobileKeyboardMode';
+ import { LIVE_BROWSER_TABS_DEFAULT } from '@/lib/browser/liveTabs';
+ import { sanitizeWorkStatusSectionOrder } from '@/components/chat/work-status/sections';
+ import { DEFAULT_DOCUMENT_ATTACH_BEHAVIOR, DEFAULT_LARGE_TEXT_PASTE_BEHAVIOR, DEFAULT_EDITOR_FONT_SIZE, DEFAULT_CONTEXT_EDITOR_TREE_WIDTH, DEFAULT_GIT_SIDEBAR_WIDTH } from './preferences';
++import { DEFAULT_SESSION_ENTRY_POSITION } from '@/lib/sessionEntryPosition';
+ import type { UIStore } from './types';
+ 
+ const LEFT_SIDEBAR_DEFAULT_WIDTH = 280;
+@@ -216,6 +217,7 @@ export const createInitialUIState = (): Pick<UIStore,
+   | 'enterToSendConfigured'
+   | 'mobileReturnKeySends'
+   | 'chatWidth'
++  | 'sessionEntryPosition'
+   | 'codeBlockLineWrap'
+   | 'tableCellWrap'
+   | 'copyMessagesAsPlainText'
+@@ -454,6 +456,7 @@ export const createInitialUIState = (): Pick<UIStore,
+   enterToSendConfigured: false,
+   mobileReturnKeySends: false,
+   chatWidth: 'default',
++  sessionEntryPosition: DEFAULT_SESSION_ENTRY_POSITION,
+   codeBlockLineWrap: true,
+   tableCellWrap: true,
+   copyMessagesAsPlainText: true,
+diff --git a/packages/ui/src/stores/ui/persistence.ts b/packages/ui/src/stores/ui/persistence.ts
+index 891102e8c..553c16866 100644
+--- a/packages/ui/src/stores/ui/persistence.ts
++++ b/packages/ui/src/stores/ui/persistence.ts
+@@ -417,6 +417,7 @@ const uiStorePersistOptions = {
+     enterToSendConfigured: state.enterToSendConfigured,
+     mobileReturnKeySends: state.mobileReturnKeySends,
+     chatWidth: state.chatWidth,
++    sessionEntryPosition: state.sessionEntryPosition,
+     codeBlockLineWrap: state.codeBlockLineWrap,
+     tableCellWrap: state.tableCellWrap,
+     copyMessagesAsPlainText: state.copyMessagesAsPlainText,
+diff --git a/packages/ui/src/stores/ui/preferenceActions.ts b/packages/ui/src/stores/ui/preferenceActions.ts
+index c492f5b11..ef9cc9d95 100644
+--- a/packages/ui/src/stores/ui/preferenceActions.ts
++++ b/packages/ui/src/stores/ui/preferenceActions.ts
+@@ -69,6 +69,7 @@ export const createPreferenceActions: UIStoreSlice<
+   | 'setEnterToSendConfigured'
+   | 'setMobileReturnKeySends'
+   | 'setChatWidth'
++  | 'setSessionEntryPosition'
+   | 'setCodeBlockLineWrap'
+   | 'setTableCellWrap'
+   | 'setSelectionApprovalText'
+@@ -366,6 +367,10 @@ export const createPreferenceActions: UIStoreSlice<
+     set({ chatWidth: value });
+   },
+ 
++  setSessionEntryPosition: (value) => {
++    set({ sessionEntryPosition: value });
++  },
++
+   setCodeBlockLineWrap: (value) => {
+     set({ codeBlockLineWrap: value });
+   },
+diff --git a/packages/ui/src/stores/ui/types.ts b/packages/ui/src/stores/ui/types.ts
+index fe16c254e..fda66cc17 100644
+--- a/packages/ui/src/stores/ui/types.ts
++++ b/packages/ui/src/stores/ui/types.ts
+@@ -12,8 +12,11 @@ import type { MobileWorkspaceTab } from '@/lib/mobileWorkspaceTabs';
+ import type { ContextZone, ContextZonePlacement, MovedZoneViews } from '@/lib/workspace/zones';
+ import type { WorkStatusPanelSectionId } from '@/components/chat/work-status/sections';
+ import type { CommentLocationRequest } from '@/lib/commentLocation';
++import type { SessionEntryPosition } from '@/lib/sessionEntryPosition';
+ import type { StateCreator } from 'zustand';
+ 
++export type { SessionEntryPosition };
++
+ export type PendingDiffScope = 'working' | 'staged' | 'turn' | 'branch' | 'commit' | 'pr';
+ 
+ type MermaidRenderingMode = 'svg' | 'ascii';
+@@ -328,6 +331,7 @@ export interface UIStore {
+   enterToSendConfigured: boolean;
+   mobileReturnKeySends: boolean;
+   chatWidth: ChatWidth;
++  sessionEntryPosition: SessionEntryPosition;
+   codeBlockLineWrap: boolean;
+   tableCellWrap: boolean;
+   copyMessagesAsPlainText: boolean;
+@@ -609,6 +613,7 @@ export interface UIStore {
+   setMobileReturnKeySends: (value: boolean) => void;
+   setEnterToSendConfigured: (value: boolean) => void;
+   setChatWidth: (value: ChatWidth) => void;
++  setSessionEntryPosition: (value: SessionEntryPosition) => void;
+   setCodeBlockLineWrap: (value: boolean) => void;
+   setTableCellWrap: (value: boolean) => void;
+   setCopyMessagesAsPlainText: (value: boolean) => void;
+diff --git a/packages/ui/src/stores/useUIStore.ts b/packages/ui/src/stores/useUIStore.ts
+index 68b8edaa2..a4d01d88a 100644
+--- a/packages/ui/src/stores/useUIStore.ts
++++ b/packages/ui/src/stores/useUIStore.ts
+@@ -21,6 +21,7 @@ export type { MobileKeepScreenAwake } from './ui/types';
+ export type { FileEditorKeymap } from './ui/types';
+ export type { DocumentAttachBehavior, LargeTextPasteBehavior } from './ui/types';
+ export type { ChatWidth } from './ui/types';
++export type { SessionEntryPosition } from './ui/types';
+ export type { SessionGoalChecker } from './ui/types';
+ export { normalizeContextPanelDirectoryKey } from './ui/contextTabs';
+ export { isTrackerBranchTab } from './ui/contextTabs';
+diff --git a/packages/vscode/src/settings-registry.json b/packages/vscode/src/settings-registry.json
+index 6a163e51e..c8513f135 100644
+--- a/packages/vscode/src/settings-registry.json
++++ b/packages/vscode/src/settings-registry.json
+@@ -489,6 +489,10 @@
+       "scope": "profile",
+       "perSurface": true
+     },
++    "sessionEntryPosition": {
++      "scope": "profile",
++      "perSurface": true
++    },
+     "wideChatLayoutEnabled": {
+       "scope": "profile",
+       "perSurface": true
+diff --git a/packages/web/server/lib/gitea/descriptor.ts b/packages/web/server/lib/gitea/descriptor.ts
+index 2c4d03aba..4a9bcd0ee 100644
+--- a/packages/web/server/lib/gitea/descriptor.ts
++++ b/packages/web/server/lib/gitea/descriptor.ts
+@@ -37,8 +37,6 @@ export const giteaDescriptor = Object.freeze({
+     stacks: false,
+     changeRequestPatch: true,
+     liveSummaries: true,
+-    // The picker's lists stay list-backed (`referenceSearch` off); the search
+-    // across a folder's repositories is the one provider-owned read.
+     referencePicker: true,
+     multipleAccounts: true,
+   }),
+diff --git a/packages/web/server/lib/gitea/mappers.ts b/packages/web/server/lib/gitea/mappers.ts
+index a66a6c2a7..30d650e2b 100644
+--- a/packages/web/server/lib/gitea/mappers.ts
++++ b/packages/web/server/lib/gitea/mappers.ts
+@@ -124,11 +124,6 @@ const pullState = (value: JsonObject) => {
+ export const branchRepoId = (branch: JsonValue | undefined) =>
+   integer(field(branch, 'repo_id')) ?? integer(field(field(branch, 'repo'), 'id'));
+ 
+-/**
+- * The branch name of a pull request side. Forgejo answers `head.ref` as
+- * `refs/pull/<n>/head` once the source branch is deleted, and keeps the real
+- * name in `head.label`, so the label is preferred there.
+- */
+ export const headBranch = (branch: JsonValue | undefined): string => {
+   const ref = field(branch, 'ref');
+   if (!nonEmptyText(ref)) return '';
+@@ -152,7 +147,6 @@ export function mapGiteaPull(value: JsonValue | undefined, identity: GiteaIdenti
+     title: value.title,
+     url: value.html_url,
+     state,
+-    // A merged or closed pull request is not a draft, whatever its title still says.
+     draft: state === 'open' && (value.draft === true || isDraftTitle(value.title)),
+     base,
+     head,
+diff --git a/packages/web/server/lib/gitea/provider.ts b/packages/web/server/lib/gitea/provider.ts
+index 36a15b061..b59f101d6 100644
+--- a/packages/web/server/lib/gitea/provider.ts
++++ b/packages/web/server/lib/gitea/provider.ts
+@@ -259,8 +259,9 @@ export function createGiteaFamilyProvider(build: GiteaFamilyProviderOptions) {
+     if (resolveRepos) options.resolveRepos = resolveRepos;
+     const service = createResourceService(options);
+     const identity = identityFor(session.instance, session.accountId);
++    // SAFETY: every member of the resource service is an async method.
+     const methods: Record<string, (...args: never[]) => Promise<object>> =
+-      service as unknown as Record<string, (...args: never[]) => Promise<object>>;
++      service as Record<string, (...args: never[]) => Promise<object>>;
+     for (const method of Object.keys(methods)) {
+       const operation = methods[method];
+       if (!(operation instanceof Function)) continue;
+@@ -320,10 +321,12 @@ export function createGiteaFamilyProvider(build: GiteaFamilyProviderOptions) {
+         if (!input) {
+           throw Object.assign(new Error('Invalid references request; at most 100 unique contexts are allowed'), { status: 400 });
+         }
++        // SAFETY: the across reader answers the provider's plain-object result.
+         return readReferencesAcross({
+           input,
+           providerId: descriptor.id,
+           validateReadContext: async (context) => {
++            // SAFETY: the across reader hands the validator the request's own read context.
+             const trusted = await validateReadContext(context as ReadContextRequest);
+             if (!trusted) throw Object.assign(new Error('The read context is not valid'), { status: 400 });
+             return trusted;
+@@ -333,7 +336,8 @@ export function createGiteaFamilyProvider(build: GiteaFamilyProviderOptions) {
+               instance: String(trusted.instance ?? ''),
+               accountId: String(trusted.accountId ?? ''),
+             });
+-            return serviceFor(session) as unknown as ReferenceService;
++            // SAFETY: the resource service implements the reference reads this provider publishes.
++            return serviceFor(session) as ReferenceService;
+           },
+           onFolderFailure: async (error: FolderFailure, identity: TrustedContext) => {
+             const status = error?.status ?? error?.response?.status;
+diff --git a/packages/web/server/lib/gitea/references-across.test.ts b/packages/web/server/lib/gitea/references-across.test.ts
+index e89f4a119..a144971ce 100644
+--- a/packages/web/server/lib/gitea/references-across.test.ts
++++ b/packages/web/server/lib/gitea/references-across.test.ts
+@@ -3,6 +3,7 @@ import {
+   issueReference, pullReference, readReferencesAcross, readReferencesAcrossRequest, resetReferencePageCache,
+ } from './references-across.js';
+ import type { FolderFailure, ReferenceService, TrustedContext } from './references-across.js';
++import type { JsonValue } from '../shared/json-values.js';
+ 
+ const ORIGIN = 'https://gitea.example.com';
+ 
+@@ -24,19 +25,19 @@ type RawIssueFields = {
+   html_url?: string | undefined;
+   state?: string | undefined;
+   user?: { login?: string | undefined; avatar_url?: string | undefined } | undefined;
+-  labels?: unknown[] | undefined;
++  labels?: JsonValue[] | undefined;
+   comments?: number | undefined;
+   body?: string | undefined;
+   created_at?: string | undefined;
+   updated_at?: string | undefined;
+-  pull_request?: unknown;
++  pull_request?: JsonValue;
+ };
+ 
+ /** The head of one fixture pull request. */
+ type RawPullHead = {
+   ref?: string | undefined;
+   sha?: string | undefined;
+-  repo?: unknown;
++  repo?: JsonValue;
+   label?: string | undefined;
+ };
+ 
+@@ -458,10 +459,10 @@ describe('readReferencesAcross', () => {
+   });
+ 
+   it('reports each folder it could not read and still answers the others', async () => {
+-    const failures = {
+-      '/signed-out': Object.assign(new Error('signed out'), { status: 401 }),
+-      '/stale': Object.assign(new Error('stale'), { code: 'SOURCE_CONTROL_BINDING_STALE' }),
+-    } satisfies Record<string, Error>;
++    const failures = new Map<string, Error>([
++      ['/signed-out', Object.assign(new Error('signed out'), { status: 401 })],
++      ['/stale', Object.assign(new Error('stale'), { code: 'SOURCE_CONTROL_BINDING_STALE' })],
++    ]);
+     const failureCalls: { error: FolderFailure; identity: { instance?: string; accountId?: string } }[] = [];
+     // One account reads every folder, so one service answers them all; a
+     // folder without a repository on the instance fails its own read.
+@@ -480,7 +481,7 @@ describe('readReferencesAcross', () => {
+       input,
+       providerId: 'gitea',
+       validateReadContext: async (candidate) => {
+-        const failure = failures[candidate.directory];
++        const failure = failures.get(candidate.directory);
+         if (failure) throw failure;
+         if (candidate.directory === '/empty') return null;
+         return { ...candidate, primaryRemote: 'origin' };
+diff --git a/packages/web/server/lib/gitea/references-across.ts b/packages/web/server/lib/gitea/references-across.ts
+index aed29b766..337b3b7a3 100644
+--- a/packages/web/server/lib/gitea/references-across.ts
++++ b/packages/web/server/lib/gitea/references-across.ts
+@@ -1,21 +1,22 @@
+ import { createHash } from 'node:crypto';
+ import { z } from 'zod';
+ import { isPlainObject, isString } from '../shared/guards.js';
++import type { JsonObject, JsonValue } from '../shared/json-values.js';
+ import { mapLimited } from '../shared/map-limited.js';
+ import { headBranch, isDraftTitle } from './mappers.js';
+ 
+-type JsonObject = Record<string, unknown>;
+ type Raw = JsonObject | null | undefined;
+ type RepoRef = { owner: string; name: string };
+ type ProjectRef = { owner: string; repo: string };
+ type Lookup = { number: number; host?: string; project?: ProjectRef };
++type LabelRef = { name: string; color?: string };
+ 
+ export type ReferenceService = {
+   listReferenceCandidates(directory: string, options: {
+     kind: 'issue' | 'pull'; state: string; people: string; query: string; page: number; remote: string;
+   }): Promise<{ repo: RepoRef | null; items: JsonObject[]; hasMore: boolean; needsDetail?: boolean }>;
+-  readPullDetail(directory: string, number: number, remote: string): Promise<unknown>;
+-  readReferenceItem(directory: string, options: { kind: 'issue' | 'pull'; number: number; remote: string }): Promise<{ repo: RepoRef | null; item: unknown }>;
++  readPullDetail(directory: string, number: number, remote: string): Promise<JsonValue>;
++  readReferenceItem(directory: string, options: { kind: 'issue' | 'pull'; number: number; remote: string }): Promise<{ repo: RepoRef | null; item: JsonValue }>;
+ };
+ 
+ const PAGE_SIZE = 30;
+@@ -28,8 +29,12 @@ const CACHE_TTL_MS = 30_000;
+ const CACHE_MAX_ENTRIES = 400;
+ const MAX_CONTEXTS = 100;
+ 
+-const integer = (value: unknown): number | null => (Number.isInteger(value) ? value as number : null);
+-const text = (value: unknown): string | null => (isString(value) && value.trim() ? value : null);
++const integer = (value: JsonValue | undefined): number | null => {
++  if (!Number.isInteger(value)) return null;
++  // SAFETY: Number.isInteger accepts only numbers.
++  return value as number;
++};
++const text = (value: JsonValue | undefined): string | null => (isString(value) && value.trim() ? value : null);
+ 
+ const contextSchema = z.strictObject({
+   directory: z.string().trim().min(1),
+@@ -59,7 +64,7 @@ type AcrossContext = z.infer<typeof contextSchema>;
+ type AcrossRequest = z.infer<typeof requestSchema>;
+ type AcrossInput = AcrossRequest & { contexts: AcrossContext[]; directories: string[] };
+ 
+-export function readReferencesAcrossRequest(body: unknown, providerId: string): AcrossInput | null {
++export function readReferencesAcrossRequest(body: JsonValue, providerId: string): AcrossInput | null {
+   const parsed = requestSchema.safeParse(body);
+   if (!parsed.success) return null;
+   if (parsed.data.contexts.some((context) => context.provider !== providerId)) return null;
+@@ -88,7 +93,7 @@ const cursorScope = (input: AcrossInput, kind: string, state: string, people: st
+ 
+ const CURSOR = /^(\d+)\.([a-f0-9]{64})$/;
+ 
+-const readCursor = (value: unknown, scope: string): number => {
++const readCursor = (value: JsonValue | undefined, scope: string): number => {
+   if (value === null || value === undefined || value === '') return 0;
+   const match = CURSOR.exec(String(value));
+   if (!match) throw invalidCursor();
+@@ -127,7 +132,7 @@ function parseReferenceLookup(query: string): Lookup | null {
+ const sameRepository = (repo: RepoRef, project: ProjectRef): boolean => repo.owner.toLowerCase() === project.owner.toLowerCase()
+   && repo.name.toLowerCase() === project.repo.toLowerCase();
+ 
+-const previewBody = (body: unknown): { body: string; bodyTruncated: boolean } => {
++const previewBody = (body: JsonValue | undefined): { body: string; bodyTruncated: boolean } => {
+   const value = isString(body) ? body : '';
+   return value.length > BODY_PREVIEW_MAX
+     ? { body: value.slice(0, BODY_PREVIEW_MAX), bodyTruncated: true }
+@@ -142,22 +147,22 @@ const authorOf = (raw: Raw): { login: string; avatarUrl?: string } | null => {
+   return avatarUrl ? { login, avatarUrl } : { login };
+ };
+ 
+-const labelsOf = (raw: Raw): { name: string; color?: string }[] => {
++const labelsOf = (raw: Raw): LabelRef[] => {
+   if (!Array.isArray(raw?.labels)) return [];
+   return raw.labels.flatMap((label) => {
+     if (!isPlainObject(label)) return [];
+     const name = text(label.name);
+     if (!name) return [];
+-    const mapped: { name: string; color?: string } = { name };
++    const mapped: LabelRef = { name };
+     const color = text(label.color);
+     if (color) mapped.color = color.replace(/^#/, '');
+     return [mapped];
+   });
+ };
+ 
+-const sourceRepoOf = (repo: RepoRef, source = 'origin'): { owner: string; repo: string; source: string } => ({ owner: repo.owner, repo: repo.name, source });
++const sourceRepoOf = (repo: RepoRef, source = 'origin') => ({ owner: repo.owner, repo: repo.name, source });
+ 
+-export function issueReference(raw: unknown, repo: RepoRef, directory: string, source = 'origin') {
++export function issueReference(raw: JsonValue | undefined, repo: RepoRef, directory: string, source = 'origin') {
+   if (!isPlainObject(raw) || integer(raw.number) === null || !text(raw.title) || !text(raw.html_url)) return null;
+   if (raw.pull_request != null) return null;
+   if (raw.state !== 'open' && raw.state !== 'closed') return null;
+@@ -196,10 +201,11 @@ const headRepoOf = (raw: JsonObject): HeadRepo | null => {
+   return mapped;
+ };
+ 
+-export function pullReference(raw: unknown, repo: RepoRef, directory: string, source = 'origin') {
++export function pullReference(raw: JsonValue | undefined, repo: RepoRef, directory: string, source = 'origin') {
+   if (!isPlainObject(raw) || integer(raw.number) === null || !text(raw.title) || !text(raw.html_url)) return null;
+   const headNode = isPlainObject(raw.head) ? raw.head : null;
+   const baseNode = isPlainObject(raw.base) ? raw.base : null;
++  // SAFETY: `head` is the pull's head object, which headBranch reads by key.
+   const head = headBranch(headNode as never);
+   const baseRef = text(baseNode?.ref);
+   const headSha = text(headNode?.sha);
+@@ -253,7 +259,10 @@ const cachedPage = async <T>(key: string, read: () => Promise<T>, { refresh = fa
+   const now = Date.now();
+   if (!refresh) {
+     const held = pageCache.get(key);
+-    if (held && now - held.at < CACHE_TTL_MS) return held.value as T;
++    if (held && now - held.at < CACHE_TTL_MS) {
++      // SAFETY: cachedPage stores the value its own read produced for this key.
++      return held.value as T;
++    }
+   }
+   const value = await read();
+   pageCache.delete(key);
+@@ -287,7 +296,7 @@ export async function readReferencesAcross({
+   const offset = readCursor(input.cursor, scope);
+   const refresh = input.refresh === true;
+ 
+-  const folders = new Map<string, { trusted?: TrustedContext; service?: ReferenceService; status?: string; repo?: RepoRef | null }>();
++  const folders = new Map<string, { trusted?: TrustedContext; service?: ReferenceService; status?: string; repo?: (RepoRef & { url?: string }) | null }>();
+   const services = new Map<string, ReferenceService>();
+ 
+   const failed = async (error: FolderFailure, identity: { instance?: string; accountId?: string }) => {
+@@ -303,6 +312,7 @@ export async function readReferencesAcross({
+     try {
+       trusted = await validateReadContext({ ...context, provider: providerId });
+     } catch (error) {
++      // SAFETY: a failed read context is an Error carrying the shell's failure fields.
+       folders.set(directory, { status: await failed(error as FolderFailure, context) });
+       return;
+     }
+@@ -319,6 +329,7 @@ export async function readReferencesAcross({
+       }
+       folders.set(directory, { trusted, service });
+     } catch (error) {
++      // SAFETY: a service that cannot resolve is an Error carrying the shell's failure fields.
+       folders.set(directory, { status: await failed(error as FolderFailure, trusted) });
+     }
+   });
+@@ -329,7 +340,7 @@ export async function readReferencesAcross({
+     return {
+       directory,
+       status: 'included',
+-      repo: { owner: entry.repo.owner, repo: entry.repo.name, url: (entry.repo as RepoRef & { url?: string }).url },
++      repo: { owner: entry.repo.owner, repo: entry.repo.name, url: entry.repo.url },
+     };
+   });
+ 
+@@ -354,19 +365,20 @@ export async function readReferencesAcross({
+       if (entry.status) return null;
+       try {
+         const result = await service.readReferenceItem(directory, {
+-          kind: kind === 'discussion' ? 'issue' : kind, number: lookup.number, remote: String(trusted.primaryRemote ?? 'origin'),
++          kind: kind === 'discussion' ? 'issue' : kind, number: lookup.number, remote: String(entry.trusted?.primaryRemote ?? 'origin'),
+         });
+         entry.repo = result.repo;
+-        if (lookup.host && lookup.host !== String(trusted.instance ?? '').toLowerCase()) return null;
++        if (lookup.host && lookup.host !== String(entry.trusted?.instance ?? '').toLowerCase()) return null;
+         if (!result.item) return null;
+         if (lookup.project && (!result.repo || !sameRepository(result.repo, lookup.project))) return null;
+         if (!result.repo) return null;
+         const mapped = kind === 'pull'
+-          ? pullReference(result.item, result.repo, directory, String(trusted.primaryRemote ?? 'origin'))
+-          : issueReference(result.item, result.repo, directory, String(trusted.primaryRemote ?? 'origin'));
++          ? pullReference(result.item, result.repo, directory, String(entry.trusted?.primaryRemote ?? 'origin'))
++          : issueReference(result.item, result.repo, directory, String(entry.trusted?.primaryRemote ?? 'origin'));
+         return mapped;
+       } catch (error) {
+-        entry.status = await failed(error as FolderFailure, trusted);
++        // SAFETY: a failed reference read is an Error carrying the shell's failure fields.
++        entry.status = await failed(error as FolderFailure, entry.trusted ?? {});
+         return null;
+       }
+     });
+@@ -395,7 +407,7 @@ export async function readReferencesAcross({
+             if (!service) throw Object.assign(new Error('No service for folder'), { code: 'SOURCE_CONTROL_NO_SERVICE' });
+         const candidateKind: 'issue' | 'pull' = kind === 'pull' ? 'pull' : 'issue';
+         const result = await cachedPage(key, () => service.listReferenceCandidates(directory, {
+-          kind: candidateKind, state, people, query, page, remote: String(trusted.primaryRemote ?? 'origin'),
++          kind: candidateKind, state, people, query, page, remote: String(entry.trusted?.primaryRemote ?? 'origin'),
+         }), { refresh });
+         entry.repo ??= result.repo ?? null;
+         for (const raw of result.items) {
+@@ -406,6 +418,7 @@ export async function readReferencesAcross({
+       if (!entry.repo) entry.status = 'no-repo';
+       else candidates.push(...local);
+     } catch (error) {
++      // SAFETY: a failed candidate page is an Error carrying the shell's failure fields.
+       entry.status = await failed(error as FolderFailure, entry.trusted ?? {});
+     }
+   });
+@@ -419,7 +432,7 @@ export async function readReferencesAcross({
+   const read = await mapLimited(window, DETAIL_CONCURRENCY, async (item) => {
+     if (!item) return null;
+     const candidate = item;
+-    let raw: unknown = candidate.raw;
++    let raw: JsonValue = candidate.raw;
+     const detailService = candidate.entry?.service;
+     if (candidate.needsDetail && detailService) {
+       try {
+@@ -427,11 +440,15 @@ export async function readReferencesAcross({
+           candidate.directory, Number(candidate.raw.number), String(candidate.entry?.trusted?.primaryRemote ?? 'origin'),
+         );
+       } catch (error) {
++        // SAFETY: a failed detail read is an Error carrying the shell's failure fields.
+         const failure = error as FolderFailure;
+         const status = failure?.status ?? failure?.response?.status;
+         if (status === 404 || status === 410) return null;
+         if (status === 401) {
+-          if (candidate.entry) candidate.entry.status = await failed(error as FolderFailure, candidate.entry.trusted ?? {});
++          if (candidate.entry) {
++            // SAFETY: a failed detail read is an Error carrying the shell's failure fields.
++            candidate.entry.status = await failed(error as FolderFailure, candidate.entry.trusted ?? {});
++          }
+           return null;
+         }
+         throw error;
+diff --git a/packages/web/server/lib/gitea/resources.ts b/packages/web/server/lib/gitea/resources.ts
+index e63530fd4..6cf2948a9 100644
+--- a/packages/web/server/lib/gitea/resources.ts
++++ b/packages/web/server/lib/gitea/resources.ts
+@@ -146,6 +146,7 @@ export function createGiteaResourceService({
+       try {
+         item = await showRepo({ owner: candidate.owner, name: candidate.name }, candidate.remoteName);
+       } catch (error) {
++        // SAFETY: a failed repository read is an Error carrying the shell's failure fields.
+         const status = statusOf(error as Failure);
+         if (status === 404 || status === 410) continue;
+         throw error;
+@@ -528,21 +529,6 @@ export function createGiteaResourceService({
+       return { items, page, hasMore: result.hasMore };
+     },
+ 
+-    /**
+-     * One page of raw issues or pull requests of the folder's repository, for
+-     * the reference picker's search across repositories. Unlike the neutral
+-     * lists above this keeps the host's own fields, so the picker's rows and
+-     * preview get their branches, draft flag and comment count.
+-     *
+-     * Pull requests read the network's upstream, the repository
+-     * `listChangeRequests` lists, while issues stay on the folder's own
+-     * repository. A review request lives on the upstream's pull requests, so
+-     * the owner-wide search is narrowed to that repository's id.
+-     *
+-     * Gitea's issue search answers a pull request without its head or base;
+-     * `needsDetail` says the page has to read those pull requests before
+-     * mapping them. The unfiltered pull list already carries them.
+-     */
+     async listReferenceCandidates(directory: string, options: ReferenceCandidateOptions = {}) {
+       const page = options.page ?? 1;
+       const { primary, targets } = await network(directory, null, options.remote);
+@@ -551,7 +537,7 @@ export function createGiteaResourceService({
+       const repo = target.project;
+       const state: string = (options.state && LIST_STATES[options.state]) ?? 'open';
+       if (options.kind === 'issue') {
+-        const query: { type: string; state: string; q?: string | undefined; created_by?: string | null; assigned_by?: string | null } = { type: 'issues', state, q: options.query };
++        const query: GiteaQuery = { type: 'issues', state, q: options.query };
+         if (options.people === 'created') query.created_by = await readCurrentLogin();
+         if (options.people === 'assigned') query.assigned_by = await readCurrentLogin();
+         const result = await client.page(`${repoPath(repo)}/issues`, query, { page, limit: PAGE_LIMIT });
+@@ -567,16 +553,15 @@ export function createGiteaResourceService({
+       }
+       let result: { items: unknown[]; hasMore: boolean };
+       if (options.people === 'reviewRequested') {
+-        // Only the cross-repository search filters on review requests; it is
+-        // narrowed to the owner here and to the repository below.
+         result = await client.page('/repos/issues/search', {
+           type: 'pulls', state, q: options.query, owner: repo.owner, review_requested: true,
+         }, { page, limit: PAGE_LIMIT });
+-        result.items = result.items.filter((item) => isPlainObject(item)
+-          && isPlainObject((item as { repository?: unknown }).repository)
+-          && Number(((item as { repository: { id?: unknown } }).repository).id) === target.raw.id);
++        result.items = result.items.filter((item) => {
++          if (!isPlainObject(item) || !isPlainObject(item.repository)) return false;
++          return Number(item.repository.id) === target.raw.id;
++        });
+       } else {
+-        const query: { type: string; state: string; q?: string | undefined; created_by?: string | null; assigned_by?: string | null } = { type: 'pulls', state, q: options.query };
++        const query: GiteaQuery = { type: 'pulls', state, q: options.query };
+         if (options.people === 'created') query.created_by = await readCurrentLogin();
+         if (options.people === 'assigned') query.assigned_by = await readCurrentLogin();
+         result = await client.page(`${repoPath(repo)}/issues`, query, { page, limit: PAGE_LIMIT });
+@@ -589,7 +574,6 @@ export function createGiteaResourceService({
+       return { repo, items: result.items, hasMore: result.hasMore, needsDetail: true };
+     },
+ 
+-    /** One pull request of the folder's repository, for a search hit that needs its head and base. */
+     async readPullDetail(directory: string, number: number, remote?: Remote) {
+       const { targets } = await network(directory, null, remote);
+       const target = targets.at(-1);
+@@ -597,12 +581,6 @@ export function createGiteaResourceService({
+       return client.get(`${repoPath(target.project)}/pulls/${number}`);
+     },
+ 
+-    /**
+-     * One issue or pull request by number, for the picker's link or `#number`
+-     * lookup. A number the repository does not have is `item: null` with the
+-     * repository it was looked up in, so a link that names another repository
+-     * is told apart from a read that failed.
+-     */
+     async readReferenceItem(directory: string, options: ReferenceItemOptions) {
+       const { primary, targets } = await network(directory, null, options.remote);
+       const target = options.kind === 'issue' ? primary : targets.at(-1);
+@@ -614,6 +592,7 @@ export function createGiteaResourceService({
+           item: await client.get(`${repoPath(target.project)}/${path}/${options.number}`),
+         };
+       } catch (error) {
++        // SAFETY: a failed read is an Error carrying the shell's failure fields.
+         const status = statusOf(error as Failure);
+         if (status === 404 || status === 410) return { repo: target.project, item: null };
+         throw error;
+diff --git a/packages/web/server/lib/quota/providers/command-code.ts b/packages/web/server/lib/quota/providers/command-code.ts
+index e9f71851a..4cabf5891 100644
+--- a/packages/web/server/lib/quota/providers/command-code.ts
++++ b/packages/web/server/lib/quota/providers/command-code.ts
+@@ -1,8 +1,13 @@
++import { z } from 'zod';
+ import { readOpenCodeCredentials } from '../../opencode/auth.js';
+ import type { LegacyAuthFile } from '../../opencode/auth.js';
+-import type { ProviderUsage, QuotaResult, UsageWindow } from '../utils/contracts.js';
++import { isString } from '../../shared/guards.js';
++import type { JsonValue, ProviderUsage, QuotaResult, UsageWindow } from '../utils/contracts.js';
++import {
++  asAuthFields,
++  hasObjectFields,
++} from './fields.js';
+ import {
+-  asObject,
+   buildResult,
+   formatMoney,
+   getAuthEntry,
+@@ -22,33 +27,72 @@ const SUBSCRIPTIONS_PATH = '/internal/billing/subscriptions';
+ const COOKIE_ENV = 'COMMANDCODE_COOKIE';
+ const SESSION_COOKIE = '__Secure-commandcode_prod_.session_token';
+ 
+-/** Plan ids from the subscription payload, as Command Code's own app names them. */
+-const PLAN_LABELS: Readonly<Record<string, string>> = {
+-  'individual-go': 'Go',
+-  'individual-goat': 'GOAT',
+-  'individual-pro': 'Pro',
+-  'individual-max': 'Max 10x',
+-  'individual-ultra': 'Max 20x'
+-};
++const PLAN_LABELS = new Map<string, string>([
++  ['individual-go', 'Go'],
++  ['individual-goat', 'GOAT'],
++  ['individual-pro', 'Pro'],
++  ['individual-max', 'Max 10x'],
++  ['individual-ultra', 'Max 20x']
++]);
+ 
+ type FetchImpl = (input: string, init?: RequestInit) => Promise<Response>;
+ 
+-type JsonObject = Record<string, unknown>;
+-
+ type Warnings = Partial<Record<string, UsageWindow>>;
+ 
+-/**
+- * What the subscription read contributes: the plan label the usage card shows,
+- * and the period end the monthly row resets at.
+- */
+ type SubscriptionInfo = { currentPeriodEnd: unknown; planLabel: string | null };
+ 
+-/**
+- * A bare session token becomes a Cookie header; a full captured Cookie header
+- * (several pairs, or one already named) is passed through unchanged.
+- */
+-export const normalizeCookie = (value: unknown): string | null => {
+-  const trimmed = typeof value === 'string' ? value.trim() : '';
++interface CommandCodePayload {
++  credits?: unknown;
++  windowLimits?: unknown;
++}
++
++interface CreditAmounts {
++  monthlyCredits?: unknown;
++  monthlyCreditsGranted?: unknown;
++  purchasedCredits?: unknown;
++}
++
++interface WindowLimits {
++  fiveHour?: unknown;
++  weekly?: unknown;
++}
++
++interface WindowLimit {
++  used?: unknown;
++  cap?: unknown;
++  resetAt?: unknown;
++}
++
++interface SubscriptionPayload {
++  data?: unknown;
++}
++
++interface SubscriptionData {
++  planId?: unknown;
++  currentPeriodEnd?: unknown;
++  current_period_end?: unknown;
++}
++
++const isCommandCodePayload = (value: unknown): value is CommandCodePayload => hasObjectFields(value);
++const asCommandCodePayload = z.custom<CommandCodePayload | null>(isCommandCodePayload).catch(null).parse;
++
++const isCreditAmounts = (value: unknown): value is CreditAmounts => hasObjectFields(value);
++const asCreditAmounts = z.custom<CreditAmounts | null>(isCreditAmounts).catch(null).parse;
++
++const isWindowLimits = (value: unknown): value is WindowLimits => hasObjectFields(value);
++const asWindowLimits = z.custom<WindowLimits | null>(isWindowLimits).catch(null).parse;
++
++const isWindowLimit = (value: unknown): value is WindowLimit => hasObjectFields(value);
++const asWindowLimit = z.custom<WindowLimit | null>(isWindowLimit).catch(null).parse;
++
++const isSubscriptionPayload = (value: unknown): value is SubscriptionPayload => hasObjectFields(value);
++const asSubscriptionPayload = z.custom<SubscriptionPayload | null>(isSubscriptionPayload).catch(null).parse;
++
++const isSubscriptionData = (value: unknown): value is SubscriptionData => hasObjectFields(value);
++const asSubscriptionData = z.custom<SubscriptionData | null>(isSubscriptionData).catch(null).parse;
++
++export const normalizeCookie = (value: string | undefined): string | null => {
++  const trimmed = value?.trim() ?? '';
+   if (!trimmed) return null;
+   return /^[\w.-]*commandcode_prod_\.session_(?:token|data)=/i.test(trimmed)
+     ? trimmed
+@@ -58,11 +102,12 @@ export const normalizeCookie = (value: unknown): string | null => {
+ const readCookie = (auth: LegacyAuthFile | null | undefined): string | null => {
+   const envCookie = normalizeCookie(process.env[COOKIE_ENV]);
+   if (envCookie) return envCookie;
+-  const entry = normalizeAuthEntry(getAuthEntry(auth ?? {}, aliases));
+-  return normalizeCookie(field(entry, 'key') ?? field(entry, 'token') ?? field(entry, 'access'));
++  const entry = asAuthFields(normalizeAuthEntry(getAuthEntry(auth ?? {}, aliases)));
++  const token = entry ? [entry.key, entry.token, entry.access].find(isString) : undefined;
++  return normalizeCookie(token);
+ };
+ 
+-const requestJson = async (path: string, cookie: string, fetchImpl: FetchImpl): Promise<unknown> => {
++const requestJson = async (path: string, cookie: string, fetchImpl: FetchImpl): Promise<JsonValue> => {
+   const response = await fetchImpl(`${API_BASE_URL}${path}`, {
+     headers: {
+       Accept: 'application/json',
+@@ -75,61 +120,46 @@ const requestJson = async (path: string, cookie: string, fetchImpl: FetchImpl):
+     throw new Error('Command Code session expired — refresh COMMANDCODE_COOKIE');
+   }
+   if (!response.ok) throw new Error(`Command Code usage API returned HTTP ${response.status}`);
+-  return response.json().catch(() => null);
++  const json: JsonValue = await response.json().catch(() => null);
++  return json;
+ };
+ 
+ const clampPercent = (value: number): number => Math.min(100, Math.max(0, value));
+ 
+-/**
+- * A field of a payload `asObject` accepted. `asObject` answers `object | null`,
+- * which types no property at all; every read of this provider's payloads goes
+- * through here so the shapes stay in one place.
+- */
+-const field = (value: object | null | undefined, key: string): unknown => (
+-  value === null || value === undefined ? undefined : (value as Record<string, unknown>)[key]
+-);
+-
+-const objectField = (value: object | null | undefined, key: string): JsonObject | null => (
+-  asObject(field(value, key)) as JsonObject | null
+-);
+-
+-const rollingWindow = (limit: object | null | undefined, windowSeconds: number): UsageWindow | null => {
+-  const used = toNumber(field(limit, 'used'));
+-  const cap = toNumber(field(limit, 'cap'));
++const rollingWindow = (limit: WindowLimit | null | undefined, windowSeconds: number): UsageWindow | null => {
++  const used = toNumber(limit?.used);
++  const cap = toNumber(limit?.cap);
+   if (used === null || cap === null || cap <= 0) return null;
+   return toUsageWindow({
+     usedPercent: clampPercent((used / cap) * 100),
+     windowSeconds,
+-    resetAt: toTimestamp(field(limit, 'resetAt'))
++    resetAt: toTimestamp(limit?.resetAt)
+   });
+ };
+ 
+-export const parseCommandCodeCredits = (payload: unknown, subscription: unknown = null): Warnings => {
+-  const root = asObject(payload);
+-  const credits = objectField(root, 'credits');
+-  const limits = objectField(root, 'windowLimits');
++export const parseCommandCodeCredits = (payload: JsonValue, subscription: SubscriptionInfo | null = null) => {
++  const root = asCommandCodePayload(payload);
++  const credits = asCreditAmounts(root?.credits);
++  const limits = asWindowLimits(root?.windowLimits);
+   const windows: Warnings = {};
+ 
+-  const fiveHour = rollingWindow(objectField(limits, 'fiveHour') ?? null, 5 * 60 * 60);
++  const fiveHour = rollingWindow(asWindowLimit(limits?.fiveHour), 5 * 60 * 60);
+   if (fiveHour) windows['5h'] = fiveHour;
+ 
+-  const weekly = rollingWindow(objectField(limits, 'weekly') ?? null, 7 * 24 * 60 * 60);
++  const weekly = rollingWindow(asWindowLimit(limits?.weekly), 7 * 24 * 60 * 60);
+   if (weekly) windows.weekly = weekly;
+ 
+-  // `monthlyCredits` is what remains of the granted allowance, so the grant is
+-  // the denominator: this row is consumption, not a balance. The reset comes
+-  // from the subscription period, which the credits payload does not carry.
+-  const granted = toNumber(field(credits, 'monthlyCreditsGranted'));
+-  const remaining = toNumber(field(credits, 'monthlyCredits'));
++  const granted = toNumber(credits?.monthlyCreditsGranted);
++  const remaining = toNumber(credits?.monthlyCredits);
+   if (granted !== null && remaining !== null && granted > 0) {
+     windows.monthly = toUsageWindow({
+       usedPercent: clampPercent(((granted - remaining) / granted) * 100),
+       windowSeconds: 30 * 24 * 60 * 60,
+-      resetAt: toTimestamp(field(asObject(subscription), 'currentPeriodEnd'))
++      resetAt: toTimestamp(subscription?.currentPeriodEnd ?? null)
+     });
+   }
+ 
+-  const purchased = toNumber(field(credits, 'purchasedCredits'));
++  const purchased = toNumber(credits?.purchasedCredits);
+   if (purchased !== null) {
+     windows.credits_balance = toUsageWindow({
+       usedPercent: null,
+@@ -142,16 +172,14 @@ export const parseCommandCodeCredits = (payload: unknown, subscription: unknown
+   return windows;
+ };
+ 
+-/** Best-effort: the plan label and the monthly reset are enrichment, never a reason to fail. */
+ const readSubscription = async (cookie: string, fetchImpl: FetchImpl): Promise<SubscriptionInfo | null> => {
+   try {
+-    const payload = asObject(await requestJson(SUBSCRIPTIONS_PATH, cookie, fetchImpl));
+-    const data = objectField(payload, 'data');
++    const payload = asSubscriptionPayload(await requestJson(SUBSCRIPTIONS_PATH, cookie, fetchImpl));
++    const data = asSubscriptionData(payload?.data);
+     if (!data) return null;
+-    const planId = field(data, 'planId');
+     return {
+-      currentPeriodEnd: field(data, 'currentPeriodEnd') ?? field(data, 'current_period_end') ?? null,
+-      planLabel: typeof planId === 'string' ? PLAN_LABELS[planId] ?? null : null
++      currentPeriodEnd: data.currentPeriodEnd ?? data.current_period_end ?? null,
++      planLabel: isString(data.planId) ? PLAN_LABELS.get(data.planId) ?? null : null
+     };
+   } catch {
+     return null;
+@@ -172,10 +200,6 @@ export const fetchCommandCodeUsage = async (cookie: string, fetchImpl: FetchImpl
+ 
+ export const isConfigured = (auth: LegacyAuthFile | null | undefined): boolean => Boolean(readCookie(auth));
+ 
+-/**
+- * The registry calls this with no arguments; the options exist so a test can
+- * inject a credential read and a fake fetch.
+- */
+ export const fetchQuota = async ({
+   readAuth = readOpenCodeCredentials,
+   fetchImpl = fetch
+@@ -187,18 +211,21 @@ export const fetchQuota = async ({
+   try {
+     auth = (await readAuth()) ?? {};
+   } catch {
+-    // The environment cookie is enough on its own; OpenCode need not answer.
++    auth = {};
+   }
+ 
+   const cookie = readCookie(auth);
+   if (!cookie) {
++    // SAFETY: buildResult echoes the provider identity and usage generics it is given.
+     return buildResult({ providerId, providerName, ok: false, configured: false, error: 'Not configured' }) as QuotaResult<string | null, string, ProviderUsage>;
+   }
+ 
+   try {
+     const { windows, planLabel } = await fetchCommandCodeUsage(cookie, fetchImpl);
++    // SAFETY: buildResult echoes the provider identity and usage generics it is given.
+     return buildResult({ providerId, providerName, ok: true, configured: true, usage: { windows }, planLabel }) as QuotaResult<string | null, string, ProviderUsage>;
+   } catch (error) {
++    // SAFETY: buildResult echoes the provider identity and usage generics it is given.
+     return buildResult({
+       providerId,
+       providerName,
+diff --git a/packages/web/server/lib/settings/settings-helpers.test.js b/packages/web/server/lib/settings/settings-helpers.test.js
+index 3a956b0e0..2f73ad614 100644
+--- a/packages/web/server/lib/settings/settings-helpers.test.js
++++ b/packages/web/server/lib/settings/settings-helpers.test.js
+@@ -1052,7 +1052,7 @@ describe('settings registry gate', () => {
+     workStatusPanelEnabled: true, workStatusHiddenSections: ['mcp'], workStatusHiddenSectionsExplicit: true, workStatusSectionOrder: ['mcp', 'session'], workStatusSectionOrderExplicit: true,
+     showReasoningTraces: true, streamingAutoFollowEnabled: true, collapsibleThinkingBlocks: true, expandReasoningWhileStreaming: true, showTextJustificationActivity: true,
+     chatRenderMode: 'live', activityRenderMode: 'summary', mermaidRenderingMode: 'svg', userMessageRenderingMode: 'markdown', collapsibleUserMessages: true,
+-    stickyUserHeader: true, promptNavigatorEnabled: true, chatWidth: 'wider', wideChatLayoutEnabled: true, autoExpandAnsweredQuestions: true, listQuestionsInPromptSelector: true, showSplitAssistantMessageActions: true, showToolFileIcons: true,
++    stickyUserHeader: true, promptNavigatorEnabled: true, chatWidth: 'wider', sessionEntryPosition: 'last-reply', wideChatLayoutEnabled: true, autoExpandAnsweredQuestions: true, listQuestionsInPromptSelector: true, showSplitAssistantMessageActions: true, showToolFileIcons: true,
+     selectionApprovalText: 'Agreed.',
+     codeBlockLineWrap: true, tableCellWrap: true, copyMessagesAsPlainText: true, showTurnChangedFiles: true, toolJsonViewMode: 'raw',
+     timeFormatPreference: '24h', weekStartPreference: 'monday', messageStreamTransport: 'ws', diffLayoutPreference: 'inline', diffWrapLines: true, diffHideWhitespace: true,
+diff --git a/packages/web/server/lib/settings/settings-helpers.ts b/packages/web/server/lib/settings/settings-helpers.ts
+index d7c377da0..97b74ae0d 100644
+--- a/packages/web/server/lib/settings/settings-helpers.ts
++++ b/packages/web/server/lib/settings/settings-helpers.ts
+@@ -78,8 +78,6 @@ const SECRET_SETTINGS_KEYS = Object.freeze(
+     .map(([key]) => key),
+ );
+ 
+-// The In work page's range is the registry field's own `bounds`, carried into
+-// the generated snapshot, so the clamp cannot drift from the UI parser.
+ const WORK_PAGE_SIZE_BOUNDS = settingsRegistry.fields.sidebarWorkPageSize?.bounds;
+ 
+ import {
+@@ -252,6 +250,7 @@ export type SanitizedSettings = Partial<Record<BooleanSettingsKey, boolean>>
+     mermaidRenderingMode?: 'svg' | 'ascii';
+     userMessageRenderingMode?: 'markdown' | 'plain';
+     chatWidth?: 'default' | 'wider' | 'wide' | 'full';
++    sessionEntryPosition?: 'last-position' | 'last-reply' | 'conversation-start';
+     shortcutOverrides?: Record<string, string>;
+     favoriteModels?: NonNullable<ReturnType<Normalization['sanitizeModelRefs']>>;
+     recentModels?: NonNullable<ReturnType<Normalization['sanitizeModelRefs']>>;
+@@ -599,9 +598,7 @@ export const createSettingsHelpers = (dependencies: SettingsHelpersDependencies)
+       result.sidebarShowWorkSection = candidate.sidebarShowWorkSection;
+     }
+     const workPageSize = candidate.sidebarWorkPageSize;
+-    if (WORK_PAGE_SIZE_BOUNDS && typeof workPageSize === 'number' && Number.isFinite(workPageSize)) {
+-      // Same rule as the registry parser: an integer page, clamped to the
+-      // range the registry snapshot records.
++    if (WORK_PAGE_SIZE_BOUNDS && isNumber(workPageSize) && Number.isFinite(workPageSize)) {
+       result.sidebarWorkPageSize = Math.min(
+         WORK_PAGE_SIZE_BOUNDS.max,
+         Math.max(WORK_PAGE_SIZE_BOUNDS.min, Math.round(workPageSize)),
+@@ -1084,9 +1081,8 @@ export const createSettingsHelpers = (dependencies: SettingsHelpersDependencies)
+     if (isBoolean(candidate.promptNavigatorEnabled)) {
+       result.promptNavigatorEnabled = candidate.promptNavigatorEnabled;
+     }
+-    if (candidate.chatWidth === 'default' || candidate.chatWidth === 'wider' || candidate.chatWidth === 'wide' || candidate.chatWidth === 'full') {
+-      result.chatWidth = candidate.chatWidth;
+-    }
++    if (candidate.chatWidth === 'default' || candidate.chatWidth === 'wider' || candidate.chatWidth === 'wide' || candidate.chatWidth === 'full') result.chatWidth = candidate.chatWidth;
++    if (candidate.sessionEntryPosition === 'last-position' || candidate.sessionEntryPosition === 'last-reply' || candidate.sessionEntryPosition === 'conversation-start') result.sessionEntryPosition = candidate.sessionEntryPosition;
+     if (isBoolean(candidate.wideChatLayoutEnabled)) {
+       result.wideChatLayoutEnabled = candidate.wideChatLayoutEnabled;
+     }
+@@ -1098,7 +1094,7 @@ export const createSettingsHelpers = (dependencies: SettingsHelpersDependencies)
+     if (listQuestionsInPromptSelector === true || listQuestionsInPromptSelector === false) {
+       result.listQuestionsInPromptSelector = listQuestionsInPromptSelector;
+     }
+-    if (typeof candidate.showSplitAssistantMessageActions === 'boolean') {
++    if (isBoolean(candidate.showSplitAssistantMessageActions)) {
+       result.showSplitAssistantMessageActions = candidate.showSplitAssistantMessageActions;
+     }
+     if (isNumber(candidate.fontSize) && Number.isFinite(candidate.fontSize)) {
+diff --git a/packages/web/server/lib/settings/settings-registry.json b/packages/web/server/lib/settings/settings-registry.json
+index 6a163e51e..c8513f135 100644
+--- a/packages/web/server/lib/settings/settings-registry.json
++++ b/packages/web/server/lib/settings/settings-registry.json
+@@ -489,6 +489,10 @@
+       "scope": "profile",
+       "perSurface": true
+     },
++    "sessionEntryPosition": {
++      "scope": "profile",
++      "perSurface": true
++    },
+     "wideChatLayoutEnabled": {
+       "scope": "profile",
+       "perSurface": true
+diff --git a/packages/web/server/lib/source-control/provider-routes.ts b/packages/web/server/lib/source-control/provider-routes.ts
+index 924d7d085..8a74b389c 100644
+--- a/packages/web/server/lib/source-control/provider-routes.ts
++++ b/packages/web/server/lib/source-control/provider-routes.ts
+@@ -884,9 +884,7 @@ export function registerProviderRoutes(app: Router, {
+     route('post', '/references/across', 'referencePicker', async (req, res) => {
+       let impl;
+       try {
+-        // A kind the descriptor turns off is the shell's own answer, the same
+-        // 501 the single-repository list gives, not a provider failure.
+-        if (!discussions && (req.body as { kind?: unknown } | undefined)?.kind === 'discussion') return unsupportedCapability(res);
++        if (!discussions && bodyField(req.body, 'kind') === 'discussion') return unsupportedCapability(res);
+         impl = await loadImplementation(id);
+         const read = requireResource(impl, 'referencesAcross');
+         if (!(validateReadContext instanceof Function)) return res.status(501).json({ error: 'Bound source control read is unavailable' });
