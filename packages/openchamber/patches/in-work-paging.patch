@@ -1,8 +1,8 @@
 diff --git a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-index e2238ca80..55d892b50 100644
+index 60b4eb061..1f5bede3f 100644
 --- a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
 +++ b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-@@ -828,7 +828,17 @@ the same Mark all as read.
+@@ -859,7 +859,17 @@ the same Mark all as read.
  Works in work render in their own `work` activity zone under Chats (and
  Pinned) and above the projects while `sessionWorkEnabled` is on and the
  display menu's In work toggle (`showWorkSection`, `sidebarShowWorkSection`,
@@ -21,7 +21,7 @@ index e2238ca80..55d892b50 100644
  or a nested non-subagent session is (`metadata.openchamber.work.state ===
  'open'`, see `packages/web/server/lib/session-work/DOCUMENTATION.md`); a
  worktree work when any root session in it is, or, while it has no session
-@@ -836,9 +846,10 @@ yet, when a draft is begun in it (open in the composer or kept as a row): the
+@@ -867,9 +877,10 @@ yet, when a draft is begun in it (open in the composer or kept as a row): the
  user just made it for a task, so it opens the block. A worktree this client
  is removing keeps its place in the block until git is done
  (`useRemovingWorktreePaths`), though its sessions are archived first. A subagent's own state
@@ -36,7 +36,7 @@ index e2238ca80..55d892b50 100644
  stays out of In work, Pinned and search until its folder is registered: by the
  user opening the session, or by `sync/session-admission.ts` after a move out of
 diff --git a/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx b/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx
-index de1f51ca0..8a893cce9 100644
+index 5986bb0d1..79a3760fe 100644
 --- a/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx
 +++ b/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx
 @@ -61,12 +61,12 @@ import { buildSessionSidebarRowModel, PROJECTS_CAPTION_COLLAPSE_KEY, sidebarSect
@@ -132,12 +132,12 @@ index de1f51ca0..8a893cce9 100644
        : [];
      const begun = showWork
        ? workIndex.groupWorks.filter((ref) => ref.group.sessions.length === 0 && !isPinnedWork(ref) && !work.some((entry) => entry.key === ref.key) && (
-@@ -621,20 +667,20 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+@@ -621,18 +667,19 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
        const leads = (ref: SidebarWorkRef): boolean => ref.kind === 'group' && Boolean(ref.group.space && liveSpaceIds.has(ref.group.space.id));
        all = [...unstarted.filter(leads), ...all, ...unstarted.filter((ref) => !leads(ref))];
      }
 -    return { pinned: [...pinnedSessions.map(sessionRef), ...pinnedWorktrees], work: listed, all };
--  }, [collection.orderedSessions, getTimeOrderedSessions, collection.pinnedSessionIds, customTimeSections, draftPlacement, isPinnedWork, liveSpaceIds, openDraftDirectory, openDraftSpaceId, ownership.bySessionId, removingWorktreePaths, rootSessionIds, sessionRootIndex, showPinned, showWork, workIndex, worktreeArchiveAnchors]);
+-  }, [collection.orderedSessions, getTimeOrderedSessions, collection.nestedSessionIds, collection.pinnedSessionIds, customTimeSections, draftPlacement, isPinnedWork, liveSpaceIds, openDraftDirectory, openDraftSpaceId, ownership.bySessionId, removingWorktreePaths, rootSessionIds, sessionRootIndex, showPinned, showSubagentSessions, showWork, workIndex, worktreeArchiveAnchors]);
 +    return {
 +      pinned: [...pinnedSessions.map(sessionRef), ...pinnedWorktrees],
 +      // Under the pointer or focus the block keeps the order it showed, so the
@@ -146,7 +146,7 @@ index de1f51ca0..8a893cce9 100644
 +      work: heldWorkOrder ? holdOrder(listed, heldWorkOrder, (ref) => ref.key) : listed,
 +      all,
 +    };
-+  }, [collection.orderedSessions, getTimeOrderedSessions, collection.pinnedSessionIds, customTimeSections, draftPlacement, heldWorkOrder, inWorkAttentionContext, isPinnedWork, liveSpaceIds, openDraftDirectory, openDraftSpaceId, ownership.bySessionId, removingWorktreePaths, rootSessionIds, sessionRootIndex, showPinned, showWork, workIndex, worktreeArchiveAnchors]);
++  }, [collection.orderedSessions, getTimeOrderedSessions, collection.nestedSessionIds, collection.pinnedSessionIds, customTimeSections, draftPlacement, heldWorkOrder, inWorkAttentionContext, isPinnedWork, liveSpaceIds, openDraftDirectory, openDraftSpaceId, ownership.bySessionId, removingWorktreePaths, rootSessionIds, sessionRootIndex, showPinned, showSubagentSessions, showWork, workIndex, worktreeArchiveAnchors]);
 +  React.useEffect(() => {
 +    shownWorkOrderRef.current = sectionCandidates.work.map((ref) => ref.key);
 +  }, [sectionCandidates]);
@@ -161,11 +161,9 @@ index de1f51ca0..8a893cce9 100644
 -    return byMember;
 -  }, [foldersMap, topology.projects]);
    const membership = React.useMemo(() => {
--    const context = { sessionById: collection.sessionById, childrenMap: collection.childrenMap, runKeyBySessionId, live: liveFacts, planSessionIds, folderByMember };
+     const context = { sessionById: collection.sessionById, childrenMap: collection.childrenMap, runKeyBySessionId, live: liveFacts, planSessionIds, folderByMember };
      const factsByKey = new Map<string, SidebarWorkFacts>();
-     return resolveSidebarSectionMembership({
-       sections: visibleSections,
-@@ -645,13 +691,14 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+@@ -645,13 +692,14 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
        factsOf: (ref) => {
          const cached = factsByKey.get(ref.key);
          if (cached) return cached;
@@ -182,7 +180,7 @@ index de1f51ca0..8a893cce9 100644
    React.useEffect(() => {
      if (!sectionDraft) return;
      const count = sectionDraft.grouping === 'project'
-@@ -1331,9 +1378,22 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+@@ -1331,9 +1379,22 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
        <div
          className="contents"
          onPointerEnter={(event) => {
@@ -208,10 +206,10 @@ index de1f51ca0..8a893cce9 100644
          {view.renderList
            ? view.renderList({ model: scrollerModel, view: scrollerView, actions: scrollerActionSet })
 diff --git a/packages/ui/src/components/session/sidebar/sections/DOCUMENTATION.md b/packages/ui/src/components/session/sidebar/sections/DOCUMENTATION.md
-index fbc3a4c71..ec39a2136 100644
+index 496b5bb23..6a1ccb100 100644
 --- a/packages/ui/src/components/session/sidebar/sections/DOCUMENTATION.md
 +++ b/packages/ui/src/components/session/sidebar/sections/DOCUMENTATION.md
-@@ -118,7 +118,9 @@ with its named pin lists. How the rows are drawn stays with the row model
+@@ -130,7 +130,9 @@ with its named pin lists. How the rows are drawn stays with the row model
    while a shown section filters on it, and only while the sidebar is visible.
    Unread and failed come from the session record (`time.idle` / `time.viewed`,
    `outcome`), so they survive a restart; running and waiting requests from the
@@ -335,7 +333,7 @@ index ed287c43f..0f73158ca 100644
    const activeIds = useGlobalSessionStatusStore((state) => (enabled ? state.activeSessionIds : EMPTY_IDS));
    const workflowIds = useWorkflowActivityStore((state) => (enabled ? state.runningSessionIds : EMPTY_IDS));
 diff --git a/packages/ui/src/components/session/sidebar/sections/workFacts.test.ts b/packages/ui/src/components/session/sidebar/sections/workFacts.test.ts
-index 09fde345c..4fd5d6b40 100644
+index c79130d15..8904a9fa0 100644
 --- a/packages/ui/src/components/session/sidebar/sections/workFacts.test.ts
 +++ b/packages/ui/src/components/session/sidebar/sections/workFacts.test.ts
 @@ -1,6 +1,6 @@
@@ -347,7 +345,7 @@ index 09fde345c..4fd5d6b40 100644
  const session = (metadata: Session['metadata']): Session => ({
    id: 's1', projectID: 'p', directory: '/p', title: 'Nightly triage', cost: 0,
 @@ -26,3 +26,18 @@ describe('buildSidebarWorkFacts', () => {
-     expect(factsFor(after)).toMatchObject({ scheduled: true, inWork: true });
+     expect(factsFor(after)).toMatchObject({ scheduled: true, lead: true, inWork: true });
    });
  });
 +
@@ -366,7 +364,7 @@ index 09fde345c..4fd5d6b40 100644
 +  });
 +});
 diff --git a/packages/ui/src/components/session/sidebar/sections/workFacts.ts b/packages/ui/src/components/session/sidebar/sections/workFacts.ts
-index 4055551e4..3b59d82f7 100644
+index 461b5e9a9..cc9073ee9 100644
 --- a/packages/ui/src/components/session/sidebar/sections/workFacts.ts
 +++ b/packages/ui/src/components/session/sidebar/sections/workFacts.ts
 @@ -1,4 +1,5 @@
@@ -375,7 +373,7 @@ index 4055551e4..3b59d82f7 100644
  import type { Session } from '@/lib/opencode/model';
  import { getLinkedIssues, isLinkedChange } from '@/lib/linkedIssues';
  import { getSessionGoal } from '@/lib/sessionGoalMetadata';
-@@ -6,7 +7,7 @@ import { getSessionPinList } from '@/lib/sessionPins';
+@@ -7,7 +8,7 @@ import { getSessionPinList } from '@/lib/sessionPins';
  import { getSessionWork, isDoneSuggested } from '@/lib/sessionWorkMetadata';
  import { DEFAULT_PIN_LIST, type SidebarWorkFacts } from '@/lib/sidebarSections';
  import type { SessionNode } from '../types';
@@ -384,7 +382,7 @@ index 4055551e4..3b59d82f7 100644
  
  export type SidebarLiveFacts = {
    activeIds: ReadonlySet<string>;
-@@ -64,7 +65,8 @@ type FactsContext = {
+@@ -67,7 +68,8 @@ type FactsContext = {
    folderByMember: ReadonlyMap<string, SidebarFolderMembership>;
  };
  
@@ -394,7 +392,7 @@ index 4055551e4..3b59d82f7 100644
    const all: Session[] = [];
    if (ref.kind === 'group') {
      const stack: SessionNode[] = [...ref.group.sessions];
-@@ -126,3 +128,24 @@ export const buildSidebarWorkFacts = (ref: SidebarWorkRef, context: FactsContext
+@@ -130,3 +132,24 @@ export const buildSidebarWorkFacts = (ref: SidebarWorkRef, context: FactsContext
      ],
    };
  };
@@ -534,3 +532,44 @@ index fcb14db9c..c9f7e2779 100644
            className={cn(
              "oc-surface-elevated flex h-8 shrink-0 items-stretch overflow-x-hidden overflow-y-hidden rounded-lg border border-border bg-surface-elevated select-none overscroll-contain",
              "[-webkit-user-select:none] [-webkit-touch-callout:none]",
+diff --git a/packages/ui/src/sync/global-blocking-requests.ts b/packages/ui/src/sync/global-blocking-requests.ts
+index 0b08f5d1a..8d794c61b 100644
+--- a/packages/ui/src/sync/global-blocking-requests.ts
++++ b/packages/ui/src/sync/global-blocking-requests.ts
+@@ -217,6 +217,36 @@ export const applyGlobalBlockingRequestEvents = (rawDirectory: string, payloads:
+   reducer.publish();
+ };
+ 
++/**
++ * Clears one request the host says is no longer waiting. A verification read
++ * can find a form the index kept after a lost settlement; recording it as
++ * settled here also keeps the next snapshot from putting it back.
++ */
++export const settleGlobalBlockingRequest = (
++  kind: 'permission' | 'form',
++  sessionID: string,
++  requestID: string,
++): void => {
++  if (!sessionID || !requestID) return;
++  settledByRead.add(settledKey(kind === 'permission' ? 'permissions' : 'forms', sessionID, requestID));
++  const state = useGlobalBlockingRequestsStore.getState();
++  const existing = state.bySession.get(sessionID);
++  if (!existing) return;
++  const bySession = new Map(state.bySession);
++  if (kind === 'permission') {
++    const permissions = existing.permissions.filter((entry) => entry.id !== requestID);
++    if (permissions.length === existing.permissions.length) return;
++    if (permissions.length === 0 && existing.forms.length === 0 && existing.pages.length === 0) bySession.delete(sessionID);
++    else bySession.set(sessionID, { ...existing, permissions });
++  } else {
++    const forms = existing.forms.filter((entry) => entry.id !== requestID);
++    if (forms.length === existing.forms.length) return;
++    if (forms.length === 0 && existing.permissions.length === 0 && existing.pages.length === 0) bySession.delete(sessionID);
++    else bySession.set(sessionID, { ...existing, forms });
++  }
++  useGlobalBlockingRequestsStore.setState({ bySession });
++};
++
+ export const indexedBlockingRequestDirectories = (): Set<string> => new Set(
+   [...useGlobalBlockingRequestsStore.getState().bySession.values()]
+     .filter((entry) => entry.permissions.length > 0 || entry.forms.length > 0)

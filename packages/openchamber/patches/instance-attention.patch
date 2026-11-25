@@ -48,7 +48,7 @@ index df830d3e9..a41b4a84d 100644
    test(`preserves optional health identity parsing for ${JSON.stringify(serverId)}`, async () => {
      const result = await baseProbe({
 diff --git a/packages/ui/src/App.tsx b/packages/ui/src/App.tsx
-index 9a7946353..1c242120d 100644
+index 429eca4f9..7b053b421 100644
 --- a/packages/ui/src/App.tsx
 +++ b/packages/ui/src/App.tsx
 @@ -20,6 +20,9 @@ import { useGuestInstallLinks } from '@/hooks/useGuestInstallLinks';
@@ -74,10 +74,10 @@ index 9a7946353..1c242120d 100644
    useSessionStatusBootstrap();
  
 diff --git a/packages/ui/src/apps/DOCUMENTATION.md b/packages/ui/src/apps/DOCUMENTATION.md
-index aaade1f82..ef91feb1c 100644
+index f230fa678..d3b0ae087 100644
 --- a/packages/ui/src/apps/DOCUMENTATION.md
 +++ b/packages/ui/src/apps/DOCUMENTATION.md
-@@ -135,6 +135,21 @@
+@@ -136,6 +136,21 @@
  - Widgets consume display-only snapshots; network reads remain in the connected app and Android sync runs only with placed widgets. Unloaded stores and failed builders preserve native snapshots. Quota timestamps reflect provider answers, and failed refreshes cannot rewrite old data as fresh. Queued native refresh taps are acknowledged after fetching, including taps arriving during a fetch; bridge failure leaves them queued.
  - Widget session ordering, unread state and project ownership match the shared lifecycle and sidebar, including worktrees and isolated spaces. The iOS bridge returns a JSON primitive or null so failed construction cannot overwrite a good App Group snapshot. Widget quotas use the Usage page's selected providers, models, formatting and theme colors without copying credentials.
  
@@ -100,7 +100,7 @@ index aaade1f82..ef91feb1c 100644
  
  ### Why mobile push registers with every saved instance and not only the connected one
 diff --git a/packages/ui/src/apps/MobileApp.tsx b/packages/ui/src/apps/MobileApp.tsx
-index 45245ef05..be8b3334e 100644
+index 8dca7667d..4a26c2fc9 100644
 --- a/packages/ui/src/apps/MobileApp.tsx
 +++ b/packages/ui/src/apps/MobileApp.tsx
 @@ -31,6 +31,9 @@ import { usePushVisibilityBeacon } from '@/hooks/usePushVisibilityBeacon';
@@ -222,18 +222,18 @@ index a687188c4..23bf979da 100644
                  {connecting ? t('mobile.connect.connecting') : addressOf(connection)}
                </span>
 diff --git a/packages/ui/src/apps/MobileHeader.tsx b/packages/ui/src/apps/MobileHeader.tsx
-index df5afabe7..d7da8d78a 100644
+index 1d727ff3f..4d6fbf829 100644
 --- a/packages/ui/src/apps/MobileHeader.tsx
 +++ b/packages/ui/src/apps/MobileHeader.tsx
-@@ -11,6 +11,7 @@ import { useSessionUIStore } from '@/sync/session-ui-store';
- import { useSession } from '@/sync/sync-context';
+@@ -13,6 +13,7 @@ import { useSessionUIStore } from '@/sync/session-ui-store';
+ import { useSessionSelector } from '@/sync/sync-context';
  
  
 +import { MobileInstanceAttentionBell } from './MobileInstanceAttentionBell';
  import { MobileSessionMetadataButton } from './MobileSessionMetadata';
  import { MobileSessionSwitcher } from './MobileSessionSwitcher';
  import { MOBILE_HEADER_BUTTON_CLASS } from '@/components/ui/mobileHeader';
-@@ -23,6 +24,7 @@ export const MobileHeader: React.FC<{
+@@ -28,6 +29,7 @@ export const MobileHeader: React.FC<{
    const { t } = useI18n();
    const [metadataOpen, setMetadataOpen] = React.useState(false);
    const [switcherOpen, setSwitcherOpen] = React.useState(false);
@@ -241,7 +241,7 @@ index df5afabe7..d7da8d78a 100644
    const titleRef = React.useRef<HTMLButtonElement>(null);
    const currentDirectory = useDirectoryStore((state) => state.currentDirectory);
    const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
-@@ -49,18 +51,24 @@ export const MobileHeader: React.FC<{
+@@ -59,18 +61,24 @@ export const MobileHeader: React.FC<{
    React.useEffect(() => {
      setMetadataOpen(false);
      setSwitcherOpen(false);
@@ -267,7 +267,7 @@ index df5afabe7..d7da8d78a 100644
        return next;
      });
    }, []);
-@@ -68,11 +76,22 @@ export const MobileHeader: React.FC<{
+@@ -78,11 +86,22 @@ export const MobileHeader: React.FC<{
    const toggleSwitcher = React.useCallback(() => {
      setSwitcherOpen((current) => {
        const next = !current;
@@ -291,7 +291,7 @@ index df5afabe7..d7da8d78a 100644
    return (
      <>
        <header
-@@ -117,6 +136,8 @@ export const MobileHeader: React.FC<{
+@@ -127,6 +146,8 @@ export const MobileHeader: React.FC<{
  
            {compactTitle ? <div className="min-w-0 flex-1" /> : null}
  
@@ -300,7 +300,7 @@ index df5afabe7..d7da8d78a 100644
            {runOverviewKey ? null : (
              <MobileSessionMetadataButton
                open={metadataOpen}
-@@ -136,6 +157,7 @@ export const MobileHeader: React.FC<{
+@@ -146,6 +167,7 @@ export const MobileHeader: React.FC<{
              onClick={() => {
                setMetadataOpen(false);
                setSwitcherOpen(false);
@@ -4546,10 +4546,10 @@ index 000000000..aeae23569
 +  }, [enabled]);
 +};
 diff --git a/packages/ui/src/lib/DOCUMENTATION.md b/packages/ui/src/lib/DOCUMENTATION.md
-index d32124b21..d443fcf10 100644
+index 978d44ebe..2883223eb 100644
 --- a/packages/ui/src/lib/DOCUMENTATION.md
 +++ b/packages/ui/src/lib/DOCUMENTATION.md
-@@ -173,3 +173,25 @@ The library owns shared session metadata readers, runtime transport and credenti
+@@ -190,3 +190,25 @@ The library owns shared session metadata readers, runtime transport and credenti
  ### Why candidate and asset reads bypass the runtime bridge
  
  Pairing and connection checks address a server before selecting it. Routing them through the active runtime could redeem a secret on the wrong server or attach that runtime's credentials. Bundled assets belong to the local UI build, while external and data/blob URLs retain their own destination. `fetchBypassingRuntimeBridge` preserves these requests without active-runtime URL rewriting or auth injection.
@@ -4852,10 +4852,10 @@ index 2fd918be1..dfeff2703 100644
    };
  
 diff --git a/packages/ui/src/lib/i18n/messages/ar.ts b/packages/ui/src/lib/i18n/messages/ar.ts
-index 7bc4615dd..28d24eb8a 100644
+index 7355d62d3..f11280a46 100644
 --- a/packages/ui/src/lib/i18n/messages/ar.ts
 +++ b/packages/ui/src/lib/i18n/messages/ar.ts
-@@ -43,6 +43,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
+@@ -44,6 +44,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
  import { selectionApprovalI18n } from './selection-approval.i18n';
  import { snippetsI18n } from './snippets.i18n';
  import { sidebarWorkI18n } from './sidebar-work.i18n';
@@ -4863,7 +4863,7 @@ index 7bc4615dd..28d24eb8a 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -3993,6 +3994,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -4011,6 +4012,7 @@ export const dict: Record<I18nKey, string> = {
    ...androidWidgetsI18n.ar,
    ...snippetsI18n.ar,
    ...sidebarWorkI18n.ar,
@@ -4872,49 +4872,9 @@ index 7bc4615dd..28d24eb8a 100644
    ...worktreeArchiveI18n.ar,
    ...operatorChildrenI18n.ar,
 diff --git a/packages/ui/src/lib/i18n/messages/de.ts b/packages/ui/src/lib/i18n/messages/de.ts
-index 47a837de2..9e2429c76 100644
+index 552c17294..26e2430fe 100644
 --- a/packages/ui/src/lib/i18n/messages/de.ts
 +++ b/packages/ui/src/lib/i18n/messages/de.ts
-@@ -42,6 +42,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
- import { selectionApprovalI18n } from './selection-approval.i18n';
- import { snippetsI18n } from './snippets.i18n';
- import { sidebarWorkI18n } from './sidebar-work.i18n';
-+import { instanceAttentionI18n } from './instance-attention.i18n';
- import { sidebarSectionsI18n } from './sidebar-sections.i18n';
- import { worktreeArchiveI18n } from './worktree-archive.i18n';
- import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -238,6 +239,7 @@ export const dict = {
-   ...androidWidgetsI18n.de,
-   ...snippetsI18n.de,
-   ...sidebarWorkI18n.de,
-+  ...instanceAttentionI18n['de'],
-   ...sidebarSectionsI18n.de,
-   ...worktreeArchiveI18n.de,
-   ...operatorChildrenI18n.de,
-diff --git a/packages/ui/src/lib/i18n/messages/en.ts b/packages/ui/src/lib/i18n/messages/en.ts
-index 3b3b6ea8a..a081f31ad 100644
---- a/packages/ui/src/lib/i18n/messages/en.ts
-+++ b/packages/ui/src/lib/i18n/messages/en.ts
-@@ -42,6 +42,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
- import { selectionApprovalI18n } from './selection-approval.i18n';
- import { snippetsI18n } from './snippets.i18n';
- import { sidebarWorkI18n } from './sidebar-work.i18n';
-+import { instanceAttentionI18n } from './instance-attention.i18n';
- import { sidebarSectionsI18n } from './sidebar-sections.i18n';
- import { worktreeArchiveI18n } from './worktree-archive.i18n';
- import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -238,6 +239,7 @@ export const dict = {
-   ...androidWidgetsI18n.en,
-   ...snippetsI18n.en,
-   ...sidebarWorkI18n.en,
-+  ...instanceAttentionI18n['en'],
-   ...sidebarSectionsI18n.en,
-   ...worktreeArchiveI18n.en,
-   ...operatorChildrenI18n.en,
-diff --git a/packages/ui/src/lib/i18n/messages/es.ts b/packages/ui/src/lib/i18n/messages/es.ts
-index 6e043adbc..cdfe2b30f 100644
---- a/packages/ui/src/lib/i18n/messages/es.ts
-+++ b/packages/ui/src/lib/i18n/messages/es.ts
 @@ -43,6 +43,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
  import { selectionApprovalI18n } from './selection-approval.i18n';
  import { snippetsI18n } from './snippets.i18n';
@@ -4923,7 +4883,47 @@ index 6e043adbc..cdfe2b30f 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -249,6 +250,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -245,6 +246,7 @@ export const dict = {
+   ...androidWidgetsI18n.de,
+   ...snippetsI18n.de,
+   ...sidebarWorkI18n.de,
++  ...instanceAttentionI18n['de'],
+   ...sidebarSectionsI18n.de,
+   ...worktreeArchiveI18n.de,
+   ...operatorChildrenI18n.de,
+diff --git a/packages/ui/src/lib/i18n/messages/en.ts b/packages/ui/src/lib/i18n/messages/en.ts
+index 472bc25c2..66387edc4 100644
+--- a/packages/ui/src/lib/i18n/messages/en.ts
++++ b/packages/ui/src/lib/i18n/messages/en.ts
+@@ -43,6 +43,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
+ import { selectionApprovalI18n } from './selection-approval.i18n';
+ import { snippetsI18n } from './snippets.i18n';
+ import { sidebarWorkI18n } from './sidebar-work.i18n';
++import { instanceAttentionI18n } from './instance-attention.i18n';
+ import { sidebarSectionsI18n } from './sidebar-sections.i18n';
+ import { worktreeArchiveI18n } from './worktree-archive.i18n';
+ import { operatorChildrenI18n } from './operator-children.i18n';
+@@ -245,6 +246,7 @@ export const dict = {
+   ...androidWidgetsI18n.en,
+   ...snippetsI18n.en,
+   ...sidebarWorkI18n.en,
++  ...instanceAttentionI18n['en'],
+   ...sidebarSectionsI18n.en,
+   ...worktreeArchiveI18n.en,
+   ...operatorChildrenI18n.en,
+diff --git a/packages/ui/src/lib/i18n/messages/es.ts b/packages/ui/src/lib/i18n/messages/es.ts
+index a7948b064..499c1fa16 100644
+--- a/packages/ui/src/lib/i18n/messages/es.ts
++++ b/packages/ui/src/lib/i18n/messages/es.ts
+@@ -44,6 +44,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
+ import { selectionApprovalI18n } from './selection-approval.i18n';
+ import { snippetsI18n } from './snippets.i18n';
+ import { sidebarWorkI18n } from './sidebar-work.i18n';
++import { instanceAttentionI18n } from './instance-attention.i18n';
+ import { sidebarSectionsI18n } from './sidebar-sections.i18n';
+ import { worktreeArchiveI18n } from './worktree-archive.i18n';
+ import { operatorChildrenI18n } from './operator-children.i18n';
+@@ -256,6 +257,7 @@ export const dict: Record<I18nKey, string> = {
    ...androidWidgetsI18n.es,
    ...snippetsI18n.es,
    ...sidebarWorkI18n.es,
@@ -4932,10 +4932,10 @@ index 6e043adbc..cdfe2b30f 100644
    ...worktreeArchiveI18n.es,
    ...operatorChildrenI18n.es,
 diff --git a/packages/ui/src/lib/i18n/messages/fr.ts b/packages/ui/src/lib/i18n/messages/fr.ts
-index 42269e2df..574e93c50 100644
+index b184f7473..34a9547f4 100644
 --- a/packages/ui/src/lib/i18n/messages/fr.ts
 +++ b/packages/ui/src/lib/i18n/messages/fr.ts
-@@ -42,6 +42,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
+@@ -43,6 +43,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
  import { selectionApprovalI18n } from './selection-approval.i18n';
  import { snippetsI18n } from './snippets.i18n';
  import { sidebarWorkI18n } from './sidebar-work.i18n';
@@ -4943,7 +4943,7 @@ index 42269e2df..574e93c50 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -238,6 +239,7 @@ export const dict = {
+@@ -245,6 +246,7 @@ export const dict = {
    ...androidWidgetsI18n.fr,
    ...snippetsI18n.fr,
    ...sidebarWorkI18n.fr,
@@ -4952,10 +4952,10 @@ index 42269e2df..574e93c50 100644
    ...worktreeArchiveI18n.fr,
    ...operatorChildrenI18n.fr,
 diff --git a/packages/ui/src/lib/i18n/messages/he.ts b/packages/ui/src/lib/i18n/messages/he.ts
-index 963c8e95d..030c050e1 100644
+index b5f2c8a2e..e4108ad28 100644
 --- a/packages/ui/src/lib/i18n/messages/he.ts
 +++ b/packages/ui/src/lib/i18n/messages/he.ts
-@@ -42,6 +42,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
+@@ -43,6 +43,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
  import { selectionApprovalI18n } from './selection-approval.i18n';
  import { snippetsI18n } from './snippets.i18n';
  import { sidebarWorkI18n } from './sidebar-work.i18n';
@@ -4963,7 +4963,7 @@ index 963c8e95d..030c050e1 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -3992,6 +3993,7 @@ export const dict = {
+@@ -4010,6 +4011,7 @@ export const dict = {
    ...androidWidgetsI18n.he,
    ...snippetsI18n.he,
    ...sidebarWorkI18n.he,
@@ -5217,10 +5217,10 @@ index 000000000..757697858
 +  },
 +} as const;
 diff --git a/packages/ui/src/lib/i18n/messages/ja.ts b/packages/ui/src/lib/i18n/messages/ja.ts
-index 22edf4a6f..1b242012c 100644
+index af7fb9b6a..0a885a885 100644
 --- a/packages/ui/src/lib/i18n/messages/ja.ts
 +++ b/packages/ui/src/lib/i18n/messages/ja.ts
-@@ -43,6 +43,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
+@@ -44,6 +44,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
  import { selectionApprovalI18n } from './selection-approval.i18n';
  import { snippetsI18n } from './snippets.i18n';
  import { sidebarWorkI18n } from './sidebar-work.i18n';
@@ -5228,7 +5228,7 @@ index 22edf4a6f..1b242012c 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -239,6 +240,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -246,6 +247,7 @@ export const dict: Record<I18nKey, string> = {
    ...androidWidgetsI18n.ja,
    ...snippetsI18n.ja,
    ...sidebarWorkI18n.ja,
@@ -5237,10 +5237,10 @@ index 22edf4a6f..1b242012c 100644
    ...worktreeArchiveI18n.ja,
    ...operatorChildrenI18n.ja,
 diff --git a/packages/ui/src/lib/i18n/messages/ko.ts b/packages/ui/src/lib/i18n/messages/ko.ts
-index f96d9700a..e1c944abe 100644
+index 0aa55f321..330cb1b16 100644
 --- a/packages/ui/src/lib/i18n/messages/ko.ts
 +++ b/packages/ui/src/lib/i18n/messages/ko.ts
-@@ -43,6 +43,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
+@@ -44,6 +44,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
  import { selectionApprovalI18n } from './selection-approval.i18n';
  import { snippetsI18n } from './snippets.i18n';
  import { sidebarWorkI18n } from './sidebar-work.i18n';
@@ -5248,7 +5248,7 @@ index f96d9700a..e1c944abe 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -239,6 +240,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -246,6 +247,7 @@ export const dict: Record<I18nKey, string> = {
    ...androidWidgetsI18n.ko,
    ...snippetsI18n.ko,
    ...sidebarWorkI18n.ko,
@@ -5257,10 +5257,10 @@ index f96d9700a..e1c944abe 100644
    ...worktreeArchiveI18n.ko,
    ...operatorChildrenI18n.ko,
 diff --git a/packages/ui/src/lib/i18n/messages/nl.ts b/packages/ui/src/lib/i18n/messages/nl.ts
-index eadca8b08..98734dd1a 100644
+index 80ab7c01f..dfdebbb64 100644
 --- a/packages/ui/src/lib/i18n/messages/nl.ts
 +++ b/packages/ui/src/lib/i18n/messages/nl.ts
-@@ -42,6 +42,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
+@@ -43,6 +43,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
  import { selectionApprovalI18n } from './selection-approval.i18n';
  import { snippetsI18n } from './snippets.i18n';
  import { sidebarWorkI18n } from './sidebar-work.i18n';
@@ -5268,7 +5268,7 @@ index eadca8b08..98734dd1a 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -238,6 +239,7 @@ export const dict = {
+@@ -245,6 +246,7 @@ export const dict = {
    ...androidWidgetsI18n.nl,
    ...snippetsI18n.nl,
    ...sidebarWorkI18n.nl,
@@ -5277,10 +5277,10 @@ index eadca8b08..98734dd1a 100644
    ...worktreeArchiveI18n.nl,
    ...operatorChildrenI18n.nl,
 diff --git a/packages/ui/src/lib/i18n/messages/pl.ts b/packages/ui/src/lib/i18n/messages/pl.ts
-index da8edf31d..23fd5006f 100644
+index f86656a58..0d94b08de 100644
 --- a/packages/ui/src/lib/i18n/messages/pl.ts
 +++ b/packages/ui/src/lib/i18n/messages/pl.ts
-@@ -43,6 +43,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
+@@ -44,6 +44,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
  import { selectionApprovalI18n } from './selection-approval.i18n';
  import { snippetsI18n } from './snippets.i18n';
  import { sidebarWorkI18n } from './sidebar-work.i18n';
@@ -5288,7 +5288,7 @@ index da8edf31d..23fd5006f 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -239,6 +240,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -246,6 +247,7 @@ export const dict: Record<I18nKey, string> = {
    ...androidWidgetsI18n.pl,
    ...snippetsI18n.pl,
    ...sidebarWorkI18n.pl,
@@ -5297,10 +5297,10 @@ index da8edf31d..23fd5006f 100644
    ...worktreeArchiveI18n.pl,
    ...operatorChildrenI18n.pl,
 diff --git a/packages/ui/src/lib/i18n/messages/pt-BR.ts b/packages/ui/src/lib/i18n/messages/pt-BR.ts
-index 60b9c2486..c4af1ce67 100644
+index e29d5707d..f4b3af50a 100644
 --- a/packages/ui/src/lib/i18n/messages/pt-BR.ts
 +++ b/packages/ui/src/lib/i18n/messages/pt-BR.ts
-@@ -43,6 +43,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
+@@ -44,6 +44,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
  import { selectionApprovalI18n } from './selection-approval.i18n';
  import { snippetsI18n } from './snippets.i18n';
  import { sidebarWorkI18n } from './sidebar-work.i18n';
@@ -5308,7 +5308,7 @@ index 60b9c2486..c4af1ce67 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -249,6 +250,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -256,6 +257,7 @@ export const dict: Record<I18nKey, string> = {
    ...androidWidgetsI18n['pt-BR'],
    ...snippetsI18n['pt-BR'],
    ...sidebarWorkI18n['pt-BR'],
@@ -5317,10 +5317,10 @@ index 60b9c2486..c4af1ce67 100644
    ...worktreeArchiveI18n['pt-BR'],
    ...operatorChildrenI18n['pt-BR'],
 diff --git a/packages/ui/src/lib/i18n/messages/tr.ts b/packages/ui/src/lib/i18n/messages/tr.ts
-index e1a111b69..3abf04c0e 100644
+index 2f640153c..3febae193 100644
 --- a/packages/ui/src/lib/i18n/messages/tr.ts
 +++ b/packages/ui/src/lib/i18n/messages/tr.ts
-@@ -42,6 +42,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
+@@ -43,6 +43,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
  import { selectionApprovalI18n } from './selection-approval.i18n';
  import { snippetsI18n } from './snippets.i18n';
  import { sidebarWorkI18n } from './sidebar-work.i18n';
@@ -5328,7 +5328,7 @@ index e1a111b69..3abf04c0e 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -177,6 +178,7 @@ export const dict = {
+@@ -184,6 +185,7 @@ export const dict = {
    ...androidWidgetsI18n.tr,
    ...snippetsI18n.tr,
    ...sidebarWorkI18n.tr,
@@ -5337,10 +5337,10 @@ index e1a111b69..3abf04c0e 100644
    ...worktreeArchiveI18n.tr,
    ...operatorChildrenI18n.tr,
 diff --git a/packages/ui/src/lib/i18n/messages/uk.ts b/packages/ui/src/lib/i18n/messages/uk.ts
-index 39e659d14..3c3669823 100644
+index 51a9d25d1..29becdfdf 100644
 --- a/packages/ui/src/lib/i18n/messages/uk.ts
 +++ b/packages/ui/src/lib/i18n/messages/uk.ts
-@@ -43,6 +43,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
+@@ -44,6 +44,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
  import { selectionApprovalI18n } from './selection-approval.i18n';
  import { snippetsI18n } from './snippets.i18n';
  import { sidebarWorkI18n } from './sidebar-work.i18n';
@@ -5348,7 +5348,7 @@ index 39e659d14..3c3669823 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -249,6 +250,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -256,6 +257,7 @@ export const dict: Record<I18nKey, string> = {
    ...androidWidgetsI18n.uk,
    ...snippetsI18n.uk,
    ...sidebarWorkI18n.uk,
@@ -5357,10 +5357,10 @@ index 39e659d14..3c3669823 100644
    ...worktreeArchiveI18n.uk,
    ...operatorChildrenI18n.uk,
 diff --git a/packages/ui/src/lib/i18n/messages/zh-CN.ts b/packages/ui/src/lib/i18n/messages/zh-CN.ts
-index 7a91ed3b2..ee8694853 100644
+index 5a5cbc1db..86abe959a 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-CN.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-CN.ts
-@@ -43,6 +43,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
+@@ -44,6 +44,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
  import { selectionApprovalI18n } from './selection-approval.i18n';
  import { snippetsI18n } from './snippets.i18n';
  import { sidebarWorkI18n } from './sidebar-work.i18n';
@@ -5368,7 +5368,7 @@ index 7a91ed3b2..ee8694853 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -239,6 +240,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -246,6 +247,7 @@ export const dict: Record<I18nKey, string> = {
    ...androidWidgetsI18n['zh-CN'],
    ...snippetsI18n['zh-CN'],
    ...sidebarWorkI18n['zh-CN'],
@@ -5377,10 +5377,10 @@ index 7a91ed3b2..ee8694853 100644
    ...worktreeArchiveI18n['zh-CN'],
    ...operatorChildrenI18n['zh-CN'],
 diff --git a/packages/ui/src/lib/i18n/messages/zh-TW.ts b/packages/ui/src/lib/i18n/messages/zh-TW.ts
-index 801bf74df..117d4abae 100644
+index ec4e49ab1..8543850df 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-TW.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-TW.ts
-@@ -43,6 +43,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
+@@ -44,6 +44,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
  import { selectionApprovalI18n } from './selection-approval.i18n';
  import { snippetsI18n } from './snippets.i18n';
  import { sidebarWorkI18n } from './sidebar-work.i18n';
@@ -5388,7 +5388,7 @@ index 801bf74df..117d4abae 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -239,6 +240,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -246,6 +247,7 @@ export const dict: Record<I18nKey, string> = {
    ...androidWidgetsI18n['zh-TW'],
    ...snippetsI18n['zh-TW'],
    ...sidebarWorkI18n['zh-TW'],
@@ -7224,10 +7224,10 @@ index a5e6234c5..f02ca5d05 100644
    a.serverId === b.serverId &&
    a.grant === b.grant &&
 diff --git a/packages/ui/src/stores/DOCUMENTATION.md b/packages/ui/src/stores/DOCUMENTATION.md
-index 808cdb0d5..77195dcdf 100644
+index 76827969b..194606edc 100644
 --- a/packages/ui/src/stores/DOCUMENTATION.md
 +++ b/packages/ui/src/stores/DOCUMENTATION.md
-@@ -114,6 +114,45 @@ owner cannot replace the catalog or finish the current owner's loading state.
+@@ -109,6 +109,45 @@ owner cannot replace the catalog or finish the current owner's loading state.
  
  ### Feature cache / query stores
  

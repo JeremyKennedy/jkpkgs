@@ -1,44 +1,47 @@
+diff --git a/packages/ui/src/apps/deepLinkNavigation.ts b/packages/ui/src/apps/deepLinkNavigation.ts
+index c9c488c0c..7bda5e9e4 100644
+--- a/packages/ui/src/apps/deepLinkNavigation.ts
++++ b/packages/ui/src/apps/deepLinkNavigation.ts
+@@ -108,6 +108,11 @@ const execute = (intent: NavigationIntent): boolean => {
+         // once it mounts, and drops a request meant for another draft.
+         useInputStore.getState().requestDraftDictation(useSessionUIStore.getState().newSessionDraft.draftId);
+       }
++      if (intent.dictate) {
++        // The request belongs to this draft's id; the composer starts recording
++        // once it mounts, and drops a request meant for another draft.
++        useInputStore.getState().requestDraftDictation(useSessionUIStore.getState().newSessionDraft.draftId);
++      }
+       return true;
+     }
+ 
+diff --git a/packages/ui/src/apps/deepLinks.ts b/packages/ui/src/apps/deepLinks.ts
+index bad578919..f41a8668e 100644
+--- a/packages/ui/src/apps/deepLinks.ts
++++ b/packages/ui/src/apps/deepLinks.ts
+@@ -81,6 +81,7 @@ export function parseDeepLink(raw: string | null | undefined): DeepLinkIntent |
+         projectId: query.get('project') ?? undefined,
+         agent: query.get('agent') ?? undefined,
+         model: query.get('model') ?? undefined,
++        ...(dictate === '1' || dictate === 'true' ? { dictate: true } : {}),
+       };
+       if (target === 'chat' || target === 'project') {
+         intent.target = target;
 diff --git a/packages/ui/src/components/chat/ChatInput.tsx b/packages/ui/src/components/chat/ChatInput.tsx
-index a876bdae1..1ea24037d 100644
+index 6e78d2ae7..19f20e354 100644
 --- a/packages/ui/src/components/chat/ChatInput.tsx
 +++ b/packages/ui/src/components/chat/ChatInput.tsx
-@@ -13,8 +13,8 @@ import { useComposerAutocompleteState } from './composer/input/useComposerAutoco
- import { useComposerColumn } from './composer/input/useComposerColumn';
- import { useComposerCompletions } from './composer/input/useComposerCompletions';
- import { useComposerControls } from './composer/input/useComposerControls';
--import { useInputStore } from '@/sync/input-store';
+@@ -16,6 +16,7 @@ import { useComposerControls } from './composer/input/useComposerControls';
+ import { useInputStore } from '@/sync/input-store';
  import { useComposerDictation } from './composer/input/useComposerDictation';
-+import { usePendingDraftDictation } from './composer/input/usePendingDraftDictation';
  import { useComposerDictationState } from './composer/input/useComposerDictationState';
++import { usePendingDraftDictation } from './composer/input/usePendingDraftDictation';
  import { useComposerDraftHistory } from './composer/input/useComposerDraftHistory';
  import { useComposerDraftTarget } from './composer/input/useComposerDraftTarget';
-@@ -130,8 +130,18 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
-         inlineContext, sendAvailability, sendHandlers: sending, sessionScope, sessionLifecycle,
-         queueState, queueActions: sending, editorState, draftText,
-     });
-+    // The composer a dictation belongs to, stable across a project or worktree
-+    // switch of the same open draft: the project is where that draft will run,
-+    // not a different conversation, and typed text follows the move.
-+    const dictationOriginKey = React.useCallback((): string | null => {
-+        if (sessionScope.isBtwActive) return sessionScope.btwComposerSessionId ? `btw:${sessionScope.btwComposerSessionId}` : null;
-+        if (column.columnPinned) return sessionScope.currentSessionId ? `pinned:${sessionScope.currentSessionId}` : null;
-+        if (sessionScope.currentSessionId) return `session:${sessionScope.currentSessionId}`;
-+        if (sessionScope.newSessionDraftOpen) return `draft:${sessionScope.newSessionDraft.draftId}`;
-+        return null;
-+    }, [column.columnPinned, sessionScope.btwComposerSessionId, sessionScope.currentSessionId, sessionScope.isBtwActive, sessionScope.newSessionDraft.draftId, sessionScope.newSessionDraftOpen]);
-     const dictation = useComposerDictation({
--        draftText, i18n, dictationState, editorState, draftHistory, sendHandlers: sending,
-+        draftText, i18n, dictationState, editorState, draftHistory, sendHandlers: sending, originKey: dictationOriginKey,
-     });
-     useComposerExternalSubmits({ draftText, column, sendHandlers: sending, sendAvailability, sessionScope, submission: sending, sendActions, selection });
-     const editorActions = useComposerEditorActions({
-@@ -186,21 +196,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
-         editorState, mobilePanels, draftText, i18n, preferences, expansion, permissionSettings,
-         sessionScope, mobileShell, runtime, draftHistory,
-     });
--    // A deep link (openchamber://new-session?dictate=1) starts dictation once
--    // this draft's composer is mounted. The request is bound to the draft id,
--    // so a composer showing another draft drops it instead of recording there.
+ import { useComposerDraftText } from './composer/input/useComposerDraftText';
+@@ -189,18 +190,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+     // A deep link (openchamber://new-session?dictate=1) starts dictation once
+     // this draft's composer is mounted. The request is bound to the draft id,
+     // so a composer showing another draft drops it instead of recording there.
 -    const pendingDraftDictation = useInputStore((state) => state.pendingDraftDictation);
 -    React.useEffect(() => {
 -        if (pendingDraftDictation == null || column.columnPinned) return;
@@ -60,10 +63,10 @@ index a876bdae1..1ea24037d 100644
          largePasteState, editorState, draftText, autocompleteState, preferences, expansion,
          mobileActions, sessionScope, sessionLifecycle, editorActions, queueState, queueActions: sending,
 diff --git a/packages/ui/src/components/chat/composer/DOCUMENTATION.md b/packages/ui/src/components/chat/composer/DOCUMENTATION.md
-index cc8993874..df091b7ae 100644
+index 02b5a067b..14ae31588 100644
 --- a/packages/ui/src/components/chat/composer/DOCUMENTATION.md
 +++ b/packages/ui/src/components/chat/composer/DOCUMENTATION.md
-@@ -1597,6 +1597,10 @@ command can leave the queue untouched and delivery can take only part of it.
+@@ -1609,6 +1609,10 @@ command can leave the queue untouched and delivery can take only part of it.
    just opened must render in the same commit
    (`useShownSessionSelection`, see `sync/DOCUMENTATION.md`, "Session switch
    commit"): a deferred draft recorded the session still on screen (#6927).
@@ -71,34 +74,9 @@ index cc8993874..df091b7ae 100644
 +  (`openchamber://new-session?dictate=1`) waits until the composer renders
 +  that draft, not merely until the store has opened it, so the draft and not
 +  the session still on screen is the origin.
-   The dictation shortcut starts in the focused composer's form, falling back
-   to the main chat when no form has focus. Mobile mic triggers explicitly
-   address their own form. One mounted dictation engine owns capture and
-diff --git a/packages/ui/src/components/chat/composer/input/useComposerDictation.ts b/packages/ui/src/components/chat/composer/input/useComposerDictation.ts
-index 6bcdcfccf..4b1eab0e9 100644
---- a/packages/ui/src/components/chat/composer/input/useComposerDictation.ts
-+++ b/packages/ui/src/components/chat/composer/input/useComposerDictation.ts
-@@ -16,10 +16,11 @@ type Dependencies = {
-     editorState: Pick<ReturnType<typeof useComposerEditorState>, 'composerRef'>;
-     draftHistory: Pick<ReturnType<typeof useComposerDraftHistory>, 'restoreDraft'>;
-     sendHandlers: Pick<ComposerSendHandlers, 'handleSubmitRef'>;
-+    originKey: () => string | null;
- };
- 
- export function useComposerDictation({
--    draftText, i18n, dictationState, editorState, draftHistory, sendHandlers,
-+    draftText, i18n, dictationState, editorState, draftHistory, sendHandlers, originKey,
- }: Dependencies) {
-     const { currentChatDraftIdentityRef, setMessage, composerText } = draftText;
-     const { t } = i18n;
-@@ -29,6 +30,7 @@ export function useComposerDictation({
-     const { handleSubmitRef } = sendHandlers;
- 
-     const { markDictationStart, keepTranscriptForOrigin } = useDictationOrigin({
-+        originKey,
-         identityRef: currentChatDraftIdentityRef,
-         restoreDraft,
-         onKeptForOrigin: () => {
+   The transcript stays in the visible composer when its draft identity matches
+   the origin, or when the composer still shows the new-session draft (same
+   draft id, same runtime) where recording started. A new-session draft's
 diff --git a/packages/ui/src/components/chat/composer/input/usePendingDraftDictation.test.tsx b/packages/ui/src/components/chat/composer/input/usePendingDraftDictation.test.tsx
 new file mode 100644
 index 000000000..ff4bafa25
@@ -196,311 +174,6 @@ index 000000000..f0619f99e
 +        start();
 +    }, [draftId, enabled, pendingDraftDictation, start]);
 +};
-diff --git a/packages/ui/src/components/chat/composer/state/__tests__/useDictationOrigin.test.ts b/packages/ui/src/components/chat/composer/state/__tests__/useDictationOrigin.test.ts
-index 97d24c9b6..1a1887d47 100644
---- a/packages/ui/src/components/chat/composer/state/__tests__/useDictationOrigin.test.ts
-+++ b/packages/ui/src/components/chat/composer/state/__tests__/useDictationOrigin.test.ts
-@@ -3,7 +3,7 @@ import React, { act } from 'react';
- import { createRoot } from 'react-dom/client';
- 
- import { installHookTestDom } from '@/components/session/sidebar/test-utils/testDom';
--import { readChatDraft, type ChatDraftIdentity } from '@/lib/chatDraftPersistence';
-+import { getChatDraftIdentityKey, readChatDraft, type ChatDraftIdentity } from '@/lib/chatDraftPersistence';
- import { getDeferredSafeStorage } from '@/stores/utils/safeStorage';
- import { useInputStore } from '@/sync/input-store';
- import { useComposerDraft } from '../useComposerDraft';
-@@ -31,28 +31,41 @@ function renderComposer(initialText = '') {
-     const originalRaf = globalThis.requestAnimationFrame;
-     globalThis.requestAnimationFrame = () => 0;
-     const root = createRoot(dom.container);
--    const result = { text: '', keptNotices: 0, dictation: null as DictationOriginControls | null };
-+    const result = {
-+        text: '',
-+        keptNotices: 0,
-+        kept: [] as Array<{ identity: ChatDraftIdentity; text: string }>,
-+        dictation: null as DictationOriginControls | null,
-+        forgetDraft: null as ((identity: ChatDraftIdentity | null) => void) | null,
-+    };
- 
--    function Probe({ identity }: { identity: ChatDraftIdentity }) {
-+    function Probe({ identity, composerKey }: { identity: ChatDraftIdentity; composerKey?: string }) {
-         const { text, setMessage } = useProbeText(initialText);
-         const confirmedMentionsRef = React.useRef(new Set<string>());
-         const identityRef = React.useRef<ChatDraftIdentity | null>(identity);
-+        // The composer's stable key; without one, the draft identity answers.
-+        const composerKeyRef = React.useRef(composerKey ?? getChatDraftIdentityKey(identity));
-         React.useEffect(() => { identityRef.current = identity; }, [identity]);
--        const { restoreDraft } = useComposerDraft({
-+        React.useEffect(() => {
-+            composerKeyRef.current = composerKey ?? getChatDraftIdentityKey(identity);
-+        }, [composerKey, identity]);
-+        const { restoreDraft, forgetDraft } = useComposerDraft({
-             text, setMessage, confirmedMentionsRef, identity,
-             initialDraft: { text: initialText, identity: started },
-         });
-         result.dictation = useDictationOrigin({
-+            originKey: () => composerKeyRef.current,
-             identityRef,
-             restoreDraft,
--            onKeptForOrigin: () => { result.keptNotices += 1; },
-+            onKeptForOrigin: (kept) => { result.keptNotices += 1; result.kept.push(kept); },
-         });
-         result.text = text.get();
-+        result.forgetDraft = forgetDraft;
-         return null;
-     }
- 
--    const render = (identity: ChatDraftIdentity) => {
--        act(() => { root.render(React.createElement(Probe, { identity })); });
-+    const render = (identity: ChatDraftIdentity, composerKey?: string) => {
-+        act(() => { root.render(React.createElement(Probe, { identity, composerKey })); });
-     };
-     render(started);
-     return {
-@@ -87,12 +100,34 @@ describe('dictation origin', () => {
-         }
-     });
- 
-+    test('a project switch of the same open draft keeps the transcript in the composer', () => {
-+        const composer = renderComposer();
-+        const origin: ChatDraftIdentity = { runtimeKey: 'runtime-a', directory: 'openchamber:chats', sessionId: null };
-+        const moved: ChatDraftIdentity = { runtimeKey: 'runtime-a', directory: '/repo/project', sessionId: 'draft:work-7' };
-+        try {
-+            composer.render(origin, 'draft:7');
-+            composer.result.dictation?.markDictationStart();
-+            // The same project-less draft now runs in a project: only the
-+            // directory and the draft identity move, not the composer.
-+            composer.render(moved, 'draft:7');
-+
-+            let kept = true;
-+            act(() => { kept = composer.result.dictation?.keepTranscriptForOrigin('dictated text') ?? true; });
-+
-+            expect(kept).toBe(false);
-+            expect(composer.result.keptNotices).toBe(0);
-+            expect(readChatDraft(origin).text).toBe('');
-+        } finally {
-+            composer.teardown();
-+        }
-+    });
-+
-     {
-         test('a session switch keeps the transcript out of the visible composer', () => {
-             const composer = renderComposer();
-             try {
-                 composer.result.dictation?.markDictationStart();
--                composer.render(switchedTo);
-+                composer.render(switchedTo, 'session:switched-to');
- 
-                 let kept = false;
-                 act(() => { kept = composer.result.dictation?.keepTranscriptForOrigin('  dictated text ') ?? false; });
-@@ -102,9 +137,12 @@ describe('dictation origin', () => {
-                 expect(composer.result.text).toBe('');
-                 expect(readChatDraft(switchedTo).text).toBe('');
-                 expect(readChatDraft(started).text).toBe('dictated text');
-+                // The host is told where the text went, so it can name that
-+                // chat and offer to switch there or move the text here.
-+                expect(composer.result.kept).toEqual([{ identity: started, text: 'dictated text' }]);
- 
-                 // Returning to the session that started the dictation shows it.
--                composer.render(started);
-+                composer.render(started, 'session:started');
-                 expect(composer.result.text).toBe('dictated text');
-             } finally {
-                 composer.teardown();
-@@ -112,11 +150,27 @@ describe('dictation origin', () => {
-         });
-     }
- 
-+    test('moving the kept text here can drop the origin draft', () => {
-+        const composer = renderComposer();
-+        try {
-+            composer.result.dictation?.markDictationStart();
-+            composer.render(switchedTo, 'session:switched-to');
-+            act(() => { composer.result.dictation?.keepTranscriptForOrigin('dictated text'); });
-+            expect(readChatDraft(started).text).toBe('dictated text');
-+
-+            act(() => { composer.result.forgetDraft?.(started); });
-+
-+            expect(readChatDraft(started).text).toBe('');
-+        } finally {
-+            composer.teardown();
-+        }
-+    });
-+
-     test('the transcript is appended to text already drafted in the originating session', () => {
-         const composer = renderComposer('typed before dictating');
-         try {
-             composer.result.dictation?.markDictationStart();
--            composer.render(switchedTo);
-+            composer.render(switchedTo, 'session:switched-to');
- 
-             act(() => { composer.result.dictation?.keepTranscriptForOrigin('dictated text'); });
- 
-@@ -130,7 +184,7 @@ describe('dictation origin', () => {
-         const composer = renderComposer();
-         try {
-             composer.result.dictation?.markDictationStart();
--            composer.render(switchedTo);
-+            composer.render(switchedTo, 'session:switched-to');
-             act(() => { composer.result.dictation?.keepTranscriptForOrigin('first'); });
- 
-             composer.result.dictation?.markDictationStart();
-diff --git a/packages/ui/src/components/chat/composer/state/useComposerDraft.ts b/packages/ui/src/components/chat/composer/state/useComposerDraft.ts
-index ff391c039..2efea4f42 100644
---- a/packages/ui/src/components/chat/composer/state/useComposerDraft.ts
-+++ b/packages/ui/src/components/chat/composer/state/useComposerDraft.ts
-@@ -8,6 +8,7 @@ import { useLinkedReferenceDrafts } from '../linkedReferenceDrafts';
- import { useComposerTextEffect, type ComposerText } from './composerText';
- 
- import {
-+    clearChatDraft,
-     getChatDraftIdentityKey,
-     isNewSessionDraftIdentity,
-     readChatDraft,
-@@ -41,6 +42,12 @@ export interface ComposerDraftControls {
-     handoffDraft: (identity: ChatDraftIdentity | null, draft: string | null) => void;
-     restoreDraft: (identity: ChatDraftIdentity | null, draft: string, confirmedMentions: Set<string>) => void;
-     migrateDraft: (from: ChatDraftIdentity | null, to: ChatDraftIdentity | null) => void;
-+    /**
-+     * Drop a draft whose text now lives in another composer (a kept dictation
-+     * moved into the one on screen), so returning to its identity cannot
-+     * bring a second copy back.
-+     */
-+    forgetDraft: (identity: ChatDraftIdentity | null) => void;
- }
- 
- export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftControls {
-@@ -309,5 +316,22 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
-         }
-     }, [clearPending, confirmedMentionsRef, setMessage, text]);
- 
--    return { persistNow, handoffDraft, restoreDraft, migrateDraft };
-+    const forgetDraft = React.useCallback((identity: ChatDraftIdentity | null) => {
-+        if (!identity) return;
-+        const key = getChatDraftIdentityKey(identity);
-+        draftMemoryRef.current.delete(key);
-+        // The empty signature keeps a queued debounce write from resurrecting
-+        // the copy this call was asked to drop.
-+        lastPersistedRef.current.set(key, draftSignature('', []));
-+        const current = currentIdentityRef.current;
-+        if (current && getChatDraftIdentityKey(current) === key) {
-+            clearPending();
-+            skipOutgoingDraftRef.current = true;
-+            confirmedMentionsRef.current = new Set();
-+            setMessage('');
-+        }
-+        if (!isBtwPendingComposerKey(identity.sessionId)) clearChatDraft(identity, true);
-+    }, [clearPending, confirmedMentionsRef, setMessage]);
-+
-+    return { persistNow, handoffDraft, restoreDraft, migrateDraft, forgetDraft };
- }
-diff --git a/packages/ui/src/components/chat/composer/state/useDictationOrigin.ts b/packages/ui/src/components/chat/composer/state/useDictationOrigin.ts
-index 244d01fda..2ac05c95f 100644
---- a/packages/ui/src/components/chat/composer/state/useDictationOrigin.ts
-+++ b/packages/ui/src/components/chat/composer/state/useDictationOrigin.ts
-@@ -1,3 +1,20 @@
-+/**
-+ * Keeps a dictation transcript with the composer it was started in.
-+ *
-+ * One composer stays mounted across session switches, and a transcript only
-+ * arrives after the recording is confirmed and transcribed. A switch inside
-+ * that window used to insert — or send — the transcript in whichever session
-+ * was on screen when it landed. The origin is recorded when recording starts;
-+ * a transcript whose origin is no longer the rendered composer is appended to
-+ * the origin's draft instead and never reaches the visible composer.
-+ *
-+ * "The composer" is not the draft identity: a new-session draft keeps its
-+ * identity across a project, worktree or Chat/Project switch only by moving
-+ * directory, and the composer carries typed text along with that move. The
-+ * origin is therefore keyed by the composer's stable key (its session, or the
-+ * open draft's id), and only the draft identity is used as the place to store
-+ * a transcript that genuinely belongs elsewhere.
-+ */
- 
- import React from 'react';
- 
-@@ -5,38 +22,70 @@ import { getChatDraftIdentityKey, type ChatDraftIdentity } from '@/lib/chatDraft
- import type { ComposerDraftControls } from './useComposerDraft';
- 
- export interface DictationOriginOptions {
-+    /**
-+     * Stable key of the composer the user is dictating into: the session id,
-+     * the open new-session draft's id, or the pinned/btw composer. It must not
-+     * change when that same draft changes project or directory.
-+     */
-+    originKey: () => string | null;
-+    /** The draft identity of the rendered composer, where a kept transcript is stored. */
-     identityRef: React.RefObject<ChatDraftIdentity | null>;
-     restoreDraft: ComposerDraftControls['restoreDraft'];
--    onKeptForOrigin?: () => void;
-+    /**
-+     * Called with the identity and text after a transcript was kept for a
-+     * composer that is not on screen, so the host can say which chat holds it
-+     * and offer to switch there or move it here.
-+     */
-+    onKeptForOrigin?: (kept: { identity: ChatDraftIdentity; text: string }) => void;
- }
- 
- export interface DictationOriginControls {
-+    /** Record the composer a dictation belongs to. Call when recording starts. */
-     markDictationStart: () => void;
-+    /**
-+     * Returns true when the transcript was stored in the originating draft
-+     * because the composer moved on; the caller must then neither insert nor
-+     * send it. Returns false when the origin is still the rendered composer.
-+     */
-     keepTranscriptForOrigin: (text: string) => boolean;
- }
- 
-+type DictationOrigin = {
-+    key: string | null;
-+    identity: ChatDraftIdentity | null;
-+};
-+
- export function useDictationOrigin(options: DictationOriginOptions): DictationOriginControls {
--    const { identityRef, restoreDraft, onKeptForOrigin } = options;
--    const originRef = React.useRef<ChatDraftIdentity | null>(null);
-+    const { originKey, identityRef, restoreDraft, onKeptForOrigin } = options;
-+    const originRef = React.useRef<DictationOrigin | null>(null);
-     const onKeptForOriginRef = React.useRef(onKeptForOrigin);
-     onKeptForOriginRef.current = onKeptForOrigin;
- 
-     const markDictationStart = React.useCallback(() => {
--        originRef.current = identityRef.current;
--    }, [identityRef]);
-+        originRef.current = { key: originKey(), identity: identityRef.current };
-+    }, [identityRef, originKey]);
- 
-     const keepTranscriptForOrigin = React.useCallback((text: string) => {
-         const origin = originRef.current;
-         originRef.current = null;
--        if (!origin || !text.trim()) return false;
-+        const transcript = text.trim();
-+        if (!origin || !origin.identity || !transcript) return false;
- 
--        const current = identityRef.current;
--        if (current && getChatDraftIdentityKey(current) === getChatDraftIdentityKey(origin)) return false;
-+        const currentKey = originKey();
-+        // Both sides naming a composer is the reliable comparison. Without one
-+        // (a composer that is not attached to a session or draft yet) fall back
-+        // to the draft identity, which is all there is to compare.
-+        const sameComposer = origin.key !== null && currentKey !== null
-+            ? origin.key === currentKey
-+            : getChatDraftIdentityKey(origin.identity) === (identityRef.current
-+                ? getChatDraftIdentityKey(identityRef.current)
-+                : null);
-+        if (sameComposer) return false;
- 
--        restoreDraft(origin, text.trim(), new Set());
--        onKeptForOriginRef.current?.();
-+        restoreDraft(origin.identity, transcript, new Set());
-+        onKeptForOriginRef.current?.({ identity: origin.identity, text: transcript });
-         return true;
--    }, [identityRef, restoreDraft]);
-+    }, [identityRef, originKey, restoreDraft]);
- 
-     return { markDictationStart, keepTranscriptForOrigin };
- }
 diff --git a/packages/ui/src/components/dictation/ComposerDictation.test.tsx b/packages/ui/src/components/dictation/ComposerDictation.test.tsx
 index 46719740e..ca1475879 100644
 --- a/packages/ui/src/components/dictation/ComposerDictation.test.tsx
@@ -1008,3 +681,17 @@ index 004c6ebc3..04a3a1799 100644
  
      const retryFailedDictation = useCallback(async (): Promise<string | null> => {
          const gate = actionGateRef.current;
+diff --git a/packages/ui/src/sync/input-store.ts b/packages/ui/src/sync/input-store.ts
+index b235bc560..206cede99 100644
+--- a/packages/ui/src/sync/input-store.ts
++++ b/packages/ui/src/sync/input-store.ts
+@@ -334,6 +334,9 @@ export type InputState = {
+   consumePendingPresetSubmit: () => { text: string; type: "command" | "skill" } | null
+   requestDraftSubmit: (draftId: number, text: string) => void
+   consumePendingDraftSubmit: (draftId: number | null) => string | null
++  requestDraftDictation: (draftId: number) => void
++  /** True when the request belonged to this draft; any other pending request is dropped. */
++  consumePendingDraftDictation: (draftId: number | null) => boolean
+   requestDraftContent: (draftId: number, content: { files: File[]; text?: string | null; rejected?: RejectedSharedFile[]; accept?: () => void }) => void
+   consumePendingDraftContent: (draftId: number | null) => Omit<PendingDraftContent, "draftId"> | null
+   requestDraftDictation: (draftId: number) => void

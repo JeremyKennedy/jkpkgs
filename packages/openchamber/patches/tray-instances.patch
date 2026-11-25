@@ -1,8 +1,8 @@
 diff --git a/packages/electron/DOCUMENTATION.md b/packages/electron/DOCUMENTATION.md
-index 4b527b967..7836b5f38 100644
+index caa1a38fb..024c20ff3 100644
 --- a/packages/electron/DOCUMENTATION.md
 +++ b/packages/electron/DOCUMENTATION.md
-@@ -117,6 +117,10 @@ Streaming turns create short-lived objects, and macOS compression keeps the rend
+@@ -138,6 +138,10 @@ Streaming turns create short-lived objects, and macOS compression keeps the rend
  
  Tray image changes cost CPU in both the main process and WindowServer throughout long-running work. Six eased frames at five changes per second preserve the roughly two-second cycle with fewer native image updates. Linux tray images stay panel-sized because StatusNotifier hosts can drop oversized images; monochrome geometric glyphs follow native menu-bar tinting.
  
@@ -10,11 +10,11 @@ index 4b527b967..7836b5f38 100644
 +
 +Each app window can show a different instance and pushes its own snapshot, and a window only re-sends when its own snapshot changes. With one shared slot the tray showed whichever window pushed last: a closed window's rows stayed until another window changed, and Allow, Deny and Mark all as read went to the main window even when the row came from another instance, answering against the wrong server. Main therefore keeps a snapshot per window, keyed by the runtime key main recorded for it rather than one the page claims, shows every instance as its own section, and routes each row's action to the window that supplied it. Focus-only ownership was rejected: it hides approvals waiting on an instance in a background window.
 +
- ### Why native menu refresh follows content signatures
+ ### Why a downloaded update waits in the desktop process
  
- Tray live state belongs to the renderer and the native controller owns presentation. A signature of menu-affecting data avoids rebuilding native menus for unchanged snapshots without serializing images or handlers; native menu lifecycle events also cover keyboard opening for quota refresh.
+ The countdown and the installer handoff exist only in the desktop app. The embedded server is the place that already sees every client's sessions, terminals, and scheduled work, so it answers whether this process is idle and the desktop process keeps the queue. The queue stays in memory for the current app run and downloaded release. Quit drops the idle queue; when automatic updates are enabled, `performConfirmedQuit()` hands a downloaded update to `quitAndInstall(true, false)` after `prepareForQuit()`, while `electron-updater`'s raw `autoInstallOnAppQuit` stays off.
 diff --git a/packages/electron/README.md b/packages/electron/README.md
-index f0b538542..e56917e60 100644
+index 4800c9fab..cadcfcd8a 100644
 --- a/packages/electron/README.md
 +++ b/packages/electron/README.md
 @@ -434,6 +434,39 @@ An exit requested during entry remains queued in Electron even after an explicit
@@ -167,10 +167,10 @@ index eb625a2ed..5904d53f3 100644
 +  ]);
 +});
 diff --git a/packages/electron/main.mjs b/packages/electron/main.mjs
-index b7f31e017..3e7451ea1 100644
+index 45064a843..6290c928d 100644
 --- a/packages/electron/main.mjs
 +++ b/packages/electron/main.mjs
-@@ -20,9 +20,10 @@ import { persistMainWindowState } from './window-state.mjs';
+@@ -23,9 +23,10 @@ import { createContextWindowController } from './context-window-controller.mjs';
  import { createWindowGeometryState } from './window-geometry-state.mjs';
  import { attachWindowEvents, isNativeWindowVisible } from './window-events.mjs';
  import { createTrayController, createTrayLocaleRouter } from './tray.mjs';
@@ -183,7 +183,7 @@ index b7f31e017..3e7451ea1 100644
  import { attachDevWindowTape } from './dev-window-tape.mjs';
  import { resolveManagedOpenCodeCwd } from './opencode-cwd.mjs';
  import { stopEmbeddedServer } from './server-shutdown.mjs';
-@@ -1788,7 +1789,6 @@ const setTaskbarProgress = (value) => {
+@@ -1800,7 +1801,6 @@ const setTaskbarProgress = (value) => {
  const pendingDeepLinks = [];
  let pendingMarkAllRead = process.platform === 'win32' && process.argv.includes('--mark-all-read');
  let mainWindowTrayActionsReady = false;
@@ -191,7 +191,7 @@ index b7f31e017..3e7451ea1 100644
  const PENDING_SESSION_LINK_FALLBACK_MS = 10_000;
  
  const sessionDeepLinkTarget = (link) => {
-@@ -1796,7 +1796,7 @@ const sessionDeepLinkTarget = (link) => {
+@@ -1808,7 +1808,7 @@ const sessionDeepLinkTarget = (link) => {
    if (readDeepLinkQueryParam(link.raw, 'source') === 'jump-list') target.requireKnownSession = true;
    const messageId = readDeepLinkQueryParam(link.raw, 'message');
    if (messageId) target.messageId = messageId;
@@ -200,7 +200,7 @@ index b7f31e017..3e7451ea1 100644
    if (runtimeKey) target.runtimeKey = runtimeKey;
    return target;
  };
-@@ -2475,14 +2475,16 @@ const createBrowserWindow = ({ label, restoreGeometry, url, runtimeConfig = {},
+@@ -2487,14 +2487,16 @@ const createBrowserWindow = ({ label, restoreGeometry, url, runtimeConfig = {},
  
      debounceWindowStatePersist(browserWindow, true);
    });
@@ -208,17 +208,18 @@ index b7f31e017..3e7451ea1 100644
    browserWindow.on('closed', () => {
      windowGeometryState.cancel(browserWindow);
 -    state.focusedWindowIds.delete(browserWindow.id);
+-    if (state.mainWindow && browserWindow.id === state.mainWindow.id) {
 +    state.focusedWindowIds.delete(closedWindowId);
-     if (state.mainWindow && browserWindow.id === state.mainWindow.id) {
++    if (state.mainWindow && closedWindowId === state.mainWindow.id) {
        mainWindowTrayActionsReady = false;
        mainWindowSessionLinkGate.documentReplaced();
        state.mainWindow = null;
      }
 +    trayRouting.forgetWindow(closedWindowId);
-     if (BrowserWindow.getAllWindows().length === 0) {
+     if (BrowserWindow.getAllWindows().every((window) => window.__ocIdleUpdate)) {
        if (process.platform !== 'darwin') {
          if (state.updateInstallPending) {
-@@ -2550,6 +2552,7 @@ const createBrowserWindow = ({ label, restoreGeometry, url, runtimeConfig = {},
+@@ -2562,6 +2564,7 @@ const createBrowserWindow = ({ label, restoreGeometry, url, runtimeConfig = {},
  
    browserWindow.webContents.on('did-navigate', (_event, url) => {
      if (!isAppUiNavigationTarget(url)) browserWindow.__ocRuntimeKey = null;
@@ -226,7 +227,7 @@ index b7f31e017..3e7451ea1 100644
      if (browserWindow === state.mainWindow) mainWindowSessionLinkGate.documentReplaced();
    });
    browserWindow.webContents.on('did-start-navigation', (details) => {
-@@ -3746,7 +3749,21 @@ const closeAllDevTunnels = () => {
+@@ -3722,7 +3725,21 @@ const closeAllDevTunnels = () => {
    pending.then((client) => client.closeAll()).catch(() => {});
  };
  
@@ -246,9 +247,9 @@ index b7f31e017..3e7451ea1 100644
 +  })?.id || readTrimmedString(BrowserWindow.fromId(owner.windowId)?.__ocHostWindowId),
 +});
  
- const handleInvoke = async (browserWindow, command, args = {}) => {
-   switch (command) {
-@@ -4204,6 +4221,7 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
+ const contextWindows = createContextWindowController({ BrowserWindow, createBrowserWindow, nextWindowLabel, resolveRuntimeConfig: resolveMiniChatRuntimeConfig, mutateSettingsRoot, emitToWindow, isQuitting: () => state.quitRequested, isMainWindow: (browserWindow) => browserWindow === state.mainWindow, isBrowserPanelPopup: (browserWindow) => isBrowserPanelPopup(browserWindow), log });
+ 
+@@ -4173,6 +4190,7 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
      case 'desktop_set_window_runtime_key': {
        if (browserWindow && !browserWindow.isDestroyed()) {
          browserWindow.__ocRuntimeKey = readTrimmedString(args.runtimeKey);
@@ -256,7 +257,7 @@ index b7f31e017..3e7451ea1 100644
        }
        return null;
      }
-@@ -4236,41 +4254,8 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
+@@ -4205,41 +4223,8 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
        return null;
  
      case 'desktop_tray_update':
@@ -300,7 +301,7 @@ index b7f31e017..3e7451ea1 100644
        return null;
  
      case 'desktop_clear_cache':
-@@ -5490,6 +5475,7 @@ const setupTray = () => {
+@@ -5434,6 +5419,7 @@ const setupTray = () => {
        state.trayFocusListener = (_event, browserWindow) => {
          if (browserWindow && !browserWindow.isDestroyed()) {
            state.lastFocusedWindowId = browserWindow.id;
@@ -308,7 +309,7 @@ index b7f31e017..3e7451ea1 100644
          }
        };
        app.on('browser-window-focus', state.trayFocusListener);
-@@ -5513,22 +5499,30 @@ const revealMainWindow = async () => {
+@@ -5457,22 +5443,30 @@ const revealMainWindow = async () => {
    return target;
  };
  
@@ -349,7 +350,7 @@ index b7f31e017..3e7451ea1 100644
  
    if (action.type === 'menu-opened') {
      const target = state.mainWindow;
-@@ -5583,16 +5577,14 @@ const dispatchTrayAction = async (action) => {
+@@ -5527,16 +5521,14 @@ const dispatchTrayAction = async (action) => {
    if (action.type === 'focus-session') {
      const surface = resolveTraySurface();
      if (surface && surface.__ocMiniChat === true && action.sessionId) {
@@ -968,10 +969,10 @@ index 000000000..a576eddf7
 +  };
 +};
 diff --git a/packages/ui/src/components/sections/DOCUMENTATION.md b/packages/ui/src/components/sections/DOCUMENTATION.md
-index db9c71eb6..f37d865cf 100644
+index 728c3d9fb..3c0529dde 100644
 --- a/packages/ui/src/components/sections/DOCUMENTATION.md
 +++ b/packages/ui/src/components/sections/DOCUMENTATION.md
-@@ -944,6 +944,7 @@ the browser, and a second meaning there confuses both.
+@@ -984,6 +984,7 @@ the browser, and a second meaning there confuses both.
  - Re-importing pairing updates the matching server record. Renaming preserves relay credentials and learned addresses; relay-only transport changes require fresh pairing.
  - Pairing auto-close requires successful reads that first see the session and later see it disappear. Failure retains the list; only a matching redeemed client produces a success notification.
  - Device labels name this server's device-list entry; exported connection labels name the issuing server. Dense pairing payloads use high-resolution QR output with low error correction.
@@ -1088,10 +1089,10 @@ index 756b5c957..93cb68299 100644
          await desktopHostsSet({
            hosts: config.hosts,
 diff --git a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-index e2d752f7c..735e77964 100644
+index dbd584393..34a11fbb7 100644
 --- a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
 +++ b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-@@ -1872,3 +1872,20 @@ from about 420 to 285 ms; time in tasks over 50 ms fell by 37 percent. What
+@@ -1915,3 +1915,20 @@ from about 420 to 285 ms; time in tasks over 50 ms fell by 37 percent. What
  still rebuilds the derived indexes at a turn's start and end is the ordering
  store: a session going active and settling again publishes new ranks, and
  group order reads those ranks too.
@@ -1112,113 +1113,36 @@ index e2d752f7c..735e77964 100644
 +The parity test (`hooks/useTraySync.test.tsx`, *tray rows follow the sidebar row rule*) renders one fixture per kind of session the tray meets and checks the tray's rows against both the shared rule and the sidebar's projection. Rejected: a tray-side copy of the rule (`sessionHasSidebarRow`), which had fallen behind on nesting and space ownership.
 +
 +The tray rebuilds the tree only when one of its inputs changes (global active and archived sessions, projects, worktrees, spaces, OpenCode's projects, the directory stores' sessions): the 5 s poll and flushes for status or quota changes reuse it.
+diff --git a/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx b/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx
+index 9562a81d5..3410b95e9 100644
+--- a/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx
++++ b/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx
+@@ -730,7 +730,6 @@ const VisibleSessionProjects: React.FC<VisibleSessionProjectsProps> = ({ topolog
+   }, [sectionCandidates]);
+   const projectIds = React.useMemo(() => new Set(projectSections.map((section) => section.project.id)), [projectSections]);
+   const membership = React.useMemo(() => {
+-    const context = { sessionById: collection.sessionById, childrenMap: collection.childrenMap, runKeyBySessionId, live: liveFacts, planSessionIds, folderByMember };
+     const factsByKey = new Map<string, SidebarWorkFacts>();
+     return resolveSidebarSectionMembership({
+       sections: visibleSections,
 diff --git a/packages/ui/src/components/session/sidebar/list/sessionCollection.ts b/packages/ui/src/components/session/sidebar/list/sessionCollection.ts
-index b3ab7373c..2b7b1954c 100644
+index 31cf3546e..6d0b0ac37 100644
 --- a/packages/ui/src/components/session/sidebar/list/sessionCollection.ts
 +++ b/packages/ui/src/components/session/sidebar/list/sessionCollection.ts
-@@ -8,20 +8,25 @@ import {
- } from '@/sync/session-ordering';
- import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
- import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
--import { resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
--import { normalizePath } from '../utils';
--import { isChatDirectoryPath } from '@/lib/chatDirectories';
--import { isVSCodeWithoutWorkspace } from '@/lib/vscodeBootstrap';
--import { isSpaceDirectory } from '@/lib/spaces/space-route';
--import { isBtwSession } from '@/lib/sessionBtwMetadata';
--import { resolveSessionNestingParentId } from '@/lib/sessionWorkLineage';
+@@ -19,6 +19,12 @@ import { isSubagentSession, resolveSessionNestingParentId } from '@/lib/sessionW
  import type { GlobalSessionStructure } from '@/stores/globalSessionStructure';
  import { countSyncPerformance } from '@/sync/performance-diagnostics';
+ import type { ProjectSortOrder } from '@/stores/useSessionDisplayStore';
 +import {
 +  buildSidebarSessionTree,
 +  collectNestedSessionIds,
 +  filterSidebarArchivedSessions,
-+  isKnownActiveSessionDirectory,
-+  keepKnownSessionsWithDescendants,
-+  partitionSidebarSessions,
 +  toKnownDirectoryKeys,
-+  type SidebarSessionTree,
 +} from './sidebarSessionTree';
- import type { ProjectSortOrder } from '@/stores/useSessionDisplayStore';
  import { haveSameSidebarHierarchy, haveSameSidebarStructure } from './sidebarStructureKey';
  import { useSidebarReadsActivityTime } from './useSidebarReadsActivityTime';
  import type { SessionNode } from '../types';
- 
-+export { partitionSidebarSessions };
-+
- type ProjectSidebarActiveSessionsArgs = {
-   globalActiveSessions: Session[];
-   liveSessions: Session[];
-@@ -29,68 +34,6 @@ type ProjectSidebarActiveSessionsArgs = {
-   isVSCode: boolean;
- };
- 
--type SidebarSessionPartitions = {
--  projectSessions: Session[];
--  chatSessions: Session[];
--};
--
--const nestingParentResolver = (sessionById: ReadonlyMap<string, Session>) => (
--  (session: Session): string | null => resolveSessionNestingParentId(session, (id) => sessionById.get(id))
--);
--
--export const partitionSidebarSessions = (
--  sessions: readonly Session[],
--  isVSCode: boolean,
--): SidebarSessionPartitions => {
--  const projectSessions: Session[] = [];
--  const chatSessions: Session[] = [];
--  const excludeChats = isVSCode && !isVSCodeWithoutWorkspace();
--  for (const session of sessions) {
--    if (isBtwSession(session)) continue;
--    if (isChatDirectoryPath(session.directory)) {
--      if (excludeChats) continue;
--      chatSessions.push(session);
--      continue;
--    }
--    projectSessions.push(session);
--  }
--  return { projectSessions, chatSessions };
--};
--
--
--const isKnownActiveSessionDirectory = (
--  session: Session,
--  knownDirectories: Set<string>,
--  isVSCode: boolean,
--): boolean => {
--  const normalized = normalizePath(resolveGlobalSessionDirectory(session));
--  const directory = isVSCode ? normalized?.toLowerCase() : normalized;
--  if (!directory) return false;
--  if (!isVSCode && isSpaceDirectory(directory)) return true;
--  if (knownDirectories.size === 0) return false;
--  return knownDirectories.has(directory) || (!isVSCode && [...knownDirectories].some((root) => directory.startsWith(root.endsWith('/') ? root : `${root}/`)));
--};
--
--const keepKnownSessionsWithDescendants = (
--  sessions: readonly Session[],
--  isKnown: (session: Session) => boolean,
--  anchors: readonly Session[],
--): Session[] => {
--  const sessionById = new Map([...anchors, ...sessions].map((session) => [session.id, session]));
--  const nestingParentOf = nestingParentResolver(sessionById);
--  const kept = new Map<string, boolean>(anchors.map((anchor) => [anchor.id, true]));
--  const keeps = (session: Session): boolean => {
--    const cached = kept.get(session.id);
--    if (cached !== undefined) return cached;
--    kept.set(session.id, false);
--    const parent = isKnown(session) ? null : sessionById.get(nestingParentOf(session) ?? '');
--    const result = parent === null || Boolean(parent && keeps(parent));
--    kept.set(session.id, result);
--    return result;
--  };
--  return sessions.filter(keeps);
--};
--
- export const projectSidebarActiveSessions = ({
-   globalActiveSessions,
-   liveSessions,
-@@ -99,7 +42,7 @@ export const projectSidebarActiveSessions = ({
+@@ -112,7 +118,7 @@ export const projectSidebarActiveSessions = ({
  }: ProjectSidebarActiveSessionsArgs): Session[] => {
    const sessions = [...globalActiveSessions];
    const knownIds = new Set(globalActiveSessions.map((session) => session.id));
@@ -1227,7 +1151,7 @@ index b3ab7373c..2b7b1954c 100644
  
    for (const session of liveSessions) {
      if (knownIds.has(session.id)) continue;
-@@ -118,20 +61,6 @@ export const projectSidebarCollection = (args: ProjectSidebarActiveSessionsArgs)
+@@ -132,20 +138,6 @@ export const projectSidebarCollection = (args: ProjectSidebarActiveSessionsArgs)
    return projectSidebarActiveSessions(args);
  };
  
@@ -1248,7 +1172,7 @@ index b3ab7373c..2b7b1954c 100644
  export const getDescendantIds = (
    childrenMap: ReadonlyMap<string, readonly Session[]>,
    sessionId: string,
-@@ -172,46 +101,10 @@ type SidebarSessionProjectionArgs = ProjectSidebarActiveSessionsArgs & {
+@@ -192,48 +184,10 @@ type SidebarSessionProjectionArgs = ProjectSidebarActiveSessionsArgs & {
    sessionOrderRanks: ReadonlyMap<string, number>;
  };
  
@@ -1262,6 +1186,7 @@ index b3ab7373c..2b7b1954c 100644
 -  liveSessions,
 -  knownDirectories,
 -  isVSCode,
+-  nestedSessionOwners,
 -  globalStructure,
 -}: SidebarSessionStructureArgs) => {
 -  countSyncPerformance('sidebarStructureBuilds');
@@ -1271,7 +1196,8 @@ index b3ab7373c..2b7b1954c 100644
 -  const knownDirectoryKeys = new Set([...knownDirectories].map((directory) => isVSCode ? directory.toLowerCase() : directory));
 -  const projectSessions = keepKnownSessionsWithDescendants(
 -    partition.projectSessions,
--    (session) => isKnownActiveSessionDirectory(session, knownDirectoryKeys, isVSCode),
+-    (session) => isKnownActiveSessionDirectory(session, knownDirectoryKeys, isVSCode)
+-      || (!isVSCode && hasExactActiveAssociation(session, nestedSessionOwners)),
 -    partition.chatSessions,
 -  );
 -  const sessions = [...projectSessions, ...partition.chatSessions];
@@ -1292,11 +1218,11 @@ index b3ab7373c..2b7b1954c 100644
  
  const orderSidebarSessionStructure = (
 -  structure: ReturnType<typeof buildSidebarSessionStructure>,
-+  structure: SidebarSessionTree,
++  structure: ReturnType<typeof buildSidebarSessionTree>,
    pinnedSessionIds: Set<string>,
    sessionOrderRanks: ReadonlyMap<string, number>,
  ) => {
-@@ -222,9 +115,8 @@ const orderSidebarSessionStructure = (
+@@ -244,9 +198,8 @@ const orderSidebarSessionStructure = (
      structure.hierarchy,
    );
    const childrenMap = new Map<string, Session[]>();
@@ -1307,16 +1233,16 @@ index b3ab7373c..2b7b1954c 100644
      if (!parentID) continue;
      const siblings = childrenMap.get(parentID) ?? [];
      siblings.push(session);
-@@ -245,7 +137,7 @@ export const buildSidebarSessionProjection = ({
-   pinnedSessionIds,
+@@ -268,7 +221,7 @@ export const buildSidebarSessionProjection = ({
    sessionOrderRanks,
+   nestedSessionOwners,
  }: SidebarSessionProjectionArgs) => {
 -  const structure = buildSidebarSessionStructure({
 +  const structure = buildSidebarSessionTree({
      globalActiveSessions,
      liveSessions,
      knownDirectories,
-@@ -302,12 +194,10 @@ export const useSessionProjectCollection = ({
+@@ -327,12 +280,10 @@ export const useSessionProjectCollection = ({
    const globalActiveSessions = useStructurallyStableSessions(useGlobalSessionsStore((state) => state.activeSessions), readsActivityTime);
    const globalStructure = useStableHierarchy(useGlobalSessionsStore((state) => state.structure));
    const rawArchivedSessions = useGlobalSessionsStore((state) => state.archivedSessions);
@@ -1333,7 +1259,7 @@ index b3ab7373c..2b7b1954c 100644
    const hasAuthoritativeGlobalSessions = useGlobalSessionsStore((state) => state.status === 'ready');
    const pinnedSessionIds = useSessionPinnedStore((state) => state.ids);
    const sessionOrderRanks = useSessionOrderingStore(React.useCallback(
-@@ -319,7 +209,7 @@ export const useSessionProjectCollection = ({
+@@ -344,7 +295,7 @@ export const useSessionProjectCollection = ({
      [globalActiveSessions, rawArchivedSessions],
    );
    const liveGapSessions = useLiveSessionsExcluding(globalSessionIds);
@@ -1342,7 +1268,7 @@ index b3ab7373c..2b7b1954c 100644
      globalActiveSessions,
      globalStructure,
      liveSessions: liveGapSessions,
-@@ -355,14 +245,10 @@ export const useSessionProjectCollection = ({
+@@ -381,14 +332,10 @@ export const useSessionProjectCollection = ({
      }
      return children;
    }, [archivedSessions, ordering.childrenMap]);
@@ -1426,10 +1352,10 @@ index 000000000..edf8e5583
 +});
 diff --git a/packages/ui/src/components/session/sidebar/list/sidebarSessionTree.ts b/packages/ui/src/components/session/sidebar/list/sidebarSessionTree.ts
 new file mode 100644
-index 000000000..1e42330e2
+index 000000000..55eb5a3c7
 --- /dev/null
 +++ b/packages/ui/src/components/session/sidebar/list/sidebarSessionTree.ts
-@@ -0,0 +1,226 @@
+@@ -0,0 +1,239 @@
 +import type { Session } from '@/lib/opencode/model';
 +import { resolveGlobalSessionDirectory } from '@/stores/globalSessionStructure';
 +import type { GlobalSessionStructure } from '@/stores/globalSessionStructure';
@@ -1442,12 +1368,14 @@ index 000000000..1e42330e2
 +import { DEFAULT_PIN_LIST } from '@/lib/sidebarSections';
 +import { resolveSessionNestingParentId } from '@/lib/sessionWorkLineage';
 +import { countSyncPerformance } from '@/sync/performance-diagnostics';
++import type { ReadOnlySessionAssociation } from '@/lib/worktrees/readOnlySessionAssociation';
 +
 +type SidebarSessionTreeInput = {
 +  globalActiveSessions?: readonly Session[];
 +  liveSessions: readonly Session[];
 +  knownDirectories: Set<string>;
 +  isVSCode: boolean;
++  nestedSessionOwners?: ReadonlyMap<string, ReadOnlySessionAssociation>;
 +  globalStructure?: GlobalSessionStructure;
 +};
 +
@@ -1496,6 +1424,15 @@ index 000000000..1e42330e2
 +  return knownDirectories.has(directory) || (!isVSCode && [...knownDirectories].some((root) => directory.startsWith(root.endsWith('/') ? root : `${root}/`)));
 +};
 +
++const hasExactActiveAssociation = (
++  session: Session,
++  nestedSessionOwners: ReadonlyMap<string, ReadOnlySessionAssociation> | undefined,
++): boolean => {
++  if (session.time?.archived || session.parentID) return false;
++  const association = nestedSessionOwners?.get(session.id);
++  return Boolean(association && normalizePath(resolveGlobalSessionDirectory(session)) === normalizePath(association.directory));
++};
++
 +export const keepKnownSessionsWithDescendants = (
 +  sessions: readonly Session[],
 +  isKnown: (session: Session) => boolean,
@@ -1535,6 +1472,7 @@ index 000000000..1e42330e2
 +  liveSessions,
 +  knownDirectories,
 +  isVSCode,
++  nestedSessionOwners,
 +  globalStructure,
 +}: SidebarSessionTreeInput) => {
 +  countSyncPerformance('sidebarStructureBuilds');
@@ -1544,7 +1482,8 @@ index 000000000..1e42330e2
 +  const knownDirectoryKeys = toKnownDirectoryKeys(knownDirectories, isVSCode);
 +  const projectSessions = keepKnownSessionsWithDescendants(
 +    partition.projectSessions,
-+    (session) => isKnownActiveSessionDirectory(session, knownDirectoryKeys, isVSCode),
++    (session) => isKnownActiveSessionDirectory(session, knownDirectoryKeys, isVSCode)
++      || (!isVSCode && hasExactActiveAssociation(session, nestedSessionOwners)),
 +    partition.chatSessions,
 +  );
 +  const sessions = [...projectSessions, ...partition.chatSessions];
@@ -1657,10 +1596,10 @@ index 000000000..1e42330e2
 +  return { rootIds, rootOf };
 +};
 diff --git a/packages/ui/src/hooks/DOCUMENTATION.md b/packages/ui/src/hooks/DOCUMENTATION.md
-index 37b7b308e..781534e9c 100644
+index b01d471d8..7c5eabbc6 100644
 --- a/packages/ui/src/hooks/DOCUMENTATION.md
 +++ b/packages/ui/src/hooks/DOCUMENTATION.md
-@@ -112,6 +112,8 @@ A hook here owns the lifetime of what it subscribes to. Mechanics that another m
+@@ -120,6 +120,8 @@ A hook here owns the lifetime of what it subscribes to. Mechanics that another m
  ### Desktop and mobile platform
  
  - The tray and dock badge admit only sessions with a sidebar row. Sessions from unconfigured directories cannot be opened or cleared from there, and pending approvals follow the same rule.
@@ -1670,7 +1609,7 @@ index 37b7b308e..781534e9c 100644
  - Push visibility on the native app follows `App.appStateChange`. Web visibility signals are unreliable in a WKWebView, where `hasFocus()` can report false while the app is active, which leaked push notifications.
  - iOS grants `navigator.wakeLock` only inside a tap, so the native app uses its own idle-timer plugin. Android drops the wake lock when the app leaves the screen, so it is requested again on visibility.
 diff --git a/packages/ui/src/hooks/useTraySync.test.tsx b/packages/ui/src/hooks/useTraySync.test.tsx
-index e1a7769ad..d09bd54d5 100644
+index 949a09ac0..d795b12da 100644
 --- a/packages/ui/src/hooks/useTraySync.test.tsx
 +++ b/packages/ui/src/hooks/useTraySync.test.tsx
 @@ -13,9 +13,19 @@ import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
@@ -1900,10 +1839,10 @@ index e1a7769ad..d09bd54d5 100644
 +  });
 +});
 diff --git a/packages/ui/src/hooks/useTraySync.ts b/packages/ui/src/hooks/useTraySync.ts
-index 3a23de3ac..44377ead0 100644
+index 9e4567d4f..aba51f39f 100644
 --- a/packages/ui/src/hooks/useTraySync.ts
 +++ b/packages/ui/src/hooks/useTraySync.ts
-@@ -3,7 +3,7 @@ import type { Session } from '@/lib/opencode/model';
+@@ -4,7 +4,7 @@ import type { Session } from '@/lib/opencode/model';
  import { canUseElectronDesktopIPC, invokeDesktop, isDesktopLocalOriginActive } from '@/lib/desktop';
  import { getRuntimeApiBaseUrl } from '@/lib/runtime-switch';
  import { desktopHostsGet, getDesktopHostApiUrl, locationMatchesHost, redactSensitiveUrl } from '@/lib/desktopHosts';
@@ -1912,7 +1851,7 @@ index 3a23de3ac..44377ead0 100644
  import { useBackgroundShellsStore } from '@/sync/background-shells';
  import { useBackgroundImagesStore } from '@/sync/background-images';
  import { collectOpenTurnSessionIds, useGlobalSessionStatusStore } from '@/sync/global-session-status';
-@@ -25,7 +25,6 @@ import {
+@@ -26,7 +26,6 @@ import {
    ensureGlobalSessionsLoaded,
    resolveGlobalSessionDirectory,
  } from '@/stores/useGlobalSessionsStore';
@@ -1920,7 +1859,7 @@ index 3a23de3ac..44377ead0 100644
  import { refreshTrayQuotas, useQuotaStore } from '@/stores/useQuotaStore';
  import { useConfigStore } from '@/stores/useConfigStore';
  import { formatWindowLabel, formatQuotaWindowValueLabel, quotaProviderList } from '@/lib/quota';
-@@ -37,11 +36,19 @@ import { useUIStore } from '@/stores/useUIStore';
+@@ -38,11 +37,19 @@ import { useUIStore } from '@/stores/useUIStore';
  import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
  import { resolveProjectForSessionDirectory, normalizeProjectPath } from '@/lib/projectResolution';
  import { isSessionDirectoryAdmitted } from '@/sync/session-admission-rule';
@@ -1944,7 +1883,7 @@ index 3a23de3ac..44377ead0 100644
  import { findWorktreeHoldingDirectory } from '@/lib/worktrees/worktreePaths';
  import type { ProjectEntry } from '@/lib/api/types';
  import type { WorktreeMetadata } from '@/types/worktree';
-@@ -119,6 +126,11 @@ const formLabel = (request: BlockingFormRequest): string => request.title.trim()
+@@ -120,6 +127,11 @@ const formLabel = (request: BlockingFormRequest): string => request.title.trim()
  
  const NO_PINNED_SESSIONS = new Set<string>();
  
@@ -1956,7 +1895,7 @@ index 3a23de3ac..44377ead0 100644
  const compareSessionOrder = (left: Session, right: Session): number => (
    compareSessionsByLifecycleOrder(
      left,
-@@ -216,6 +228,7 @@ type LiveData = {
+@@ -217,6 +229,7 @@ type LiveData = {
    branchByDirectory: Map<string, string>;
    approvals: TrayApproval[];
    titleById: Map<string, string>;
@@ -1964,7 +1903,7 @@ index 3a23de3ac..44377ead0 100644
  };
  
  const collectLiveData = (): LiveData => {
-@@ -223,16 +236,18 @@ const collectLiveData = (): LiveData => {
+@@ -224,16 +237,18 @@ const collectLiveData = (): LiveData => {
    const branchByDirectory = new Map<string, string>();
    const approvals: TrayApproval[] = [];
    const titleById = new Map<string, string>();
@@ -1984,7 +1923,7 @@ index 3a23de3ac..44377ead0 100644
      if (state.vcs?.branch) branchByDirectory.set(normalizeProjectPath(directory) ?? directory, state.vcs.branch);
  
      for (const session of state.session) {
-@@ -263,42 +278,56 @@ const collectLiveData = (): LiveData => {
+@@ -264,42 +279,56 @@ const collectLiveData = (): LiveData => {
      }
    }
  
@@ -2069,7 +2008,7 @@ index 3a23de3ac..44377ead0 100644
  
    const openTurnIds = collectOpenTurnSessionIds(useGlobalSessionStatusStore.getState().activeSessionIds, [
      useWorkflowActivityStore.getState().runningSessionIds,
-@@ -309,8 +338,11 @@ const buildSnapshot = (instanceName: string, includeTray: boolean): TraySnapshot
+@@ -310,8 +339,11 @@ const buildSnapshot = (instanceName: string, includeTray: boolean): TraySnapshot
    ]);
    const hasUnreadTurn = (session: Session): boolean => isSessionUnread(session) && !openTurnIds.has(session.id);
  
@@ -2083,7 +2022,7 @@ index 3a23de3ac..44377ead0 100644
      : [];
    const dockBadgeCount = dockUnread.length;
    const dockUnreadSessions = dockUnread
-@@ -334,6 +366,16 @@ const buildSnapshot = (instanceName: string, includeTray: boolean): TraySnapshot
+@@ -335,6 +367,16 @@ const buildSnapshot = (instanceName: string, includeTray: boolean): TraySnapshot
      return globalStatusById.get(id)?.status.type ?? fromStores ?? 'idle';
    };
  
@@ -2100,7 +2039,7 @@ index 3a23de3ac..44377ead0 100644
    const rollupStatus = (family: string[]): TraySessionStatus => {
      const statuses = family.map((id) => resolveStatus(id));
      if (statuses.includes('busy')) return 'busy';
-@@ -341,22 +383,21 @@ const buildSnapshot = (instanceName: string, includeTray: boolean): TraySnapshot
+@@ -342,22 +384,21 @@ const buildSnapshot = (instanceName: string, includeTray: boolean): TraySnapshot
      return 'idle';
    };
  
@@ -2130,7 +2069,7 @@ index 3a23de3ac..44377ead0 100644
          directory,
          subtitle: resolveSessionSubtitle(directory, session, projects, worktreesByProject, live.branchByDirectory),
        };
-@@ -366,12 +407,13 @@ const buildSnapshot = (instanceName: string, includeTray: boolean): TraySnapshot
+@@ -367,12 +408,13 @@ const buildSnapshot = (instanceName: string, includeTray: boolean): TraySnapshot
    const seen = new Set(approvals.map((a) => a.id));
    for (const [sessionId, pending] of useGlobalBlockingRequestsStore.getState().bySession) {
      const sessionTitle = titleById.get(sessionId) || '';
@@ -2146,7 +2085,7 @@ index 3a23de3ac..44377ead0 100644
        if (seen.has(request.id)) continue;
        seen.add(request.id);
        approvals.push({ kind: 'form', id: request.id, sessionId, sessionTitle, label: formLabel(request), directory: pending.directory, canSave: false });
-@@ -426,24 +468,29 @@ export const useTraySync = (): void => {
+@@ -428,24 +470,29 @@ export const useTraySync = (): void => {
      const unsubscribePrWatches = usePrWatchStore.subscribe(() => scheduleFlush());
      const unsubscribeExtensionWaits = useExtensionWaitsStore.subscribe(() => scheduleFlush());
      const unsubscribeUI = useUIStore.subscribe((state, previous) => {
@@ -2182,7 +2121,7 @@ index 3a23de3ac..44377ead0 100644
        unsubscribeGlobal();
        unsubscribeLocale();
        unsubscribeGlobalStatus();
-@@ -457,6 +504,8 @@ export const useTraySync = (): void => {
+@@ -459,6 +506,8 @@ export const useTraySync = (): void => {
        unsubscribeWorktrees();
        unsubscribePins();
        unsubscribeSections();
@@ -2259,10 +2198,10 @@ index c0f21e5f3..74ea566b5 100644
      const entry = journey?.get(mark.id);
      return entry ? { ...mark, taskTitle: entry.taskTitle ?? null } : mark;
 diff --git a/packages/ui/src/sync/DOCUMENTATION.md b/packages/ui/src/sync/DOCUMENTATION.md
-index 476f54835..da2de0764 100644
+index 15d0259b8..8855b55db 100644
 --- a/packages/ui/src/sync/DOCUMENTATION.md
 +++ b/packages/ui/src/sync/DOCUMENTATION.md
-@@ -1109,6 +1109,10 @@ The index was written only by lifecycle events and the host seed, so a reply who
+@@ -1176,6 +1176,10 @@ Pending permissions and forms get the same treatment in `global-blocking-request
  
  The host owns waiting pages directly, so its complete `pending` map is authoritative for its own page waits. `readHostBlockingRequestsSnapshot` clears pages omitted from that map and overlays page events received during the read, including a settlement whose ask never reached this client. Otherwise a delayed snapshot can resurrect an answered page, and a lost settlement leaves a question badge indefinitely. Observers live only for the read and runtime reset invalidates them. Unchanged entries keep their references. Failed reads and hosts that omit `pending` clear nothing; isolated-space page waits belong to their own server and are left untouched. Forms and permissions remain additive because their host map only forwards OpenCode events and can itself miss a settlement.
  
@@ -2273,7 +2212,7 @@ index 476f54835..da2de0764 100644
  A `permission.asked` in a session whose permission mode answers without the user (`auto`, or `safety` while a classification provider can run) is held back in `handleEvent`: no card, no row badge, no toast, and no entry in the cross-directory blocking-request index (which feeds collapsed rows, the tray and run overviews), so a request the server accepts never flashes on screen. The replay for the user applies global effects, which adds it to the index then. The host seed is not filtered this way: a page loaded while the server is still classifying a request can show it until the server answers. The server reports a request it did not answer (the safety net held it, Jev failed, or the reply failed) as `openchamber.permission-left-for-user`; the held-back event is then replayed as an `ask` request, stored and announced, in a directory with or without a store. `permission.replied` drops a held-back request. A report that arrives before its request is remembered (bounded), and that request is shown at once. VS Code never holds back: its extension host answers in the webview. A request held back while the client disconnects reaches the store through reconnect reconciliation, which does not consult the mode.
  
  Holding back is only safe while the client hears both the modes and the reports. The main event stream carries them only over the WebSocket; over SSE it is OpenCode's own stream. So the server also sends `openchamber:permission-auto-accept.updated` and `.left-for-user` on the control stream, which every web, desktop and mobile window keeps open, and `subscribePermissionPolicySync` (`permission-mode-sync.ts`) feeds them into `handleEvent`. Over the WebSocket each arrives twice; a second policy of the same revision and a second report for a request already shown change nothing. Each connection of the control stream reads the modes again, the host's (`usePermissionStore.hydrate`) and each known space's (`refreshSpaceModes`): a mode changed in another window while this one was cut off was never announced to it, and a stale `auto` would hide every request of that session for the life of the window. The host's `openchamber:space-permission-stream` announcement re-reads that space's modes from the control stream too.
-@@ -1236,7 +1240,7 @@ Live activity/status indicators must not depend on this cache. They must use the
+@@ -1303,7 +1307,7 @@ Live activity/status indicators must not depend on this cache. They must use the
  
  ### Unread sessions
  
@@ -2330,10 +2269,10 @@ index 000000000..7988e484a
 +  })
 +})
 diff --git a/packages/ui/src/sync/session-actions.test.ts b/packages/ui/src/sync/session-actions.test.ts
-index 102c6d2fc..5eb476b58 100644
+index a0900f033..270bbac1a 100644
 --- a/packages/ui/src/sync/session-actions.test.ts
 +++ b/packages/ui/src/sync/session-actions.test.ts
-@@ -2552,6 +2552,23 @@ describe("respondToPermission passes directory", () => {
+@@ -2581,6 +2581,23 @@ describe("respondToPermission passes directory", () => {
      expect(replyCalls.filter((call) => call.method === "permission.reply").map((call) => call.params.directory)).toEqual(["/test/project/wt"])
    })
  
@@ -2357,11 +2296,45 @@ index 102c6d2fc..5eb476b58 100644
    test("a failed record read sends nothing and keeps the permission pending (#6555)", async () => {
      const permission = buildPermission("perm-unread", "session-unread")
      const store = createStore({ "session-unread": [permission] })
+diff --git a/packages/ui/src/sync/session-actions.ts b/packages/ui/src/sync/session-actions.ts
+index 4bcd7302f..cb89ebf4e 100644
+--- a/packages/ui/src/sync/session-actions.ts
++++ b/packages/ui/src/sync/session-actions.ts
+@@ -1,5 +1,6 @@
+ 
+ import { compact, partIds, type FilePart, type FormRequest, type Message, type Metadata, type ModelSelection, type Part, type PermissionRequest, type Session, type SyntheticMessage, type TextPart, type UserMessage } from "@/lib/opencode/model"
++import { settleGlobalBlockingRequest } from "./global-blocking-requests"
+ import { readSubagentRun } from "@/lib/opencode/subagent-run"
+ import { attachmentBasename, withMissingCitations } from "@/lib/attachmentIdentity"
+ import { isAutoModel } from "@/lib/routing/autoModel"
+@@ -2087,6 +2088,7 @@ export async function respondToPermission(
+   } catch (error) {
+     if (isPermissionRequestNotFoundError(error)) {
+       removePermissionRequestFromChildStores(sessionId, requestId)
++      settleGlobalBlockingRequest("permission", sessionId, requestId)
+     }
+     throw error
+   }
+@@ -2108,6 +2110,7 @@ export async function dismissPermission(
+   } catch (error) {
+     if (isPermissionRequestNotFoundError(error)) {
+       removePermissionRequestFromChildStores(sessionId, requestId)
++      settleGlobalBlockingRequest("permission", sessionId, requestId)
+     }
+     throw error
+   }
+@@ -2793,4 +2796,4 @@ export async function fetchMessagesForSession(sessionID: string, directory?: str
+     { directory: resolvedDir, sessionID },
+     { reason: "navigation" },
+   )
+-}
++}
+\ No newline at end of file
 diff --git a/packages/ui/src/sync/sync-event-dispatch.ts b/packages/ui/src/sync/sync-event-dispatch.ts
-index bd316be4a..1642bd7f4 100644
+index 2f992101a..9c6a50306 100644
 --- a/packages/ui/src/sync/sync-event-dispatch.ts
 +++ b/packages/ui/src/sync/sync-event-dispatch.ts
-@@ -168,7 +168,7 @@ export function handleEvent(
+@@ -169,7 +169,7 @@ export function handleEvent(
      ? resolveCachedSessionDirectory(payload.properties.sessionID)
      : null
  

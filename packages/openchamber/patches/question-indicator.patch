@@ -52,7 +52,7 @@ index b1ef20947..38643046c 100644
 -  );
 -};
 diff --git a/packages/ui/src/apps/MobileSessionSwitcher.tsx b/packages/ui/src/apps/MobileSessionSwitcher.tsx
-index 945fb2e16..ceaf5ba6a 100644
+index b9af09f64..1c04e9cfa 100644
 --- a/packages/ui/src/apps/MobileSessionSwitcher.tsx
 +++ b/packages/ui/src/apps/MobileSessionSwitcher.tsx
 @@ -2,6 +2,7 @@ import React from 'react';
@@ -78,10 +78,10 @@ index 945fb2e16..ceaf5ba6a 100644
            state={turnActivity ?? 'unread'}
          />
 diff --git a/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx b/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx
-index 4e44f25c8..daf5c8d38 100644
+index 587ba39f4..527abfe65 100644
 --- a/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx
 +++ b/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx
-@@ -43,7 +43,8 @@ import { useSessionMarkedUnread, useSessionUnread } from '@/sync/session-unread'
+@@ -44,7 +44,8 @@ import { useSessionMarkedUnread, useSessionUnread } from '@/sync/session-unread'
  import { getSessionDirectory } from '../mobileSessionFields';
  import { MobileProjectIcon } from '../MobileProjectIcon';
  import { MobileSessionRenameForm } from '../MobileSessionRenameForm';
@@ -91,15 +91,7 @@ index 4e44f25c8..daf5c8d38 100644
  import { MobileSessionRowActions, MobileSwipeActionsRow, ROW_ACTION_SLOT_WIDTH, ROW_ACTIONS_WIDTH } from '../MobileSessionSwipe';
  import { mobileSessionTitleClass } from '../mobileSessionTitle';
  import { usePendingRequests } from '../usePendingRequests';
-@@ -62,7 +63,6 @@ type SessionRowModel = Extract<SessionSidebarRow, { kind: 'session' }>;
-  * branch on the second, with the chevron as its first icon. Swiping reveals
-  * archive, pin, Track or Done, delete, rename and Copy ID.
-  */
--const collectDescendantIds = (node: SessionNode): string[] => node.children.flatMap((child) => [child.session.id, ...collectDescendantIds(child)]);
- 
- const HandToLeadItems: React.FC<{ session: Session; projectId: string | null }> = ({ session, projectId }) => {
-   const { t } = useI18n();
-@@ -250,7 +250,7 @@ export const MobileSessionRow: React.FC<{
+@@ -240,7 +241,7 @@ export const MobileSessionRow: React.FC<{
              <MobileSessionGoalGlyph session={session} />
              {refMark(true)}
              {marks}
@@ -108,7 +100,7 @@ index 4e44f25c8..daf5c8d38 100644
            </span>
          </> : null}
        />
-@@ -274,7 +274,7 @@ export const MobileSessionRow: React.FC<{
+@@ -264,7 +265,7 @@ export const MobileSessionRow: React.FC<{
            <MobileSessionGoalGlyph session={session} />
            {refMark(false)}
            {marks}
@@ -319,7 +311,7 @@ index 000000000..4c46d11f4
 +  );
 +};
 diff --git a/packages/ui/src/components/session/SessionSwitcherDropdown.tsx b/packages/ui/src/components/session/SessionSwitcherDropdown.tsx
-index 4880e077d..1d4be0451 100644
+index 6b148efaf..31b659d81 100644
 --- a/packages/ui/src/components/session/SessionSwitcherDropdown.tsx
 +++ b/packages/ui/src/components/session/SessionSwitcherDropdown.tsx
 @@ -11,6 +11,8 @@ import {
@@ -331,19 +323,22 @@ index 4880e077d..1d4be0451 100644
  import { useWaitingBlink } from '@/hooks/useDurationTicker';
  import { useSessionUIStore } from '@/sync/session-ui-store';
  import { useSessionMarkedUnread, useSessionUnread } from '@/sync/session-unread';
-@@ -195,7 +197,10 @@ type SwitcherNodeProps = {
+@@ -196,9 +198,12 @@ type SwitcherNodeProps = {
  function SwitcherNode({ item, depth, variant, expandedParents, toggleParent, closeDropdown }: SwitcherNodeProps): React.ReactElement {
    const { node, secondaryMeta } = item;
    const session = node.session;
 -  const hasChildren = node.children.length > 0;
+-  const isExpanded = expandedParents.has(session.id);
+   const showSubagentSessions = useSessionDisplayStore((state) => state.showSubagentSessions);
 +  // The node keeps every child, the workflow agents included, so their waiting
 +  // requests count for this row; only the listed ones get rows of their own.
-+  const childNodes = listedChildren(node);
++  const childNodes = listedChildren(node, showSubagentSessions);
 +  const hasChildren = childNodes.length > 0;
-   const isExpanded = expandedParents.has(session.id);
++  const isExpanded = expandedParents.has(session.id);
    // A folded row stands for its subsessions too: their waiting requests count
    // here, exactly as the sidebar's collapsed rows count them.
-@@ -219,7 +224,7 @@ function SwitcherNode({ item, depth, variant, expandedParents, toggleParent, clo
+   const blockingScopes = React.useMemo(
+@@ -221,7 +226,7 @@ function SwitcherNode({ item, depth, variant, expandedParents, toggleParent, clo
          closeDropdown={closeDropdown}
        />
        {hasChildren && isExpanded
@@ -352,7 +347,7 @@ index 4880e077d..1d4be0451 100644
              <SwitcherNode
                key={childNode.session.id}
                item={{ node: childNode, projectId: item.projectId, groupDirectory: item.groupDirectory, secondaryMeta }}
-@@ -356,7 +361,11 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
+@@ -358,7 +363,11 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
          ) : null}
        </div>
  
@@ -366,24 +361,24 @@ index 4880e077d..1d4be0451 100644
            <SessionActivityIndicator
              state={turnActivity ?? 'unread'}
 diff --git a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-index ab8fcd44c..e2238ca80 100644
+index aed9d4184..60b4eb061 100644
 --- a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
 +++ b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-@@ -363,7 +363,7 @@ no Shift.
+@@ -385,7 +385,7 @@ no Shift.
  
  ### Why project trees resolve lineage globally
  
--The shared project tree checks parent presence against the global active and archived cache plus the merged active session list. Child expansion uses the lifecycle-ordered global graph. A child whose parent is known renders only beneath that parent, even when its own directory belongs to another project or worktree. An archived parent or intermediate never allows an active descendant to become an independent root. Project buckets contain roots only, so children do not consume root pagination or make a child-only worktree expandable. Temporary `/btw` forks and archived children remain hidden. Workflow agents (`metadata.openchamber.kind === 'workflow-agent'`) stay in the tree but get no rows, and neither does what they started (`listedChildren`): one run can start a hundred, and the run's card and Workflows panel list them. Their pending requests and activity still count for the row above, so an expanded parent's badge scope includes them (`selectBlockingBadgeSessionScopes`). Selection still uses each session's own directory. VS Code applies the same rule after its exact workspace filter.
-+The shared project tree checks parent presence against the global active and archived cache plus the merged active session list. Child expansion uses the lifecycle-ordered global graph. A child whose parent is known renders only beneath that parent, even when its own directory belongs to another project or worktree. An archived parent or intermediate never allows an active descendant to become an independent root. Project buckets contain roots only, so children do not consume root pagination or make a child-only worktree expandable. Temporary `/btw` forks and archived children remain hidden. Workflow agents (`metadata.openchamber.kind === 'workflow-agent'`) stay in the tree but get no rows, and neither does what they started (`listedChildren`): one run can start a hundred, and the run's card and Workflows panel list them. Their pending requests and activity still count for the row above, so an expanded parent's badge scope includes them (`selectBlockingBadgeSessionScopes`). The two session switchers build their trees the same way (`collectSwitcherChildren` in `shell/useSwitcherItems.ts` keeps every child), and take their child rows and chevron from `listedChildren`, so a run blocked only by workflow agents shows the mark and keeps no expand control. Selection still uses each session's own directory. VS Code applies the same rule after its exact workspace filter.
+-The shared project tree checks parent presence against the global active and archived cache plus the merged active session list. Child expansion uses the lifecycle-ordered global graph. A child whose parent is known renders only beneath that parent, even when its own directory belongs to another project or worktree. An archived parent or intermediate never allows an active descendant to become an independent root. Project buckets contain roots only, so children do not consume root pagination or make a child-only worktree expandable. Temporary `/btw` forks and archived children remain hidden. Workflow agents (`metadata.openchamber.kind === 'workflow-agent'`) stay in the tree but get no rows, and neither does what they started (`listedChildren`): one run can start a hundred, and the run's card and Workflows panel list them. Their pending requests and activity still count for the row above, so an expanded parent's badge scope includes them (`selectBlockingBadgeSessionScopes`). The display option `showSubagentSessions` (sidebar display menu, Settings → Sessions) withholds the same way: every session an agent spawned (`parentID`, `isSubagentSession`) loses its row, and a parent left with no listed children loses the expander, while reviews and promoted btw sessions keep their rows; under a hidden subagent its whole branch goes with it, folders and Pinned included. A row's badge covers its own session and every descendant without a row of its own (`collectRowBadgeNodes`), so a hidden subagent's permission or question shows on the nearest visible parent, expanded or not, on desktop and phone alike, and a listed child still reports its own. Selection still uses each session's own directory. VS Code applies the same rule after its exact workspace filter.
++The shared project tree checks parent presence against the global active and archived cache plus the merged active session list. Child expansion uses the lifecycle-ordered global graph. A child whose parent is known renders only beneath that parent, even when its own directory belongs to another project or worktree. An archived parent or intermediate never allows an active descendant to become an independent root. Project buckets contain roots only, so children do not consume root pagination or make a child-only worktree expandable. Temporary `/btw` forks and archived children remain hidden. Workflow agents (`metadata.openchamber.kind === 'workflow-agent'`) stay in the tree but get no rows, and neither does what they started (`listedChildren`): one run can start a hundred, and the run's card and Workflows panel list them. Their pending requests and activity still count for the row above, so an expanded parent's badge scope includes them (`selectBlockingBadgeSessionScopes`). The two session switchers build their trees the same way (`collectSwitcherChildren` in `shell/useSwitcherItems.ts` keeps every child), and take their child rows and chevron from `listedChildren`, so a run blocked only by workflow agents shows the mark and keeps no expand control. The display option `showSubagentSessions` (sidebar display menu, Settings → Sessions) withholds the same way: every session an agent spawned (`parentID`, `isSubagentSession`) loses its row, and a parent left with no listed children loses the expander, while reviews and promoted btw sessions keep their rows; under a hidden subagent its whole branch goes with it, folders and Pinned included. A row's badge covers its own session and every descendant without a row of its own (`collectRowBadgeNodes`), so a hidden subagent's permission or question shows on the nearest visible parent, expanded or not, on desktop and phone alike, and a listed child still reports its own. Selection still uses each session's own directory. VS Code applies the same rule after its exact workspace filter.
  
  Bucket-local lineage promoted cross-project subagents to independent rows and left their parent without an expansion control. The missing-parent fallback applies only while both active and archived sources lack the parent, and clears when either parent arrives. The project-section cache tracks each project's visible ancestors and descendants, including their order and record identity, so a lineage or same-ID semantic change rebuilds the affected trees without replacing unrelated project sections.
  
-@@ -392,7 +392,7 @@ bootstrap work. Selection and activity subscriptions stay session-scoped so a
+@@ -418,7 +418,7 @@ bootstrap work. Selection and activity subscriptions stay session-scoped so a
  structural list update does not make every row observe unrelated streaming
  updates.
  
--Session-row permission and form badges read the relevant directory-store buckets and show only whether something waits, without a count: one form can hold many questions, and a number that does not drop as the user answers them reads as wrong. A collapsed row covers its own pending requests and those of the descendants it hides; an expanded row covers only its own. Collapsed worktree, folder, group and run headers count their hidden sessions the same way, through `useCollapsedSessionActivityState`. The lookup never bootstraps a directory and never creates a store for one: it reads a store that already exists and leaves a directory nobody opened to the cross-directory index. Until a store's own request snapshots are ready, the row lookup also reads permissions and forms from that index, which the host seed fills at load, so a request already waiting in a project this client never opened still shows after a reload. Once they are ready, the store answers alone, so a form the index kept after a lost settlement stops showing. Mobile rows use the same lookup and icon-only badges: `MobileSessionRow` and `MobileSessionSwitcher` build their scopes with `selectBlockingBadgeSessionScopes`, the helper the desktop row and switcher use, so a session resolves its directory the same way on every surface. A session with no known directory has no store to answer for it, so the index still counts there, on the phone as on the desktop. A page an agent shows that waits for the user's answer has no directory-store bucket, so the row lookup also reads it from the cross-directory index and shows it as a form.
-+Session-row permission and form badges read the relevant directory-store buckets and show only whether something waits, without a count: one form can hold many questions, and a number that does not drop as the user answers them reads as wrong. A collapsed row covers its own pending requests and those of the descendants it hides; an expanded row covers only its own. Collapsed worktree, folder, group and run headers count their hidden sessions the same way, through `useCollapsedSessionActivityState`. The lookup never bootstraps a directory and never creates a store for one: it reads a store that already exists and leaves a directory nobody opened to the cross-directory index. Until a store's own request snapshots are ready, the row lookup also reads permissions and forms from that index, which the host seed fills at load, so a request already waiting in a project this client never opened still shows after a reload. Once they are ready, the store answers alone, so a form the index kept after a lost settlement stops showing. Mobile rows use the same lookup and the same marks: `SessionPendingMarks` (`components/session/`) draws the permission shield and the question mark at the row-mark size, as bare glyphs with the label as a tooltip on a row and as the native title elsewhere. `MobileSessionRow`, `MobileSessionSwitcher`, the desktop switcher and the sidebar's rows all take it, and the mobile rows build their scopes with `selectBlockingBadgeSessionScopes`, the helper the desktop row and switcher use, so a session resolves its directory the same way on every surface. A session with no known directory has no store to answer for it, so the index still counts there, on the phone as on the desktop. A page an agent shows that waits for the user's answer has no directory-store bucket, so the row lookup also reads it from the cross-directory index and shows it as a form.
+-Session-row permission and form badges read the relevant directory-store buckets and show only whether something waits, without a count: one form can hold many questions, and a number that does not drop as the user answers them reads as wrong. A collapsed row covers its own pending requests and those of the descendants it hides; an expanded row covers only its own. The lookup never bootstraps a directory, so an unbootstrapped directory's store holds only live requests; until that store completes a bootstrap, the row lookup also reads permissions and forms from the cross-directory index, which the host seed fills at load, so a request already waiting in a project this client never opened still shows after a reload. Once the store completes a bootstrap it answers alone for the sessions it listed then, so a request whose settlement fell into a stream gap clears when the reconnect recovery re-reads the store. Mobile rows show the same icon-only badges through the same lookup and scopes (`apps/usePendingRequests.ts` calls `selectBlockingBadgeSessionScopes` and `useSessionBlockingRequests`), so a phone row and a desktop row agree about one session. A page an agent shows that waits for the user's answer has no directory-store bucket, so the row lookup also reads it from the cross-directory index and shows it as a form.
++Session-row permission and form badges read the relevant directory-store buckets and show only whether something waits, without a count: one form can hold many questions, and a number that does not drop as the user answers them reads as wrong. A collapsed row covers its own pending requests and those of the descendants it hides; an expanded row covers only its own. The lookup never bootstraps a directory, so an unbootstrapped directory's store holds only live requests; until that store completes a bootstrap, the row lookup also reads permissions and forms from the cross-directory index, which the host seed fills at load, so a request already waiting in a project this client never opened still shows after a reload. Once the store completes a bootstrap it answers alone for the sessions it listed then, so a request whose settlement fell into a stream gap clears when the reconnect recovery re-reads the store. Mobile rows use the same lookup and the same marks: `SessionPendingMarks` (`components/session/`) draws the permission shield and the question mark at the row-mark size, as bare glyphs with the label as a tooltip on a row and as the native title elsewhere. `MobileSessionRow`, `MobileSessionSwitcher`, the desktop switcher and the sidebar's rows all take it, and the mobile rows build their scopes with `selectBlockingBadgeSessionScopes` and `useSessionBlockingRequests` (`apps/usePendingRequests.ts`), so a phone row and a desktop row agree about one session. A page an agent shows that waits for the user's answer has no directory-store bucket, so the row lookup also reads it from the cross-directory index and shows it as a form.
  
  A session row's menu and the header's session menus (a tab's, the title's)
  are one component, `sessions/SessionActionsMenuItems.tsx`; each surface

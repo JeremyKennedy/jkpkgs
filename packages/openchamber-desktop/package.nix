@@ -59,6 +59,16 @@ package.overrideAttrs (
       lib.replaceStrings [ cliPinCheck ] [ "*) ;;" ] previousAttrs.installPhase;
   }
   // {
+    # The Electron main process imports the i18n dictionaries straight from
+    # packages/ui (idle-update-locales.mjs), but upstream's gui.nix copies
+    # only packages/electron into the app tree. Copy the ui sources beside
+    # it so bundle:main resolves those imports.
+    buildPhase =
+      assert lib.hasInfix "cp -a packages/electron ./app/packages/electron" previousAttrs.buildPhase;
+      lib.replaceStrings
+        [ "cp -a packages/electron ./app/packages/electron" ]
+        [ "cp -a packages/electron ./app/packages/electron\n    cp -a packages/ui ./app/packages/ui" ]
+        previousAttrs.buildPhase;
     passthru = previousAttrs.passthru // {
       tests = previousAttrs.passthru.tests or { } // {
         # The desktop's main process imports @openchamber/web/server/*,
