@@ -11,7 +11,8 @@
     flake = false;
   };
   inputs.openchamber = {
-    url = "github:openchamber/openchamber/e84d59b632926a18df2b220cc135c3986947fa07";
+    # The release tag, so the jkpkgs refresh's TagRef rewrite can move it.
+    url = "github:openchamber/openchamber/v2.8.1";
     flake = false;
   };
   inputs.rust-overlay = {
