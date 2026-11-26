@@ -80,6 +80,9 @@
           # Upstream ships Linux-only release binaries.
           computer-use-linux = pkgs.callPackage ./packages/computer-use-linux/package.nix { };
           agent-workspace-linux = pkgs.callPackage ./packages/agent-workspace-linux/package.nix { };
+          # The release also ships darwin binaries, but only Linux consumers
+          # exist today; add the darwin assets if Cedar ever needs it.
+          donsetch = pkgs.callPackage ./packages/donsetch/package.nix { };
         }
         // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
           claude-desktop = pkgs.callPackage ./packages/claude-desktop/package.nix { };
