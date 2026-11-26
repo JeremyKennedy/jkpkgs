@@ -179,13 +179,38 @@
               node work/scripts/assert-openchamber-patch-overlap.mjs
               touch $out
             '';
+          # Every client patch's marker is in the mobile bundle. The Android
+          # APK packages packages/mobile/dist, which upstream's
+          # prepare-web-assets.mjs makes by copying the web build and serving
+          # mobile.html as index.html; that web build is the one the core
+          # already runs, from the same patched tree and the same bunDeps. So
+          # this check reuses the core's dist, runs upstream's own copy step
+          # on it, and asserts the markers there: no Android SDK, nothing
+          # rebuilt. It runs in buildbot/nix-build on every pull request,
+          # where the Android smoke build only runs for app paths and is not
+          # a required status.
+          openchamber-mobile-markers =
+            let
+              core = packages.openchamber.passthru.core;
+            in
+            pkgs.runCommand "openchamber-mobile-markers" { nativeBuildInputs = [ pkgs.nodejs ]; } ''
+              mkdir -p work/scripts work/packages/openchamber work/packages/web work/packages/mobile/scripts
+              cp ${./scripts/assert-patch-markers.sh} work/scripts/assert-patch-markers.sh
+              cp -r ${./packages/openchamber/patches} work/packages/openchamber/patches
+              cp ${core.src}/packages/mobile/scripts/prepare-web-assets.mjs work/packages/mobile/scripts/
+              cp -r --no-preserve=mode ${core}/lib/openchamber/packages/web/dist work/packages/web/dist
+              node work/packages/mobile/scripts/prepare-web-assets.mjs
+              test -f work/packages/mobile/dist/index.html
+              bash work/scripts/assert-patch-markers.sh work/packages/mobile/dist
+              touch $out
+            '';
         in
         pkgs.lib.mapAttrs (
           _: package: pkgs.lib.attrByPath [ "passthru" "tests" "version" ] package package
         ) packages
         // extraTests
         // {
-          inherit dsh-platform-matrix openchamber-queue;
+          inherit dsh-platform-matrix openchamber-queue openchamber-mobile-markers;
         }
       );
     };
