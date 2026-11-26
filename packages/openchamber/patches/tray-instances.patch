@@ -2206,10 +2206,10 @@ index 2f2955ff1..4f2add174 100644
      const entry = journey?.get(mark.id);
      return entry ? { ...mark, taskTitle: entry.taskTitle ?? null } : mark;
 diff --git a/packages/ui/src/sync/DOCUMENTATION.md b/packages/ui/src/sync/DOCUMENTATION.md
-index e88b68b22..77650908d 100644
+index 45f6c2d6f..267465628 100644
 --- a/packages/ui/src/sync/DOCUMENTATION.md
 +++ b/packages/ui/src/sync/DOCUMENTATION.md
-@@ -1191,6 +1191,10 @@ Pending permissions and forms get the same treatment in `global-blocking-request
+@@ -1193,6 +1193,10 @@ Pending permissions and forms get the same treatment in `global-blocking-request
  
  The host owns waiting pages directly, so its complete `pending` map is authoritative for its own page waits. `readHostBlockingRequestsSnapshot` clears pages omitted from that map and overlays page events received during the read, including a settlement whose ask never reached this client. Otherwise a delayed snapshot can resurrect an answered page, and a lost settlement leaves a question badge indefinitely. Observers live only for the read and runtime reset invalidates them. Unchanged entries keep their references. Failed reads and hosts that omit `pending` clear nothing; isolated-space page waits belong to their own server and are left untouched. Forms and permissions remain additive because their host map only forwards OpenCode events and can itself miss a settlement.
  
@@ -2220,7 +2220,7 @@ index e88b68b22..77650908d 100644
  A `permission.asked` in a session whose permission mode answers without the user (`auto`, or `safety` while a classification provider can run) is held back in `handleEvent`: no card, no row badge, no toast, and no entry in the cross-directory blocking-request index (which feeds collapsed rows, the tray and run overviews), so a request the server accepts never flashes on screen. The replay for the user applies global effects, which adds it to the index then. The host seed is not filtered this way: a page loaded while the server is still classifying a request can show it until the server answers. The server reports a request it did not answer (the safety net held it, Jev failed, or the reply failed) as `openchamber.permission-left-for-user`; the held-back event is then replayed as an `ask` request, stored and announced, in a directory with or without a store. `permission.replied` drops a held-back request. A report that arrives before its request is remembered (bounded), and that request is shown at once. VS Code never holds back: its extension host answers in the webview. A request held back while the client disconnects reaches the store through reconnect reconciliation, which does not consult the mode.
  
  Holding back is only safe while the client hears both the modes and the reports. The main event stream carries them only over the WebSocket; over SSE it is OpenCode's own stream. So the server also sends `openchamber:permission-auto-accept.updated` and `.left-for-user` on the control stream, which every web, desktop and mobile window keeps open, and `subscribePermissionPolicySync` (`permission-mode-sync.ts`) feeds them into `handleEvent`. Over the WebSocket each arrives twice; a second policy of the same revision and a second report for a request already shown change nothing. Each connection of the control stream reads the modes again, the host's (`usePermissionStore.hydrate`) and each known space's (`refreshSpaceModes`): a mode changed in another window while this one was cut off was never announced to it, and a stale `auto` would hide every request of that session for the life of the window. The host's `openchamber:space-permission-stream` announcement re-reads that space's modes from the control stream too.
-@@ -1318,7 +1322,7 @@ Live activity/status indicators must not depend on this cache. They must use the
+@@ -1320,7 +1324,7 @@ Live activity/status indicators must not depend on this cache. They must use the
  
  ### Unread sessions
  
@@ -2277,7 +2277,7 @@ index 000000000..7988e484a
 +  })
 +})
 diff --git a/packages/ui/src/sync/session-actions.test.ts b/packages/ui/src/sync/session-actions.test.ts
-index f39b9b836..9c021e894 100644
+index 6ae33c5e4..67458f86e 100644
 --- a/packages/ui/src/sync/session-actions.test.ts
 +++ b/packages/ui/src/sync/session-actions.test.ts
 @@ -2786,6 +2786,23 @@ describe("respondToPermission passes directory", () => {
@@ -2305,7 +2305,7 @@ index f39b9b836..9c021e894 100644
      const permission = buildPermission("perm-unread", "session-unread")
      const store = createStore({ "session-unread": [permission] })
 diff --git a/packages/ui/src/sync/session-actions.ts b/packages/ui/src/sync/session-actions.ts
-index 02766636b..f291922a7 100644
+index 1523256b0..102440d45 100644
 --- a/packages/ui/src/sync/session-actions.ts
 +++ b/packages/ui/src/sync/session-actions.ts
 @@ -1,5 +1,6 @@
