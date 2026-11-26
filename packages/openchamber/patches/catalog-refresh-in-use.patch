@@ -1,5 +1,5 @@
 diff --git a/.agents/skills/opencode-v2/SKILL.md b/.agents/skills/opencode-v2/SKILL.md
-index a180ae408..4360d1156 100644
+index 37a0b62fa..5a6860094 100644
 --- a/.agents/skills/opencode-v2/SKILL.md
 +++ b/.agents/skills/opencode-v2/SKILL.md
 @@ -57,7 +57,9 @@ a directory, and only one the user is working in:
@@ -27,7 +27,7 @@ index b37b4aecd..406aebea6 100644
  - A retry loop requires a real failure signal; swallowed errors disable retries.
  - Preserve previous authoritative state during transient bootstrap/reconnect failures.
 diff --git a/packages/ui/src/components/sections/agents/ModelSelector.tsx b/packages/ui/src/components/sections/agents/ModelSelector.tsx
-index 5af755e5a..a0a09182c 100644
+index 1b59a431a..5e54a00ae 100644
 --- a/packages/ui/src/components/sections/agents/ModelSelector.tsx
 +++ b/packages/ui/src/components/sections/agents/ModelSelector.tsx
 @@ -17,6 +17,7 @@ import { cn } from '@/lib/utils';
@@ -36,16 +36,16 @@ index 5af755e5a..a0a09182c 100644
  import { useUIStore } from '@/stores/useUIStore';
 +import { useCatalogReader } from '@/stores/catalogReaders';
  import { ModelPickerList, type ModelPickerEntry, type ModelPickerProvider } from '@/components/model-picker/ModelPickerList';
- import { AUTO_MODEL_ID, AUTO_PROVIDER_ID, isAutoModel } from '@/lib/routing/autoModel';
- import { selectAutoReady, useRoutingStore } from '@/stores/useRoutingStore';
-@@ -61,6 +62,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
+ import { useSpaceCatalogDirectory } from '@/lib/spaces/useSpaceCatalogDirectory';
+ import { useSpaceModelPicker } from '@/lib/spaces/useSpaceModelPicker';
+@@ -69,6 +70,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
          : null), [autoReady, offerAuto, t]);
      const isAutoSelected = isAutoModel(providerId, modelId);
      const { isReady, isUnavailable } = useOpenCodeReadiness('models', directory);
 +    useCatalogReader(directory);
      const canOpen = isReady && !disabled;
+     const spaceCatalog = useSpaceCatalogDirectory(spaceDirectory);
      const providers: ModelPickerProvider[] = useConfigStore((state) => directory === undefined
-         ? state.providers : selectProvidersForDirectory(state, directory));
 diff --git a/packages/ui/src/components/sections/commands/AgentSelector.tsx b/packages/ui/src/components/sections/commands/AgentSelector.tsx
 index c8dff6c96..620f4357e 100644
 --- a/packages/ui/src/components/sections/commands/AgentSelector.tsx
@@ -162,10 +162,10 @@ index 026aca98d..1c34cf9da 100644
    kind: CatalogKind,
    eventDirectories: readonly string[] = [],
 diff --git a/packages/ui/src/sync/DOCUMENTATION.md b/packages/ui/src/sync/DOCUMENTATION.md
-index 8855b55db..9fd1b3154 100644
+index 77650908d..918e8f591 100644
 --- a/packages/ui/src/sync/DOCUMENTATION.md
 +++ b/packages/ui/src/sync/DOCUMENTATION.md
-@@ -312,7 +312,11 @@ client's config cache, otherwise the refresh would be answered from the copy
+@@ -324,7 +324,11 @@ client's config cache, otherwise the refresh would be answered from the copy
  cached seconds earlier. A re-read that returns an identical list keeps the
  objects already in the stores, so nothing re-renders.
  
@@ -178,7 +178,7 @@ index 8855b55db..9fd1b3154 100644
  
  **The model list.** OpenCode 2.0.8 removed the `catalog.updated` storm and
  replaced it with `provider.updated` and `model.updated`, which it publishes
-@@ -331,7 +335,7 @@ second time `PROVIDER_REREAD_AFTER_CREDENTIAL_MS` after a credential change.
+@@ -343,7 +347,7 @@ second time `PROVIDER_REREAD_AFTER_CREDENTIAL_MS` after a credential change.
  | `command` | — | commands store |
  | `skill` | — | skills store + skills catalog |
  | `plugin` | — | plugins store + plugin policy readers |

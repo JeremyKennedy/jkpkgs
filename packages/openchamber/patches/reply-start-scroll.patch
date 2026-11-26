@@ -1,8 +1,8 @@
 diff --git a/packages/ui/src/components/chat/ChatContainer.tsx b/packages/ui/src/components/chat/ChatContainer.tsx
-index 1b85b18bb..c56d6dc80 100644
+index bdf9125a4..baf7eb3bd 100644
 --- a/packages/ui/src/components/chat/ChatContainer.tsx
 +++ b/packages/ui/src/components/chat/ChatContainer.tsx
-@@ -42,6 +42,9 @@ import { useColumnTurnNavigation } from './column/useColumnTurnNavigation';
+@@ -43,6 +43,9 @@ import { useColumnTurnNavigation } from './column/useColumnTurnNavigation';
  import { useComposerPresentation } from './column/useComposerPresentation';
  import { useStatusOverlayHeight } from './column/useStatusOverlayHeight';
  import { useWorkStatusPlacement } from './column/useWorkStatusPlacement';
@@ -12,7 +12,7 @@ index 1b85b18bb..c56d6dc80 100644
  
  type ChatContainerProps = {
      active?: boolean;
-@@ -253,6 +256,102 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
+@@ -261,6 +264,102 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
          timelineController,
          scrollRef,
      });
@@ -115,7 +115,7 @@ index 1b85b18bb..c56d6dc80 100644
      const { authSessionExpired, spaceStopped, isSessionHydrating, retrySessionLoad } = useColumnSessionLoad({
          active,
          currentSessionId,
-@@ -330,7 +429,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
+@@ -338,7 +437,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
              registerList={registerList}
              captureOutgoingPosition={captureOutgoingPosition}
              onIsAtEndChange={onIsAtEndChange}
@@ -124,7 +124,7 @@ index 1b85b18bb..c56d6dc80 100644
              onTimelineDataChange={onTimelineDataChange}
              messageListRef={messageListRef}
              renderedMessages={timelineController.renderedMessages}
-@@ -422,6 +521,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
+@@ -430,6 +529,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                          onResumeToLatest={navigation.resumeToLatest}
                          userOwnsScroll={userOwnsScroll}
                          onStatusOverlayNode={onStatusOverlayNode}
@@ -606,7 +606,7 @@ index aab71c919..cf0b294e1 100644
          };
          const Harness = () => {
 diff --git a/packages/ui/src/components/chat/lib/scroll/DOCUMENTATION.md b/packages/ui/src/components/chat/lib/scroll/DOCUMENTATION.md
-index 6757d8014..52ffc833f 100644
+index 2cc459bc7..e0650bacb 100644
 --- a/packages/ui/src/components/chat/lib/scroll/DOCUMENTATION.md
 +++ b/packages/ui/src/components/chat/lib/scroll/DOCUMENTATION.md
 @@ -1,6 +1,6 @@
@@ -645,6 +645,16 @@ index 6757d8014..52ffc833f 100644
  ## Connected scroll work
  
  Effect cleanup cancels follow frames and clears their scheduling sentinel, and
+diff --git a/packages/ui/src/components/chat/lib/scroll/followStops.ts b/packages/ui/src/components/chat/lib/scroll/followStops.ts
+index 476a8e149..95a0c2eb9 100644
+--- a/packages/ui/src/components/chat/lib/scroll/followStops.ts
++++ b/packages/ui/src/components/chat/lib/scroll/followStops.ts
+@@ -1,4 +1,4 @@
+-const REPLY_START_GAP_PX = 16;
++import { REPLY_START_GAP_PX } from './scrollGaps';
+ 
+ interface FollowStop {
+     readonly element: HTMLElement;
 diff --git a/packages/ui/src/components/chat/lib/scroll/replyTopInset.test.ts b/packages/ui/src/components/chat/lib/scroll/replyTopInset.test.ts
 new file mode 100644
 index 000000000..499bc56c8
@@ -821,10 +831,10 @@ index 000000000..325ab1946
 +// jump because the reply is already under its turn's prompt row.
 +export const REPLY_START_GAP_PX = 16;
 diff --git a/packages/ui/src/components/chat/message/body/useAssistantRenderedParts.tsx b/packages/ui/src/components/chat/message/body/useAssistantRenderedParts.tsx
-index 1432db4a3..dfbf0cdc3 100644
+index 6706c0d44..d75b54bd9 100644
 --- a/packages/ui/src/components/chat/message/body/useAssistantRenderedParts.tsx
 +++ b/packages/ui/src/components/chat/message/body/useAssistantRenderedParts.tsx
-@@ -177,6 +177,7 @@ export const useAssistantRenderedParts = ({
+@@ -178,6 +178,7 @@ export const useAssistantRenderedParts = ({
                                  messageId={messageId}
                                  streamPhase={effectiveStreamPhase}
                                  onShowPopup={onShowPopup}
@@ -874,10 +884,10 @@ index c0f7849dc..ed7ed7bb1 100644
              data-answer-part={range ? `${messageId}:${part.id}` : undefined}
              key={part.id || `${messageId}-text`}
 diff --git a/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md b/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
-index 71c4635da..a3828c760 100644
+index ba390387f..a53a2f0e1 100644
 --- a/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
 +++ b/packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
-@@ -698,6 +698,20 @@ preceding rendered elements, so adding a reasoning element whose child returns
+@@ -700,6 +700,20 @@ preceding rendered elements, so adding a reasoning element whose child returns
  `null` would leave a divider above a direct answer. Visible reasoning and tool
  rows keep their divider.
  
@@ -1027,7 +1037,7 @@ index fdbc0aa1e..356756a3f 100644
      restoreViewportAnchor: (anchor: MessageViewportAnchor) => boolean;
      alignViewportAnchor: (anchor: MessageViewportAnchor) => ViewportAnchorAlignment;
 diff --git a/packages/ui/src/components/chat/timeline/useMessageListHandle.ts b/packages/ui/src/components/chat/timeline/useMessageListHandle.ts
-index c590661aa..570317479 100644
+index 439d57d35..769eb91ca 100644
 --- a/packages/ui/src/components/chat/timeline/useMessageListHandle.ts
 +++ b/packages/ui/src/components/chat/timeline/useMessageListHandle.ts
 @@ -12,6 +12,9 @@ import type { useTurnRecords } from '../hooks/useTurnRecords';
@@ -1040,7 +1050,7 @@ index c590661aa..570317479 100644
  
  type TurnProjection = ReturnType<typeof useTurnRecords>['projection'];
  
-@@ -72,6 +75,20 @@ export const useMessageListHandle = (
+@@ -73,6 +76,20 @@ export const useMessageListHandle = (
          return container.querySelector(`[data-message-id="${messageId}"]:not([data-message-slice])`);
      }, [resolveScrollContainer]);
  
@@ -1061,7 +1071,7 @@ index c590661aa..570317479 100644
      const findAnchorElement = React.useCallback((anchor: MessageViewportAnchor): HTMLElement | null => {
          if (anchor.kept) {
              return resolveScrollContainer()?.querySelector<HTMLElement>(`[data-message-hoisted="${CSS.escape(anchor.kept.partId)}"]`) ?? null;
-@@ -95,7 +112,7 @@ export const useMessageListHandle = (
+@@ -96,7 +113,7 @@ export const useMessageListHandle = (
          return true;
      }, [listRef, rows.length]);
  
@@ -1070,7 +1080,7 @@ index c590661aa..570317479 100644
  
      const scrollMessageElementIntoView = React.useCallback((messageId: string, behavior: ScrollBehavior = 'auto') => {
          const container = resolveScrollContainer();
-@@ -109,8 +126,7 @@ export const useMessageListHandle = (
+@@ -110,8 +127,7 @@ export const useMessageListHandle = (
  
          const containerRect = container.getBoundingClientRect();
          const messageRect = messageElement.getBoundingClientRect();
@@ -1080,7 +1090,7 @@ index c590661aa..570317479 100644
          container.scrollTo({ top, behavior });
          return true;
      }, [findMessageElement, resolveScrollContainer]);
-@@ -200,11 +216,145 @@ export const useMessageListHandle = (
+@@ -202,11 +218,145 @@ export const useMessageListHandle = (
                  const didScroll = scrollMessageElementIntoView(messageId, behavior)
                      || scrollHistoryIndexIntoView(index);
                  if (didScroll && behavior !== 'smooth') {
@@ -1227,7 +1237,7 @@ index c590661aa..570317479 100644
              holdViewportAnchor: (anchor) => {
                  settleNavigationTarget(() => findAnchorElement(anchor), anchor.offsetTop);
              },
-@@ -246,5 +396,5 @@ export const useMessageListHandle = (
+@@ -248,5 +398,5 @@ export const useMessageListHandle = (
          return () => {
              if (objectRef.current === handle) objectRef.current = null;
          };
@@ -1325,31 +1335,11 @@ index 859d9adb0..6d2b3d1cb 100644
  
      return { cancelNavigationRef, settleNavigationTarget };
  };
-diff --git a/packages/ui/src/hooks/useChatTimelineScroll.ts b/packages/ui/src/hooks/useChatTimelineScroll.ts
-index 7d57fa026..8bd947a97 100644
---- a/packages/ui/src/hooks/useChatTimelineScroll.ts
-+++ b/packages/ui/src/hooks/useChatTimelineScroll.ts
-@@ -15,6 +15,7 @@ import {
-     type ViewportAnchorAlignment,
- } from '@/components/chat/lib/scroll/messageViewportAnchor';
- import { readSessionScrollPosition, rememberOutgoingSessionScrollPosition } from '@/components/chat/lib/scroll/sessionScrollMemory';
-+import { REPLY_START_GAP_PX } from '@/components/chat/lib/scroll/scrollGaps';
- import {
-     isWaitingPageRevealPending,
-     pendingWaitingPageID,
-@@ -123,7 +124,6 @@ const ANIMATION_END_CORRECTION_MAX_PX = 64;
- const REMEMBERED_POSITION_REVEAL_WAIT_MS = 800;
- const REMEMBERED_POSITION_HISTORY_BATCHES = 3;
- const MESSAGE_LINK_HIGHLIGHT_MS = 1200;
--const REPLY_START_GAP_PX = 16;
- const SEND_GLIDE_WINDOW_MS = 2000;
- const TURN_END_GLIDE_WINDOW_MS = 1000;
- const LOAD_OLDER_REACH_VIEWPORTS = 2;
 diff --git a/packages/ui/src/lib/i18n/messages/ar.ts b/packages/ui/src/lib/i18n/messages/ar.ts
-index 3d13941e6..7355d62d3 100644
+index bb332bfb2..9a1929cb9 100644
 --- a/packages/ui/src/lib/i18n/messages/ar.ts
 +++ b/packages/ui/src/lib/i18n/messages/ar.ts
-@@ -2421,6 +2421,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -2427,6 +2427,7 @@ export const dict: Record<I18nKey, string> = {
    'chat.draftStarters.sectionPinned': 'بداياتك',
    'chat.draftStarters.moveToFront': 'نقل إلى البداية',
    'chat.scrollToBottom.aria': 'التمرير إلى الأسفل',
@@ -1358,10 +1348,10 @@ index 3d13941e6..7355d62d3 100644
    'chat.promptNavigator.currentPrompt': 'الطلب الحالي',
    'chat.promptNavigator.loadMore': 'تحميل المزيد من الطلبات',
 diff --git a/packages/ui/src/lib/i18n/messages/de.ts b/packages/ui/src/lib/i18n/messages/de.ts
-index e369079a4..552c17294 100644
+index 751b5fca9..dfc68141f 100644
 --- a/packages/ui/src/lib/i18n/messages/de.ts
 +++ b/packages/ui/src/lib/i18n/messages/de.ts
-@@ -2260,6 +2260,7 @@ export const dict = {
+@@ -2267,6 +2267,7 @@ export const dict = {
    'chat.draftStarters.sectionPinned': 'Deine Starter',
    'chat.draftStarters.moveToFront': 'An den Anfang verschieben',
    'chat.scrollToBottom.aria': 'Zum Ende scrollen',
@@ -1370,10 +1360,10 @@ index e369079a4..552c17294 100644
    'chat.promptNavigator.currentPrompt': 'Aktueller Prompt',
    'chat.promptNavigator.loadMore': 'Weitere Prompts laden',
 diff --git a/packages/ui/src/lib/i18n/messages/en.ts b/packages/ui/src/lib/i18n/messages/en.ts
-index 56a5a68bc..472bc25c2 100644
+index f21fdfd5e..0e096e54b 100644
 --- a/packages/ui/src/lib/i18n/messages/en.ts
 +++ b/packages/ui/src/lib/i18n/messages/en.ts
-@@ -2528,6 +2528,7 @@ export const dict = {
+@@ -2536,6 +2536,7 @@ export const dict = {
    'chat.draftStarters.sectionPinned': 'Your starters',
    'chat.draftStarters.moveToFront': 'Move to the front',
    'chat.scrollToBottom.aria': 'Scroll to bottom',
@@ -1382,10 +1372,10 @@ index 56a5a68bc..472bc25c2 100644
    'chat.promptNavigator.currentPrompt': 'Current prompt',
    'chat.promptNavigator.loadMore': 'Load more prompts',
 diff --git a/packages/ui/src/lib/i18n/messages/es.ts b/packages/ui/src/lib/i18n/messages/es.ts
-index 1e49c41f2..a7948b064 100644
+index 73640f835..161f78554 100644
 --- a/packages/ui/src/lib/i18n/messages/es.ts
 +++ b/packages/ui/src/lib/i18n/messages/es.ts
-@@ -2496,6 +2496,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -2504,6 +2504,7 @@ export const dict: Record<I18nKey, string> = {
    "chat.draftStarters.sectionPinned": "Tus iniciadores",
    "chat.draftStarters.moveToFront": "Mover al principio",
    "chat.scrollToBottom.aria": "Ir al final",
@@ -1394,10 +1384,10 @@ index 1e49c41f2..a7948b064 100644
    "chat.promptNavigator.currentPrompt": "Prompt actual",
    "chat.promptNavigator.loadMore": "Cargar más prompts",
 diff --git a/packages/ui/src/lib/i18n/messages/fr.ts b/packages/ui/src/lib/i18n/messages/fr.ts
-index 8a605e352..b184f7473 100644
+index b017bfcc9..ae7188a77 100644
 --- a/packages/ui/src/lib/i18n/messages/fr.ts
 +++ b/packages/ui/src/lib/i18n/messages/fr.ts
-@@ -2250,6 +2250,7 @@ export const dict = {
+@@ -2261,6 +2261,7 @@ export const dict = {
    'chat.emptyState.draftTitle': 'Sur quoi travaillons-nous ?',
    'chat.emptyState.draftTitleWithProject': 'Sur quoi travaillons-nous dans {project} ?',
    'chat.scrollToBottom.aria': 'Faire défiler vers le bas',
@@ -1406,10 +1396,10 @@ index 8a605e352..b184f7473 100644
    'chat.promptNavigator.currentPrompt': 'Prompt actuel',
    'chat.promptNavigator.loadMore': 'Charger plus de prompts',
 diff --git a/packages/ui/src/lib/i18n/messages/he.ts b/packages/ui/src/lib/i18n/messages/he.ts
-index f4eac2f4c..b5f2c8a2e 100644
+index fbebb20c5..06d20d41a 100644
 --- a/packages/ui/src/lib/i18n/messages/he.ts
 +++ b/packages/ui/src/lib/i18n/messages/he.ts
-@@ -2420,6 +2420,7 @@ export const dict = {
+@@ -2426,6 +2426,7 @@ export const dict = {
    'chat.draftStarters.sectionPinned': 'הפתיחים שלך',
    'chat.draftStarters.moveToFront': 'העבר להתחלה',
    'chat.scrollToBottom.aria': 'גלול לתחתית',
@@ -1418,10 +1408,10 @@ index f4eac2f4c..b5f2c8a2e 100644
    'chat.promptNavigator.currentPrompt': 'ההנחיה הנוכחית',
    'chat.promptNavigator.loadMore': 'טען הנחיות נוספות',
 diff --git a/packages/ui/src/lib/i18n/messages/ja.ts b/packages/ui/src/lib/i18n/messages/ja.ts
-index fb9a4bedc..af7fb9b6a 100644
+index 5d09cf74f..a75728a43 100644
 --- a/packages/ui/src/lib/i18n/messages/ja.ts
 +++ b/packages/ui/src/lib/i18n/messages/ja.ts
-@@ -2524,6 +2524,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -2532,6 +2532,7 @@ export const dict: Record<I18nKey, string> = {
    'chat.draftStarters.sectionPinned': 'マイスターター',
    'chat.draftStarters.moveToFront': '先頭に移動',
    'chat.scrollToBottom.aria': '一番下にスクロール',
@@ -1430,10 +1420,10 @@ index fb9a4bedc..af7fb9b6a 100644
    'chat.promptNavigator.currentPrompt': '現在のプロンプト',
    'chat.promptNavigator.loadMore': 'さらにプロンプトを読み込む',
 diff --git a/packages/ui/src/lib/i18n/messages/ko.ts b/packages/ui/src/lib/i18n/messages/ko.ts
-index f58648dd7..0aa55f321 100644
+index 07a1fa5d3..c0def37d2 100644
 --- a/packages/ui/src/lib/i18n/messages/ko.ts
 +++ b/packages/ui/src/lib/i18n/messages/ko.ts
-@@ -2528,6 +2528,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -2536,6 +2536,7 @@ export const dict: Record<I18nKey, string> = {
    'chat.draftStarters.sectionPinned': '내 스타터',
    'chat.draftStarters.moveToFront': '맨 앞으로 이동',
    'chat.scrollToBottom.aria': '맨 아래로 스크롤',
@@ -1442,10 +1432,10 @@ index f58648dd7..0aa55f321 100644
    'chat.promptNavigator.currentPrompt': '현재 프롬프트',
    'chat.promptNavigator.loadMore': '더 많은 프롬프트 불러오기',
 diff --git a/packages/ui/src/lib/i18n/messages/nl.ts b/packages/ui/src/lib/i18n/messages/nl.ts
-index b8eec9a1a..80ab7c01f 100644
+index 4af7b5f0f..50e8873f3 100644
 --- a/packages/ui/src/lib/i18n/messages/nl.ts
 +++ b/packages/ui/src/lib/i18n/messages/nl.ts
-@@ -2528,6 +2528,7 @@ export const dict = {
+@@ -2536,6 +2536,7 @@ export const dict = {
    'chat.draftStarters.sectionPinned': 'Jouw starters',
    'chat.draftStarters.moveToFront': 'Naar het begin verplaatsen',
    'chat.scrollToBottom.aria': 'Naar beneden scrollen',
@@ -1454,10 +1444,10 @@ index b8eec9a1a..80ab7c01f 100644
    'chat.promptNavigator.currentPrompt': 'Huidige prompt',
    'chat.promptNavigator.loadMore': 'Meer prompts laden',
 diff --git a/packages/ui/src/lib/i18n/messages/pl.ts b/packages/ui/src/lib/i18n/messages/pl.ts
-index 26bc67057..f86656a58 100644
+index aea50422e..ef3c00395 100644
 --- a/packages/ui/src/lib/i18n/messages/pl.ts
 +++ b/packages/ui/src/lib/i18n/messages/pl.ts
-@@ -1064,6 +1064,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -1067,6 +1067,7 @@ export const dict: Record<I18nKey, string> = {
    'chat.draftStarters.sectionPinned': 'Twoje startery',
    'chat.draftStarters.moveToFront': 'Przenieś na początek',
    'chat.scrollToBottom.aria': 'Przewiń na dół',
@@ -1466,10 +1456,10 @@ index 26bc67057..f86656a58 100644
    'chat.promptNavigator.currentPrompt': 'Bieżący prompt',
    'chat.promptNavigator.loadMore': 'Wczytaj więcej promptów',
 diff --git a/packages/ui/src/lib/i18n/messages/pt-BR.ts b/packages/ui/src/lib/i18n/messages/pt-BR.ts
-index 0d1d7976c..e29d5707d 100644
+index 8fe1aa247..191631775 100644
 --- a/packages/ui/src/lib/i18n/messages/pt-BR.ts
 +++ b/packages/ui/src/lib/i18n/messages/pt-BR.ts
-@@ -2496,6 +2496,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -2504,6 +2504,7 @@ export const dict: Record<I18nKey, string> = {
    "chat.draftStarters.sectionPinned": "Seus iniciadores",
    "chat.draftStarters.moveToFront": "Mover para o início",
    "chat.scrollToBottom.aria": "Ir ao final",
@@ -1478,10 +1468,10 @@ index 0d1d7976c..e29d5707d 100644
    "chat.promptNavigator.currentPrompt": "Prompt atual",
    "chat.promptNavigator.loadMore": "Carregar mais prompts",
 diff --git a/packages/ui/src/lib/i18n/messages/tr.ts b/packages/ui/src/lib/i18n/messages/tr.ts
-index 7500b7703..2f640153c 100644
+index d54d73963..b4cc8b478 100644
 --- a/packages/ui/src/lib/i18n/messages/tr.ts
 +++ b/packages/ui/src/lib/i18n/messages/tr.ts
-@@ -2386,6 +2386,7 @@ export const dict = {
+@@ -2393,6 +2393,7 @@ export const dict = {
    'chat.draftStarters.sectionPinned': 'Starterlarınız',
    'chat.draftStarters.moveToFront': 'Başa taşı',
    'chat.scrollToBottom.aria': 'En alta kaydır',
@@ -1490,10 +1480,10 @@ index 7500b7703..2f640153c 100644
    'chat.promptNavigator.currentPrompt': 'Mevcut prompt',
    'chat.promptNavigator.loadMore': 'Daha fazla prompt yükle',
 diff --git a/packages/ui/src/lib/i18n/messages/uk.ts b/packages/ui/src/lib/i18n/messages/uk.ts
-index 810728827..51a9d25d1 100644
+index 334be2192..1ea274141 100644
 --- a/packages/ui/src/lib/i18n/messages/uk.ts
 +++ b/packages/ui/src/lib/i18n/messages/uk.ts
-@@ -2496,6 +2496,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -2504,6 +2504,7 @@ export const dict: Record<I18nKey, string> = {
    "chat.draftStarters.sectionPinned": "Ваші стартери",
    "chat.draftStarters.moveToFront": "Перемістити на початок",
    "chat.scrollToBottom.aria": "Прокрутити вниз",
@@ -1502,10 +1492,10 @@ index 810728827..51a9d25d1 100644
    "chat.promptNavigator.currentPrompt": "Поточний промпт",
    "chat.promptNavigator.loadMore": "Завантажити більше промптів",
 diff --git a/packages/ui/src/lib/i18n/messages/zh-CN.ts b/packages/ui/src/lib/i18n/messages/zh-CN.ts
-index 70b13cbc3..5a5cbc1db 100644
+index f0a57d2a1..e126f127a 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-CN.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-CN.ts
-@@ -2494,6 +2494,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -2502,6 +2502,7 @@ export const dict: Record<I18nKey, string> = {
    'chat.draftStarters.sectionPinned': '我的快捷启动项',
    'chat.draftStarters.moveToFront': '移到最前',
    'chat.scrollToBottom.aria': '滚动到底部',
@@ -1514,10 +1504,10 @@ index 70b13cbc3..5a5cbc1db 100644
    'chat.promptNavigator.currentPrompt': '当前提示',
    'chat.promptNavigator.loadMore': '加载更多提示',
 diff --git a/packages/ui/src/lib/i18n/messages/zh-TW.ts b/packages/ui/src/lib/i18n/messages/zh-TW.ts
-index cf706b4aa..ec4e49ab1 100644
+index 00dbdd523..76a8adbf2 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-TW.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-TW.ts
-@@ -2505,6 +2505,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -2513,6 +2513,7 @@ export const dict: Record<I18nKey, string> = {
    'chat.draftStarters.sectionPinned': '我的快捷啟動項',
    'chat.draftStarters.moveToFront': '移到最前',
    'chat.scrollToBottom.aria': '捲動到底部',

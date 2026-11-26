@@ -1,30 +1,29 @@
 diff --git a/packages/ui/src/components/chat/DraftProjectName.tsx b/packages/ui/src/components/chat/DraftProjectName.tsx
-index 089b775cf..8466e728b 100644
+index 7436828ac..93cf68c5d 100644
 --- a/packages/ui/src/components/chat/DraftProjectName.tsx
 +++ b/packages/ui/src/components/chat/DraftProjectName.tsx
-@@ -1,8 +1,32 @@
+@@ -1,5 +1,6 @@
  import React from 'react';
  import { useWidthMorph } from '@/lib/motion/useSizeMorph';
 +import { useDraftProjectPickerOpen } from '@/components/chat/composer/state/draftProjectPickerRequest';
  
--export const DraftProjectName: React.FC<{ label: string }> = ({ label }) => {
+ const Segmenter = globalThis.Intl?.Segmenter;
+ const graphemes = Segmenter ? new Segmenter() : null;
+@@ -15,27 +16,52 @@ const lastGraphemeStart = (label: string): number => {
+ 
+ const MORPH_CLASS = 'inline-block max-w-full align-top font-medium data-[width-morphing]:overflow-hidden data-[width-morphing]:whitespace-nowrap';
+ 
+-export const DraftProjectName: React.FC<{ label: string; trailingText?: string }> = ({ label, trailingText }) => {
 +/**
-+ * The project's name inside the new-session heading. Picking another project
-+ * eases the name into its new width, so the line around it slides instead of
-+ * jumping. An inline block clipped at its edge, top-aligned so its text sits
-+ * on the heading's line.
-+ *
-+ * With `onOpenPicker` it is also the way into the composer's project picker:
-+ * the padding sits on negative margins, so the touch target grows around the
-+ * same glyphs and the heading does not move.
++ * With `onOpenPicker` the project's name in the new-session heading is also
++ * the way into the composer's project picker: the padding sits on negative
++ * margins, so the touch target grows around the same glyphs and the heading
++ * does not move. Punctuation glued to the name's last grapheme stays inside
++ * the target, so the line still cannot break between them.
 + */
-+export const DraftProjectName: React.FC<{ label: string; onOpenPicker?: () => void }> = ({ label, onOpenPicker }) => {
-     const ref = React.useRef<HTMLSpanElement>(null);
++const PickerTarget: React.FC<{ onOpenPicker?: () => void; children: React.ReactNode }> = ({ onOpenPicker, children }) => {
 +    const pickerOpen = useDraftProjectPickerOpen();
-     useWidthMorph(ref);
--    return <span ref={ref} className="inline-block max-w-full overflow-hidden whitespace-nowrap align-top font-medium">{label}</span>;
-+    const name = <span ref={ref} className="inline-block max-w-full overflow-hidden whitespace-nowrap align-top font-medium">{label}</span>;
-+    if (!onOpenPicker) return name;
++    if (!onOpenPicker) return <>{children}</>;
 +    return (
 +        <button
 +            type="button"
@@ -33,15 +32,48 @@ index 089b775cf..8466e728b 100644
 +            aria-expanded={pickerOpen}
 +            className="-mx-1.5 -my-2 inline-block max-w-full cursor-pointer rounded-md px-1.5 py-2 align-top text-start hover:bg-[var(--interactive-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-focus-ring)]"
 +        >
-+            {name}
++            {children}
 +        </button>
 +    );
- };
++};
++
++export const DraftProjectName: React.FC<{ label: string; trailingText?: string; onOpenPicker?: () => void }> = ({ label, trailingText, onOpenPicker }) => {
+     const ref = React.useRef<HTMLSpanElement>(null);
+     useWidthMorph(ref);
+     if (trailingText === undefined) {
+-        return <span ref={ref} className="inline-block max-w-full overflow-hidden whitespace-nowrap align-top font-medium">{label}</span>;
++        return <PickerTarget onOpenPicker={onOpenPicker}><span ref={ref} className="inline-block max-w-full overflow-hidden whitespace-nowrap align-top font-medium">{label}</span></PickerTarget>;
+     }
+ 
+     const punctuation = leadingPunctuation(trailingText);
+     const words = trailingText.slice(punctuation.length);
+     if (!punctuation) {
+-        return <><span ref={ref} className={MORPH_CLASS}>{label}</span>{words}</>;
++        return <><PickerTarget onOpenPicker={onOpenPicker}><span ref={ref} className={MORPH_CLASS}>{label}</span></PickerTarget>{words}</>;
+     }
+ 
+     const joinAt = lastGraphemeStart(label);
+     const suffix = <span className="font-normal">{punctuation}</span>;
+     return (
+         <>
+-            <span ref={ref} className={MORPH_CLASS}>
+-                {label.slice(0, joinAt)}
+-                {joinAt < label.length ? <span className="whitespace-nowrap">{label.slice(joinAt)}{suffix}</span> : suffix}
+-            </span>
++            <PickerTarget onOpenPicker={onOpenPicker}>
++                <span ref={ref} className={MORPH_CLASS}>
++                    {label.slice(0, joinAt)}
++                    {joinAt < label.length ? <span className="whitespace-nowrap">{label.slice(joinAt)}{suffix}</span> : suffix}
++                </span>
++            </PickerTarget>
+             {words}
+         </>
+     );
 diff --git a/packages/ui/src/components/chat/column/DraftWelcome.tsx b/packages/ui/src/components/chat/column/DraftWelcome.tsx
-index ba8a42714..f8d6a1d9c 100644
+index 2964ced28..a6ed7bf57 100644
 --- a/packages/ui/src/components/chat/column/DraftWelcome.tsx
 +++ b/packages/ui/src/components/chat/column/DraftWelcome.tsx
-@@ -1,9 +1,12 @@
+@@ -1,10 +1,13 @@
  import React from 'react';
  import { DraftProjectName } from '@/components/chat/DraftProjectName';
 +import { requestDraftProjectPicker, useDraftProjectPickerOpen } from '@/components/chat/composer/state/draftProjectPickerRequest';
@@ -49,37 +81,37 @@ index ba8a42714..f8d6a1d9c 100644
  import { useInputStore } from '@/sync/input-store';
  import { useSessionUIStore } from '@/sync/session-ui-store';
  import { useProjectsStore } from '@/stores/useProjectsStore';
+ import { hasRightToLeftText, isolateInsertedText } from '@/lib/i18n/textDirection';
 +import { useUIStore } from '@/stores/useUIStore';
 +import { isVSCodeRuntime } from '@/lib/desktop';
  import { cn, formatDirectoryName } from '@/lib/utils';
  import { useDraftHeading } from '../useDraftHeading';
  
-@@ -12,7 +15,11 @@ const getProjectDisplayLabel = (project: { label?: string; path: string }): stri
+@@ -15,7 +18,11 @@ const getProjectDisplayLabel = (project: { label?: string; path: string }): stri
      return label || formatDirectoryName(project.path);
  };
  
--const renderDraftTitle = (title: string, projectLabel: string | null): React.ReactNode => {
+-const renderDraftTitle = (template: string, projectLabel: string | null): React.ReactNode => {
 +const renderDraftTitle = (
-+    title: string,
++    template: string,
 +    projectLabel: string | null,
 +    onOpenProjectPicker?: () => void,
 +): React.ReactNode => {
-     if (!projectLabel) return title;
-     const projectIndex = title.indexOf(projectLabel);
-     if (projectIndex === -1) return title;
-@@ -20,7 +27,7 @@ const renderDraftTitle = (title: string, projectLabel: string | null): React.Rea
-     return (
-         <>
-             {title.slice(0, projectIndex)}
--            <DraftProjectName label={projectLabel} />
-+            <DraftProjectName label={projectLabel} onOpenPicker={onOpenProjectPicker} />
-             {title.slice(projectIndex + projectLabel.length)}
+     if (!projectLabel) return template;
+     const projectIndex = template.indexOf(PROJECT_PLACEHOLDER);
+     if (projectIndex === -1) return template;
+@@ -26,6 +33,7 @@ const renderDraftTitle = (template: string, projectLabel: string | null): React.
+             <DraftProjectName
+                 label={isolateInsertedText(projectLabel, hasRightToLeftText(template))}
+                 trailingText={template.slice(projectIndex + PROJECT_PLACEHOLDER.length)}
++                onOpenPicker={onOpenProjectPicker}
+             />
          </>
      );
-@@ -38,6 +45,17 @@ export const DraftWelcome: React.FC<{ exiting?: boolean }> = ({ exiting = false
+@@ -43,6 +51,17 @@ export const DraftWelcome: React.FC<{ exiting?: boolean }> = ({ exiting = false
          return project ? getProjectDisplayLabel(project) : null;
      }, [draftTarget, selectedProjectId]));
-     const draftHeading = useDraftHeading(projectLabel);
+     const draftHeading = useDraftHeading(projectLabel, 'template');
 +    const pickerOpen = useDraftProjectPickerOpen();
 +    const isMobile = useUIStore((state) => state.isMobile);
 +    // The picker the heading opens lives in the composer; VS Code shows no
@@ -94,10 +126,10 @@ index ba8a42714..f8d6a1d9c 100644
  
      return (
          <div className={cn(
-@@ -45,7 +63,17 @@ export const DraftWelcome: React.FC<{ exiting?: boolean }> = ({ exiting = false
+@@ -50,7 +69,17 @@ export const DraftWelcome: React.FC<{ exiting?: boolean }> = ({ exiting = false
              exiting && 'pointer-events-none opacity-0',
          )}>
-             <h1 className="text-balance text-3xl font-normal tracking-tight text-foreground">
+             <h1 className="w-full wrap-anywhere text-balance text-3xl font-normal tracking-tight text-foreground">
 -                {renderDraftTitle(draftHeading, projectLabel)}
 +                {wholeHeadingIsTarget ? (
 +                    <button
@@ -114,10 +146,10 @@ index ba8a42714..f8d6a1d9c 100644
              <DraftPresetChips
                  onSubmit={(starter) => useInputStore.getState().requestPresetSubmit(starter.submitText, starter.ref.type)}
 diff --git a/packages/ui/src/components/chat/composer/DOCUMENTATION.md b/packages/ui/src/components/chat/composer/DOCUMENTATION.md
-index f2d70da9a..c4ab1a9f9 100644
+index 98aa106da..3becd2436 100644
 --- a/packages/ui/src/components/chat/composer/DOCUMENTATION.md
 +++ b/packages/ui/src/components/chat/composer/DOCUMENTATION.md
-@@ -888,7 +888,7 @@ the row's head states the file and line it anchors to.
+@@ -903,7 +903,7 @@ the row's head states the file and line it anchors to.
  |---|---|
  | `language/` | What the text *means*: `@` references, `/` and `#` tokens, markdown, and which picker a caret asks for |
  | `editor/` | The CodeMirror view that renders the language and owns the caret |
@@ -126,7 +158,7 @@ index f2d70da9a..c4ab1a9f9 100644
  | `comment/` | Mobile comment mode: quoted-selection state, its scope ownership, and the shell that replaces the composer while a comment is written |
  | `submit/` | Turning what the user has into what gets sent. `guestCommands.ts` routes an extension's slash command (`contributes.commands`) before anything is sent: `/name args` never reaches the model, the extension resolves it into a chip |
  | `attachments/` | Files: paths, drop payloads |
-@@ -1686,6 +1686,22 @@ command can leave the queue untouched and delivery can take only part of it.
+@@ -1701,6 +1701,22 @@ command can leave the queue untouched and delivery can take only part of it.
    draft target UI is mounted.
    Keyboard selection returns focus to the current form's composer, including
    when the selected value is unchanged.
@@ -376,18 +408,18 @@ index 000000000..2b61e6745
 +    }), []);
 +}
 diff --git a/packages/ui/src/components/chat/composer/ui/DraftTargetSelectors.tsx b/packages/ui/src/components/chat/composer/ui/DraftTargetSelectors.tsx
-index f5b83177a..051058e3a 100644
+index fe1f1128e..858d35114 100644
 --- a/packages/ui/src/components/chat/composer/ui/DraftTargetSelectors.tsx
 +++ b/packages/ui/src/components/chat/composer/ui/DraftTargetSelectors.tsx
-@@ -43,6 +43,7 @@ import type { Theme } from '@/types/theme';
- import { isSpaceDirectory } from '@/lib/spaces/space-route';
+@@ -44,6 +44,7 @@ import { isSpaceDirectory } from '@/lib/spaces/space-route';
+ import { findIntegrateCheckout } from '@/lib/worktrees/integrateCheckouts';
  import { normalizePath } from '../attachments/filePaths';
  import { getProjectDisplayLabel, type DraftTargetProject } from '../state/useDraftTarget';
 +import { useDraftProjectPickerRequest, setDraftProjectPickerOpen } from '../state/draftProjectPickerRequest';
  import { useProjectsInSidebarOrder } from '@/components/session/sidebar/list/useProjectsInSidebarOrder';
  import { DraftsHerePicker } from './DraftsHerePicker';
  import { sessionEvents } from '@/lib/sessionEvents';
-@@ -199,7 +200,10 @@ function DraftTargetSelectorsView(props: DraftTargetProps) {
+@@ -200,7 +201,10 @@ function DraftTargetSelectorsView(props: DraftTargetProps) {
          setOpenPicker(null);
      };
  
@@ -399,7 +431,7 @@ index f5b83177a..051058e3a 100644
          projectTriggerRef.current?.focus();
          setProjectFocusReturn(false);
          setProjectQuery('');
-@@ -207,7 +211,15 @@ function DraftTargetSelectorsView(props: DraftTargetProps) {
+@@ -208,7 +212,15 @@ function DraftTargetSelectorsView(props: DraftTargetProps) {
              projects.some((project) => project.id === selectedProject.id) ? selectedProject.id : null,
          );
          setOpenPicker('project');

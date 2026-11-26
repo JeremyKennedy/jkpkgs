@@ -1,184 +1,5 @@
-diff --git a/packages/ui/src/apps/deepLinkNavigation.ts b/packages/ui/src/apps/deepLinkNavigation.ts
-index c9c488c0c..7bda5e9e4 100644
---- a/packages/ui/src/apps/deepLinkNavigation.ts
-+++ b/packages/ui/src/apps/deepLinkNavigation.ts
-@@ -108,6 +108,11 @@ const execute = (intent: NavigationIntent): boolean => {
-         // once it mounts, and drops a request meant for another draft.
-         useInputStore.getState().requestDraftDictation(useSessionUIStore.getState().newSessionDraft.draftId);
-       }
-+      if (intent.dictate) {
-+        // The request belongs to this draft's id; the composer starts recording
-+        // once it mounts, and drops a request meant for another draft.
-+        useInputStore.getState().requestDraftDictation(useSessionUIStore.getState().newSessionDraft.draftId);
-+      }
-       return true;
-     }
- 
-diff --git a/packages/ui/src/apps/deepLinks.ts b/packages/ui/src/apps/deepLinks.ts
-index bad578919..f41a8668e 100644
---- a/packages/ui/src/apps/deepLinks.ts
-+++ b/packages/ui/src/apps/deepLinks.ts
-@@ -81,6 +81,7 @@ export function parseDeepLink(raw: string | null | undefined): DeepLinkIntent |
-         projectId: query.get('project') ?? undefined,
-         agent: query.get('agent') ?? undefined,
-         model: query.get('model') ?? undefined,
-+        ...(dictate === '1' || dictate === 'true' ? { dictate: true } : {}),
-       };
-       if (target === 'chat' || target === 'project') {
-         intent.target = target;
-diff --git a/packages/ui/src/components/chat/ChatInput.tsx b/packages/ui/src/components/chat/ChatInput.tsx
-index 6e78d2ae7..87cb2f596 100644
---- a/packages/ui/src/components/chat/ChatInput.tsx
-+++ b/packages/ui/src/components/chat/ChatInput.tsx
-@@ -13,9 +13,9 @@ import { useComposerAutocompleteState } from './composer/input/useComposerAutoco
- import { useComposerColumn } from './composer/input/useComposerColumn';
- import { useComposerCompletions } from './composer/input/useComposerCompletions';
- import { useComposerControls } from './composer/input/useComposerControls';
--import { useInputStore } from '@/sync/input-store';
- import { useComposerDictation } from './composer/input/useComposerDictation';
- import { useComposerDictationState } from './composer/input/useComposerDictationState';
-+import { usePendingDraftDictation } from './composer/input/usePendingDraftDictation';
- import { useComposerDraftHistory } from './composer/input/useComposerDraftHistory';
- import { useComposerDraftTarget } from './composer/input/useComposerDraftTarget';
- import { useComposerDraftText } from './composer/input/useComposerDraftText';
-@@ -189,18 +189,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
-     // A deep link (openchamber://new-session?dictate=1) starts dictation once
-     // this draft's composer is mounted. The request is bound to the draft id,
-     // so a composer showing another draft drops it instead of recording there.
--    const pendingDraftDictation = useInputStore((state) => state.pendingDraftDictation);
--    React.useEffect(() => {
--        if (pendingDraftDictation == null || column.columnPinned) return;
--        // The request is set in the same turn the draft opens, so this
--        // composer can still be showing the previous draft (or none). Wait
--        // for the draft id to match instead of dropping the request.
--        const draftId = sessionScope.newSessionDraftOpen ? sessionScope.newSessionDraft.draftId : null;
--        if (draftId !== pendingDraftDictation.draftId) return;
--        if (!useInputStore.getState().consumePendingDraftDictation(draftId)) return;
--        controls.toggleDictation();
--    }, [column.columnPinned, controls.toggleDictation, pendingDraftDictation, sessionScope.newSessionDraft, sessionScope.newSessionDraftOpen]);
--
-+    usePendingDraftDictation({
-+        draftId: sessionScope.newSessionDraftOpen ? sessionScope.newSessionDraft.draftId : null,
-+        enabled: !column.columnPinned,
-+        start: controls.toggleDictation,
-+    });
-     const keyHandler = createComposerKeyHandler({
-         largePasteState, editorState, draftText, autocompleteState, preferences, expansion,
-         mobileActions, sessionScope, sessionLifecycle, editorActions, queueState, queueActions: sending,
-diff --git a/packages/ui/src/components/chat/composer/DOCUMENTATION.md b/packages/ui/src/components/chat/composer/DOCUMENTATION.md
-index 02b5a067b..14ae31588 100644
---- a/packages/ui/src/components/chat/composer/DOCUMENTATION.md
-+++ b/packages/ui/src/components/chat/composer/DOCUMENTATION.md
-@@ -1609,6 +1609,10 @@ command can leave the queue untouched and delivery can take only part of it.
-   just opened must render in the same commit
-   (`useShownSessionSelection`, see `sync/DOCUMENTATION.md`, "Session switch
-   commit"): a deferred draft recorded the session still on screen (#6927).
-+  A deep link that asks a new-session draft to start dictation
-+  (`openchamber://new-session?dictate=1`) waits until the composer renders
-+  that draft, not merely until the store has opened it, so the draft and not
-+  the session still on screen is the origin.
-   The transcript stays in the visible composer when its draft identity matches
-   the origin, or when the composer still shows the new-session draft (same
-   draft id, same runtime) where recording started. A new-session draft's
-diff --git a/packages/ui/src/components/chat/composer/input/usePendingDraftDictation.test.tsx b/packages/ui/src/components/chat/composer/input/usePendingDraftDictation.test.tsx
-new file mode 100644
-index 000000000..ff4bafa25
---- /dev/null
-+++ b/packages/ui/src/components/chat/composer/input/usePendingDraftDictation.test.tsx
-@@ -0,0 +1,60 @@
-+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-+import React, { act } from 'react';
-+import { createRoot, type Root } from 'react-dom/client';
-+import { Window } from 'happy-dom';
-+
-+import { useInputStore } from '@/sync/input-store';
-+import { usePendingDraftDictation } from './usePendingDraftDictation';
-+
-+const browser = new Window({ url: 'http://localhost/' });
-+Object.assign(globalThis, {
-+  window: browser, document: browser.document, navigator: browser.navigator,
-+  Node: browser.Node, Element: browser.Element, HTMLElement: browser.HTMLElement,
-+  Event: browser.Event, IS_REACT_ACT_ENVIRONMENT: true,
-+});
-+
-+let reactRoot: Root | null = null;
-+let started = 0;
-+
-+const Probe: React.FC<{ draftId: number | null; enabled?: boolean }> = ({ draftId, enabled = true }) => {
-+  usePendingDraftDictation({ draftId, enabled, start: () => { started += 1; } });
-+  return null;
-+};
-+
-+const render = async (props: { draftId: number | null; enabled?: boolean }) => {
-+  reactRoot ??= createRoot(document.createElement('div'));
-+  await act(async () => reactRoot?.render(<Probe {...props} />));
-+};
-+
-+beforeEach(() => {
-+  started = 0;
-+  useInputStore.setState({ pendingDraftDictation: null });
-+});
-+
-+afterEach(async () => {
-+  await act(async () => reactRoot?.unmount());
-+  reactRoot = null;
-+});
-+
-+describe('usePendingDraftDictation', () => {
-+  test('a dictate request for this draft starts recording and is consumed', async () => {
-+    await act(async () => { useInputStore.getState().requestDraftDictation(7); });
-+    await render({ draftId: 7 });
-+    expect(started).toBe(1);
-+    expect(useInputStore.getState().pendingDraftDictation).toBeNull();
-+  });
-+
-+  test('a request meant for another draft neither records nor is consumed', async () => {
-+    await act(async () => { useInputStore.getState().requestDraftDictation(7); });
-+    await render({ draftId: 8 });
-+    expect(started).toBe(0);
-+    expect(useInputStore.getState().pendingDraftDictation).toEqual({ draftId: 7 });
-+  });
-+
-+  test('a pinned composer does not start recording', async () => {
-+    await act(async () => { useInputStore.getState().requestDraftDictation(7); });
-+    await render({ draftId: 7, enabled: false });
-+    expect(started).toBe(0);
-+    expect(useInputStore.getState().pendingDraftDictation).toEqual({ draftId: 7 });
-+  });
-+});
-diff --git a/packages/ui/src/components/chat/composer/input/usePendingDraftDictation.ts b/packages/ui/src/components/chat/composer/input/usePendingDraftDictation.ts
-new file mode 100644
-index 000000000..f0619f99e
---- /dev/null
-+++ b/packages/ui/src/components/chat/composer/input/usePendingDraftDictation.ts
-@@ -0,0 +1,25 @@
-+import React from 'react';
-+import { useInputStore } from '@/sync/input-store';
-+
-+type PendingDraftDictationOptions = {
-+    draftId: number | null;
-+    enabled: boolean;
-+    start: () => void;
-+};
-+
-+// A deep link (openchamber://new-session?dictate=1) asks for recording once the
-+// draft's composer is mounted. The request is bound to a draft id, so a composer
-+// showing another draft drops it instead of recording there.
-+//
-+// This lives in its own hook because it was lost once already: the composer was
-+// rewritten for dictation recovery and the consumer went with the old body, so a
-+// dictate link opened the draft and never started recording.
-+export const usePendingDraftDictation = ({ draftId, enabled, start }: PendingDraftDictationOptions): void => {
-+    const pendingDraftDictation = useInputStore((state) => state.pendingDraftDictation);
-+    React.useEffect(() => {
-+        if (!enabled || pendingDraftDictation == null) return;
-+        if (draftId !== pendingDraftDictation.draftId) return;
-+        if (!useInputStore.getState().consumePendingDraftDictation(draftId)) return;
-+        start();
-+    }, [draftId, enabled, pendingDraftDictation, start]);
-+};
 diff --git a/packages/ui/src/components/dictation/ComposerDictation.test.tsx b/packages/ui/src/components/dictation/ComposerDictation.test.tsx
-index 46719740e..ca1475879 100644
+index 4ca6bc41e..03157e70b 100644
 --- a/packages/ui/src/components/dictation/ComposerDictation.test.tsx
 +++ b/packages/ui/src/components/dictation/ComposerDictation.test.tsx
 @@ -10,6 +10,8 @@ const completions: Array<() => void> = [];
@@ -191,7 +12,7 @@ index 46719740e..ca1475879 100644
          const [id] = React.useState(() => nextEngine++);
          const [status, setStatus] = React.useState<DictationStatus>('idle');
 diff --git a/packages/ui/src/components/dictation/ComposerDictation.tsx b/packages/ui/src/components/dictation/ComposerDictation.tsx
-index bd144e963..c7410e0cb 100644
+index c0b041185..d06a2dff1 100644
 --- a/packages/ui/src/components/dictation/ComposerDictation.tsx
 +++ b/packages/ui/src/components/dictation/ComposerDictation.tsx
 @@ -5,7 +5,7 @@ import { useI18n } from '@/lib/i18n';
@@ -203,7 +24,7 @@ index bd144e963..c7410e0cb 100644
  import { useWaitingBlink } from '@/hooks/useDurationTicker';
  import { DictationWaveform } from '@/components/dictation/DictationWaveform';
  import { isDictationCaptureSupported } from '@/lib/dictation/use-dictation-audio-source';
-@@ -504,16 +504,21 @@ export const ComposerDictation: React.FC<ComposerDictationProps> = ({
+@@ -506,16 +506,21 @@ export const ComposerDictation: React.FC<ComposerDictationProps> = ({
                                      >
                                          <Icon name="close" className={iconSizeClass} />
                                      </button>
@@ -498,8 +319,24 @@ index 000000000..000b477dd
 +        expect(senderState.clears).toBe(clearsBeforeDiscard + 1);
 +    });
 +});
+diff --git a/packages/ui/src/hooks/useDictation.test.ts b/packages/ui/src/hooks/useDictation.test.ts
+index 018f7cf19..1c7a25443 100644
+--- a/packages/ui/src/hooks/useDictation.test.ts
++++ b/packages/ui/src/hooks/useDictation.test.ts
+@@ -439,6 +439,11 @@ describe('useDictation stream errors', () => {
+             await latest?.confirmDictation();
+         });
+         expect(cancelled()).toEqual(started());
++        // A finish with no audio stays on screen as a failure until dismissed.
++        expect(latest?.status).toBe('failed');
++        await act(async () => {
++            await latest?.discardFailedDictation();
++        });
+ 
+         await record(true);
+         const dictationId = started()[2];
 diff --git a/packages/ui/src/hooks/useDictation.ts b/packages/ui/src/hooks/useDictation.ts
-index 004c6ebc3..d6e8db11a 100644
+index 13637f6d2..f2a1a2b59 100644
 --- a/packages/ui/src/hooks/useDictation.ts
 +++ b/packages/ui/src/hooks/useDictation.ts
 @@ -1,3 +1,19 @@
@@ -556,38 +393,10 @@ index 004c6ebc3..d6e8db11a 100644
  export interface UseDictationOptions {
      onTranscript?: (text: string) => void;
      onError?: (error: Error) => void;
-@@ -172,28 +215,74 @@ export function useDictation(options: UseDictationOptions = {}, client: Dictatio
-         audioStopRef.current = audio.stop;
-     }, [audio.stop]);
+@@ -160,29 +203,47 @@ export function useDictation(options: UseDictationOptions = {}, client: Dictatio
+         });
+     }, [client, reportError]);
  
-+    // An empty recording is how a dictation gets lost: another app takes the
-+    // microphone (an assistant started from the power button, a call) and the
-+    // capture keeps running on silence. Say so while there is still time to
-+    // stop and try again, and clear it as soon as sound comes back.
-+    const quietSinceRef = useRef(0);
-+    useEffect(() => {
-+        if (status !== 'recording') {
-+            quietSinceRef.current = 0;
-+            return;
-+        }
-+        quietSinceRef.current = Date.now();
-+        return audio.subscribeLevel((level) => {
-+            if (level > MIC_SILENT_LEVEL) {
-+                quietSinceRef.current = 0;
-+                setError((current) => current === DICTATION_MIC_SILENT_MESSAGE ? null : current);
-+                return;
-+            }
-+            if (quietSinceRef.current === 0) {
-+                quietSinceRef.current = Date.now();
-+                return;
-+            }
-+            if (Date.now() - quietSinceRef.current >= MIC_SILENT_MS) {
-+                setError((current) => current ?? DICTATION_MIC_SILENT_MESSAGE);
-+            }
-+        });
-+    }, [audio, status]);
-+
-+
 +    /**
 +     * A finish that produced no text. The recording is kept and surfaced as a
 +     * failure instead of returning to idle: a dictation that heard nothing
@@ -629,6 +438,7 @@ index 004c6ebc3..d6e8db11a 100644
  
      const handleFailure = useCallback(
          (failure: unknown) => {
+             senderRef.current?.cancel();
 -            if (senderRef.current?.hasSegments()) {
 -                setStatus('failed');
 -            } else {
@@ -640,7 +450,41 @@ index 004c6ebc3..d6e8db11a 100644
              reportError(failure);
          },
          [reportError],
-@@ -257,9 +346,14 @@ export function useDictation(options: UseDictationOptions = {}, client: Dictatio
+@@ -207,6 +268,33 @@ export function useDictation(options: UseDictationOptions = {}, client: Dictatio
+         audioStopRef.current = audio.stop;
+     }, [audio.stop]);
+ 
++    // An empty recording is how a dictation gets lost: another app takes the
++    // microphone (an assistant started from the power button, a call) and the
++    // capture keeps running on silence. Say so while there is still time to
++    // stop and try again, and clear it as soon as sound comes back.
++    const quietSinceRef = useRef(0);
++    useEffect(() => {
++        if (status !== 'recording') {
++            quietSinceRef.current = 0;
++            return;
++        }
++        quietSinceRef.current = Date.now();
++        return audio.subscribeLevel((level) => {
++            if (level > MIC_SILENT_LEVEL) {
++                quietSinceRef.current = 0;
++                setError((current) => current === DICTATION_MIC_SILENT_MESSAGE ? null : current);
++                return;
++            }
++            if (quietSinceRef.current === 0) {
++                quietSinceRef.current = Date.now();
++                return;
++            }
++            if (Date.now() - quietSinceRef.current >= MIC_SILENT_MS) {
++                setError((current) => current ?? DICTATION_MIC_SILENT_MESSAGE);
++            }
++        });
++    }, [audio, status]);
++
+     useEffect(() => {
+         return client.subscribeStreamError((dictationId, streamError) => {
+             if (senderRef.current?.getDictationId() !== dictationId) {
+@@ -269,9 +357,14 @@ export function useDictation(options: UseDictationOptions = {}, client: Dictatio
          } catch (err) {
              await audio.stop().catch(() => undefined);
              stopDurationTracking();
@@ -657,7 +501,7 @@ index 004c6ebc3..d6e8db11a 100644
          } finally {
              gate.starting = false;
          }
-@@ -270,7 +364,7 @@ export function useDictation(options: UseDictationOptions = {}, client: Dictatio
+@@ -282,7 +375,7 @@ export function useDictation(options: UseDictationOptions = {}, client: Dictatio
          if (gate.cancelling) {
              return;
          }
@@ -666,16 +510,20 @@ index 004c6ebc3..d6e8db11a 100644
              return;
          }
          gate.cancelling = true;
-@@ -316,7 +410,7 @@ export function useDictation(options: UseDictationOptions = {}, client: Dictatio
+@@ -324,7 +417,11 @@ export function useDictation(options: UseDictationOptions = {}, client: Dictatio
  
              const finalSeq = senderRef.current?.getFinalSeq() ?? -1;
              if (finalSeq < 0) {
 -                return handleSuccess('');
++                // No audio reached the server, so nothing is left to finish:
++                // close its stream as every other way out does, and keep the
++                // failure on screen.
++                senderRef.current?.cancel();
 +                return handleEmptyTranscript(DICTATION_EMPTY_RECORDING);
              }
  
              const result = await senderRef.current!.finish(finalSeq);
-@@ -329,7 +423,7 @@ export function useDictation(options: UseDictationOptions = {}, client: Dictatio
+@@ -337,7 +434,7 @@ export function useDictation(options: UseDictationOptions = {}, client: Dictatio
          } finally {
              gate.confirming = false;
          }

@@ -124,10 +124,10 @@ index 055dd9bd8..452df6e32 100644
      })),
      pending: new Map(),
 diff --git a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-index 34a11fbb7..fc3633cf1 100644
+index 723c40d71..2a3d9924b 100644
 --- a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
 +++ b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-@@ -1918,7 +1918,7 @@ group order reads those ranks too.
+@@ -2007,7 +2007,7 @@ group order reads those ranks too.
  
  ### Tray rows
  
@@ -136,7 +136,7 @@ index 34a11fbb7..fc3633cf1 100644
  
  What this means in the tray:
  
-@@ -1929,6 +1929,6 @@ What this means in the tray:
+@@ -2018,6 +2018,6 @@ What this means in the tray:
  - A session is nested, and so not a root, when the session it nests under is listed, active or archived. A child of an archived parent therefore has no row of its own while its parent is out of the active list.
  - A project session whose nesting chain loops without reaching a root is listed as a root in its project group (`isInNestingCycle` in `useSessionGrouping`), and the rest of the loop nests under it. The sidebar picks the first member in its own order and the tray the first in tree order, so the loop has one row either way.
  
@@ -717,7 +717,7 @@ index 1ef49a468..2707b061d 100644
  
    React.useEffect(() => {
 diff --git a/packages/ui/src/hooks/useTraySync.ts b/packages/ui/src/hooks/useTraySync.ts
-index aba51f39f..68c518f3d 100644
+index b8f525bd2..5826f8dad 100644
 --- a/packages/ui/src/hooks/useTraySync.ts
 +++ b/packages/ui/src/hooks/useTraySync.ts
 @@ -4,7 +4,7 @@ import type { Session } from '@/lib/opencode/model';
@@ -729,10 +729,10 @@ index aba51f39f..68c518f3d 100644
  import { useBackgroundShellsStore } from '@/sync/background-shells';
  import { useBackgroundImagesStore } from '@/sync/background-images';
  import { collectOpenTurnSessionIds, useGlobalSessionStatusStore } from '@/sync/global-session-status';
-@@ -38,18 +38,10 @@ import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
- import { resolveProjectForSessionDirectory, normalizeProjectPath } from '@/lib/projectResolution';
- import { isSessionDirectoryAdmitted } from '@/sync/session-admission-rule';
+@@ -41,18 +41,10 @@ import { CHAT_DRAFT_PROJECT_ID, isChatDirectoryPath } from '@/lib/chatDirectorie
+ import { getSessionPinList, isSessionPinned } from '@/lib/sessionPins';
  import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
+ import { resolveSessionNestingParentId } from '@/lib/sessionWorkLineage';
 -import { mergeSidebarSpaces, useSpacesStore } from '@/lib/spaces/spaces-store';
 +import { useSpacesStore } from '@/lib/spaces/spaces-store';
  import { useGlobalSyncStore } from '@/sync/global-sync-store';
@@ -751,7 +751,7 @@ index aba51f39f..68c518f3d 100644
  import { findWorktreeHoldingDirectory } from '@/lib/worktrees/worktreePaths';
  import type { ProjectEntry } from '@/lib/api/types';
  import type { WorktreeMetadata } from '@/types/worktree';
-@@ -282,42 +274,6 @@ const collectLiveData = (): LiveData => {
+@@ -288,42 +280,6 @@ const collectLiveData = (): LiveData => {
    return { statusById, branchByDirectory, approvals, titleById, authoritativeDirectories };
  };
  
@@ -794,20 +794,20 @@ index aba51f39f..68c518f3d 100644
  const buildSnapshot = (instanceName: string, includeTray: boolean): TraySnapshot => {
    const allSessions = useGlobalSessionsStore.getState().activeSessions;
    const projects = useProjectsStore.getState().projects;
-@@ -326,7 +282,7 @@ const buildSnapshot = (instanceName: string, includeTray: boolean): TraySnapshot
-   const rowBase = readSidebarRowBase();
-   const pinnedSessionIds = useSessionPinnedStore.getState().ids;
-   const display = useSessionDisplayStore.getState();
+@@ -348,7 +304,7 @@ const buildSnapshot = (instanceName: string, includeTray: boolean): TraySnapshot
+     customSections: true,
+     pages: false,
+   });
 -  const rowsIn = (zones: { chats: boolean; pinned: boolean }) => resolveSidebarSessionRows(
 +  const rowsIn = (zones: SidebarZones) => resolveSidebarSessionRows(
      rowBase.tree, rowBase.nestedSessionIds, { ownerBySessionId: rowBase.ownerBySessionId, pinnedSessionIds, zones },
    );
  
 diff --git a/packages/ui/src/lib/DOCUMENTATION.md b/packages/ui/src/lib/DOCUMENTATION.md
-index 6344c6ba0..2e1f58143 100644
+index 31e1bf87c..e9b0f8c3b 100644
 --- a/packages/ui/src/lib/DOCUMENTATION.md
 +++ b/packages/ui/src/lib/DOCUMENTATION.md
-@@ -217,15 +217,19 @@ Pairing and connection checks address a server before selecting it. Routing them
+@@ -223,15 +223,19 @@ A link moved between machines picks up characters it never holds: line breaks fr
  
  ### Ownership
  
@@ -830,7 +830,7 @@ index 6344c6ba0..2e1f58143 100644
  - The app's own server is a poll target (`local`) only while the window shows a saved host and its page can reach that server (`pageReachesLocalOrigin`: the packaged UI, or a page already on the local origin). A page another instance served is cross-origin to the local server, so it has to be reloaded into the Local UI before it can read this machine; reading it anyway would report Local as unreachable. The read goes straight to the shell's local origin with the local client token and no shared probe, because the shell either runs that loopback server or reports none. The reserved `openchamber:this-instance` entry still names the instance on screen, so the two never describe the same server. The row label is the switcher's own key (`desktopHostSwitcher.instance.local`), so both surfaces name that server the same way in every locale.
  - A jump to the app's own server goes through `activateLocalHost`, not the saved-host lookup, which does not hold Local. The endpoint switches in place on the app's own pages and the clicked session opens; the shell's reload branch is the fallback for a page that cannot switch in place.
  - A jump to another instance holds the clicked session for the target runtime key before switching (`sync/pending-session-open.ts`) and opens it only after the switch landed on that key, the new instance has its project list, and the session has been read by id. An activation that did not switch (a relay restore that stopped: no shell, host gone, already active) or that left another runtime active is not a jump: the hold is released and the row stays. A session the new instance cannot open (gone, or its folder not added) shows a toast instead of leaving the user on another session.
-@@ -233,11 +237,15 @@ Pairing and connection checks address a server before selecting it. Routing them
+@@ -239,11 +243,15 @@ A link moved between machines picks up characters it never holds: line breaks fr
  - Reachability is the shared answer (`lib/desktopHostStatus.ts` `probeHost`), not a second probe. A relay answer hands its tunnel to the read, which closes it afterwards; a blocked status (`unreachable`, `wrong-service`, `incompatible`, `relay-limit`) reads nothing.
  - Relay identity comes from `descriptorsEqual` in `lib/relay/runtime-tunnel.ts`, so the switcher's relay and the poller's relay cannot disagree.
  - A `busy`/`retry` entry older than `HOST_STATUS_SEED_MAX_AGE_MS` is not current activity. An open turn suppresses unread for the session and every ancestor, matching the sidebar's `collectOpenTurnSessionIds`.
@@ -2704,10 +2704,10 @@ index 079bb4ccc..fd98fc5c6 100644
      };
      // The last known items stay: an unreachable host did not answer "nothing".
 diff --git a/packages/ui/src/sync/session-unread.ts b/packages/ui/src/sync/session-unread.ts
-index 7f23b7089..699636f41 100644
+index dbc2d1dd3..64290ce98 100644
 --- a/packages/ui/src/sync/session-unread.ts
 +++ b/packages/ui/src/sync/session-unread.ts
-@@ -25,14 +25,6 @@ const markOf = (session: Session): number | null => {
+@@ -26,14 +26,6 @@ const markOf = (session: Session): number | null => {
  
  const hasUnreadMark = (session: Session): boolean => markOf(session) !== null
  
@@ -2722,7 +2722,7 @@ index 7f23b7089..699636f41 100644
  /**
   * Only top-level sessions are announced; a subtask reports to its parent. An
   * archived session is put away, whichever path archived it, so it is never
-@@ -47,17 +39,6 @@ const hasUnseenTurn = (session: Session): boolean => {
+@@ -48,17 +40,6 @@ const hasUnseenTurn = (session: Session): boolean => {
    return idle !== undefined && (viewed === undefined || viewed < idle)
  }
  
@@ -2740,7 +2740,7 @@ index 7f23b7089..699636f41 100644
  export const isSessionUnread = (session: Session | undefined): boolean => (
    canSessionBeUnread(session) && (hasUnseenTurn(session) || hasUnreadMark(session))
  )
-@@ -66,16 +47,6 @@ export const isSessionMarkedUnread = (session: Session | undefined): boolean =>
+@@ -67,16 +48,6 @@ export const isSessionMarkedUnread = (session: Session | undefined): boolean =>
    canSessionBeUnread(session) && hasUnreadMark(session)
  )
  

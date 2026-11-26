@@ -1,8 +1,8 @@
 diff --git a/packages/electron/DOCUMENTATION.md b/packages/electron/DOCUMENTATION.md
-index caa1a38fb..024c20ff3 100644
+index bf35fc474..681174a63 100644
 --- a/packages/electron/DOCUMENTATION.md
 +++ b/packages/electron/DOCUMENTATION.md
-@@ -138,6 +138,10 @@ Streaming turns create short-lived objects, and macOS compression keeps the rend
+@@ -143,6 +143,10 @@ Streaming turns create short-lived objects, and macOS compression keeps the rend
  
  Tray image changes cost CPU in both the main process and WindowServer throughout long-running work. Six eased frames at five changes per second preserve the roughly two-second cycle with fewer native image updates. Linux tray images stay panel-sized because StatusNotifier hosts can drop oversized images; monochrome geometric glyphs follow native menu-bar tinting.
  
@@ -14,10 +14,10 @@ index caa1a38fb..024c20ff3 100644
  
  The countdown and the installer handoff exist only in the desktop app. The embedded server is the place that already sees every client's sessions, terminals, and scheduled work, so it answers whether this process is idle and the desktop process keeps the queue. The queue stays in memory for the current app run and downloaded release. Quit drops the idle queue; when automatic updates are enabled, `performConfirmedQuit()` hands a downloaded update to `quitAndInstall(true, false)` after `prepareForQuit()`, while `electron-updater`'s raw `autoInstallOnAppQuit` stays off.
 diff --git a/packages/electron/README.md b/packages/electron/README.md
-index 4800c9fab..cadcfcd8a 100644
+index 43477176d..aa0f7211f 100644
 --- a/packages/electron/README.md
 +++ b/packages/electron/README.md
-@@ -434,6 +434,39 @@ An exit requested during entry remains queued in Electron even after an explicit
+@@ -439,6 +439,39 @@ An exit requested during entry remains queued in Electron even after an explicit
  
  The macOS menu bar item is enabled by default and can be disabled in General settings. The setting applies after restart. While disabled, Desktop skips the native tray controller, tray-specific subscriptions, polling, and quota refresh. Dock badges remain independent: unread activity, session membership, and badge preferences still update the Dock through the shared IPC command. Turning off the Dock badge clears its count without enabling the menu bar item.
  
@@ -57,7 +57,7 @@ index 4800c9fab..cadcfcd8a 100644
  The Dock's context menu lists up to 10 unread sessions, newest completed turn
  first, from the same sidebar-visible set as its badge. A session opens through
  the tray's session action route. Mark all as read reaches the renderer even
-@@ -442,7 +475,7 @@ an empty unread list offers no actions. Native labels follow the preferred UI lo
+@@ -447,7 +480,7 @@ an empty unread list offers no actions. Native labels follow the preferred UI lo
  
  Packaged Windows exposes the same unread set in a custom taskbar jump-list
  category and a Mark all as read task. Session items launch the executable with
@@ -66,7 +66,7 @@ index 4800c9fab..cadcfcd8a 100644
  session membership before selection. Mark-all launches with `--mark-all-read`;
  main queues it until the renderer has registered its action listener, and the
  renderer waits for the global list. Unchanged lists are not rewritten. Empty
-@@ -466,8 +499,8 @@ The controller retains its last snapshot so `desktop_set_tray_locale` can rebuil
+@@ -471,8 +504,8 @@ The controller retains its last snapshot so `desktop_set_tray_locale` can rebuil
  labels immediately, even while session activity is idle. That command is
  remote-safe and accepts only a locale the tray has labels for, so a window
  loading its UI from a remote instance moves the tray to its language while
@@ -167,7 +167,7 @@ index eb625a2ed..5904d53f3 100644
 +  ]);
 +});
 diff --git a/packages/electron/main.mjs b/packages/electron/main.mjs
-index 45064a843..6290c928d 100644
+index ebd7d7848..511dca366 100644
 --- a/packages/electron/main.mjs
 +++ b/packages/electron/main.mjs
 @@ -23,9 +23,10 @@ import { createContextWindowController } from './context-window-controller.mjs';
@@ -183,7 +183,7 @@ index 45064a843..6290c928d 100644
  import { attachDevWindowTape } from './dev-window-tape.mjs';
  import { resolveManagedOpenCodeCwd } from './opencode-cwd.mjs';
  import { stopEmbeddedServer } from './server-shutdown.mjs';
-@@ -1800,7 +1801,6 @@ const setTaskbarProgress = (value) => {
+@@ -1801,7 +1802,6 @@ const setTaskbarProgress = (value) => {
  const pendingDeepLinks = [];
  let pendingMarkAllRead = process.platform === 'win32' && process.argv.includes('--mark-all-read');
  let mainWindowTrayActionsReady = false;
@@ -191,7 +191,7 @@ index 45064a843..6290c928d 100644
  const PENDING_SESSION_LINK_FALLBACK_MS = 10_000;
  
  const sessionDeepLinkTarget = (link) => {
-@@ -1808,7 +1808,7 @@ const sessionDeepLinkTarget = (link) => {
+@@ -1809,7 +1809,7 @@ const sessionDeepLinkTarget = (link) => {
    if (readDeepLinkQueryParam(link.raw, 'source') === 'jump-list') target.requireKnownSession = true;
    const messageId = readDeepLinkQueryParam(link.raw, 'message');
    if (messageId) target.messageId = messageId;
@@ -200,7 +200,7 @@ index 45064a843..6290c928d 100644
    if (runtimeKey) target.runtimeKey = runtimeKey;
    return target;
  };
-@@ -2487,14 +2487,16 @@ const createBrowserWindow = ({ label, restoreGeometry, url, runtimeConfig = {},
+@@ -2488,14 +2488,16 @@ const createBrowserWindow = ({ label, restoreGeometry, url, runtimeConfig = {},
  
      debounceWindowStatePersist(browserWindow, true);
    });
@@ -219,7 +219,7 @@ index 45064a843..6290c928d 100644
      if (BrowserWindow.getAllWindows().every((window) => window.__ocIdleUpdate)) {
        if (process.platform !== 'darwin') {
          if (state.updateInstallPending) {
-@@ -2562,6 +2564,7 @@ const createBrowserWindow = ({ label, restoreGeometry, url, runtimeConfig = {},
+@@ -2524,6 +2526,7 @@ const createBrowserWindow = ({ label, restoreGeometry, url, runtimeConfig = {},
  
    browserWindow.webContents.on('did-navigate', (_event, url) => {
      if (!isAppUiNavigationTarget(url)) browserWindow.__ocRuntimeKey = null;
@@ -227,7 +227,7 @@ index 45064a843..6290c928d 100644
      if (browserWindow === state.mainWindow) mainWindowSessionLinkGate.documentReplaced();
    });
    browserWindow.webContents.on('did-start-navigation', (details) => {
-@@ -3722,7 +3725,21 @@ const closeAllDevTunnels = () => {
+@@ -3656,7 +3659,21 @@ const closeAllDevTunnels = () => {
    pending.then((client) => client.closeAll()).catch(() => {});
  };
  
@@ -249,7 +249,7 @@ index 45064a843..6290c928d 100644
  
  const contextWindows = createContextWindowController({ BrowserWindow, createBrowserWindow, nextWindowLabel, resolveRuntimeConfig: resolveMiniChatRuntimeConfig, mutateSettingsRoot, emitToWindow, isQuitting: () => state.quitRequested, isMainWindow: (browserWindow) => browserWindow === state.mainWindow, isBrowserPanelPopup: (browserWindow) => isBrowserPanelPopup(browserWindow), log });
  
-@@ -4173,6 +4190,7 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
+@@ -4107,6 +4124,7 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
      case 'desktop_set_window_runtime_key': {
        if (browserWindow && !browserWindow.isDestroyed()) {
          browserWindow.__ocRuntimeKey = readTrimmedString(args.runtimeKey);
@@ -257,7 +257,7 @@ index 45064a843..6290c928d 100644
        }
        return null;
      }
-@@ -4205,41 +4223,8 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
+@@ -4139,41 +4157,8 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
        return null;
  
      case 'desktop_tray_update':
@@ -301,7 +301,7 @@ index 45064a843..6290c928d 100644
        return null;
  
      case 'desktop_clear_cache':
-@@ -5434,6 +5419,7 @@ const setupTray = () => {
+@@ -5367,6 +5352,7 @@ const setupTray = () => {
        state.trayFocusListener = (_event, browserWindow) => {
          if (browserWindow && !browserWindow.isDestroyed()) {
            state.lastFocusedWindowId = browserWindow.id;
@@ -309,7 +309,7 @@ index 45064a843..6290c928d 100644
          }
        };
        app.on('browser-window-focus', state.trayFocusListener);
-@@ -5457,22 +5443,30 @@ const revealMainWindow = async () => {
+@@ -5390,22 +5376,30 @@ const revealMainWindow = async () => {
    return target;
  };
  
@@ -350,7 +350,7 @@ index 45064a843..6290c928d 100644
  
    if (action.type === 'menu-opened') {
      const target = state.mainWindow;
-@@ -5527,16 +5521,14 @@ const dispatchTrayAction = async (action) => {
+@@ -5460,16 +5454,14 @@ const dispatchTrayAction = async (action) => {
    if (action.type === 'focus-session') {
      const surface = resolveTraySurface();
      if (surface && surface.__ocMiniChat === true && action.sessionId) {
@@ -1089,10 +1089,10 @@ index 756b5c957..93cb68299 100644
          await desktopHostsSet({
            hosts: config.hosts,
 diff --git a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-index dbd584393..34a11fbb7 100644
+index 715165f7e..723c40d71 100644
 --- a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
 +++ b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-@@ -1915,3 +1915,20 @@ from about 420 to 285 ms; time in tasks over 50 ms fell by 37 percent. What
+@@ -2004,3 +2004,20 @@ from about 420 to 285 ms; time in tasks over 50 ms fell by 37 percent. What
  still rebuilds the derived indexes at a turn's start and end is the ordering
  store: a session going active and settling again publishes new ranks, and
  group order reads those ranks too.
@@ -1113,18 +1113,6 @@ index dbd584393..34a11fbb7 100644
 +The parity test (`hooks/useTraySync.test.tsx`, *tray rows follow the sidebar row rule*) renders one fixture per kind of session the tray meets and checks the tray's rows against both the shared rule and the sidebar's projection. Rejected: a tray-side copy of the rule (`sessionHasSidebarRow`), which had fallen behind on nesting and space ownership.
 +
 +The tray rebuilds the tree only when one of its inputs changes (global active and archived sessions, projects, worktrees, spaces, OpenCode's projects, the directory stores' sessions): the 5 s poll and flushes for status or quota changes reuse it.
-diff --git a/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx b/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx
-index 9562a81d5..3410b95e9 100644
---- a/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx
-+++ b/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx
-@@ -730,7 +730,6 @@ const VisibleSessionProjects: React.FC<VisibleSessionProjectsProps> = ({ topolog
-   }, [sectionCandidates]);
-   const projectIds = React.useMemo(() => new Set(projectSections.map((section) => section.project.id)), [projectSections]);
-   const membership = React.useMemo(() => {
--    const context = { sessionById: collection.sessionById, childrenMap: collection.childrenMap, runKeyBySessionId, live: liveFacts, planSessionIds, folderByMember };
-     const factsByKey = new Map<string, SidebarWorkFacts>();
-     return resolveSidebarSectionMembership({
-       sections: visibleSections,
 diff --git a/packages/ui/src/components/session/sidebar/list/sessionCollection.ts b/packages/ui/src/components/session/sidebar/list/sessionCollection.ts
 index 31cf3546e..6d0b0ac37 100644
 --- a/packages/ui/src/components/session/sidebar/list/sessionCollection.ts
@@ -1596,10 +1584,10 @@ index 000000000..b38d1101a
 +  return { rootIds, rootOf };
 +};
 diff --git a/packages/ui/src/hooks/DOCUMENTATION.md b/packages/ui/src/hooks/DOCUMENTATION.md
-index b01d471d8..7c5eabbc6 100644
+index d339190b2..609cad528 100644
 --- a/packages/ui/src/hooks/DOCUMENTATION.md
 +++ b/packages/ui/src/hooks/DOCUMENTATION.md
-@@ -120,6 +120,8 @@ A hook here owns the lifetime of what it subscribes to. Mechanics that another m
+@@ -122,6 +122,8 @@ A hook here owns the lifetime of what it subscribes to. Mechanics that another m
  ### Desktop and mobile platform
  
  - The tray and dock badge admit only sessions with a sidebar row. Sessions from unconfigured directories cannot be opened or cleared from there, and pending approvals follow the same rule.
@@ -1609,12 +1597,12 @@ index b01d471d8..7c5eabbc6 100644
  - Push visibility on the native app follows `App.appStateChange`. Web visibility signals are unreliable in a WKWebView, where `hasFocus()` can report false while the app is active, which leaked push notifications.
  - iOS grants `navigator.wakeLock` only inside a tap, so the native app uses its own idle-timer plugin. Android drops the wake lock when the app leaves the screen, so it is requested again on visibility.
 diff --git a/packages/ui/src/hooks/useTraySync.test.tsx b/packages/ui/src/hooks/useTraySync.test.tsx
-index 949a09ac0..d795b12da 100644
+index e04791841..fc6c29bb1 100644
 --- a/packages/ui/src/hooks/useTraySync.test.tsx
 +++ b/packages/ui/src/hooks/useTraySync.test.tsx
-@@ -13,9 +13,19 @@ import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
- import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
+@@ -14,9 +14,19 @@ import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
  import { getPinnedSessionKey } from '@/lib/sessionPins';
+ import { EMPTY_SIDEBAR_SECTION_FILTER } from '@/lib/sidebarSections';
  import { getRuntimeKey } from '@/lib/runtime-switch';
 +import { ChildStoreManager } from '@/sync/child-store';
 +import { setSyncRefs } from '@/sync/sync-refs';
@@ -1632,12 +1620,13 @@ index 949a09ac0..d795b12da 100644
  import { useUIStore } from '@/stores/useUIStore';
  import { useQuotaStore } from '@/stores/useQuotaStore';
  import type { ProviderResult } from '@/types/quota';
-@@ -123,11 +133,10 @@ describe('Dock badge with the macOS menu bar disabled', () => {
+@@ -124,11 +134,10 @@ describe('Dock badge with the macOS menu bar disabled', () => {
    });
  
    test('counts a chat while the Chats section is shown', async () => {
 -    useProjectsStore.setState({ projects: [{ id: 'moved-chat', path: '/tmp/chats' }] });
-     // Pinned and in work, it still has no row elsewhere: those zones leave chats out.
+-    // Pinned and in work: In work leaves chats out, and with Pinned hidden too it has no row.
++    // Pinned and in work, it still has no row elsewhere: those zones leave chats out.
      useGlobalSessionsStore.setState({
        activeSessions: [{
 -        ...session('chat', undefined, '/tmp/chats', CHAT_DRAFT_PROJECT_ID),
@@ -1645,7 +1634,7 @@ index 949a09ac0..d795b12da 100644
          metadata: { openchamber: { pinned: { at: 1 }, work: { state: 'open' } } },
        }],
      });
-@@ -238,10 +247,11 @@ describe('Dock badge with the macOS menu bar disabled', () => {
+@@ -376,10 +385,11 @@ describe('Dock badge with the macOS menu bar disabled', () => {
      view('root');
      await act(async () => root.unmount());
      await flush();
@@ -1659,7 +1648,7 @@ index 949a09ac0..d795b12da 100644
    });
  
    test('counts all unread chats at startup, beyond the tray menu limit', async () => {
-@@ -377,6 +387,48 @@ describe('tray approvals carry whether a permission can be remembered', () => {
+@@ -515,6 +525,48 @@ describe('tray approvals carry whether a permission can be remembered', () => {
      expect(canSaveById()).toEqual({ 'seed-save': true, 'seed-once': false });
    });
  
@@ -1708,7 +1697,7 @@ index 949a09ac0..d795b12da 100644
    test('a complete host snapshot removes an answered page from tray approvals', async () => {
      await act(async () => root.render(<Harness />));
      applyWaitingPageEvent({
-@@ -531,6 +583,10 @@ describe('Tray sessions follow the configured projects', () => {
+@@ -669,6 +721,10 @@ describe('Tray sessions follow the configured projects', () => {
    });
  
    test('keeps a managed chat and an isolated space session', async () => {
@@ -1719,7 +1708,7 @@ index 949a09ac0..d795b12da 100644
      useGlobalSessionsStore.setState({
        activeSessions: [
          session('chat', undefined, '/home/.config/openchamber/chats/2026-10-26/session-1', CHAT_DRAFT_PROJECT_ID),
-@@ -545,6 +601,10 @@ describe('Tray sessions follow the configured projects', () => {
+@@ -683,6 +739,10 @@ describe('Tray sessions follow the configured projects', () => {
      useSessionDisplayStore.setState({ showChatsSection: false });
      await flush();
      expect(lastSnapshot()?.sessions?.map((entry) => entry.id).sort()).toEqual(['chat', 'space']);
@@ -1730,7 +1719,7 @@ index 949a09ac0..d795b12da 100644
    });
  
    test('keeps a session inside a configured project worktree', async () => {
-@@ -608,3 +668,107 @@ describe('Tray sessions follow the configured projects', () => {
+@@ -746,3 +806,107 @@ describe('Tray sessions follow the configured projects', () => {
      expect(lastSnapshot()?.approvals?.map((entry) => entry.id)).toEqual([]);
    });
  });
@@ -1839,7 +1828,7 @@ index 949a09ac0..d795b12da 100644
 +  });
 +});
 diff --git a/packages/ui/src/hooks/useTraySync.ts b/packages/ui/src/hooks/useTraySync.ts
-index 9e4567d4f..aba51f39f 100644
+index 51121c770..b8f525bd2 100644
 --- a/packages/ui/src/hooks/useTraySync.ts
 +++ b/packages/ui/src/hooks/useTraySync.ts
 @@ -4,7 +4,7 @@ import type { Session } from '@/lib/opencode/model';
@@ -1859,15 +1848,15 @@ index 9e4567d4f..aba51f39f 100644
  import { refreshTrayQuotas, useQuotaStore } from '@/stores/useQuotaStore';
  import { useConfigStore } from '@/stores/useConfigStore';
  import { formatWindowLabel, formatQuotaWindowValueLabel, quotaProviderList } from '@/lib/quota';
-@@ -38,11 +37,19 @@ import { useUIStore } from '@/stores/useUIStore';
- import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
+@@ -39,11 +38,21 @@ import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
  import { resolveProjectForSessionDirectory, normalizeProjectPath } from '@/lib/projectResolution';
  import { isSessionDirectoryAdmitted } from '@/sync/session-admission-rule';
--import { CHAT_DRAFT_PROJECT_ID, isChatDirectoryPath } from '@/lib/chatDirectories';
+ import { CHAT_DRAFT_PROJECT_ID, isChatDirectoryPath } from '@/lib/chatDirectories';
 -import { isSpaceDirectory } from '@/lib/spaces/space-route';
--import { isSessionPinned } from '@/lib/sessionPins';
+ import { getSessionPinList, isSessionPinned } from '@/lib/sessionPins';
  import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
 -import { sessionHasSidebarRow } from '@/lib/sidebarSessionRows';
+ import { resolveSessionNestingParentId } from '@/lib/sessionWorkLineage';
 +import { mergeSidebarSpaces, useSpacesStore } from '@/lib/spaces/spaces-store';
 +import { useGlobalSyncStore } from '@/sync/global-sync-store';
 +import { normalizePath } from '@/lib/pathNormalization';
@@ -1883,7 +1872,7 @@ index 9e4567d4f..aba51f39f 100644
  import { findWorktreeHoldingDirectory } from '@/lib/worktrees/worktreePaths';
  import type { ProjectEntry } from '@/lib/api/types';
  import type { WorktreeMetadata } from '@/types/worktree';
-@@ -120,6 +127,11 @@ const formLabel = (request: BlockingFormRequest): string => request.title.trim()
+@@ -124,6 +133,11 @@ const formLabel = (request: BlockingFormRequest): string => request.title.trim()
  
  const NO_PINNED_SESSIONS = new Set<string>();
  
@@ -1895,7 +1884,7 @@ index 9e4567d4f..aba51f39f 100644
  const compareSessionOrder = (left: Session, right: Session): number => (
    compareSessionsByLifecycleOrder(
      left,
-@@ -217,6 +229,7 @@ type LiveData = {
+@@ -221,6 +235,7 @@ type LiveData = {
    branchByDirectory: Map<string, string>;
    approvals: TrayApproval[];
    titleById: Map<string, string>;
@@ -1903,7 +1892,7 @@ index 9e4567d4f..aba51f39f 100644
  };
  
  const collectLiveData = (): LiveData => {
-@@ -224,16 +237,18 @@ const collectLiveData = (): LiveData => {
+@@ -228,16 +243,18 @@ const collectLiveData = (): LiveData => {
    const branchByDirectory = new Map<string, string>();
    const approvals: TrayApproval[] = [];
    const titleById = new Map<string, string>();
@@ -1923,7 +1912,7 @@ index 9e4567d4f..aba51f39f 100644
      if (state.vcs?.branch) branchByDirectory.set(normalizeProjectPath(directory) ?? directory, state.vcs.branch);
  
      for (const session of state.session) {
-@@ -264,42 +279,56 @@ const collectLiveData = (): LiveData => {
+@@ -268,22 +285,54 @@ const collectLiveData = (): LiveData => {
      }
    }
  
@@ -1978,12 +1967,44 @@ index 9e4567d4f..aba51f39f 100644
    const worktreesByProject = useSessionUIStore.getState().availableWorktreesByProject;
  
 -  const pinnedIds = useSessionPinnedStore.getState().ids;
++  const rowBase = readSidebarRowBase();
++  const pinnedSessionIds = useSessionPinnedStore.getState().ids;
+   const display = useSessionDisplayStore.getState();
+-  const shownSections: Sections = {
++  const shownSections = {
+     chats: display.showChatsSection,
+     pinned: display.showPinnedSection,
+     work: useUIStore.getState().sessionWorkEnabled && display.showWorkSection,
+@@ -299,6 +348,9 @@ const buildSnapshot = (instanceName: string, includeTray: boolean): TraySnapshot
+     customSections: true,
+     pages: false,
+   });
++  const rowsIn = (zones: { chats: boolean; pinned: boolean }) => resolveSidebarSessionRows(
++    rowBase.tree, rowBase.nestedSessionIds, { ownerBySessionId: rowBase.ownerBySessionId, pinnedSessionIds, zones },
++  );
+ 
+   const openTurnIds = collectOpenTurnSessionIds(useGlobalSessionStatusStore.getState().activeSessionIds, [
+     useWorkflowActivityStore.getState().runningSessionIds,
+@@ -341,32 +393,23 @@ const buildSnapshot = (instanceName: string, includeTray: boolean): TraySnapshot
+     return factsContext;
+   };
+ 
 -  type Sections = { chats: boolean; pinned: boolean; work: boolean };
 -  const hasRowIn = (session: Session, sections: Sections): boolean => {
--    const directory = resolveGlobalSessionDirectory(session);
++  // A chat pinned to a list the sidebar shows has a row there even with the
++  // Chats section hidden (#7637); the shared row tree only knows the zones.
++  const chatInPinSection = (session: Session): boolean => {
+     const directory = resolveGlobalSessionDirectory(session);
 -    const isAdmitted = isSessionDirectoryAdmitted(directory, projects, worktreesByProject);
 -    if (isChatDirectoryPath(directory) || session.projectID === CHAT_DRAFT_PROJECT_ID) {
--      return sessionHasSidebarRow(session, { isAdmitted, isPlaced: sections.chats, isPinned: false, zones: { pinned: false, work: false } });
+-      const isPinned = isSessionPinned(pinnedIds, session.directory, session.id);
+-      const inPinSection = (): boolean => isPinned && isChatListedInPinSections(
+-        visibleSections,
+-        getSessionPinList(session),
+-        () => buildSidebarWorkFacts({ kind: 'session', key: `session:${session.id}`, projectId: null, rootSessionId: session.id, chat: true }, chatFactsContext()),
+-        Date.now(),
+-      );
+-      return sessionHasSidebarRow(session, { isAdmitted, isPlaced: sections.chats || inPinSection(), isPinned: false, zones: { pinned: false, work: false } });
 -    }
 -    return sessionHasSidebarRow(session, {
 -      isAdmitted,
@@ -1992,37 +2013,27 @@ index 9e4567d4f..aba51f39f 100644
 -      isPinned: isSessionPinned(pinnedIds, session.directory, session.id),
 -      zones: sections,
 -    });
--  };
-+  const rowBase = readSidebarRowBase();
-+  const pinnedSessionIds = useSessionPinnedStore.getState().ids;
-   const display = useSessionDisplayStore.getState();
--  const shownSections: Sections = {
--    chats: display.showChatsSection,
--    pinned: display.showPinnedSection,
--    work: useUIStore.getState().sessionWorkEnabled && display.showWorkSection,
--  };
++    if (!isChatDirectoryPath(directory) && session.projectID !== CHAT_DRAFT_PROJECT_ID) return false;
++    return isSessionPinned(pinnedSessionIds, session.directory, session.id) && isChatListedInPinSections(
++      visibleSections,
++      getSessionPinList(session),
++      () => buildSidebarWorkFacts({ kind: 'session', key: `session:${session.id}`, projectId: null, rootSessionId: session.id, chat: true }, chatFactsContext()),
++      Date.now(),
++    );
+   };
 -  const allSections: Sections = { chats: true, pinned: true, work: true };
-+  const rowsIn = (zones: { chats: boolean; pinned: boolean }) => resolveSidebarSessionRows(
-+    rowBase.tree, rowBase.nestedSessionIds, { ownerBySessionId: rowBase.ownerBySessionId, pinnedSessionIds, zones },
-+  );
- 
-   const openTurnIds = collectOpenTurnSessionIds(useGlobalSessionStatusStore.getState().activeSessionIds, [
-     useWorkflowActivityStore.getState().runningSessionIds,
-@@ -310,8 +339,11 @@ const buildSnapshot = (instanceName: string, includeTray: boolean): TraySnapshot
-   ]);
-   const hasUnreadTurn = (session: Session): boolean => isSessionUnread(session) && !openTurnIds.has(session.id);
- 
+-
 -  const dockUnread = useUIStore.getState().dockBadgeEnabled
 -    ? allSessions.filter((session) => hasUnreadTurn(session) && hasRowIn(session, shownSections))
 +  const shownRows = useUIStore.getState().dockBadgeEnabled
 +    ? rowsIn({ chats: display.showChatsSection, pinned: display.showPinnedSection })
 +    : null;
 +  const dockUnread = shownRows
-+    ? allSessions.filter((session) => hasUnreadTurn(session) && shownRows.rootOf.has(session.id))
++    ? allSessions.filter((session) => hasUnreadTurn(session) && (shownRows.rootOf.has(session.id) || chatInPinSection(session)))
      : [];
    const dockBadgeCount = dockUnread.length;
    const dockUnreadSessions = dockUnread
-@@ -335,6 +367,16 @@ const buildSnapshot = (instanceName: string, includeTray: boolean): TraySnapshot
+@@ -390,6 +433,16 @@ const buildSnapshot = (instanceName: string, includeTray: boolean): TraySnapshot
      return globalStatusById.get(id)?.status.type ?? fromStores ?? 'idle';
    };
  
@@ -2039,7 +2050,7 @@ index 9e4567d4f..aba51f39f 100644
    const rollupStatus = (family: string[]): TraySessionStatus => {
      const statuses = family.map((id) => resolveStatus(id));
      if (statuses.includes('busy')) return 'busy';
-@@ -342,22 +384,21 @@ const buildSnapshot = (instanceName: string, includeTray: boolean): TraySnapshot
+@@ -398,22 +451,21 @@ const buildSnapshot = (instanceName: string, includeTray: boolean): TraySnapshot
      return 'idle';
    };
  
@@ -2069,7 +2080,7 @@ index 9e4567d4f..aba51f39f 100644
          directory,
          subtitle: resolveSessionSubtitle(directory, session, projects, worktreesByProject, live.branchByDirectory),
        };
-@@ -367,12 +408,13 @@ const buildSnapshot = (instanceName: string, includeTray: boolean): TraySnapshot
+@@ -423,12 +475,13 @@ const buildSnapshot = (instanceName: string, includeTray: boolean): TraySnapshot
    const seen = new Set(approvals.map((a) => a.id));
    for (const [sessionId, pending] of useGlobalBlockingRequestsStore.getState().bySession) {
      const sessionTitle = titleById.get(sessionId) || '';
@@ -2085,7 +2096,7 @@ index 9e4567d4f..aba51f39f 100644
        if (seen.has(request.id)) continue;
        seen.add(request.id);
        approvals.push({ kind: 'form', id: request.id, sessionId, sessionTitle, label: formLabel(request), directory: pending.directory, canSave: false });
-@@ -428,24 +470,29 @@ export const useTraySync = (): void => {
+@@ -498,10 +551,7 @@ export const useTraySync = (): void => {
      const unsubscribePrWatches = usePrWatchStore.subscribe(() => scheduleFlush());
      const unsubscribeExtensionWaits = useExtensionWaitsStore.subscribe(() => scheduleFlush());
      const unsubscribeUI = useUIStore.subscribe((state, previous) => {
@@ -2097,15 +2108,10 @@ index 9e4567d4f..aba51f39f 100644
      });
      const unsubscribeProjects = useProjectsStore.subscribe(() => scheduleFlush());
      const unsubscribeWorktrees = useSessionUIStore.subscribe(() => scheduleFlush());
-     const unsubscribePins = useSessionPinnedStore.subscribe(() => scheduleFlush());
-     const unsubscribeSections = useSessionDisplayStore.subscribe((state, previous) => {
-       if (state.showChatsSection !== previous.showChatsSection
--        || state.showPinnedSection !== previous.showPinnedSection
--        || state.showWorkSection !== previous.showWorkSection) {
-+        || state.showPinnedSection !== previous.showPinnedSection) {
-         scheduleFlush();
+@@ -516,11 +566,20 @@ export const useTraySync = (): void => {
        }
      });
+     const unsubscribeGlobalRequests = useGlobalBlockingRequestsStore.subscribe(() => scheduleFlush());
 +    const unsubscribeSpaces = useSpacesStore.subscribe((state, previous) => {
 +      if (state.spaces !== previous.spaces || state.journey !== previous.journey) scheduleFlush();
 +    });
@@ -2115,13 +2121,15 @@ index 9e4567d4f..aba51f39f 100644
      const stopBadgeSync = () => {
        disposed = true;
        if (flushTimer !== null) window.clearTimeout(flushTimer);
+       cancelActivityClock?.();
+       unsubscribeGlobalRequests();
 +      if (lastSerialized && lastSerialized !== EMPTY_SNAPSHOT_SERIALIZED) {
 +        void invokeDesktop('desktop_tray_update', EMPTY_SNAPSHOT);
 +      }
        unsubscribeGlobal();
        unsubscribeLocale();
        unsubscribeGlobalStatus();
-@@ -459,6 +506,8 @@ export const useTraySync = (): void => {
+@@ -534,6 +593,8 @@ export const useTraySync = (): void => {
        unsubscribeWorktrees();
        unsubscribePins();
        unsubscribeSections();
@@ -2185,11 +2193,11 @@ index 774465daf..000000000
 -  return isPlaced || (zones.pinned && isPinned) || (zones.work && isSessionInWork(session));
 -};
 diff --git a/packages/ui/src/lib/spaces/spaces-store.ts b/packages/ui/src/lib/spaces/spaces-store.ts
-index c0f21e5f3..74ea566b5 100644
+index 2f2955ff1..4f2add174 100644
 --- a/packages/ui/src/lib/spaces/spaces-store.ts
 +++ b/packages/ui/src/lib/spaces/spaces-store.ts
 @@ -313,7 +313,7 @@ export const useSpaceDirectoryStopped = (directory: string | null | undefined):
-   return useSpacesStore((state) => spaceId !== null && isStoppedEntry(state.journey?.get(spaceId)));
+   return useSpacesStore((state) => spaceId !== null && isStoppedSpaceEntry(state.journey?.get(spaceId)));
  };
  
 -const mergeSidebarSpaces = (marks: ReadonlyMap<string, SpaceMark>, journey: ReadonlyMap<string, SpaceEntry> | null): SpaceMark[] => {
@@ -2198,10 +2206,10 @@ index c0f21e5f3..74ea566b5 100644
      const entry = journey?.get(mark.id);
      return entry ? { ...mark, taskTitle: entry.taskTitle ?? null } : mark;
 diff --git a/packages/ui/src/sync/DOCUMENTATION.md b/packages/ui/src/sync/DOCUMENTATION.md
-index 15d0259b8..8855b55db 100644
+index e88b68b22..77650908d 100644
 --- a/packages/ui/src/sync/DOCUMENTATION.md
 +++ b/packages/ui/src/sync/DOCUMENTATION.md
-@@ -1176,6 +1176,10 @@ Pending permissions and forms get the same treatment in `global-blocking-request
+@@ -1191,6 +1191,10 @@ Pending permissions and forms get the same treatment in `global-blocking-request
  
  The host owns waiting pages directly, so its complete `pending` map is authoritative for its own page waits. `readHostBlockingRequestsSnapshot` clears pages omitted from that map and overlays page events received during the read, including a settlement whose ask never reached this client. Otherwise a delayed snapshot can resurrect an answered page, and a lost settlement leaves a question badge indefinitely. Observers live only for the read and runtime reset invalidates them. Unchanged entries keep their references. Failed reads and hosts that omit `pending` clear nothing; isolated-space page waits belong to their own server and are left untouched. Forms and permissions remain additive because their host map only forwards OpenCode events and can itself miss a settlement.
  
@@ -2212,12 +2220,12 @@ index 15d0259b8..8855b55db 100644
  A `permission.asked` in a session whose permission mode answers without the user (`auto`, or `safety` while a classification provider can run) is held back in `handleEvent`: no card, no row badge, no toast, and no entry in the cross-directory blocking-request index (which feeds collapsed rows, the tray and run overviews), so a request the server accepts never flashes on screen. The replay for the user applies global effects, which adds it to the index then. The host seed is not filtered this way: a page loaded while the server is still classifying a request can show it until the server answers. The server reports a request it did not answer (the safety net held it, Jev failed, or the reply failed) as `openchamber.permission-left-for-user`; the held-back event is then replayed as an `ask` request, stored and announced, in a directory with or without a store. `permission.replied` drops a held-back request. A report that arrives before its request is remembered (bounded), and that request is shown at once. VS Code never holds back: its extension host answers in the webview. A request held back while the client disconnects reaches the store through reconnect reconciliation, which does not consult the mode.
  
  Holding back is only safe while the client hears both the modes and the reports. The main event stream carries them only over the WebSocket; over SSE it is OpenCode's own stream. So the server also sends `openchamber:permission-auto-accept.updated` and `.left-for-user` on the control stream, which every web, desktop and mobile window keeps open, and `subscribePermissionPolicySync` (`permission-mode-sync.ts`) feeds them into `handleEvent`. Over the WebSocket each arrives twice; a second policy of the same revision and a second report for a request already shown change nothing. Each connection of the control stream reads the modes again, the host's (`usePermissionStore.hydrate`) and each known space's (`refreshSpaceModes`): a mode changed in another window while this one was cut off was never announced to it, and a stale `auto` would hide every request of that session for the life of the window. The host's `openchamber:space-permission-stream` announcement re-reads that space's modes from the control stream too.
-@@ -1303,7 +1307,7 @@ Live activity/status indicators must not depend on this cache. They must use the
+@@ -1318,7 +1322,7 @@ Live activity/status indicators must not depend on this cache. They must use the
  
  ### Unread sessions
  
--`session-unread.ts` owns the unread mark, and OpenCode owns the state behind it. A session record carries `time.idle` (when its last turn ended, whatever the outcome) and `time.viewed` (a watermark of the last turn end a viewer saw, which OpenCode keeps monotone). A top-level, unarchived session whose `idle` is past its `viewed` is unread. Rows, tabs, switchers, collapsed aggregates, run overviews, the tray, the dock badge and the iOS widget all read that one rule from the global sessions store. OpenCode stamps `idle` when a session only idles on background work, so the sidebar's user sections, the tray and the dock badge also leave out a session whose turn is still open (`collectOpenTurnSessionIds`: the running sessions, their ancestors, and sessions waiting on a workflow run, a background command or image, or a pull request). It counts once that work ends, with no change to its record, which is why the tray hook subscribes to those stores even with the tray off. The tray and the dock badge also require a sidebar row (`sessionHasSidebarRow`): an unread session the user cannot see or open would hold a dock count nothing clears. The badge counts a session that only the Chats, Pinned or In work section lists while that section is shown; the tray list keeps it with the section hidden, because a tray row opens the session directly.
-+`session-unread.ts` owns the unread mark, and OpenCode owns the state behind it. A session record carries `time.idle` (when its last turn ended, whatever the outcome) and `time.viewed` (a watermark of the last turn end a viewer saw, which OpenCode keeps monotone). A top-level, unarchived session whose `idle` is past its `viewed` is unread. Rows, tabs, switchers, collapsed aggregates, run overviews, the tray, the dock badge and the iOS widget all read that one rule from the global sessions store. OpenCode stamps `idle` when a session only idles on background work, so the sidebar's user sections, the tray and the dock badge also leave out a session whose turn is still open (`collectOpenTurnSessionIds`: the running sessions, their ancestors, and sessions waiting on a workflow run, a background command or image, or a pull request). It counts once that work ends, with no change to its record, which is why the tray hook subscribes to those stores even with the tray off. The tray and the dock badge also require a sidebar row, decided by the sidebar's own row rule (`resolveSidebarSessionRows`, see *Tray rows* in `components/session/sidebar/DOCUMENTATION.md`): an unread session the user cannot see or open would hold a dock count nothing clears. A session nested under a row (a review, a promoted /btw) counts through that row. The badge counts a session that only the Chats or Pinned section lists while that section is shown; the tray list keeps it with the section hidden, because a tray row opens the session directly.
+-`session-unread.ts` owns the unread mark, and OpenCode owns the state behind it. A session record carries `time.idle` (when its last turn ended, whatever the outcome) and `time.viewed` (a watermark of the last turn end a viewer saw, which OpenCode keeps monotone). A top-level, unarchived session whose `idle` is past its `viewed` is unread. Rows, tabs, switchers, collapsed aggregates, run overviews, the tray, the dock badge and the iOS widget all read that one rule from the global sessions store. OpenCode stamps `idle` when a session only idles on background work, so the sidebar's user sections, the tray and the dock badge also leave out a session whose turn is still open (`collectOpenTurnSessionIds`: the running sessions, their ancestors, and sessions waiting on a workflow run, a background command or image, or a pull request). It counts once that work ends, with no change to its record, which is why the tray hook subscribes to those stores even with the tray off. The tray and the dock badge also require a sidebar row (`sessionHasSidebarRow`): an unread session the user cannot see or open would hold a dock count nothing clears. The badge counts a session that only the Chats, Pinned or In work section lists while that section is shown; a pinned Chat with Chats hidden also counts while Pinned or a shown section whose Pins condition matches lists it, as the sidebar does (`isChatListedInPinSections`, with the same facts: archived subtasks count toward activity, and with the menu bar off the hook rechecks on the hour while such a section filters on activity). The tray list keeps it with the section hidden, because a tray row opens the session directly.
++`session-unread.ts` owns the unread mark, and OpenCode owns the state behind it. A session record carries `time.idle` (when its last turn ended, whatever the outcome) and `time.viewed` (a watermark of the last turn end a viewer saw, which OpenCode keeps monotone). A top-level, unarchived session whose `idle` is past its `viewed` is unread. Rows, tabs, switchers, collapsed aggregates, run overviews, the tray, the dock badge and the iOS widget all read that one rule from the global sessions store. OpenCode stamps `idle` when a session only idles on background work, so the sidebar's user sections, the tray and the dock badge also leave out a session whose turn is still open (`collectOpenTurnSessionIds`: the running sessions, their ancestors, and sessions waiting on a workflow run, a background command or image, or a pull request). It counts once that work ends, with no change to its record, which is why the tray hook subscribes to those stores even with the tray off. The tray and the dock badge also require a sidebar row, decided by the sidebar's own row rule (`resolveSidebarSessionRows`, see *Tray rows* in `components/session/sidebar/DOCUMENTATION.md`): an unread session the user cannot see or open would hold a dock count nothing clears. A session nested under a row (a review, a promoted /btw) counts through that row. The badge counts a session that only the Chats or Pinned section lists while that section is shown; a pinned Chat with Chats hidden also counts while Pinned or a shown section whose Pins condition matches lists it, as the sidebar does (`isChatListedInPinSections`, with the same facts: archived subtasks count toward activity, and with the menu bar off the hook rechecks on the hour while such a section filters on activity). The tray list keeps it with the section hidden, because a tray row opens the session directly.
  
  Marking a session seen (`markSessionViewed` in `notification-store.ts`, which also clears its native notifications) writes the watermark locally at once and sends `POST /api/session/:id/view` with the `idle` it saw; a failed write restores the previous watermark unless a newer record replaced it. OpenCode announces the view as `session.viewed` to every client, so a session seen on one device stops being unread on the others. The global store's change signatures include `idle` and `viewed`, so these updates publish immediately instead of waiting with recency-only updates. The signatures also carry the usage and selection fields a `session.patched` can change without advancing `updated` (cost, tokens, model, permissions, outcome, revert, subpath): a patch touching only those fields would otherwise read as no change and be dropped by the store's same-record filter. Spend (`cost`, `tokens`) waits with the recency updates: OpenCode reports usage after every step of a turn, the sidebar paints none of it, and publishing it rebuilt the whole sidebar once per step (24 rebuilds and about 2 GB of allocation in one 21-step turn with 3,700 sessions; 4 rebuilds once deferred). Live usage readouts read the directory stores, which apply every step (Work status, subagent cost); a run lane in a folder no store holds gets its spend from the deferred records (`useDeferredGlobalSessions`), which `useMultiRunSessions` lays over the global list. The selection fields (model, permissions, outcome, revert, subpath) still publish at once.
  
@@ -2269,10 +2277,10 @@ index 000000000..7988e484a
 +  })
 +})
 diff --git a/packages/ui/src/sync/session-actions.test.ts b/packages/ui/src/sync/session-actions.test.ts
-index a0900f033..270bbac1a 100644
+index f39b9b836..9c021e894 100644
 --- a/packages/ui/src/sync/session-actions.test.ts
 +++ b/packages/ui/src/sync/session-actions.test.ts
-@@ -2581,6 +2581,23 @@ describe("respondToPermission passes directory", () => {
+@@ -2786,6 +2786,23 @@ describe("respondToPermission passes directory", () => {
      expect(replyCalls.filter((call) => call.method === "permission.reply").map((call) => call.params.directory)).toEqual(["/test/project/wt"])
    })
  
@@ -2297,7 +2305,7 @@ index a0900f033..270bbac1a 100644
      const permission = buildPermission("perm-unread", "session-unread")
      const store = createStore({ "session-unread": [permission] })
 diff --git a/packages/ui/src/sync/session-actions.ts b/packages/ui/src/sync/session-actions.ts
-index 4bcd7302f..cb89ebf4e 100644
+index 02766636b..f291922a7 100644
 --- a/packages/ui/src/sync/session-actions.ts
 +++ b/packages/ui/src/sync/session-actions.ts
 @@ -1,5 +1,6 @@
@@ -2307,7 +2315,7 @@ index 4bcd7302f..cb89ebf4e 100644
  import { readSubagentRun } from "@/lib/opencode/subagent-run"
  import { attachmentBasename, withMissingCitations } from "@/lib/attachmentIdentity"
  import { isAutoModel } from "@/lib/routing/autoModel"
-@@ -2087,6 +2088,7 @@ export async function respondToPermission(
+@@ -2078,6 +2079,7 @@ export async function respondToPermission(
    } catch (error) {
      if (isPermissionRequestNotFoundError(error)) {
        removePermissionRequestFromChildStores(sessionId, requestId)
@@ -2315,7 +2323,7 @@ index 4bcd7302f..cb89ebf4e 100644
      }
      throw error
    }
-@@ -2108,6 +2110,7 @@ export async function dismissPermission(
+@@ -2099,6 +2101,7 @@ export async function dismissPermission(
    } catch (error) {
      if (isPermissionRequestNotFoundError(error)) {
        removePermissionRequestFromChildStores(sessionId, requestId)
@@ -2323,7 +2331,7 @@ index 4bcd7302f..cb89ebf4e 100644
      }
      throw error
    }
-@@ -2793,4 +2796,4 @@ export async function fetchMessagesForSession(sessionID: string, directory?: str
+@@ -2784,4 +2787,4 @@ export async function fetchMessagesForSession(sessionID: string, directory?: str
      { directory: resolvedDir, sessionID },
      { reason: "navigation" },
    )
@@ -2331,7 +2339,7 @@ index 4bcd7302f..cb89ebf4e 100644
 +}
 \ No newline at end of file
 diff --git a/packages/ui/src/sync/sync-event-dispatch.ts b/packages/ui/src/sync/sync-event-dispatch.ts
-index 2f992101a..9c6a50306 100644
+index 3c2838eb0..d596d91be 100644
 --- a/packages/ui/src/sync/sync-event-dispatch.ts
 +++ b/packages/ui/src/sync/sync-event-dispatch.ts
 @@ -169,7 +169,7 @@ export function handleEvent(

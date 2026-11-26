@@ -62,7 +62,11 @@ let
     ];
     patches = [
       ./patches/commandcode-quota.patch
-      ./patches/stale-pending-badge.patch
+      # The permission shield and question mark, drawn by one component with a
+      # question colour of their own, on rows, switchers and collapsed headers;
+      # a collapsed header and the switchers count pending requests by the
+      # directory store once it has read them, as a row does. Carries the
+      # remainder of the stale-pending-badge fix, which goes upstream with it.
       ./patches/question-indicator.patch
       ./patches/reply-start-scroll.patch
       ./patches/draft-heading-project-picker.patch
@@ -73,36 +77,26 @@ let
       # It imports ImageZoomControls and wheelZoomFactor, so it follows the
       # image viewer patch.
       ./patches/pdf-viewer-zoom.patch
-      ./patches/mobile-assist-trigger.patch
-      ./patches/mobile-voice-launch.patch
       ./patches/dictation-recovery.patch
+      # Cross-instance attention, with its two fixes folded in: a question that
+      # ends in error is checked against OpenCode's own form list before it is
+      # shown, and a click in the attention dialog opens the clicked session
+      # once the host switch lands.
       ./patches/instance-attention.patch
-      # A question tool call that ends in error sends no settlement, so the
-      # host's index kept announcing an answered question. Both halves check a
-      # pending form against OpenCode's own form list before showing it.
-      ./patches/attention-stale-form.patch
       ./patches/in-work-paging.patch
       ./patches/hide-empty-worktrees.patch
-      ./patches/android-notification-dismiss.patch
       ./patches/chat-width-80.patch
       ./patches/in-work-paging-show-more.patch
       ./patches/question-rows.patch
+      # The question card, and the mark that tells a question line from a
+      # collapsed quote.
       ./patches/question-cards.patch
-      # A message that hides quotes says how many it hid: keeping one row
-      # silently made several quotes read as one.
-      # A collapsed quote has no caption and a question card had no mark, so
-      # both read as "a bar and some text". Each now carries its own icon.
-      ./patches/context-row-icons.patch
       # The reference picker's search across every repository under a
       # project folder, for Gitea and Forgejo.
       ./patches/gitea-references-across.patch
-      # A click in the attention dialog opens the clicked session after the
-      # host switch lands, instead of the one last open there. It edits
-      # instance-attention's files, so it follows that patch.
-      ./patches/attention-jump-landing.patch
       # The tray keeps one snapshot per window, grouped by instance, and sends
-      # each row's click or answer to the window that supplied it. It sits on
-      # the attention fix because both touch the same runtime and sync files.
+      # each row's click or answer to the window that supplied it. It touches
+      # the runtime and sync files instance-attention changes, so it follows it.
       ./patches/tray-instances.patch
       # The attention popover lists another instance's sessions by that
       # instance's sidebar row rule, the same one its own view uses, so a
@@ -117,12 +111,6 @@ let
       # every announcing location again. The refresh now reads only the
       # directories in use and marks the rest stale.
       ./patches/catalog-refresh-in-use.patch
-      # express.static validated the root HTML documents by size and mtime,
-      # and Nix stamps every build with the same mtime, so a new build of the
-      # same size answered 304 to a browser holding the old document, which
-      # kept loading the old build's immutable assets. The documents are now
-      # sent with an ETag over their bytes and Cache-Control: no-cache.
-      ./patches/html-document-etag.patch
     ];
   };
 in
