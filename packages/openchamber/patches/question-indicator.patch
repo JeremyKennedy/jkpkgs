@@ -75,7 +75,7 @@ index 2d68ea28a..01216c367 100644
    );
    return (
 diff --git a/packages/ui/src/apps/MobileSessionSwitcher.tsx b/packages/ui/src/apps/MobileSessionSwitcher.tsx
-index ce36b3c60..e36f74f03 100644
+index ce36b3c60..bb20fe2b5 100644
 --- a/packages/ui/src/apps/MobileSessionSwitcher.tsx
 +++ b/packages/ui/src/apps/MobileSessionSwitcher.tsx
 @@ -2,11 +2,14 @@ import React from 'react';
@@ -93,7 +93,7 @@ index ce36b3c60..e36f74f03 100644
  import { useTabletLayout } from '@/lib/device';
  import { useI18n } from '@/lib/i18n';
  import { cn } from '@/lib/utils';
-@@ -24,19 +27,25 @@ const getSessionTitle = (session: Session, fallback: string): string =>
+@@ -24,19 +27,23 @@ const getSessionTitle = (session: Session, fallback: string): string =>
    session.title?.trim() || fallback;
  
  const SwitcherRow: React.FC<{
@@ -111,8 +111,6 @@ index ce36b3c60..e36f74f03 100644
    const turnActivity = useSessionTurnActivity(session.id);
    const isStreaming = turnActivity !== null;
    const showUnreadDot = !isStreaming && isUnread && (!active || markedUnread);
-+  // The recent list shows parents only: a row stands for its subsessions too,
-+  // so their waiting requests count here, resolved as the desktop row does.
 +  const pendingRequests = usePendingRequests(node, false, true, resolveGlobalSessionDirectory(session));
 +  const { hasPermission: hasPendingPermission, hasForm: hasPendingForm } = pendingRequests;
 +  const waitingOnUser = hasPendingPermission || hasPendingForm;
@@ -122,12 +120,11 @@ index ce36b3c60..e36f74f03 100644
    const timeLabel = formatSessionCompactDateLabel(getSessionActivityTime(session));
  
    return (
-@@ -57,7 +66,12 @@ const SwitcherRow: React.FC<{
+@@ -57,7 +64,11 @@ const SwitcherRow: React.FC<{
            <span className="block truncate typography-micro text-muted-foreground">{meta}</span>
          ) : null}
        </span>
 -      {isStreaming || showUnreadDot ? (
-+      {/* Activity sits on the right, before the time — no reserved left gutter. */}
 +      {waitingOnUser ? (
 +        <span className="flex flex-shrink-0 items-center gap-1">
 +          <SessionPendingMarks hasPermission={hasPendingPermission} hasForm={hasPendingForm} />
@@ -136,7 +133,7 @@ index ce36b3c60..e36f74f03 100644
          <SessionActivityIndicator
            state={turnActivity ?? 'unread'}
          />
-@@ -202,7 +216,7 @@ export const MobileSessionSwitcher: React.FC<{
+@@ -202,7 +213,7 @@ export const MobileSessionSwitcher: React.FC<{
                return (
                  <SwitcherRow
                    key={session.id}
@@ -171,6 +168,21 @@ index 046f1d4dd..901c26587 100644
    error: { icon: 'error-warning', color: 'var(--status-error)' },
    conflict: { icon: 'git-pull-request', color: 'var(--pr-blocked)' },
    checks: { icon: 'git-pull-request', color: 'var(--pr-blocked)' },
+diff --git a/packages/ui/src/components/session/DOCUMENTATION.md b/packages/ui/src/components/session/DOCUMENTATION.md
+index f21e6c678..c1385f039 100644
+--- a/packages/ui/src/components/session/DOCUMENTATION.md
++++ b/packages/ui/src/components/session/DOCUMENTATION.md
+@@ -162,3 +162,10 @@ cmdk renders every row it navigates and a project can hold thousands of sessions
+ Pins ordered by creation can fill every switcher slot and hide recent conversations.
+ Opening shows the cached recency list and refreshes authoritative records; Mini Chat
+ reads only the newest page because it keeps no complete session list.
++
++### Why waiting marks are bare glyphs from one component
++
++`SessionPendingMarks` draws what waits on the user: a permission shield, a question mark, or both, in that order. Both are bare marks at the row-mark size, so a question reads as the peer of the permission it ranks below, as `SessionActivityIndicator` is the same kind of mark; the question takes its own `status-question` role instead of sharing the permission's warning colour. With `tooltip` the label shows above the mark, as on the sidebar's rows and collapsed headers; otherwise it is the mark's native title. Rows keep their clickable badges (`PendingRequestBadges` with `onOpen`), which colour each glyph the same way.
++
++Both switchers count a row's waiting requests over its whole subtree: `collectSwitcherChildren` keeps every child in the node, workflow agents included, and `listedChildren` decides which of them get rows, the rule the sidebar applies. A folded switcher row and the phone's recent list (parents only) stand for their subsessions the way a collapsed sidebar row does, and a waiting request replaces the running mark, as on the sidebar and mobile rows.
++
 diff --git a/packages/ui/src/components/session/SessionPendingMarks.test.tsx b/packages/ui/src/components/session/SessionPendingMarks.test.tsx
 new file mode 100644
 index 000000000..7119a6e02
@@ -267,10 +279,10 @@ index 000000000..7119a6e02
 +});
 diff --git a/packages/ui/src/components/session/SessionPendingMarks.tsx b/packages/ui/src/components/session/SessionPendingMarks.tsx
 new file mode 100644
-index 000000000..4c46d11f4
+index 000000000..a72e669d3
 --- /dev/null
 +++ b/packages/ui/src/components/session/SessionPendingMarks.tsx
-@@ -0,0 +1,75 @@
+@@ -0,0 +1,63 @@
 +import React from 'react';
 +import { Icon } from '@/components/icon/Icon';
 +import type { IconName } from '@/components/icon/icons';
@@ -302,18 +314,6 @@ index 000000000..4c46d11f4
 +  labelKey: I18nKey;
 +}>;
 +
-+/**
-+ * What waits on the user on a session row: a permission shield, a question
-+ * mark, or both, in that order. Both are bare row marks at the row-mark size,
-+ * so a question reads as the peer of the permission it ranks below
-+ * (`SessionActivityIndicator` is the same kind of mark). The collapsed group
-+ * header draws the same glyphs inside its expand button, where a chip would
-+ * read as the control to press.
-+ *
-+ * `tooltip` names the mark with a tooltip above it, as the sidebar's rows and
-+ * collapsed headers do; otherwise the mark carries the same label as its
-+ * native title.
-+ */
 +export const SessionPendingMarks: React.FC<BlockingRequestKinds & {
 +  className?: string;
 +  tooltip?: boolean;
@@ -347,7 +347,7 @@ index 000000000..4c46d11f4
 +  );
 +};
 diff --git a/packages/ui/src/components/session/SessionSwitcherDropdown.tsx b/packages/ui/src/components/session/SessionSwitcherDropdown.tsx
-index 5faef6d34..31b659d81 100644
+index 5faef6d34..7577855bf 100644
 --- a/packages/ui/src/components/session/SessionSwitcherDropdown.tsx
 +++ b/packages/ui/src/components/session/SessionSwitcherDropdown.tsx
 @@ -11,15 +11,20 @@ import {
@@ -371,19 +371,15 @@ index 5faef6d34..31b659d81 100644
  import { refreshGlobalSessions, refreshRecentGlobalSessions, resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
  import { formatSessionCompactDateLabel } from './sidebar/utils';
  import type { SessionNode } from './sidebar/types';
-@@ -193,8 +198,19 @@ type SwitcherNodeProps = {
+@@ -193,8 +198,15 @@ type SwitcherNodeProps = {
  function SwitcherNode({ item, depth, variant, expandedParents, toggleParent, closeDropdown }: SwitcherNodeProps): React.ReactElement {
    const { node, secondaryMeta } = item;
    const session = node.session;
 -  const hasChildren = node.children.length > 0;
 +  const showSubagentSessions = useSessionDisplayStore((state) => state.showSubagentSessions);
-+  // The node keeps every child, the workflow agents included, so their waiting
-+  // requests count for this row; only the listed ones get rows of their own.
 +  const childNodes = listedChildren(node, showSubagentSessions);
 +  const hasChildren = childNodes.length > 0;
    const isExpanded = expandedParents.has(session.id);
-+  // A folded row stands for its subsessions too: their waiting requests count
-+  // here, exactly as the sidebar's collapsed rows count them.
 +  const blockingScopes = React.useMemo(
 +    () => selectBlockingBadgeSessionScopes(node, isExpanded, resolveGlobalSessionDirectory(session), showSubagentSessions),
 +    [isExpanded, node, session, showSubagentSessions],
@@ -392,7 +388,7 @@ index 5faef6d34..31b659d81 100644
  
    return (
      <>
-@@ -205,11 +221,12 @@ function SwitcherNode({ item, depth, variant, expandedParents, toggleParent, clo
+@@ -205,11 +217,12 @@ function SwitcherNode({ item, depth, variant, expandedParents, toggleParent, clo
          secondaryMeta={secondaryMeta}
          hasChildren={hasChildren}
          isExpanded={isExpanded}
@@ -406,7 +402,7 @@ index 5faef6d34..31b659d81 100644
              <SwitcherNode
                key={childNode.session.id}
                item={{ node: childNode, projectId: item.projectId, groupDirectory: item.groupDirectory, secondaryMeta }}
-@@ -232,11 +249,12 @@ type SwitcherRowProps = {
+@@ -232,11 +245,12 @@ type SwitcherRowProps = {
    secondaryMeta: SecondaryMeta;
    hasChildren: boolean;
    isExpanded: boolean;
@@ -420,18 +416,16 @@ index 5faef6d34..31b659d81 100644
    const { t } = useI18n();
    const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
    const setCurrentSession = useSessionUIStore((state) => state.setCurrentSession);
-@@ -250,6 +268,10 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
+@@ -250,6 +264,8 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
    const isStreaming = turnActivity !== null;
    const runningBlink = useWaitingBlink(isStreaming);
    const showUnreadDot = !isStreaming && isUnread && (!isActive || markedUnread);
 +  const { hasPermission: hasPendingPermission, hasForm: hasPendingForm } = pendingRequests;
-+  // A request waiting on the user stands for the turn: the running mark steps
-+  // aside for the request badge, as it does on the sidebar and mobile rows.
 +  const waitingOnUser = hasPendingPermission || hasPendingForm;
  
    const timestamp = getSessionActivityTime(session) || Date.now();
    const timeLabel = formatSessionCompactDateLabel(timestamp);
-@@ -341,7 +363,11 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
+@@ -341,7 +357,11 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
          ) : null}
        </div>
  
@@ -445,7 +439,7 @@ index 5faef6d34..31b659d81 100644
            <SessionActivityIndicator
              state={turnActivity ?? 'unread'}
 diff --git a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-index 925955c96..05123bf7a 100644
+index 925955c96..dbdd85f57 100644
 --- a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
 +++ b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
 @@ -386,7 +386,7 @@ no Shift.
@@ -466,7 +460,7 @@ index 925955c96..05123bf7a 100644
  
  A session row's menu and the header's session menus (a tab's, the title's)
  are one component, `sessions/SessionActionsMenuItems.tsx`; each surface
-@@ -1733,6 +1733,14 @@ hover, keyboard focus, and always-visible action buttons move them left without
+@@ -1733,6 +1733,18 @@ hover, keyboard focus, and always-visible action buttons move them left without
  
  ## Decisions
  
@@ -477,6 +471,10 @@ index 925955c96..05123bf7a 100644
 +### Why a collapsed header subscribes to a serialized directory signature
 +
 +`useCollapsedSessionActivityState` counts sessions by the store that owns them, and a session's directory can arrive after the header rendered, when the global session cache learns it. A selector that returned the resolved `[id, directory]` pairs as an array would hand React a new object on every global-sessions write and re-render every collapsed header. It returns one JSON string instead: the subscription follows the resolved directories, unchanged strings compare equal, and the scopes rebuild only when a directory actually changes. JSON keeps the encoding unambiguous for a directory that contains any separator.
++
++### Why a collapsed header draws marks without counts
++
++A collapsed group or folder header counts every session it hides, by the store that owns it, exactly as a row does: a group in a project that was never opened still shows a seeded request, and a form the index kept after a lost settlement stops showing once its store is authoritative. A session listed only as blocking, such as a hidden subagent, may have no row and no known directory, so no store can answer for it and the cross-directory index does (`selectIndexedBlockingRequests`). The header carries no counters: elapsed time is per session and means nothing for a group holding several running turns, and a request count would need the same per-session breakdown. Its marks sit inside the Show more button, so they are the row's bare glyphs, never a chip that reads as the control to press.
 +
  ### Why merged cleanup asks the host whether a worktree is busy
  
@@ -618,7 +616,7 @@ index dc63d68be..709f49561 100644
  const aiRename = await import('@/sync/use-session-ai-rename');
  mock.module('@/sync/use-session-ai-rename', () => ({
 diff --git a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.behavior.test.tsx b/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.behavior.test.tsx
-index 0b9d27453..52da3cc20 100644
+index 0b9d27453..5cd8d1b50 100644
 --- a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.behavior.test.tsx
 +++ b/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.behavior.test.tsx
 @@ -1,21 +1,31 @@
@@ -658,7 +656,7 @@ index 0b9d27453..52da3cc20 100644
      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
      time: { created: 1, updated: idle ?? 1 },
    };
-@@ -23,122 +33,191 @@ const record = (id: string, idle?: number): Session => {
+@@ -23,122 +33,192 @@ const record = (id: string, idle?: number): Session => {
    return session;
  };
  
@@ -678,10 +676,11 @@ index 0b9d27453..52da3cc20 100644
 +});
 +
 +type HarnessCapture = { renders: number; state: string | null };
++type StoresRef = { current: ReturnType<typeof useDirectoryStore> | null };
 +
 +const withHarness = async (
-+  renderHarness: (capture: HarnessCapture, stores: { current: ReturnType<typeof useDirectoryStore> | null }) => React.ReactNode,
-+  assert: (capture: HarnessCapture, stores: { current: ReturnType<typeof useDirectoryStore> | null }) => Promise<void>,
++  renderHarness: (capture: HarnessCapture, stores: StoresRef) => React.ReactNode,
++  assert: (capture: HarnessCapture, stores: StoresRef) => Promise<void>,
 +) => {
 +  const dom = installHookTestDom();
 +  const previousSurface = window.__OPENCHAMBER_SURFACE__;
@@ -698,7 +697,7 @@ index 0b9d27453..52da3cc20 100644
 +  ];
 +  const root = createRoot(dom.container);
 +  const capture: HarnessCapture = { renders: 0, state: null };
-+  const stores: { current: ReturnType<typeof useDirectoryStore> | null } = { current: null };
++  const stores: StoresRef = { current: null };
 +  try {
 +    await act(async () => root.render(
 +      <SyncProvider sdk={createSdk()} directory="">
@@ -909,7 +908,7 @@ index 0b9d27453..52da3cc20 100644
 +
 +  test('a bootstrapped directory drops a form the index kept after a lost settlement', async () => {
 +    resetGlobalBlockingRequests();
-+    const Harness: React.FC<{ capture: HarnessCapture; stores: { current: ReturnType<typeof useDirectoryStore> | null } }> = ({ capture, stores }) => {
++    const Harness: React.FC<{ capture: HarnessCapture; stores: StoresRef }> = ({ capture, stores }) => {
 +      stores.current = useDirectoryStore(OTHER_DIR, { bootstrap: false });
 +      const nodes = React.useMemo(() => [node('other', OTHER_DIR)], []);
 +      capture.state = useCollapsedSessionActivityState({ nodes });
@@ -938,10 +937,10 @@ index 0b9d27453..52da3cc20 100644
    });
  });
 diff --git a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.tsx b/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.tsx
-index f9a4882ae..af32c52a7 100644
+index f9a4882ae..8d581fee5 100644
 --- a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.tsx
 +++ b/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.tsx
-@@ -1,12 +1,14 @@
+@@ -1,11 +1,8 @@
  import React from 'react';
  import { SessionActivityIndicator } from '@/components/session/SessionActivityIndicator';
 -import { cn } from '@/lib/utils';
@@ -952,15 +951,9 @@ index f9a4882ae..af32c52a7 100644
  import { useCollapsedSessionActivityState, type CollapsedActivityState } from './collapsedActivityState';
 -import { RowMarkTooltip } from './RowMarkTooltip';
  
-+// Aggregate rows carry no counters: the elapsed counter is per session and
-+// has no meaning for a collapsed group that may hold several running turns,
-+// and a request count would need the same per-session breakdown. The blocked
-+// states reuse the session row's own badges so the group header reads the same
-+// way as the row it hides.
  export function CollapsedActivityIndicator({
    state,
-   className,
-@@ -14,20 +16,17 @@ export function CollapsedActivityIndicator({
+@@ -14,20 +11,14 @@ export function CollapsedActivityIndicator({
    state: Exclude<CollapsedActivityState, null>;
    className?: string;
  }): React.ReactNode {
@@ -969,9 +962,6 @@ index f9a4882ae..af32c52a7 100644
 -    const label = state === 'permission'
 -      ? t('sessions.sidebar.session.status.permissionRequired')
 -      : t('sessions.sidebar.session.status.questionPending');
-+    // A header's mark sits inside the "Show more" button, which expands the
-+    // list: the group draws the row's bare glyphs, never a chip that reads as
-+    // the control to press.
      return (
 -      <RowMarkTooltip label={label}>
 -        <span
@@ -991,7 +981,7 @@ index f9a4882ae..af32c52a7 100644
    }
    return <SessionActivityIndicator state={state === 'active' ? 'running' : 'unread'} className={className} tooltip />;
 diff --git a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityState.ts b/packages/ui/src/components/session/sidebar/sessions/collapsedActivityState.ts
-index 231ed038c..15a1a308b 100644
+index 231ed038c..952be8156 100644
 --- a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityState.ts
 +++ b/packages/ui/src/components/session/sidebar/sessions/collapsedActivityState.ts
 @@ -1,14 +1,16 @@
@@ -1013,14 +1003,10 @@ index 231ed038c..15a1a308b 100644
  
  export type CollapsedActivityState = 'permission' | 'form' | 'active' | 'unread' | null;
  
-@@ -85,6 +87,19 @@ export const useCollapsedSessionActivityState = ({
+@@ -85,6 +87,15 @@ export const useCollapsedSessionActivityState = ({
      () => (blockingSessionIds && blockingSessionIds.length > 0 ? new Set([...ids.active, ...blockingSessionIds]) : ids.active),
      [blockingSessionIds, ids.active],
    );
-+  // Where each counted session lives, as JSON: the subscription follows the
-+  // resolved directories instead of the session map identity, so a change to an
-+  // unrelated session does not rebuild the scopes of a collapsed header, and a
-+  // directory containing any separator still encodes unambiguously.
 +  const blockingDirectorySignature = useGlobalSessionsStore(React.useCallback((state) => {
 +    if (!enabled || blockingIds.size === 0) return '';
 +    const entries: [string, string][] = [];
@@ -1033,7 +1019,7 @@ index 231ed038c..15a1a308b 100644
    const active = useGlobalSessionStatusStore(React.useCallback((state): CollapsedActivityState => (
      enabled && anySessionOrDescendantIn(ids.active, state.activeSessionIds) ? 'active' : null
    ), [enabled, ids.active]));
-@@ -110,16 +125,55 @@ export const useCollapsedSessionActivityState = ({
+@@ -110,16 +121,42 @@ export const useCollapsedSessionActivityState = ({
      }
      return null;
    }, [enabled, ids.unread]));
@@ -1045,17 +1031,7 @@ index 231ed038c..15a1a308b 100644
 -      if (!pending) continue;
 -      if (pending.permissions.length > 0) return 'permission';
 -      if (pending.forms.length > 0 || pending.pages.length > 0) result = 'form';
-+  // Pending requests come from the directory store once it has read its own
-+  // request snapshots, and from the cross-directory index before that, exactly
-+  // as a session row counts them: a collapsed group in a project that was
-+  // never opened still shows a seeded request, while a form the index kept
-+  // after a lost settlement stops showing once its store is authoritative.
-+  // Subtasks count too: a permission asked by a subagent blocks the whole
-+  // family.
 +  const scopes = React.useMemo(() => {
-+    // Nothing counted, or nothing to resolve: the signature also tells the memo
-+    // when a counted session's directory becomes known, since the helper below
-+    // reads that resolution from the store.
 +    if (!enabled || blockingDirectorySignature === '') return { scopes: [], unplacedSessionIDs: [] };
 +    const sessionIDsByDirectory = new Map<string, string[]>();
 +    const add = (directory: string, sessionID: string) => {
@@ -1064,13 +1040,10 @@ index 231ed038c..15a1a308b 100644
 +      sessionIDsByDirectory.set(directory, sessionIDs);
 +    };
 +    for (const node of nodes) {
-+      // Every session under a collapsed header is hidden, so all of them count.
 +      for (const scope of selectBlockingBadgeSessionScopes(node, false, null)) {
 +        for (const sessionID of scope.sessionIDs) add(scope.directory, sessionID);
 +      }
 +    }
-+    // A session listed only as blocking, such as a hidden subagent, may have no
-+    // row and no known directory: no store can answer for it, so the index does.
 +    const unplacedSessionIDs: string[] = [];
 +    for (const sessionID of blockingSessionIds ?? []) {
 +      const session = useGlobalSessionsStore.getState().entityById.get(sessionID);
@@ -1128,7 +1101,7 @@ index 1ea6a7191..33ef42e3d 100644
  
  describe('nodeHasPinnedMembershipChange', () => {
 diff --git a/packages/ui/src/components/session/sidebar/sessions/sessionRowMarks.tsx b/packages/ui/src/components/session/sidebar/sessions/sessionRowMarks.tsx
-index 51d165db7..310958338 100644
+index 51d165db7..8811e747d 100644
 --- a/packages/ui/src/components/session/sidebar/sessions/sessionRowMarks.tsx
 +++ b/packages/ui/src/components/session/sidebar/sessions/sessionRowMarks.tsx
 @@ -6,6 +6,7 @@ import { sessionGoalMarkLabelKey, sessionGoalStatusColor } from '@/lib/sessionGo
@@ -1150,13 +1123,11 @@ index 51d165db7..310958338 100644
  ] as const;
  
  const BADGE_BUTTON_STYLE: React.CSSProperties = { minHeight: 0, minWidth: 0 };
-@@ -69,25 +70,18 @@ export function PendingRequestBadges({ hasPermission, hasForm, onOpen }: {
+@@ -69,25 +70,16 @@ export function PendingRequestBadges({ hasPermission, hasForm, onOpen }: {
    onOpen?: (kind: PendingRequestBadgeKind, target: HTMLElement) => void;
  }): React.ReactNode {
    const { t } = useI18n();
 -  return PENDING_REQUEST_BADGES.map(({ kind, icon, labelKey, openLabelKey }) => {
-+  // The plain marks are the shared ones every session list draws; only the
-+  // clickable badges are this row's own.
 +  if (!onOpen) return <SessionPendingMarks hasPermission={hasPermission} hasForm={hasForm} tooltip />;
 +  return PENDING_REQUEST_BADGES.map(({ kind, icon, colorClass, openLabelKey }) => {
      if (!(kind === 'permission' ? hasPermission : hasForm)) return null;
@@ -1181,7 +1152,7 @@ index 51d165db7..310958338 100644
            style={BADGE_BUTTON_STYLE}
            aria-label={label}
            onPointerDown={handleRowActionPointerDown}
-@@ -100,7 +94,7 @@ export function PendingRequestBadges({ hasPermission, hasForm, onOpen }: {
+@@ -100,7 +92,7 @@ export function PendingRequestBadges({ hasPermission, hasForm, onOpen }: {
              onOpen(kind, event.currentTarget);
            }}
          >
@@ -1191,7 +1162,7 @@ index 51d165db7..310958338 100644
        </RowMarkTooltip>
      );
 diff --git a/packages/ui/src/components/session/sidebar/shell/useSwitcherItems.test.ts b/packages/ui/src/components/session/sidebar/shell/useSwitcherItems.test.ts
-index ea7227a8a..79568d74c 100644
+index ea7227a8a..bc12f109d 100644
 --- a/packages/ui/src/components/session/sidebar/shell/useSwitcherItems.test.ts
 +++ b/packages/ui/src/components/session/sidebar/shell/useSwitcherItems.test.ts
 @@ -2,10 +2,14 @@ import { describe, expect, test } from 'bun:test';
@@ -1209,13 +1180,14 @@ index ea7227a8a..79568d74c 100644
  
  const session = (id: string, options: { parentID?: string; archived?: boolean; projectId?: string } = {}): Session => ({
    id,
-@@ -42,3 +46,44 @@ describe('session switcher initial selection', () => {
+@@ -42,3 +46,45 @@ describe('session switcher initial selection', () => {
      expect(selectParents([...roots, session('archived-child', { archived: true, parentID: 'root-7' })], 'archived-child').map((item) => item.id)).toEqual(roots.slice(0, 7).map((item) => item.id));
    });
  });
 +
 +describe('switcher trees', () => {
 +  const byId = (a: Session, b: Session) => a.id.localeCompare(b.id);
++  // SAFETY: the fixture carries the fields the switcher tree reads: id, parent and the workflow-agent kind.
 +  const workflowAgent = (id: string, parentID: string): Session => ({
 +    ...session(id, { parentID }),
 +    metadata: { openchamber: { kind: 'workflow-agent' } },
@@ -1255,7 +1227,7 @@ index ea7227a8a..79568d74c 100644
 +  });
 +});
 diff --git a/packages/ui/src/components/session/sidebar/shell/useSwitcherItems.ts b/packages/ui/src/components/session/sidebar/shell/useSwitcherItems.ts
-index c18279c1f..721b3b8d2 100644
+index c18279c1f..acaedb998 100644
 --- a/packages/ui/src/components/session/sidebar/shell/useSwitcherItems.ts
 +++ b/packages/ui/src/components/session/sidebar/shell/useSwitcherItems.ts
 @@ -3,7 +3,6 @@ import type { Session } from '@/lib/opencode/model';
@@ -1266,17 +1238,10 @@ index c18279c1f..721b3b8d2 100644
  import { useProjectsStore } from '@/stores/useProjectsStore';
  import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
  import { useGitAllBranches } from '@/stores/useGitStore';
-@@ -108,6 +107,44 @@ export const selectSwitcherParents = (
+@@ -108,6 +107,37 @@ export const selectSwitcherParents = (
    return parents.slice(0, maxParents);
  };
  
-+/**
-+ * Group the active child sessions by parent for a switcher's tree. Every
-+ * session stays in the node, workflow agents included: their waiting requests
-+ * and activity count for the row above them, and one expanded row's badge
-+ * scope reads the whole subtree. Their own rows stay out through
-+ * `listedChildren`, the same rule the sidebar applies.
-+ */
 +export const collectSwitcherChildren = (
 +  sessions: readonly Session[],
 +  isAdmitted: (session: Session) => boolean,
@@ -1311,7 +1276,7 @@ index c18279c1f..721b3b8d2 100644
  export const useSwitcherItems = (enabled: boolean, options: SwitcherItemsOptions = {}): SwitcherItem[] => {
    const { scopeProjectId = null, currentSessionId = null, maxParents = MAX_PARENT_SESSIONS, ignorePins = false } = options;
    const activeSessions = useGlobalSessionsStore((state) => state.activeSessions);
-@@ -149,23 +186,16 @@ export const useSwitcherItems = (enabled: boolean, options: SwitcherItemsOptions
+@@ -149,23 +179,16 @@ export const useSwitcherItems = (enabled: boolean, options: SwitcherItemsOptions
    const items = React.useMemo<SwitcherItem[]>(() => {
      if (!enabled) return [];
  
@@ -1345,7 +1310,7 @@ index c18279c1f..721b3b8d2 100644
  
      const parents = selectSwitcherParents(
        activeSessions,
-@@ -179,15 +209,6 @@ export const useSwitcherItems = (enabled: boolean, options: SwitcherItemsOptions
+@@ -179,15 +202,6 @@ export const useSwitcherItems = (enabled: boolean, options: SwitcherItemsOptions
          || !isSessionDirectoryAdmitted(resolveGlobalSessionDirectory(session), projects, availableWorktreesByProject),
      );
  
@@ -1361,7 +1326,7 @@ index c18279c1f..721b3b8d2 100644
      return parents.map((session) => {
        const directory = resolveGlobalSessionDirectory(session);
        const matchedProject = findProjectForDirectory(directory);
-@@ -196,7 +217,7 @@ export const useSwitcherItems = (enabled: boolean, options: SwitcherItemsOptions
+@@ -196,7 +210,7 @@ export const useSwitcherItems = (enabled: boolean, options: SwitcherItemsOptions
        const liveBranch = directory ? branchesByDirectory.get(directory) : undefined;
        const branchLabel = liveBranch ?? worktreeHit?.meta.branch?.trim() ?? null;
        return {
@@ -1371,37 +1336,44 @@ index c18279c1f..721b3b8d2 100644
          groupDirectory: directory,
          secondaryMeta: {
 diff --git a/packages/ui/src/components/session/sidebar/works/WorktreeWorkRow.marks.test.tsx b/packages/ui/src/components/session/sidebar/works/WorktreeWorkRow.marks.test.tsx
-index 36112e968..8af45eb1a 100644
+index 36112e968..54218c89d 100644
 --- a/packages/ui/src/components/session/sidebar/works/WorktreeWorkRow.marks.test.tsx
 +++ b/packages/ui/src/components/session/sidebar/works/WorktreeWorkRow.marks.test.tsx
-@@ -29,6 +29,7 @@ mock.module('@/lib/guests/open-url', () => ({
+@@ -9,6 +9,7 @@ import type { InstalledGuest } from '@/lib/guests/types';
+ import { useProjectsStore } from '@/stores/useProjectsStore';
+ import { useSessionUIStore } from '@/sync/session-ui-store';
+ import type { SessionGroup } from '../types';
++import type { OpenCodeClient, SyncRuntime } from '@/sync/sync-runtime-context';
+ 
+ const surfaces: Array<{ mode: string; directory: string | null }> = [];
+ const links: string[] = [];
+@@ -29,6 +30,9 @@ mock.module('@/lib/guests/open-url', () => ({
    },
  }));
  const { WorktreeWorkRow } = await import('./WorktreeWorkRow');
 +const { SyncRuntimeContext } = await import('@/sync/sync-runtime-context');
++const { ChildStoreManager } = await import('@/sync/child-store');
++const { SessionMessageLoader } = await import('@/sync/session-message-loader');
  
  const WORKTREE = '/trees/app/feature-login';
  
-@@ -60,24 +61,42 @@ const group = (sessions: SessionGroup['sessions'] = []): SessionGroup => ({
+@@ -60,24 +64,39 @@ const group = (sessions: SessionGroup['sessions'] = []): SessionGroup => ({
  });
  
  const noop = () => undefined;
-+// The row reads its blocking requests from the directory stores; this test
-+// exercises only the guest marks, so a runtime whose child stores never exist
-+// leaves the lookup on the cross-directory index and needs no real sync.
-+const idleStore = {
-+  getState: () => ({ permission: {}, form: {}, status: 'complete', requestCoverage: new Set<string>() }),
-+  subscribe: () => () => undefined,
++// SAFETY: the row reads its blocking requests from the directory stores; no row hook calls the SDK here.
++const sdk = {} as OpenCodeClient;
++const childStores = new ChildStoreManager();
++const runtime: SyncRuntime = {
++  runtimeKey: 'server-test',
++  childStores,
++  messageLoader: new SessionMessageLoader(childStores, {
++    sdk: { getSessionMessages: async () => ({ items: [], cursor: {} }) },
++    runtimeKey: 'server-test',
++  }),
++  sdk,
++  currentDirectory: { get: () => '/repo', subscribe: () => () => undefined },
 +};
-+const runtime = {
-+  childStores: {
-+    getChild: () => idleStore,
-+    ensureChild: () => idleStore,
-+    pin: () => undefined,
-+    unpin: () => undefined,
-+    subscribeRegistry: () => () => undefined,
-+  },
-+} as unknown as import('@/sync/sync-runtime-context').SyncRuntime;
  const row = (detailed: boolean, sessions?: SessionGroup['sessions']) => (
 -  <I18nProvider>
 -    <WorktreeWorkRow
@@ -1456,7 +1428,7 @@ index 498a2f5a4..1517ae4d6 100644
  contrast levels. Body text sits at about 15.4:1 on the canvas in dark palettes
  and 13:1 in light ones, the level T3 Code's default chat text reaches (its
 diff --git a/packages/ui/src/lib/theme/cssGenerator.ts b/packages/ui/src/lib/theme/cssGenerator.ts
-index bf5e22168..112515c88 100644
+index bf5e22168..9f8996bae 100644
 --- a/packages/ui/src/lib/theme/cssGenerator.ts
 +++ b/packages/ui/src/lib/theme/cssGenerator.ts
 @@ -46,6 +46,7 @@ export class CSSVariableGenerator {
@@ -1467,16 +1439,10 @@ index bf5e22168..112515c88 100644
      cssVars.push(...this.generatePullRequestColors(theme));
  
      cssVars.push(...this.generateSyntaxColors(theme.colors.syntax));
-@@ -240,6 +241,21 @@ const sidebarBaseRgb = hexToRgb(theme.colors.surface.muted);
+@@ -240,6 +241,15 @@ const sidebarBaseRgb = hexToRgb(theme.colors.surface.muted);
      return vars;
    }
  
-+  /**
-+   * The pending-question mark is not "info": a turn that is still running and a
-+   * turn blocked on the user's answer must not read the same. The role is
-+   * resolved with the theme (`colors.question`), so the app's violet is the
-+   * default and a palette, Mono included, may name its own.
-+   */
 +  private generateQuestionColors(theme: Theme): string[] {
 +    const question = theme.colors.question;
 +    return [
@@ -1521,7 +1487,7 @@ index 8d7797ec3..683324a23 100644
      for (const theme of themes) {
        const css = new CSSVariableGenerator().generate(theme);
 diff --git a/packages/ui/src/lib/theme/definition.ts b/packages/ui/src/lib/theme/definition.ts
-index 2827e575d..176c58f70 100644
+index 2827e575d..6c2535224 100644
 --- a/packages/ui/src/lib/theme/definition.ts
 +++ b/packages/ui/src/lib/theme/definition.ts
 @@ -28,6 +28,7 @@ const definition = z.object({
@@ -1532,7 +1498,7 @@ index 2827e575d..176c58f70 100644
      chat: optionalColors(['background', 'userMessageBackground', 'divider']).optional(),
      markdown: optionalColors(['link', 'linkHover', 'inlineCode', 'inlineCodeBackground', 'blockquote', 'blockquoteBorder', 'listMarker', 'bold', 'italic', 'strikethrough', 'hr']).optional(),
      tools: z.object({ border: color.optional(), icon: color.optional(), title: color.optional(), description: color.optional(), edit: optionalColors(['addedBackground', 'removedBackground', 'modifiedBackground', 'lineNumber']).optional() }).optional(),
-@@ -44,13 +45,24 @@ function resolveTheme(source: z.output<typeof definition>): Theme {
+@@ -44,13 +45,19 @@ function resolveTheme(source: z.output<typeof definition>): Theme {
    const s = { ...c.surface, elevatedForeground: c.surface.elevatedForeground ?? c.surface.foreground, overlay: c.surface.overlay ?? withOpacity('#000000', 0.6), subtle: c.surface.subtle ?? c.surface.muted };
    const selection = c.interactive.selection ?? withOpacity(s.foreground, 0.16);
    const base = { ...c.syntax.base, background: c.syntax.base.background ?? s.background, foreground: c.syntax.base.foreground ?? s.foreground };
@@ -1541,9 +1507,6 @@ index 2827e575d..176c58f70 100644
 -    foreground: c.status[`${name}Foreground`] ?? onColor(c.status[name], s.background),
 -    background: c.status[`${name}Background`] ?? withOpacity(c.status[name], 0.125),
 -    border: c.status[`${name}Border`] ?? withOpacity(c.status[name], 0.314),
-+  // One tinted role family: a solid mark, its text on that tint, and the tint
-+  // and outline a card or chip draws. A theme may override any part; the rest
-+  // derives from the solid colour.
 +  const tintedRole = (seed: string, overrides: { foreground?: string; background?: string; border?: string }) => ({
 +    base: seed,
 +    foreground: overrides.foreground ?? onColor(seed, s.background),
@@ -1556,13 +1519,11 @@ index 2827e575d..176c58f70 100644
 +    border: c.status[`${name}Border`],
    });
    const error = statusFamily('error'), warning = statusFamily('warning'), success = statusFamily('success'), info = statusFamily('info');
-+  // A question ranks a step below a permission and is its own role: violet in
-+  // the app's palettes, neutral in a monochrome one, never a fixed hue.
 +  const question = tintedRole(c.question?.base ?? (metadata.variant === 'dark' ? '#a78bfa' : '#7c3aed'), c.question ?? {});
    const diffAdded = c.syntax.highlights?.diffAdded ?? success.base;
    const diffRemoved = c.syntax.highlights?.diffRemoved ?? error.base;
    const diffModified = c.syntax.highlights?.diffModified ?? info.base;
-@@ -79,6 +91,7 @@ function resolveTheme(source: z.output<typeof definition>): Theme {
+@@ -79,6 +86,7 @@ function resolveTheme(source: z.output<typeof definition>): Theme {
          info: info.base, infoForeground: info.foreground, infoBackground: info.background, infoBorder: info.border,
        },
        pr: { open: success.base, draft: s.mutedForeground, blocked: warning.base, merged: metadata.variant === 'dark' ? '#8957e5' : '#8250df', closed: error.base, ...c.pr },
@@ -1570,7 +1531,7 @@ index 2827e575d..176c58f70 100644
        syntax: resolvedSyntax,
        chat: c.chat,
        markdown: c.markdown,
-@@ -134,5 +147,9 @@ export function compactTheme(value: ThemeDefinition): ThemeDefinition {
+@@ -134,5 +142,9 @@ export function compactTheme(value: ThemeDefinition): ThemeDefinition {
      const inherited = requireTheme({ ...source, colors: { ...c, pr: undefined } });
      c.pr = prune(c.pr, { ...inherited.colors.pr });
    }
@@ -1650,35 +1611,34 @@ index 7aee24dc6..1fb408805 100644
    --color-sidebar-primary: var(--sidebar-primary);
    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
    --color-sidebar-accent: var(--sidebar-accent);
+diff --git a/packages/ui/src/sync/DOCUMENTATION.md b/packages/ui/src/sync/DOCUMENTATION.md
+index feb30225a..2297c1100 100644
+--- a/packages/ui/src/sync/DOCUMENTATION.md
++++ b/packages/ui/src/sync/DOCUMENTATION.md
+@@ -1174,6 +1174,8 @@ Directories that are not bootstrapped get their initial activity from the host i
+ 
+ Pending permissions and forms get the same treatment in `global-blocking-requests.ts`: the dispatcher feeds it `permission.asked`/`permission.replied`, `form.created`/`form.settled`, and `session.deleted` for every directory, and the host seed adds the `pending` map the server keeps from its own stream (`getPendingBlockingRequestsSnapshot` in `session-runtime.js`; dropped on reply, deletion, and OpenCode restart, so it carries no age cutoff). The index keeps only the fields its consumers render (`id`/`sessionID`/`action`/`resources`/`save` for a permission, `id`/`sessionID`/`title` for a form), which is also everything the host can carry. It is additive from the seed and a host snapshot never clears it by absence. A directory's own successful pending read does: `settleAbsentBlockingRequests` drops the requests the index held for that directory before the read and the answer lacks, per kind, for the sessions the read covered, and a later host snapshot cannot add them back, since the host may have missed the settlement or been read before it; a failed read drops nothing. A reconnect makes that read for every directory the index holds a request for, creating the store without a bootstrap when no row has. Directory stores stay the source for open directories; desktop and phone row badges also count the index's permissions and forms while that directory's store has not completed a bootstrap, because such a store learns only of live ones. Once the bootstrap completes, the store alone answers for the sessions it listed at that moment (`requestCoverage`), since its reply and reconnect paths clear requests the index can keep after a lost `permission.replied` or `form.settled`; a status change notifies form subscribers so rows switch source. A session that bootstrap did not list (created during a stream gap) reads the index too, also after it joins the list, because joining reads no requests; so a request the seed brings for it shows without opening its project. The index serves the tray's approval list and any surface without a mounted row. The mobile shell has no global poller, so its sessions sheet runs the seed after the list load it does each time it opens, and again when the stream reconnects while the list is shown (the iPad's sidebar, or a drawer left open in the background), since the events of the gap are lost; without it, phone rows miss every request already waiting at startup in a directory whose store has not loaded. A page an agent shows that waits for the user's answer (`render.page` with `awaitAnswer`) is a third kind, `pages` (`id` is the tool call id, plus `sessionID`/`title`). OpenCode never hears of that wait, so no directory store holds it: the server announces both ends as `openchamber:page-waiting` and `openchamber:page-settled` (`applyWaitingPageEvent`, placed by the session's directory when the server does not name one) and lists it in the seed's `pages`. Every surface counts it as a form: collapsed and expanded rows, mobile rows, run overviews and the tray, which only opens the session for either. Pages stay apart from `forms` so the form dock never tries to answer one. While one waits, the composer sends a message at once instead of queueing it, because the turn cannot end until the wait does; the message reaches the agent's plugin, which ends the wait.
+ 
++`selectIndexedBlockingRequests` reduces the index to whether a permission or a form waits for any of a set of sessions (`BlockingRequestKinds`); pages count as forms, since they block the agent the same way and have no store bucket of their own. It is the one scan of the index for a session no directory store can speak for (a hidden subagent listed only as blocking) and for a surface that never mounts a row. It returns one of four shared objects, so a selector built on it keeps its identity while the answer stands, and rows do not re-render on every index write.
++
+ ### Why page snapshots replace waits while form and permission seeds stay additive
+ 
+ The host owns waiting pages directly, so its complete `pending` map is authoritative for its own page waits. `readHostBlockingRequestsSnapshot` clears pages omitted from that map and overlays page events received during the read, including a settlement whose ask never reached this client. Otherwise a delayed snapshot can resurrect an answered page, and a lost settlement leaves a question badge indefinitely. Observers live only for the read and runtime reset invalidates them. Unchanged entries keep their references. Failed reads and hosts that omit `pending` clear nothing; isolated-space page waits belong to their own server and are left untouched. Forms and permissions remain additive because their host map only forwards OpenCode events and can itself miss a settlement.
 diff --git a/packages/ui/src/sync/global-blocking-requests.ts b/packages/ui/src/sync/global-blocking-requests.ts
-index 396c092d7..c0da6046d 100644
+index 396c092d7..57b515b3a 100644
 --- a/packages/ui/src/sync/global-blocking-requests.ts
 +++ b/packages/ui/src/sync/global-blocking-requests.ts
-@@ -20,6 +20,43 @@ type GlobalBlockingRequestsState = {
+@@ -20,6 +20,29 @@ type GlobalBlockingRequestsState = {
    bySession: ReadonlyMap<string, PendingBlockingRequests>;
  };
  
-+/**
-+ * Whether a permission or a form waits for a session: the reduction every
-+ * badge consumer needs. Pages count as forms, since they block the agent the
-+ * same way and have no store bucket of their own.
-+ */
 +export type BlockingRequestKinds = { hasPermission: boolean; hasForm: boolean };
 +
-+// Stable snapshots: a fresh object per read would re-render every subscribed
-+// row on every index write.
 +const NOTHING_PENDING: BlockingRequestKinds = { hasPermission: false, hasForm: false };
 +const PERMISSION_PENDING: BlockingRequestKinds = { hasPermission: true, hasForm: false };
 +const FORM_PENDING: BlockingRequestKinds = { hasPermission: false, hasForm: true };
 +const PERMISSION_AND_FORM_PENDING: BlockingRequestKinds = { hasPermission: true, hasForm: true };
 +
-+/**
-+ * Whether any of `sessionIDs` has a request in the index. It is the one copy of
-+ * that scan for a session no directory store can speak for, such as a hidden
-+ * subagent listed only as blocking, and for a surface that never mounts a row.
-+ * Returns a shared object, so a selector built on it keeps its identity while
-+ * the answer stands.
-+ */
 +export const selectIndexedBlockingRequests = (
 +  bySession: GlobalBlockingRequestsState['bySession'],
 +  sessionIDs: readonly string[],
@@ -1699,14 +1659,13 @@ index 396c092d7..c0da6046d 100644
  type WaitingPageEvent = Extract<SyncEvent, { type: 'openchamber.page-waiting' | 'openchamber.page-settled' | 'session.deleted' }>;
  const settledByRead = new Set<string>();
 diff --git a/packages/ui/src/types/theme.ts b/packages/ui/src/types/theme.ts
-index 6a5e03313..b288b0144 100644
+index 6a5e03313..3e71a36ec 100644
 --- a/packages/ui/src/types/theme.ts
 +++ b/packages/ui/src/types/theme.ts
-@@ -74,6 +74,14 @@ interface PullRequestColors {
+@@ -74,6 +74,13 @@ interface PullRequestColors {
    closed: string;
  }
  
-+/** The mark that says a question waits on the user, with its card's tint. */
 +interface QuestionColors {
 +  base: string;
 +  foreground: string;
@@ -1717,7 +1676,7 @@ index 6a5e03313..b288b0144 100644
  interface SyntaxBaseColors {
    background: string;
    foreground: string;
-@@ -102,6 +110,7 @@ export interface Theme {
+@@ -102,6 +109,7 @@ export interface Theme {
      surface: SurfaceColors;
      interactive: InteractiveColors;
      status: StatusColors;
