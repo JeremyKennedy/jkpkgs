@@ -1,5 +1,5 @@
 {
-  "comment": "Upstream provenance for every OpenChamber patch in the queue. `relationship` says what an upstream release would mean for this patch: same (we shipped this change, or upstream did), alternative (upstream shipped a different design for the same need, so the patch needs reconciling rather than porting), partial (upstream took part of it), pending (a PR or issue is open and nothing has shipped), none (local only, no upstream counterpart). `mergedAs` is the merge commit when one exists. `intent` says what the patch deserves upstream: bugfix (a broken thing upstream owns), feature, personal (stays local), testing (wants more use before deciding) or declined (the maintainer refused it). `since` is the date this record was last checked. Update this file whenever a patch is added, dropped or re-expressed; scripts/openchamber-upstream.sh fails when a queued patch has no record here.",
+  "comment": "Upstream provenance for every OpenChamber patch in the queue. `relationship` says what an upstream release would mean for this patch: same (we shipped this change, or upstream did), alternative (upstream shipped a different design for the same need, so the patch needs reconciling rather than porting), partial (upstream took part of it), pending (a PR or issue is open and nothing has shipped), none (local only, no upstream counterpart). `mergedAs` is the merge commit when one exists. `intent` says what the patch deserves upstream: bugfix (a broken thing upstream owns), feature, personal (stays local), testing (wants more use before deciding) or declined (the maintainer refused it). `since` is the date this record was last checked. Update this file whenever a patch is added, dropped or re-expressed; scripts/openchamber-upstream.sh fails when a queued patch has no record here. `follows` lists the earlier patches whose own lines this patch rewrites; scripts/assert-openchamber-patch-overlap.mjs fails a patch that rewrites another patch's lines without listing it.",
   "patches": {
     "android-notification-dismiss": {
       "relationship": "pending",
@@ -12,6 +12,9 @@
     "attention-stale-form": {
       "relationship": "none",
       "intent": "bugfix",
+      "follows": [
+        "instance-attention"
+      ],
       "note": "A question tool call that ends in error sends no settlement event, so the host's cross-directory index kept the form and every surface announced an answered question. Both halves now check a pending form against OpenCode's own form list before showing it. Kept, and it goes upstream with instance-attention once Jeremy is happy with that work.",
       "since": "2026-11-23"
     },
@@ -30,12 +33,19 @@
     "context-row-icons": {
       "relationship": "none",
       "intent": "bugfix",
+      "follows": [
+        "question-rows",
+        "question-cards"
+      ],
       "note": "A collapsed quote renders captionless, so it was a bar and some text; the question card was the same shape, so quotes and questions read the same at a glance. This carries only the question half: the question line gets its own mark, placed in the row rather than above it, because line-clamp sets display:-webkit-box and beats flex, so the clamp belongs on the text. The quote half is upstream code and was dropped by choice.",
       "since": "2026-11-23"
     },
     "dictation-recovery": {
       "relationship": "partial",
       "intent": "bugfix",
+      "follows": [
+        "mobile-voice-launch"
+      ],
       "note": "Upstream #7532 merged the origin-keying half: a transcript no longer lands in whatever composer is on screen. Main had also lost the #404 dictate-link flow, so the port keeps that alone: the pendingDraftDictation store members, usePendingDraftDictation, the deepLinks dictate intent, the deepLinkNavigation request and the ChatInput wiring, plus the empty-result and retry gating in useDictation. mobile-voice-launch owns the deepLinks parsing, so this patch does not repeat it.",
       "since": "2026-11-24"
     },
@@ -55,6 +65,9 @@
     "hide-empty-worktrees": {
       "relationship": "none",
       "intent": "feature",
+      "follows": [
+        "in-work-paging"
+      ],
       "note": "A worktree nobody has used yet (no session, no draft, no pin, no archived session) can be left out of the sidebar. A search still finds it. Local: the setting is ours.",
       "since": "2026-11-18"
     },
@@ -73,6 +86,10 @@
     "in-work-paging-show-more": {
       "relationship": "none",
       "intent": "feature",
+      "follows": [
+        "in-work-paging",
+        "hide-empty-worktrees"
+      ],
       "note": "In work opens with its own page size (a stored per-surface number) and Show more adds the same number again, separate from the sidebar's session batch size. Kept for now.",
       "since": "2026-11-18"
     },
@@ -98,6 +115,9 @@
     "pdf-viewer-zoom": {
       "relationship": "pending",
       "intent": "feature",
+      "follows": [
+        "image-viewer-zoom"
+      ],
       "pr": 7464,
       "issue": 6113,
       "note": "Zoom for the pdf.js fallback where the runtime has no built-in PDF viewer (the Android WebView): the image viewer's controls, a two-finger pinch and Ctrl/Cmd + wheel, repainting pages at a capped canvas size. Builds on image-viewer-zoom. PR #7464 is open upstream work waiting on feature request #6113: the intake bot closed the PR until the request is accepted, and it reopens on its own when it is. The patch stays in the queue meanwhile.",
@@ -106,6 +126,9 @@
     "question-cards": {
       "relationship": "none",
       "intent": "feature",
+      "follows": [
+        "question-rows"
+      ],
       "note": "The card itself: every option with the chosen one marked, a typed answer as one more row, and a working turn's fold preview drawing the card in step order. Folded in from the separate bubble and one-shape patches: the card draws the prompt bubble itself (message/body/userBubbleStyle.ts) with the question colour in its fill, so it stays opaque, and every card uses one shape - a question line with its answer under it, the rest behind a count - whatever the count or open state. Issue #7108 closed as fixed by #7109, so a feature request is needed before this can be accepted upstream.",
       "since": "2026-11-18"
     },
@@ -154,6 +177,9 @@
     "attention-jump-landing": {
       "relationship": "none",
       "intent": "bugfix",
+      "follows": [
+        "instance-attention"
+      ],
       "note": "Clicking a row for another instance in the attention dialog switched host but opened the session last open there: the switch restored the remembered session, the outgoing App wrote it into the URL, and the remounted App replayed that URL over the clicked one. The click now holds the session for the target runtime key and opens it once the switch has landed and that one session can be read; restores and the sidebar's selection stand aside while it is held. Also ports a sidebar fix (keep a session whose project has no rows yet instead of opening a draft), makes relay activation report whether it switched, and stops the host list above the rows from growing after the dialog opens. Builds on instance-attention, so it goes upstream with it.",
       "since": "2026-11-24"
     },
@@ -166,6 +192,11 @@
     "attention-row-parity": {
       "relationship": "none",
       "intent": "bugfix",
+      "follows": [
+        "instance-attention",
+        "attention-stale-form",
+        "tray-instances"
+      ],
       "note": "The attention popover built another instance's rows with its own rule: it read only the wire parentID, so an operator child whose parent link lives in metadata, sitting in a /tmp/opencode worktree, was listed from cedar although navi's own sidebar and popover hid it. Both paths now call the sidebar's row rule with each instance's own data, and a failed or partial read shows sessions rather than hiding them. Builds on instance-attention, so it goes upstream with it.",
       "since": "2026-11-24"
     },

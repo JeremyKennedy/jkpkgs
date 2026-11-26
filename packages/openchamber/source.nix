@@ -52,6 +52,14 @@ let
   src = applyPatches {
     name = "openchamber-${version}-source";
     src = openchamberSource;
+    # GNU patch defaults to fuzz 2: a hunk whose context no longer matches
+    # applies anyway, possibly in the wrong place, and the build stays green.
+    # At fuzz 0 every context line must match, so a bump that moves a hunk's
+    # surroundings fails here and the patch gets re-exported.
+    patchFlags = [
+      "-p1"
+      "--fuzz=0"
+    ];
     patches = [
       ./patches/commandcode-quota.patch
       ./patches/stale-pending-badge.patch

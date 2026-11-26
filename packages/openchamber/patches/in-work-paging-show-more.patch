@@ -1542,7 +1542,7 @@ index 0d2536441..5b005a69a 100644
      const helpers = createTestHelpers();
      expect(helpers.sanitizeSettingsUpdate({
 diff --git a/packages/web/server/lib/settings/settings-helpers.ts b/packages/web/server/lib/settings/settings-helpers.ts
-index 98758739a..5287b882c 100644
+index 98758739a..b16358e0d 100644
 --- a/packages/web/server/lib/settings/settings-helpers.ts
 +++ b/packages/web/server/lib/settings/settings-helpers.ts
 @@ -48,6 +48,7 @@ interface RegistryField {
@@ -1553,18 +1553,16 @@ index 98758739a..5287b882c 100644
  }
  const settingsRegistry: { fields: Record<string, RegistryField> } = createRequire(import.meta.url)('./settings-registry.json');
  
-@@ -77,6 +78,10 @@ const SECRET_SETTINGS_KEYS = Object.freeze(
+@@ -77,6 +78,8 @@ const SECRET_SETTINGS_KEYS = Object.freeze(
      .map(([key]) => key),
  );
  
-+// The In work page's range is the registry field's own `bounds`, carried into
-+// the generated snapshot, so the clamp cannot drift from the UI parser.
 +const WORK_PAGE_SIZE_BOUNDS = settingsRegistry.fields.sidebarWorkPageSize?.bounds;
 +
  import {
    DEFAULT_INPUT_HISTORY_LIMIT,
    DEFAULT_INPUT_HISTORY_SCOPE,
-@@ -181,6 +186,7 @@ type NumberSettingsKey =
+@@ -181,6 +184,7 @@ type NumberSettingsKey =
    | 'inputHistoryLimit' | 'sidebarSessionBatchSize' | 'liveBrowserTabLimit' | 'sessionGoalMaxAutoTurns'
    | 'sessionGoalDefaultBudget' | 'sessionCostWarnThreshold' | 'sessionCostCriticalThreshold' | 'summaryThreshold' | 'summaryLength' | 'maxLastMessageLength' | 'autoDeleteAfterDays'
    | 'tunnelSessionTtlMs' | 'tunnelHttpsPort' | 'fontSize' | 'chatFontSize' | 'terminalFontSize' | 'editorFontSize'
@@ -1572,14 +1570,12 @@ index 98758739a..5287b882c 100644
    | 'padding' | 'cornerRadius' | 'inputBarOffset';
  
  type StringArraySettingsKey =
-@@ -591,6 +597,15 @@ export const createSettingsHelpers = (dependencies: SettingsHelpersDependencies)
+@@ -591,6 +595,13 @@ export const createSettingsHelpers = (dependencies: SettingsHelpersDependencies)
      if (isBoolean(candidate.sidebarShowWorkSection)) {
        result.sidebarShowWorkSection = candidate.sidebarShowWorkSection;
      }
 +    const workPageSize = candidate.sidebarWorkPageSize;
-+    if (WORK_PAGE_SIZE_BOUNDS && typeof workPageSize === 'number' && Number.isFinite(workPageSize)) {
-+      // Same rule as the registry parser: an integer page, clamped to the
-+      // range the registry snapshot records.
++    if (WORK_PAGE_SIZE_BOUNDS && isNumber(workPageSize) && Number.isFinite(workPageSize)) {
 +      result.sidebarWorkPageSize = Math.min(
 +        WORK_PAGE_SIZE_BOUNDS.max,
 +        Math.max(WORK_PAGE_SIZE_BOUNDS.min, Math.round(workPageSize)),

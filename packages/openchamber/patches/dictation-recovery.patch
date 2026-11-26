@@ -27,18 +27,21 @@ index bad578919..f41a8668e 100644
        if (target === 'chat' || target === 'project') {
          intent.target = target;
 diff --git a/packages/ui/src/components/chat/ChatInput.tsx b/packages/ui/src/components/chat/ChatInput.tsx
-index 6e78d2ae7..19f20e354 100644
+index 6e78d2ae7..87cb2f596 100644
 --- a/packages/ui/src/components/chat/ChatInput.tsx
 +++ b/packages/ui/src/components/chat/ChatInput.tsx
-@@ -16,6 +16,7 @@ import { useComposerControls } from './composer/input/useComposerControls';
- import { useInputStore } from '@/sync/input-store';
+@@ -13,9 +13,9 @@ import { useComposerAutocompleteState } from './composer/input/useComposerAutoco
+ import { useComposerColumn } from './composer/input/useComposerColumn';
+ import { useComposerCompletions } from './composer/input/useComposerCompletions';
+ import { useComposerControls } from './composer/input/useComposerControls';
+-import { useInputStore } from '@/sync/input-store';
  import { useComposerDictation } from './composer/input/useComposerDictation';
  import { useComposerDictationState } from './composer/input/useComposerDictationState';
 +import { usePendingDraftDictation } from './composer/input/usePendingDraftDictation';
  import { useComposerDraftHistory } from './composer/input/useComposerDraftHistory';
  import { useComposerDraftTarget } from './composer/input/useComposerDraftTarget';
  import { useComposerDraftText } from './composer/input/useComposerDraftText';
-@@ -189,18 +190,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
+@@ -189,18 +189,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
      // A deep link (openchamber://new-session?dictate=1) starts dictation once
      // this draft's composer is mounted. The request is bound to the draft id,
      // so a composer showing another draft drops it instead of recording there.
@@ -496,7 +499,7 @@ index 000000000..000b477dd
 +    });
 +});
 diff --git a/packages/ui/src/hooks/useDictation.ts b/packages/ui/src/hooks/useDictation.ts
-index 004c6ebc3..04a3a1799 100644
+index 004c6ebc3..d6e8db11a 100644
 --- a/packages/ui/src/hooks/useDictation.ts
 +++ b/packages/ui/src/hooks/useDictation.ts
 @@ -1,3 +1,19 @@
@@ -532,11 +535,11 @@ index 004c6ebc3..04a3a1799 100644
 +export const DICTATION_EMPTY_RECORDING = 'empty_recording';
 +export const DICTATION_NO_SPEECH = 'no_speech';
 +/** The microphone never started (permission, no device, no AudioContext). */
-+export const DICTATION_START_FAILED = 'start_failed';
-+export const DICTATION_EMPTY_RECORDING_MESSAGE = 'Nothing was recorded. Check your microphone and try again.';
-+export const DICTATION_NO_SPEECH_MESSAGE = 'No speech was transcribed. Check your microphone and try again.';
++const DICTATION_START_FAILED = 'start_failed';
++const DICTATION_EMPTY_RECORDING_MESSAGE = 'Nothing was recorded. Check your microphone and try again.';
++const DICTATION_NO_SPEECH_MESSAGE = 'No speech was transcribed. Check your microphone and try again.';
 +/** Said while recording when nothing is reaching the capture (another app took the mic). */
-+export const DICTATION_MIC_SILENT_MESSAGE = 'No sound from the microphone. Check the mic or close other voice apps.';
++const DICTATION_MIC_SILENT_MESSAGE = 'No sound from the microphone. Check the mic or close other voice apps.';
 +
 +/** Below this normalized level the capture is treated as hearing nothing. */
 +const MIC_SILENT_LEVEL = 0.002;

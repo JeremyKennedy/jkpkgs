@@ -25,21 +25,19 @@ index da6b39114..fc4a8cdc5 100644
 +
 +A single-item lookup accepts `#12` or `12` (a bare number reads every asked repository), or a link to an item on the instance; anything else is a text search. A folder whose remote repository was deleted or renamed reads as having no repository, not as a failed read: the search skips that remote on 404/410, and the folder's single lookup answers `SOURCE_CONTROL_NO_REPOSITORY` with 404, since a missing target is not a stale one.
 diff --git a/packages/web/server/lib/gitea/descriptor.ts b/packages/web/server/lib/gitea/descriptor.ts
-index 0cb4e3a5a..2c4d03aba 100644
+index 0cb4e3a5a..4a9bcd0ee 100644
 --- a/packages/web/server/lib/gitea/descriptor.ts
 +++ b/packages/web/server/lib/gitea/descriptor.ts
-@@ -37,7 +37,9 @@ export const giteaDescriptor = Object.freeze({
+@@ -37,7 +37,7 @@ export const giteaDescriptor = Object.freeze({
      stacks: false,
      changeRequestPatch: true,
      liveSummaries: true,
 -    referencePicker: false,
-+    // The picker's lists stay list-backed (`referenceSearch` off); the search
-+    // across a folder's repositories is the one provider-owned read.
 +    referencePicker: true,
      multipleAccounts: true,
    }),
    authMethods: Object.freeze({ device: false, pat: true, cli: Object.freeze({ tool: 'gt' }) }),
-@@ -87,7 +89,7 @@ export const giteaDescriptor = Object.freeze({
+@@ -87,7 +87,7 @@ export const giteaDescriptor = Object.freeze({
        user: Object.freeze(['/{user}']),
      }),
      features: Object.freeze({
@@ -72,18 +70,13 @@ index b738f6eab..76945bb56 100644
  
    it('maps a 1.21 pull request, which has no draft flag, by its title', () => {
 diff --git a/packages/web/server/lib/gitea/mappers.ts b/packages/web/server/lib/gitea/mappers.ts
-index a4780fe3c..a66a6c2a7 100644
+index a4780fe3c..30d650e2b 100644
 --- a/packages/web/server/lib/gitea/mappers.ts
 +++ b/packages/web/server/lib/gitea/mappers.ts
-@@ -124,12 +124,24 @@ const pullState = (value: JsonObject) => {
+@@ -124,12 +124,19 @@ const pullState = (value: JsonObject) => {
  export const branchRepoId = (branch: JsonValue | undefined) =>
    integer(field(branch, 'repo_id')) ?? integer(field(field(branch, 'repo'), 'id'));
  
-+/**
-+ * The branch name of a pull request side. Forgejo answers `head.ref` as
-+ * `refs/pull/<n>/head` once the source branch is deleted, and keeps the real
-+ * name in `head.label`, so the label is preferred there.
-+ */
 +export const headBranch = (branch: JsonValue | undefined): string => {
 +  const ref = field(branch, 'ref');
 +  if (!nonEmptyText(ref)) return '';
@@ -102,12 +95,11 @@ index a4780fe3c..a66a6c2a7 100644
    const base = field(value.base, 'ref');
    if (!nonEmptyText(base)) return null;
    const request: Omit<GiteaPull, 'labels'> = {
-@@ -140,7 +152,8 @@ export function mapGiteaPull(value: JsonValue | undefined, identity: GiteaIdenti
+@@ -140,7 +147,7 @@ export function mapGiteaPull(value: JsonValue | undefined, identity: GiteaIdenti
      title: value.title,
      url: value.html_url,
      state,
 -    draft: value.draft === true || isDraftTitle(value.title),
-+    // A merged or closed pull request is not a draft, whatever its title still says.
 +    draft: state === 'open' && (value.draft === true || isDraftTitle(value.title)),
      base,
      head,
@@ -218,7 +210,7 @@ index 0dc784ee6..fb5bbeb24 100644
  });
  
 diff --git a/packages/web/server/lib/gitea/provider.ts b/packages/web/server/lib/gitea/provider.ts
-index 0f9cda95b..36a15b061 100644
+index 0f9cda95b..b59f101d6 100644
 --- a/packages/web/server/lib/gitea/provider.ts
 +++ b/packages/web/server/lib/gitea/provider.ts
 @@ -4,14 +4,16 @@ import { classifyGiteaFailure, createGiteaClient } from './client.js';
@@ -240,17 +232,18 @@ index 0f9cda95b..36a15b061 100644
  import type { BindingMutationTarget } from '../source-control/binding-service-contracts.js';
  import type { GiteaFetch } from './client.js';
  import type { GiteaResourceOptions } from './resources.js';
-@@ -257,7 +259,8 @@ export function createGiteaFamilyProvider(build: GiteaFamilyProviderOptions) {
+@@ -257,7 +259,9 @@ export function createGiteaFamilyProvider(build: GiteaFamilyProviderOptions) {
      if (resolveRepos) options.resolveRepos = resolveRepos;
      const service = createResourceService(options);
      const identity = identityFor(session.instance, session.accountId);
 -    const methods: Record<string, (...args: never[]) => Promise<object>> = service;
++    // SAFETY: every member of the resource service is an async method.
 +    const methods: Record<string, (...args: never[]) => Promise<object>> =
-+      service as unknown as Record<string, (...args: never[]) => Promise<object>>;
++      service as Record<string, (...args: never[]) => Promise<object>>;
      for (const method of Object.keys(methods)) {
        const operation = methods[method];
        if (!(operation instanceof Function)) continue;
-@@ -309,6 +312,38 @@ export function createGiteaFamilyProvider(build: GiteaFamilyProviderOptions) {
+@@ -309,6 +313,41 @@ export function createGiteaFamilyProvider(build: GiteaFamilyProviderOptions) {
        readChangeRequestFile: ({ session, directory, number, sourceRepo, remote, path, previousPath, status, binary, linked }: PatchRead & Pick<Parameters<Service['changeRequestFileContents']>[2], 'path' | 'previousPath' | 'status' | 'binary'>) => serviceFor(session)
          .changeRequestFileContents(directory, number, { project: projectSelector(sourceRepo), remote, path, previousPath, status, binary, linked }),
        liveSummaries: ({ session, refs, issueRefs }: { session: ProviderSession } & Parameters<Service['liveSummaries']>[0]) => serviceFor(session).liveSummaries({ refs, issueRefs }),
@@ -262,10 +255,12 @@ index 0f9cda95b..36a15b061 100644
 +        if (!input) {
 +          throw Object.assign(new Error('Invalid references request; at most 100 unique contexts are allowed'), { status: 400 });
 +        }
++        // SAFETY: the across reader answers the provider's plain-object result.
 +        return readReferencesAcross({
 +          input,
 +          providerId: descriptor.id,
 +          validateReadContext: async (context) => {
++            // SAFETY: the across reader hands the validator the request's own read context.
 +            const trusted = await validateReadContext(context as ReadContextRequest);
 +            if (!trusted) throw Object.assign(new Error('The read context is not valid'), { status: 400 });
 +            return trusted;
@@ -275,7 +270,8 @@ index 0f9cda95b..36a15b061 100644
 +              instance: String(trusted.instance ?? ''),
 +              accountId: String(trusted.accountId ?? ''),
 +            });
-+            return serviceFor(session) as unknown as ReferenceService;
++            // SAFETY: the resource service implements the reference reads this provider publishes.
++            return serviceFor(session) as ReferenceService;
 +          },
 +          onFolderFailure: async (error: FolderFailure, identity: TrustedContext) => {
 +            const status = error?.status ?? error?.response?.status;
@@ -291,15 +287,16 @@ index 0f9cda95b..36a15b061 100644
          const headSha = String(request.headSha || '').toLowerCase();
 diff --git a/packages/web/server/lib/gitea/references-across.test.ts b/packages/web/server/lib/gitea/references-across.test.ts
 new file mode 100644
-index 000000000..e89f4a119
+index 000000000..a144971ce
 --- /dev/null
 +++ b/packages/web/server/lib/gitea/references-across.test.ts
-@@ -0,0 +1,645 @@
+@@ -0,0 +1,646 @@
 +import { beforeEach, describe, expect, it, vi } from 'vitest';
 +import {
 +  issueReference, pullReference, readReferencesAcross, readReferencesAcrossRequest, resetReferencePageCache,
 +} from './references-across.js';
 +import type { FolderFailure, ReferenceService, TrustedContext } from './references-across.js';
++import type { JsonValue } from '../shared/json-values.js';
 +
 +const ORIGIN = 'https://gitea.example.com';
 +
@@ -321,19 +318,19 @@ index 000000000..e89f4a119
 +  html_url?: string | undefined;
 +  state?: string | undefined;
 +  user?: { login?: string | undefined; avatar_url?: string | undefined } | undefined;
-+  labels?: unknown[] | undefined;
++  labels?: JsonValue[] | undefined;
 +  comments?: number | undefined;
 +  body?: string | undefined;
 +  created_at?: string | undefined;
 +  updated_at?: string | undefined;
-+  pull_request?: unknown;
++  pull_request?: JsonValue;
 +};
 +
 +/** The head of one fixture pull request. */
 +type RawPullHead = {
 +  ref?: string | undefined;
 +  sha?: string | undefined;
-+  repo?: unknown;
++  repo?: JsonValue;
 +  label?: string | undefined;
 +};
 +
@@ -755,10 +752,10 @@ index 000000000..e89f4a119
 +  });
 +
 +  it('reports each folder it could not read and still answers the others', async () => {
-+    const failures = {
-+      '/signed-out': Object.assign(new Error('signed out'), { status: 401 }),
-+      '/stale': Object.assign(new Error('stale'), { code: 'SOURCE_CONTROL_BINDING_STALE' }),
-+    } satisfies Record<string, Error>;
++    const failures = new Map<string, Error>([
++      ['/signed-out', Object.assign(new Error('signed out'), { status: 401 })],
++      ['/stale', Object.assign(new Error('stale'), { code: 'SOURCE_CONTROL_BINDING_STALE' })],
++    ]);
 +    const failureCalls: { error: FolderFailure; identity: { instance?: string; accountId?: string } }[] = [];
 +    // One account reads every folder, so one service answers them all; a
 +    // folder without a repository on the instance fails its own read.
@@ -777,7 +774,7 @@ index 000000000..e89f4a119
 +      input,
 +      providerId: 'gitea',
 +      validateReadContext: async (candidate) => {
-+        const failure = failures[candidate.directory];
++        const failure = failures.get(candidate.directory);
 +        if (failure) throw failure;
 +        if (candidate.directory === '/empty') return null;
 +        return { ...candidate, primaryRemote: 'origin' };
@@ -942,28 +939,29 @@ index 000000000..e89f4a119
 +});
 diff --git a/packages/web/server/lib/gitea/references-across.ts b/packages/web/server/lib/gitea/references-across.ts
 new file mode 100644
-index 000000000..aed29b766
+index 000000000..337b3b7a3
 --- /dev/null
 +++ b/packages/web/server/lib/gitea/references-across.ts
-@@ -0,0 +1,460 @@
+@@ -0,0 +1,477 @@
 +import { createHash } from 'node:crypto';
 +import { z } from 'zod';
 +import { isPlainObject, isString } from '../shared/guards.js';
++import type { JsonObject, JsonValue } from '../shared/json-values.js';
 +import { mapLimited } from '../shared/map-limited.js';
 +import { headBranch, isDraftTitle } from './mappers.js';
 +
-+type JsonObject = Record<string, unknown>;
 +type Raw = JsonObject | null | undefined;
 +type RepoRef = { owner: string; name: string };
 +type ProjectRef = { owner: string; repo: string };
 +type Lookup = { number: number; host?: string; project?: ProjectRef };
++type LabelRef = { name: string; color?: string };
 +
 +export type ReferenceService = {
 +  listReferenceCandidates(directory: string, options: {
 +    kind: 'issue' | 'pull'; state: string; people: string; query: string; page: number; remote: string;
 +  }): Promise<{ repo: RepoRef | null; items: JsonObject[]; hasMore: boolean; needsDetail?: boolean }>;
-+  readPullDetail(directory: string, number: number, remote: string): Promise<unknown>;
-+  readReferenceItem(directory: string, options: { kind: 'issue' | 'pull'; number: number; remote: string }): Promise<{ repo: RepoRef | null; item: unknown }>;
++  readPullDetail(directory: string, number: number, remote: string): Promise<JsonValue>;
++  readReferenceItem(directory: string, options: { kind: 'issue' | 'pull'; number: number; remote: string }): Promise<{ repo: RepoRef | null; item: JsonValue }>;
 +};
 +
 +const PAGE_SIZE = 30;
@@ -976,8 +974,12 @@ index 000000000..aed29b766
 +const CACHE_MAX_ENTRIES = 400;
 +const MAX_CONTEXTS = 100;
 +
-+const integer = (value: unknown): number | null => (Number.isInteger(value) ? value as number : null);
-+const text = (value: unknown): string | null => (isString(value) && value.trim() ? value : null);
++const integer = (value: JsonValue | undefined): number | null => {
++  if (!Number.isInteger(value)) return null;
++  // SAFETY: Number.isInteger accepts only numbers.
++  return value as number;
++};
++const text = (value: JsonValue | undefined): string | null => (isString(value) && value.trim() ? value : null);
 +
 +const contextSchema = z.strictObject({
 +  directory: z.string().trim().min(1),
@@ -1007,7 +1009,7 @@ index 000000000..aed29b766
 +type AcrossRequest = z.infer<typeof requestSchema>;
 +type AcrossInput = AcrossRequest & { contexts: AcrossContext[]; directories: string[] };
 +
-+export function readReferencesAcrossRequest(body: unknown, providerId: string): AcrossInput | null {
++export function readReferencesAcrossRequest(body: JsonValue, providerId: string): AcrossInput | null {
 +  const parsed = requestSchema.safeParse(body);
 +  if (!parsed.success) return null;
 +  if (parsed.data.contexts.some((context) => context.provider !== providerId)) return null;
@@ -1036,7 +1038,7 @@ index 000000000..aed29b766
 +
 +const CURSOR = /^(\d+)\.([a-f0-9]{64})$/;
 +
-+const readCursor = (value: unknown, scope: string): number => {
++const readCursor = (value: JsonValue | undefined, scope: string): number => {
 +  if (value === null || value === undefined || value === '') return 0;
 +  const match = CURSOR.exec(String(value));
 +  if (!match) throw invalidCursor();
@@ -1075,7 +1077,7 @@ index 000000000..aed29b766
 +const sameRepository = (repo: RepoRef, project: ProjectRef): boolean => repo.owner.toLowerCase() === project.owner.toLowerCase()
 +  && repo.name.toLowerCase() === project.repo.toLowerCase();
 +
-+const previewBody = (body: unknown): { body: string; bodyTruncated: boolean } => {
++const previewBody = (body: JsonValue | undefined): { body: string; bodyTruncated: boolean } => {
 +  const value = isString(body) ? body : '';
 +  return value.length > BODY_PREVIEW_MAX
 +    ? { body: value.slice(0, BODY_PREVIEW_MAX), bodyTruncated: true }
@@ -1090,22 +1092,22 @@ index 000000000..aed29b766
 +  return avatarUrl ? { login, avatarUrl } : { login };
 +};
 +
-+const labelsOf = (raw: Raw): { name: string; color?: string }[] => {
++const labelsOf = (raw: Raw): LabelRef[] => {
 +  if (!Array.isArray(raw?.labels)) return [];
 +  return raw.labels.flatMap((label) => {
 +    if (!isPlainObject(label)) return [];
 +    const name = text(label.name);
 +    if (!name) return [];
-+    const mapped: { name: string; color?: string } = { name };
++    const mapped: LabelRef = { name };
 +    const color = text(label.color);
 +    if (color) mapped.color = color.replace(/^#/, '');
 +    return [mapped];
 +  });
 +};
 +
-+const sourceRepoOf = (repo: RepoRef, source = 'origin'): { owner: string; repo: string; source: string } => ({ owner: repo.owner, repo: repo.name, source });
++const sourceRepoOf = (repo: RepoRef, source = 'origin') => ({ owner: repo.owner, repo: repo.name, source });
 +
-+export function issueReference(raw: unknown, repo: RepoRef, directory: string, source = 'origin') {
++export function issueReference(raw: JsonValue | undefined, repo: RepoRef, directory: string, source = 'origin') {
 +  if (!isPlainObject(raw) || integer(raw.number) === null || !text(raw.title) || !text(raw.html_url)) return null;
 +  if (raw.pull_request != null) return null;
 +  if (raw.state !== 'open' && raw.state !== 'closed') return null;
@@ -1144,10 +1146,11 @@ index 000000000..aed29b766
 +  return mapped;
 +};
 +
-+export function pullReference(raw: unknown, repo: RepoRef, directory: string, source = 'origin') {
++export function pullReference(raw: JsonValue | undefined, repo: RepoRef, directory: string, source = 'origin') {
 +  if (!isPlainObject(raw) || integer(raw.number) === null || !text(raw.title) || !text(raw.html_url)) return null;
 +  const headNode = isPlainObject(raw.head) ? raw.head : null;
 +  const baseNode = isPlainObject(raw.base) ? raw.base : null;
++  // SAFETY: `head` is the pull's head object, which headBranch reads by key.
 +  const head = headBranch(headNode as never);
 +  const baseRef = text(baseNode?.ref);
 +  const headSha = text(headNode?.sha);
@@ -1201,7 +1204,10 @@ index 000000000..aed29b766
 +  const now = Date.now();
 +  if (!refresh) {
 +    const held = pageCache.get(key);
-+    if (held && now - held.at < CACHE_TTL_MS) return held.value as T;
++    if (held && now - held.at < CACHE_TTL_MS) {
++      // SAFETY: cachedPage stores the value its own read produced for this key.
++      return held.value as T;
++    }
 +  }
 +  const value = await read();
 +  pageCache.delete(key);
@@ -1235,7 +1241,7 @@ index 000000000..aed29b766
 +  const offset = readCursor(input.cursor, scope);
 +  const refresh = input.refresh === true;
 +
-+  const folders = new Map<string, { trusted?: TrustedContext; service?: ReferenceService; status?: string; repo?: RepoRef | null }>();
++  const folders = new Map<string, { trusted?: TrustedContext; service?: ReferenceService; status?: string; repo?: (RepoRef & { url?: string }) | null }>();
 +  const services = new Map<string, ReferenceService>();
 +
 +  const failed = async (error: FolderFailure, identity: { instance?: string; accountId?: string }) => {
@@ -1251,6 +1257,7 @@ index 000000000..aed29b766
 +    try {
 +      trusted = await validateReadContext({ ...context, provider: providerId });
 +    } catch (error) {
++      // SAFETY: a failed read context is an Error carrying the shell's failure fields.
 +      folders.set(directory, { status: await failed(error as FolderFailure, context) });
 +      return;
 +    }
@@ -1267,6 +1274,7 @@ index 000000000..aed29b766
 +      }
 +      folders.set(directory, { trusted, service });
 +    } catch (error) {
++      // SAFETY: a service that cannot resolve is an Error carrying the shell's failure fields.
 +      folders.set(directory, { status: await failed(error as FolderFailure, trusted) });
 +    }
 +  });
@@ -1277,7 +1285,7 @@ index 000000000..aed29b766
 +    return {
 +      directory,
 +      status: 'included',
-+      repo: { owner: entry.repo.owner, repo: entry.repo.name, url: (entry.repo as RepoRef & { url?: string }).url },
++      repo: { owner: entry.repo.owner, repo: entry.repo.name, url: entry.repo.url },
 +    };
 +  });
 +
@@ -1302,19 +1310,20 @@ index 000000000..aed29b766
 +      if (entry.status) return null;
 +      try {
 +        const result = await service.readReferenceItem(directory, {
-+          kind: kind === 'discussion' ? 'issue' : kind, number: lookup.number, remote: String(trusted.primaryRemote ?? 'origin'),
++          kind: kind === 'discussion' ? 'issue' : kind, number: lookup.number, remote: String(entry.trusted?.primaryRemote ?? 'origin'),
 +        });
 +        entry.repo = result.repo;
-+        if (lookup.host && lookup.host !== String(trusted.instance ?? '').toLowerCase()) return null;
++        if (lookup.host && lookup.host !== String(entry.trusted?.instance ?? '').toLowerCase()) return null;
 +        if (!result.item) return null;
 +        if (lookup.project && (!result.repo || !sameRepository(result.repo, lookup.project))) return null;
 +        if (!result.repo) return null;
 +        const mapped = kind === 'pull'
-+          ? pullReference(result.item, result.repo, directory, String(trusted.primaryRemote ?? 'origin'))
-+          : issueReference(result.item, result.repo, directory, String(trusted.primaryRemote ?? 'origin'));
++          ? pullReference(result.item, result.repo, directory, String(entry.trusted?.primaryRemote ?? 'origin'))
++          : issueReference(result.item, result.repo, directory, String(entry.trusted?.primaryRemote ?? 'origin'));
 +        return mapped;
 +      } catch (error) {
-+        entry.status = await failed(error as FolderFailure, trusted);
++        // SAFETY: a failed reference read is an Error carrying the shell's failure fields.
++        entry.status = await failed(error as FolderFailure, entry.trusted ?? {});
 +        return null;
 +      }
 +    });
@@ -1343,7 +1352,7 @@ index 000000000..aed29b766
 +            if (!service) throw Object.assign(new Error('No service for folder'), { code: 'SOURCE_CONTROL_NO_SERVICE' });
 +        const candidateKind: 'issue' | 'pull' = kind === 'pull' ? 'pull' : 'issue';
 +        const result = await cachedPage(key, () => service.listReferenceCandidates(directory, {
-+          kind: candidateKind, state, people, query, page, remote: String(trusted.primaryRemote ?? 'origin'),
++          kind: candidateKind, state, people, query, page, remote: String(entry.trusted?.primaryRemote ?? 'origin'),
 +        }), { refresh });
 +        entry.repo ??= result.repo ?? null;
 +        for (const raw of result.items) {
@@ -1354,6 +1363,7 @@ index 000000000..aed29b766
 +      if (!entry.repo) entry.status = 'no-repo';
 +      else candidates.push(...local);
 +    } catch (error) {
++      // SAFETY: a failed candidate page is an Error carrying the shell's failure fields.
 +      entry.status = await failed(error as FolderFailure, entry.trusted ?? {});
 +    }
 +  });
@@ -1367,7 +1377,7 @@ index 000000000..aed29b766
 +  const read = await mapLimited(window, DETAIL_CONCURRENCY, async (item) => {
 +    if (!item) return null;
 +    const candidate = item;
-+    let raw: unknown = candidate.raw;
++    let raw: JsonValue = candidate.raw;
 +    const detailService = candidate.entry?.service;
 +    if (candidate.needsDetail && detailService) {
 +      try {
@@ -1375,11 +1385,15 @@ index 000000000..aed29b766
 +          candidate.directory, Number(candidate.raw.number), String(candidate.entry?.trusted?.primaryRemote ?? 'origin'),
 +        );
 +      } catch (error) {
++        // SAFETY: a failed detail read is an Error carrying the shell's failure fields.
 +        const failure = error as FolderFailure;
 +        const status = failure?.status ?? failure?.response?.status;
 +        if (status === 404 || status === 410) return null;
 +        if (status === 401) {
-+          if (candidate.entry) candidate.entry.status = await failed(error as FolderFailure, candidate.entry.trusted ?? {});
++          if (candidate.entry) {
++            // SAFETY: a failed detail read is an Error carrying the shell's failure fields.
++            candidate.entry.status = await failed(error as FolderFailure, candidate.entry.trusted ?? {});
++          }
 +          return null;
 +        }
 +        throw error;
@@ -1407,7 +1421,7 @@ index 000000000..aed29b766
 +  };
 +}
 diff --git a/packages/web/server/lib/gitea/resources.ts b/packages/web/server/lib/gitea/resources.ts
-index e3be9a482..e63530fd4 100644
+index e3be9a482..6cf2948a9 100644
 --- a/packages/web/server/lib/gitea/resources.ts
 +++ b/packages/web/server/lib/gitea/resources.ts
 @@ -32,6 +32,17 @@ type Remote = string | null | undefined;
@@ -1428,7 +1442,7 @@ index e3be9a482..e63530fd4 100644
  type Ref = { owner: string; repo: string; number: number };
  type ListOptions = {
    labels?: string[] | undefined;
-@@ -131,11 +142,23 @@ export function createGiteaResourceService({
+@@ -131,11 +142,24 @@ export function createGiteaResourceService({
      const resolved = await resolveRepos(directory, origin, remote, { sshUrl });
      const repos: Repo[] = [];
      for (const candidate of resolved.repos) {
@@ -1437,6 +1451,7 @@ index e3be9a482..e63530fd4 100644
 +      try {
 +        item = await showRepo({ owner: candidate.owner, name: candidate.name }, candidate.remoteName);
 +      } catch (error) {
++        // SAFETY: a failed repository read is an Error carrying the shell's failure fields.
 +        const status = statusOf(error as Failure);
 +        if (status === 404 || status === 410) continue;
 +        throw error;
@@ -1454,25 +1469,10 @@ index e3be9a482..e63530fd4 100644
      return [first, ...rest];
    };
  
-@@ -505,6 +528,98 @@ export function createGiteaResourceService({
+@@ -505,6 +529,76 @@ export function createGiteaResourceService({
        return { items, page, hasMore: result.hasMore };
      },
  
-+    /**
-+     * One page of raw issues or pull requests of the folder's repository, for
-+     * the reference picker's search across repositories. Unlike the neutral
-+     * lists above this keeps the host's own fields, so the picker's rows and
-+     * preview get their branches, draft flag and comment count.
-+     *
-+     * Pull requests read the network's upstream, the repository
-+     * `listChangeRequests` lists, while issues stay on the folder's own
-+     * repository. A review request lives on the upstream's pull requests, so
-+     * the owner-wide search is narrowed to that repository's id.
-+     *
-+     * Gitea's issue search answers a pull request without its head or base;
-+     * `needsDetail` says the page has to read those pull requests before
-+     * mapping them. The unfiltered pull list already carries them.
-+     */
 +    async listReferenceCandidates(directory: string, options: ReferenceCandidateOptions = {}) {
 +      const page = options.page ?? 1;
 +      const { primary, targets } = await network(directory, null, options.remote);
@@ -1481,7 +1481,7 @@ index e3be9a482..e63530fd4 100644
 +      const repo = target.project;
 +      const state: string = (options.state && LIST_STATES[options.state]) ?? 'open';
 +      if (options.kind === 'issue') {
-+        const query: { type: string; state: string; q?: string | undefined; created_by?: string | null; assigned_by?: string | null } = { type: 'issues', state, q: options.query };
++        const query: GiteaQuery = { type: 'issues', state, q: options.query };
 +        if (options.people === 'created') query.created_by = await readCurrentLogin();
 +        if (options.people === 'assigned') query.assigned_by = await readCurrentLogin();
 +        const result = await client.page(`${repoPath(repo)}/issues`, query, { page, limit: PAGE_LIMIT });
@@ -1497,16 +1497,15 @@ index e3be9a482..e63530fd4 100644
 +      }
 +      let result: { items: unknown[]; hasMore: boolean };
 +      if (options.people === 'reviewRequested') {
-+        // Only the cross-repository search filters on review requests; it is
-+        // narrowed to the owner here and to the repository below.
 +        result = await client.page('/repos/issues/search', {
 +          type: 'pulls', state, q: options.query, owner: repo.owner, review_requested: true,
 +        }, { page, limit: PAGE_LIMIT });
-+        result.items = result.items.filter((item) => isPlainObject(item)
-+          && isPlainObject((item as { repository?: unknown }).repository)
-+          && Number(((item as { repository: { id?: unknown } }).repository).id) === target.raw.id);
++        result.items = result.items.filter((item) => {
++          if (!isPlainObject(item) || !isPlainObject(item.repository)) return false;
++          return Number(item.repository.id) === target.raw.id;
++        });
 +      } else {
-+        const query: { type: string; state: string; q?: string | undefined; created_by?: string | null; assigned_by?: string | null } = { type: 'pulls', state, q: options.query };
++        const query: GiteaQuery = { type: 'pulls', state, q: options.query };
 +        if (options.people === 'created') query.created_by = await readCurrentLogin();
 +        if (options.people === 'assigned') query.assigned_by = await readCurrentLogin();
 +        result = await client.page(`${repoPath(repo)}/issues`, query, { page, limit: PAGE_LIMIT });
@@ -1519,7 +1518,6 @@ index e3be9a482..e63530fd4 100644
 +      return { repo, items: result.items, hasMore: result.hasMore, needsDetail: true };
 +    },
 +
-+    /** One pull request of the folder's repository, for a search hit that needs its head and base. */
 +    async readPullDetail(directory: string, number: number, remote?: Remote) {
 +      const { targets } = await network(directory, null, remote);
 +      const target = targets.at(-1);
@@ -1527,12 +1525,6 @@ index e3be9a482..e63530fd4 100644
 +      return client.get(`${repoPath(target.project)}/pulls/${number}`);
 +    },
 +
-+    /**
-+     * One issue or pull request by number, for the picker's link or `#number`
-+     * lookup. A number the repository does not have is `item: null` with the
-+     * repository it was looked up in, so a link that names another repository
-+     * is told apart from a read that failed.
-+     */
 +    async readReferenceItem(directory: string, options: ReferenceItemOptions) {
 +      const { primary, targets } = await network(directory, null, options.remote);
 +      const target = options.kind === 'issue' ? primary : targets.at(-1);
@@ -1544,6 +1536,7 @@ index e3be9a482..e63530fd4 100644
 +          item: await client.get(`${repoPath(target.project)}/${path}/${options.number}`),
 +        };
 +      } catch (error) {
++        // SAFETY: a failed read is an Error carrying the shell's failure fields.
 +        const status = statusOf(error as Failure);
 +        if (status === 404 || status === 410) return { repo: target.project, item: null };
 +        throw error;
@@ -1595,16 +1588,14 @@ index 60e723c20..0ffacd0cc 100644
          "reviewDrafts": true,
          "startThread": false,
 diff --git a/packages/web/server/lib/source-control/provider-routes.ts b/packages/web/server/lib/source-control/provider-routes.ts
-index 865be17f9..924d7d085 100644
+index 865be17f9..8a74b389c 100644
 --- a/packages/web/server/lib/source-control/provider-routes.ts
 +++ b/packages/web/server/lib/source-control/provider-routes.ts
-@@ -884,6 +884,9 @@ export function registerProviderRoutes(app: Router, {
+@@ -884,6 +884,7 @@ export function registerProviderRoutes(app: Router, {
      route('post', '/references/across', 'referencePicker', async (req, res) => {
        let impl;
        try {
-+        // A kind the descriptor turns off is the shell's own answer, the same
-+        // 501 the single-repository list gives, not a provider failure.
-+        if (!discussions && (req.body as { kind?: unknown } | undefined)?.kind === 'discussion') return unsupportedCapability(res);
++        if (!discussions && bodyField(req.body, 'kind') === 'discussion') return unsupportedCapability(res);
          impl = await loadImplementation(id);
          const read = requireResource(impl, 'referencesAcross');
          if (!(validateReadContext instanceof Function)) return res.status(501).json({ error: 'Bound source control read is unavailable' });
