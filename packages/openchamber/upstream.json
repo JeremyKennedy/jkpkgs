@@ -175,6 +175,12 @@
       "issue": 7541,
       "note": "Every running OpenCode location announces a config change, and the catalog refresh re-read agents, commands, providers and directory config for each one, so an OpenCode restart during the refresh booted every announcing location again. The refresh now reads only directories in use (current, viewed, bootstrap demand, active project, settings, the Projects page selection and the chats root) and invalidates the caches of the rest and marks their stores stale, so opening one re-reads it. Exported from 653b63caa on upstream main 3853549df; on 62f77fbfa only the ModelSelector.tsx hunk offset differs (its imports differ there). Also part of #7494. No upstream PR yet.",
       "since": "2026-11-25"
+    },
+    "html-document-etag": {
+      "relationship": "none",
+      "intent": "bugfix",
+      "note": "express.static validated index.html, mobile.html and mini-chat.html by size and mtime, and the SPA fallback did the same through res.sendFile. Nix stamps every build output with the same mtime, so two builds whose documents had the same size sent the same weak ETag, the server on the new build answered 304 to a browser holding the old document, and that browser kept loading the old build's immutable hashed assets. The static routes now read each root HTML document and send it with res.send (an ETag over the bytes), Cache-Control: no-cache and no Last-Modified; express.static runs with index: false so / reaches the SPA fallback. Exported from 1af3df3f9 on 62f77fbfa. The upstream issue and PR are being drafted; none is open yet.",
+      "since": "2026-11-25"
     }
   },
   "candidates": [

@@ -1,0 +1,143 @@
+diff --git a/packages/web/server/lib/server-frame/DOCUMENTATION.md b/packages/web/server/lib/server-frame/DOCUMENTATION.md
+index af8711d01..9c2c7c92f 100644
+--- a/packages/web/server/lib/server-frame/DOCUMENTATION.md
++++ b/packages/web/server/lib/server-frame/DOCUMENTATION.md
+@@ -12,6 +12,7 @@ This module owns the frame around the feature runtimes: CLI options and the dire
+ - UI sessions and the desktop shell's local client can manage all devices; other client tokens are limited to their own record. Push registrations are removed before revoked device rows, while their ownership can still be identified; cleanup failure preserves rows for retry. A revocation already persisted remains successful if its later push cleanup fails.
+ - The repository credential helper authenticates with its own per-start secret and same-machine restriction. It cannot obtain a UI session, so the common session guard exempts its exact route and leaves authority checking to the helper route. Sandboxed preview and extension reads similarly rely on path grants, and OAuth callbacks rely on issued state.
+ - Shutdown closes guest admission and stops event subscribers and wait checks in the same tick. Otherwise a healthy service can receive a shutdown refusal through a still-active subscriber and be classified as broken or backed off.
++- An HTML document's validator is derived from its bytes, so the static routes never answer 304 to a copy of a different document. Hashed files under `assets/` stay `immutable`.
+ - `feature-folder-watches.ts` owns the theme and settings watch lifetimes. Route registration replaces both watches; shutdown stops them. Settings reconciliation completes before notification, the announced changes are the ones reconciliation returns, and a replaced or stopped watch cannot announce its in-flight result.
+ 
+ ## Decisions
+@@ -20,6 +21,10 @@ This module owns the frame around the feature runtimes: CLI options and the dire
+ 
+ Vite asset filenames identify their content, so immutable caching avoids revalidation round trips for lazy chunks over remote connections. Service workers need short-lived responses so clients, including iOS, can discover updates.
+ 
++### Why HTML documents are validated by their bytes and not by file stats
++
++An HTML document in the dist root (`index.html`, `mobile.html`, `mini-chat.html`, and `index.html` again as the SPA fallback) names its build's hashed assets, which clients hold as immutable, so one stale document keeps a whole old build running. `express.static` validates by size and mtime. Nix stamps every build output with the same mtime, so two builds whose documents had the same size sent the same ETag, and a new server answered 304 to a browser holding the old document. The static routes read each document and send it with `res.send`, whose ETag is a hash of the bytes, with `Cache-Control: no-cache` and no `Last-Modified`. `express.static` runs with `index: false` so `/` reaches the SPA fallback and gets the same treatment. Clients revalidate on every load and still get 304 while the build is unchanged. The document is read on every request because a hash taken at startup goes stale when the dist directory is rebuilt in place.
++
+ ### Why isolated exceptions keep serving and not always stop the host
+ 
+ A server embedded in Desktop or launched manually may have no supervisor to restart it after a stray socket exception. It logs isolated exceptions and keeps serving; a sustained exception storm triggers shutdown because continued operation is no longer reliable.
+diff --git a/packages/web/server/lib/server-frame/static-routes-runtime.test.js b/packages/web/server/lib/server-frame/static-routes-runtime.test.js
+index 01cd816d7..9faa831af 100644
+--- a/packages/web/server/lib/server-frame/static-routes-runtime.test.js
++++ b/packages/web/server/lib/server-frame/static-routes-runtime.test.js
+@@ -72,6 +72,53 @@ describe('static file caching', () => {
+   });
+ });
+ 
++describe('html document revalidation across builds', () => {
++  const builds = [];
++
++  // Nix stamps every build output with the same mtime, and two builds' documents can have the same size.
++  const serveBuild = (assetName) => {
++    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-static-build-'));
++    builds.push(dir);
++    const html = `<!doctype html><script type="module" src="/assets/${assetName}"></script>`;
++    for (const name of ['index.html', 'mobile.html']) {
++      fs.writeFileSync(path.join(dir, name), html);
++      fs.utimesSync(path.join(dir, name), 1, 1);
++    }
++    const app = express();
++    createServingRuntime(dir).registerStaticRoutes(app);
++    return app;
++  };
++
++  afterAll(() => {
++    for (const dir of builds) fs.rmSync(dir, { recursive: true, force: true });
++  });
++
++  it('answers a validator from an older same-size build with the new document', async () => {
++    const oldBuild = serveBuild('index-AAAAAAAA.js');
++    const newBuild = serveBuild('index-BBBBBBBB.js');
++
++    for (const url of ['/', '/sessions/abc', '/mobile.html']) {
++      const cached = await request(oldBuild).get(url);
++      const byETag = await request(newBuild).get(url).set('If-None-Match', cached.headers.etag);
++      const byDate = await request(newBuild).get(url).set('If-Modified-Since', new Date(1000).toUTCString());
++
++      expect(byETag.status).toBe(200);
++      expect(byETag.text).toContain('index-BBBBBBBB.js');
++      expect(byETag.headers['cache-control']).toBe('no-cache');
++      expect(byDate.status).toBe(200);
++    }
++  });
++
++  it('answers an unchanged document with 304', async () => {
++    const build = serveBuild('index-CCCCCCCC.js');
++
++    const first = await request(build).get('/');
++    const again = await request(build).get('/').set('If-None-Match', first.headers.etag);
++
++    expect(again.status).toBe(304);
++  });
++});
++
+ describe('static routes runtime', () => {
+   it('returns API-only HTML fallback for browser UI routes', async () => {
+     const app = express();
+diff --git a/packages/web/server/lib/server-frame/static-routes-runtime.ts b/packages/web/server/lib/server-frame/static-routes-runtime.ts
+index 5d201802d..b90c845f0 100644
+--- a/packages/web/server/lib/server-frame/static-routes-runtime.ts
++++ b/packages/web/server/lib/server-frame/static-routes-runtime.ts
+@@ -1,11 +1,16 @@
+ import { registerPwaManifestRoute } from '../appearance/pwa-manifest-routes.js';
+ import type { PwaManifestDependencies } from '../appearance/pwa-manifest-routes.js';
+-import type { Application, ExpressFactory } from '../shared/http-contracts.js';
+-import { isString } from '../shared/object-guards.js';
++import type { Application, ExpressFactory, Response } from '../shared/http-contracts.js';
++import { isRecord, isString } from '../shared/object-guards.js';
+ import { webPackagePaths } from '../web-package-paths.js';
+ 
++const HTML_DOCUMENT_ROUTE = /^\/(?!\.)[^/\\]+\.html$/i;
++const NOT_A_DOCUMENT_CODES = new Set(['ENOENT', 'ENOTDIR', 'EISDIR', 'ENAMETOOLONG']);
++
++const isNotADocument = (cause: unknown) => isRecord(cause) && isString(cause.code) && NOT_A_DOCUMENT_CODES.has(cause.code);
++
+ export interface StaticRoutesDependencies extends PwaManifestDependencies {
+-  fs: Pick<typeof import('node:fs'), 'existsSync'>;
++  fs: Pick<typeof import('node:fs'), 'existsSync' | 'promises'>;
+   path: Pick<typeof import('node:path'), 'resolve' | 'join' | 'sep'>;
+   process: Pick<NodeJS.Process, 'platform' | 'env'>;
+   express: Pick<ExpressFactory, 'static'>;
+@@ -40,7 +45,26 @@ export const createStaticRoutesRuntime = (dependencies: StaticRoutesDependencies
+     if (fs.existsSync(distPath)) {
+       console.log(`Serving static files from ${distPath}`);
+       const hashedAssetsPrefix = path.join(distPath, 'assets') + path.sep;
++
++      const sendHtmlDocument = async (res: Response, fileName: string) => {
++        let body: Buffer;
++        try {
++          body = await fs.promises.readFile(path.join(distPath, fileName));
++        } catch (error) {
++          if (isNotADocument(error)) return false;
++          throw error;
++        }
++        res.set('Cache-Control', 'no-cache');
++        res.type('html').send(body);
++        return true;
++      };
++
++      app.get(HTML_DOCUMENT_ROUTE, async (req, res, next) => {
++        if (!await sendHtmlDocument(res, req.path.slice(1))) next();
++      });
++
+       app.use(express.static(distPath, {
++        index: false,
+         setHeaders(res, filePath) {
+           if (filePath.endsWith(`${path.sep}sw.js`)) {
+             res.setHeader('Cache-Control', 'no-store');
+@@ -63,8 +87,8 @@ export const createStaticRoutesRuntime = (dependencies: StaticRoutesDependencies
+         isRequestAuthorized,
+       });
+ 
+-      app.get(/^(?!\/api|\/linear|.*\.(js|css|svg|png|jpg|jpeg|gif|ico|woff|woff2|ttf|eot|map)).*$/, (_req, res) => {
+-        res.sendFile(path.join(distPath, 'index.html'));
++      app.get(/^(?!\/api|\/linear|.*\.(js|css|svg|png|jpg|jpeg|gif|ico|woff|woff2|ttf|eot|map)).*$/, async (_req, res, next) => {
++        if (!await sendHtmlDocument(res, 'index.html')) next();
+       });
+       return;
+     }
