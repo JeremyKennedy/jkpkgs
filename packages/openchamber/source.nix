@@ -109,6 +109,12 @@ let
       # every announcing location again. The refresh now reads only the
       # directories in use and marks the rest stale.
       ./patches/catalog-refresh-in-use.patch
+      # express.static validated the root HTML documents by size and mtime,
+      # and Nix stamps every build with the same mtime, so a new build of the
+      # same size answered 304 to a browser holding the old document, which
+      # kept loading the old build's immutable assets. The documents are now
+      # sent with an ETag over their bytes and Cache-Control: no-cache.
+      ./patches/html-document-etag.patch
     ];
   };
 in
