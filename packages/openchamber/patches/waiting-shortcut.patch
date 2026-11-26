@@ -1,0 +1,1066 @@
+diff --git a/packages/mobile/DOCUMENTATION.md b/packages/mobile/DOCUMENTATION.md
+index 377187e6d..b79ead296 100644
+--- a/packages/mobile/DOCUMENTATION.md
++++ b/packages/mobile/DOCUMENTATION.md
+@@ -186,7 +186,7 @@ Run `node --test scripts/share-inbox.test.mjs` from `packages/mobile` on macOS f
+ 
+ ## Ownership
+ 
+-The app icon's long-press menu is declared natively on each shell: static `UIApplicationShortcutItem`s in `ios/App/App/Info.plist` and entries in `android/app/src/main/res/xml/shortcuts.xml`, mounted on the launcher activity. *New session* is forwarded by `SceneDelegate` as a URL on iOS and is an `ACTION_VIEW` intent on Android; both carry the same `openchamber://new` link, and the route it opens belongs to `packages/ui` (`apps/deepLinks.ts`), so a navigation action is a plist or XML entry and never a second list of destinations. *Dictate* is the exception: it starts the microphone, so it never travels as a link (see the decision below).
++The app icon's long-press menu is declared natively on each shell: static `UIApplicationShortcutItem`s in `ios/App/App/Info.plist` and entries in `android/app/src/main/res/xml/shortcuts.xml`, mounted on the launcher activity. *New session* and *Waiting on me* are forwarded by `SceneDelegate` as a URL on iOS and are `ACTION_VIEW` intents on Android; they carry the same links on both shells, `openchamber://new` and `openchamber://sessions?filter=attention`, and the route it opens belongs to `packages/ui` (`apps/deepLinks.ts`), so a navigation action is a plist or XML entry and never a second list of destinations. *Dictate* is the exception: it starts the microphone, so it never travels as a link (see the decision below).
+ 
+ ## Invariants
+ 
+@@ -201,8 +201,8 @@ Any app or web page can open an `openchamber://` link, and a link that starts th
+ 
+ ### Why the Android title lives in `values-*/strings.xml`
+ 
+-`shortcuts.xml` points `android:shortcutShortLabel` at `@string/shortcut_new_session` and `@string/shortcut_dictate`, so the launcher reads the title from the app's resources and Android resolves it per device language without the app running. The keys therefore exist in the default `values/strings.xml` and in every shipped `values-*` file, New session carrying the same wording as that locale's `tile_new_session` (the quick-settings tile) so the two home-screen-adjacent surfaces say one thing. The file lists are not identical by name across the shells: iOS spells Hebrew `he` where the Android resources use `iw`.
++`shortcuts.xml` points `android:shortcutShortLabel` at `@string/shortcut_new_session`, `@string/shortcut_waiting` and `@string/shortcut_dictate`, so the launcher reads the title from the app's resources and Android resolves it per device language without the app running. The keys therefore exist in the default `values/strings.xml` and in every shipped `values-*` file, New session carrying the same wording as that locale's `tile_new_session` (the quick-settings tile) so the two home-screen-adjacent surfaces say one thing, and Waiting on me the wording of the sidebar's *Waiting on me* section template, which is what the list it opens shows. The file lists are not identical by name across the shells: iOS spells Hebrew `he` where the Android resources use `iw`.
+ 
+ ### Why the iOS title is an InfoPlist.strings key and not the Swift table the share extension uses
+ 
+-SpringBoard builds the menu before the app runs, so only iOS can translate the title, and it does so by looking the plist value up in the phone's `InfoPlist.strings`. A title built at runtime would replace the static item the system already registered and would stay English until the first launch. Each shipped language therefore has a `<lang>.lproj/InfoPlist.strings`, and `SHORTCUT_NEW_SESSION_TITLE` and `SHORTCUT_DICTATE_TITLE` in the plist are the keys they answer. The share extension's lines are runtime copy rather than plist values, which is why those stay in Swift (`ShareStrings.swift`). Xcode spells Hebrew `he` where the Android resources use `iw`; both are the same language.
++SpringBoard builds the menu before the app runs, so only iOS can translate the title, and it does so by looking the plist value up in the phone's `InfoPlist.strings`. A title built at runtime would replace the static item the system already registered and would stay English until the first launch. Each shipped language therefore has a `<lang>.lproj/InfoPlist.strings`, and `SHORTCUT_NEW_SESSION_TITLE`, `SHORTCUT_WAITING_TITLE` and `SHORTCUT_DICTATE_TITLE` in the plist are the keys they answer. The share extension's lines are runtime copy rather than plist values, which is why those stay in Swift (`ShareStrings.swift`). Xcode spells Hebrew `he` where the Android resources use `iw`; both are the same language.
+diff --git a/packages/mobile/HANDOFF.md b/packages/mobile/HANDOFF.md
+index 067a4fc1a..98ef12765 100644
+--- a/packages/mobile/HANDOFF.md
++++ b/packages/mobile/HANDOFF.md
+@@ -212,7 +212,7 @@ iOS Simulator helpers: `mobile:sim:{boot,install,launch,run,serve,list,kill}` (s
+ - Android: `res/xml/shortcuts.xml` holds the same actions, and `android.app.shortcuts` must be
+   declared on the launcher activity — the shortcut service ignores an application-level copy, which
+   silently yields an empty long-press menu with no error anywhere. `MainActivity` needs the
+-  `openchamber` VIEW intent filter for New session to arrive. Dictate targets the unexported
++  `openchamber` VIEW intent filter for New session and Waiting on me to arrive. Dictate targets the unexported
+   `DictateShortcut` activity alias instead, so no other app can start the microphone; the
+   launcher may, because it starts shortcuts as this app.
+ - `Info.plist`: `CFBundleURLTypes` scheme `openchamber`, `NSCameraUsageDescription`.
+diff --git a/packages/mobile/README.md b/packages/mobile/README.md
+index 98adaf42e..b9f707e58 100644
+--- a/packages/mobile/README.md
++++ b/packages/mobile/README.md
+@@ -18,7 +18,7 @@ The mobile package reuses the web build, then rewrites `mobile.html` to `index.h
+ - iOS 18 and later offer a "New OpenChamber Session" action in Shortcuts and Siri (`ios/App/App/OpenChamberAppShortcuts.swift`). It takes an optional project and an optional message: it opens the app on a new session draft in that project, or where the user last worked, and sends the message as the first one once the project's models and agents are loaded. The project picker lists the projects the app last wrote into the widget snapshot (`packages/ui/src/apps/mobileWidgetSnapshot.ts`); a project the connected server no longer has opens an unsent draft with the message in the composer. A push from another server resets the snapshot to that server, which leaves the picker empty until the app is opened again. A draft whose composer already holds text, files or attached context gets the message appended and sends nothing. The request reaches the page through the app-local `ShortcutRequests` plugin (`ShortcutRequests.swift`, `packages/ui/src/lib/nativeShortcutRequests.ts`), never through an `openchamber://` link, because any app or web page can open a link and a link must not send a prompt.
+ - Android offers the entry point iOS has as a Control Center control, as a Quick Settings tile (`android/app/src/main/java/com/openchamber/app/NewSessionTileService.java`) that opens the app on a new session draft. It is a `TileService` that always reports inactive, because a tile is a toggle in the panel's model but there is nothing to toggle, and its tap opens the same `openchamber://new` deep link the iOS control opens. On a locked device the tap asks for unlock first. The tile's label and accessibility text are Android string resources in `res/values-*`, one per app locale, so they follow the system language; the `OpenChamber` subtitle stays untranslated. Its icon is the brand glyph generated by `scripts/brand/generate.mjs`.
+ - Text, links and files can be shared to the app from the Android and iOS share sheets. `MainActivity` declares `ACTION_SEND`/`ACTION_SEND_MULTIPLE` for any type, reads the intent off the UI thread into `SharedPayloadStore` (`SharedIntentReader`), and a share that arrives while the app runs comes through `onNewIntent`; a share counts as done only once the page has taken it, so a restored activity reads its intent again when the process died before the handoff, and never replays one the page already took. The page takes it through the app-local `SharedFiles` plugin (`android/app/src/main/java/com/openchamber/app/SharedFilesPlugin.java`), and `packages/ui/src/lib/nativeSharedFiles.ts` (Android with the plugin only) hands it to the deep-link navigation, which opens a new session draft of its own, leaving any draft the user was writing untouched, with the files attached unsent and local and a shared link or paragraph typed into the composer without being sent. Nothing is written to a server before Send: Office documents get the usual "Attach as is" / "Convert to text" choice, and "as is" keeps the original until the message is sent. The composer's own policy decides what can be attached, and every refusal is named in the "some files were skipped" toast, in the app's language: more than eight files, a file over 10 MB, a batch over 32 MB, an unsupported type or a HEIC the decoder cannot read, an empty file, a stream shorter than the size its provider promised, a URI that is not another app's `content://` URI, or a provider that stops responding (cut off after 15 s per file, 30 s per share so later shares are not stuck behind it). On iOS the `OpenChamberShare` extension has no screen: it copies the share, within the same limits and with the same refusal reasons, into the App Group inbox and posts a notification "Tap to open the draft in OpenChamber" after a one-second "Saved to OpenChamber" card (an alert with OK when notifications are off), because iOS lets a share extension open its app by no supported means. The app-local `SharedFiles` plugin (`ios/App/App/SharedFiles.swift`) hands every waiting share to the same page code whenever the app becomes active, oldest first. See `HANDOFF.md` for the guarantees and the tests behind them. The intent carries the content; the `openchamber://` link carries nothing by itself.
+-- Long-pressing the app icon offers *New session* and *Dictate* on both platforms. Their titles are localized on both: iOS through the `SHORTCUT_NEW_SESSION_TITLE` and `SHORTCUT_DICTATE_TITLE` keys in `ios/App/App/*.lproj/InfoPlist.strings`, which `Info.plist` names, and Android through `shortcut_new_session` and `shortcut_dictate` in every `res/values-*`. *New session* opens the `openchamber://new` link. iOS keeps it as a static `UIApplicationShortcutItem` in `ios/App/App/Info.plist`, carrying that link, and `SceneDelegate` forwards the item to Capacitor as a URL (a cold launch arrives through `connectionOptions.shortcutItem`). Android keeps it in `android/app/src/main/res/xml/shortcuts.xml`, declared through `android.app.shortcuts` on the launcher activity — the shortcut service ignores an application-level copy — and it is an `ACTION_VIEW` intent on that link, which the manifest's `openchamber` filter is what lets through. On Android a shortcut that cold-starts the app comes back through `App.getLaunchUrl()`, because `appUrlOpen` only covers a running app. The link routes through the web layer's deep-link vocabulary (`packages/ui/src/apps/deepLinks.ts`). *Dictate* opens a new session draft whose composer starts recording as soon as it shows that draft (`packages/ui/src/components/chat/composer/DOCUMENTATION.md`). It carries no link, because any app or web page can open one and a link must not start the microphone: on iOS `SceneDelegate` puts it in the `ShortcutRequests` inbox by its item type, and on Android the shortcut targets the unexported `DictateShortcut` activity alias of `MainActivity` (`DictateShortcut.java`), which only the launcher, starting shortcuts as this app, can reach. Both hand it to the page through the app-local `ShortcutRequests` plugin (`packages/ui/src/lib/nativeShortcutRequests.ts`). A relaunch from Recents or a restored activity does not record again.
++- Long-pressing the app icon offers *New session*, *Waiting on me* and *Dictate* on both platforms. Their titles are localized on both: iOS through the `SHORTCUT_NEW_SESSION_TITLE`, `SHORTCUT_WAITING_TITLE` and `SHORTCUT_DICTATE_TITLE` keys in `ios/App/App/*.lproj/InfoPlist.strings`, which `Info.plist` names, and Android through `shortcut_new_session`, `shortcut_waiting` and `shortcut_dictate` in every `res/values-*`. *New session* opens the `openchamber://new` link, and *Waiting on me* opens `openchamber://sessions?filter=attention`, the session list narrowed to the sessions waiting on you. iOS keeps it as a static `UIApplicationShortcutItem` in `ios/App/App/Info.plist`, carrying that link, and `SceneDelegate` forwards the item to Capacitor as a URL (a cold launch arrives through `connectionOptions.shortcutItem`). Android keeps it in `android/app/src/main/res/xml/shortcuts.xml`, declared through `android.app.shortcuts` on the launcher activity — the shortcut service ignores an application-level copy — and it is an `ACTION_VIEW` intent on that link, which the manifest's `openchamber` filter is what lets through. On Android a shortcut that cold-starts the app comes back through `App.getLaunchUrl()`, because `appUrlOpen` only covers a running app. The link routes through the web layer's deep-link vocabulary (`packages/ui/src/apps/deepLinks.ts`). *Dictate* opens a new session draft whose composer starts recording as soon as it shows that draft (`packages/ui/src/components/chat/composer/DOCUMENTATION.md`). It carries no link, because any app or web page can open one and a link must not start the microphone: on iOS `SceneDelegate` puts it in the `ShortcutRequests` inbox by its item type, and on Android the shortcut targets the unexported `DictateShortcut` activity alias of `MainActivity` (`DictateShortcut.java`), which only the launcher, starting shortcuts as this app, can reach. Both hand it to the page through the app-local `ShortcutRequests` plugin (`packages/ui/src/lib/nativeShortcutRequests.ts`). A relaunch from Recents or a restored activity does not record again.
+ - Downloads (file viewer, saved message images) open the native share sheet instead of a browser download, because a WebView has no download manager. iOS uses the Web Share API; Android WebView lacks it, so Android goes through the app-local `FileShare` plugin (`android/app/src/main/java/com/openchamber/app/FileSharePlugin.java`, registered in `MainActivity`), which writes the file to the cache directory and shares it through the manifest's `FileProvider`. The shared helper is `packages/ui/src/lib/nativeFileShare.ts`.
+ - Image paste on Android goes through the input method, not the page. The IME reads the content types the focused editor declares in `EditorInfo.contentMimeTypes` and refuses an image paste when it finds none, which is why Gboard answers "image paste is not supported here" in a WebView and no paste event ever fires. `android/app/src/main/java/com/openchamber/app/OpenChamberWebView.java` declares image content and hands whatever the IME commits to the page as an `openchamber-native-image-paste` window event; `packages/ui/src/lib/nativeImagePaste.ts` turns that into a file and the composer attaches it the same way it attaches a pasted image. `MainActivity.load()` inflates that WebView in place of Capacitor's own, which is what makes the declaration take effect. The WebView is a single input connection for every editable element, so `ImagePastePlugin` narrows the declaration to the composer on focus and blur, and asks the IME to read it again when the composer takes focus, since the IME reads it at focus time and that can be before the report arrives. The media type comes from the bytes rather than from the clipboard description. Gboard is the only input method confirmed to insert content this way, and Android Chrome refuses the same paste, so a hosted mobile page still cannot do it.
+ - The Changes workspace has a top-level Changes / Branch / Commit / Pull Requests selector. Checkout, Sync, staging, and commit controls appear only under Changes. Comparisons show a read-only file list that opens one diff at a time. Their shared source pickers use bottom sheets on phones and anchored popovers on tablets. Commit lists the latest 50 commits of the checked-out branch. Pull Requests shows the published GitHub diff, excluding local edits and unpushed commits, with search and an explicit refresh action. Closing the workspace preserves the current detail and suspends comparison reads; changing repository or instance resets navigation, and a new file link from chat opens the working-tree diff.
+diff --git a/packages/mobile/android/app/src/androidTest/java/com/openchamber/app/LauncherShortcutsTest.java b/packages/mobile/android/app/src/androidTest/java/com/openchamber/app/LauncherShortcutsTest.java
+index 852411314..5d19ba352 100644
+--- a/packages/mobile/android/app/src/androidTest/java/com/openchamber/app/LauncherShortcutsTest.java
++++ b/packages/mobile/android/app/src/androidTest/java/com/openchamber/app/LauncherShortcutsTest.java
+@@ -66,10 +66,10 @@ public class LauncherShortcutsTest {
+             parser.close();
+         }
+ 
+-        assertEquals(Arrays.asList("new-session", "dictate"), ids);
++        assertEquals(Arrays.asList("new-session", "waiting", "dictate"), ids);
+         // Dictate carries no link: a link is something any app can open, and it must not start the mic.
+-        assertEquals(Arrays.asList("openchamber://new", null), deepLinks);
+-        assertEquals(Arrays.asList(MainActivity.class.getName(), DictateShortcut.ALIAS), targets);
++        assertEquals(Arrays.asList("openchamber://new", "openchamber://sessions?filter=attention", null), deepLinks);
++        assertEquals(Arrays.asList(MainActivity.class.getName(), MainActivity.class.getName(), DictateShortcut.ALIAS), targets);
+ 
+         // The alias resolves to MainActivity and no other app can start it.
+         ActivityInfo alias = packageManager.getActivityInfo(
+@@ -79,6 +79,7 @@ public class LauncherShortcutsTest {
+ 
+         Resources resources = context.getResources();
+         assertFalse(resources.getString(R.string.shortcut_new_session).trim().isEmpty());
++        assertFalse(resources.getString(R.string.shortcut_waiting).trim().isEmpty());
+         assertFalse(resources.getString(R.string.shortcut_dictate).trim().isEmpty());
+     }
+ }
+diff --git a/packages/mobile/android/app/src/main/res/drawable/ic_shortcut_waiting.xml b/packages/mobile/android/app/src/main/res/drawable/ic_shortcut_waiting.xml
+new file mode 100644
+index 000000000..e08acf37b
+--- /dev/null
++++ b/packages/mobile/android/app/src/main/res/drawable/ic_shortcut_waiting.xml
+@@ -0,0 +1,10 @@
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp"
++    android:height="24dp"
++    android:viewportWidth="24"
++    android:viewportHeight="24"
++    android:tint="#FF000000">
++    <path
++        android:fillColor="#FF000000"
++        android:pathData="M12,22c1.1,0 2,-0.9 2,-2h-4c0,1.1 0.89,2 2,2zM18,16v-5c0,-3.07 -1.64,-5.64 -4.5,-6.32V4c0,-0.83 -0.67,-1.5 -1.5,-1.5s-1.5,0.67 -1.5,1.5v0.68C7.63,5.36 6,7.92 6,11v5l-2,2v1h16v-1l-2,-2z" />
++</vector>
+diff --git a/packages/mobile/android/app/src/main/res/values-ar/strings.xml b/packages/mobile/android/app/src/main/res/values-ar/strings.xml
+index f5bc5719e..d465d9bc8 100644
+--- a/packages/mobile/android/app/src/main/res/values-ar/strings.xml
++++ b/packages/mobile/android/app/src/main/res/values-ar/strings.xml
+@@ -3,6 +3,7 @@
+     <string name="tile_new_session">جلسة جديدة</string>
+     <string name="tile_new_session_description">بدء جلسة OpenChamber جديدة</string>
+     <string name="shortcut_new_session">جلسة جديدة</string>
++    <string name="shortcut_waiting">بانتظاري</string>
+     <string name="shortcut_dictate">الإملاء</string>
+     <string name="sealed_push_channel_name">تحديثات الوكيل</string>
+     <string name="widget_usage_label">الاستخدام</string>
+diff --git a/packages/mobile/android/app/src/main/res/values-de/strings.xml b/packages/mobile/android/app/src/main/res/values-de/strings.xml
+index 7dd40aa09..7c603bde0 100644
+--- a/packages/mobile/android/app/src/main/res/values-de/strings.xml
++++ b/packages/mobile/android/app/src/main/res/values-de/strings.xml
+@@ -3,6 +3,7 @@
+     <string name="tile_new_session">Neue Sitzung</string>
+     <string name="tile_new_session_description">Neue OpenChamber-Sitzung starten</string>
+     <string name="shortcut_new_session">Neue Sitzung</string>
++    <string name="shortcut_waiting">Wartet auf mich</string>
+     <string name="shortcut_dictate">Spracheingabe</string>
+     <string name="sealed_push_channel_name">Agent-Updates</string>
+     <string name="widget_usage_label">Nutzung</string>
+diff --git a/packages/mobile/android/app/src/main/res/values-es/strings.xml b/packages/mobile/android/app/src/main/res/values-es/strings.xml
+index 8f76fd6b1..49bb11d36 100644
+--- a/packages/mobile/android/app/src/main/res/values-es/strings.xml
++++ b/packages/mobile/android/app/src/main/res/values-es/strings.xml
+@@ -3,6 +3,7 @@
+     <string name="tile_new_session">Nueva sesión</string>
+     <string name="tile_new_session_description">Iniciar una nueva sesión de OpenChamber</string>
+     <string name="shortcut_new_session">Nueva sesión</string>
++    <string name="shortcut_waiting">Esperándome</string>
+     <string name="shortcut_dictate">Dictado</string>
+     <string name="sealed_push_channel_name">Actualizaciones del agente</string>
+     <string name="widget_usage_label">Uso</string>
+diff --git a/packages/mobile/android/app/src/main/res/values-fr/strings.xml b/packages/mobile/android/app/src/main/res/values-fr/strings.xml
+index be55dfff6..5405205c9 100644
+--- a/packages/mobile/android/app/src/main/res/values-fr/strings.xml
++++ b/packages/mobile/android/app/src/main/res/values-fr/strings.xml
+@@ -3,6 +3,7 @@
+     <string name="tile_new_session">Nouvelle session</string>
+     <string name="tile_new_session_description">Démarrer une nouvelle session OpenChamber</string>
+     <string name="shortcut_new_session">Nouvelle session</string>
++    <string name="shortcut_waiting">En attente de moi</string>
+     <string name="shortcut_dictate">Dictée</string>
+     <string name="sealed_push_channel_name">Mises à jour de l\'agent</string>
+     <string name="widget_usage_label">Utilisation</string>
+diff --git a/packages/mobile/android/app/src/main/res/values-iw/strings.xml b/packages/mobile/android/app/src/main/res/values-iw/strings.xml
+index 7da1ed7a9..f1084b59b 100644
+--- a/packages/mobile/android/app/src/main/res/values-iw/strings.xml
++++ b/packages/mobile/android/app/src/main/res/values-iw/strings.xml
+@@ -3,6 +3,7 @@
+     <string name="tile_new_session">הפעלה חדשה</string>
+     <string name="tile_new_session_description">התחלת הפעלה חדשה של OpenChamber</string>
+     <string name="shortcut_new_session">הפעלה חדשה</string>
++    <string name="shortcut_waiting">ממתין לי</string>
+     <string name="shortcut_dictate">הכתבה</string>
+     <string name="sealed_push_channel_name">עדכוני סוכן</string>
+     <string name="widget_usage_label">שימוש</string>
+diff --git a/packages/mobile/android/app/src/main/res/values-ja/strings.xml b/packages/mobile/android/app/src/main/res/values-ja/strings.xml
+index 76354b0eb..fd1e80e17 100644
+--- a/packages/mobile/android/app/src/main/res/values-ja/strings.xml
++++ b/packages/mobile/android/app/src/main/res/values-ja/strings.xml
+@@ -3,6 +3,7 @@
+     <string name="tile_new_session">新しいセッション</string>
+     <string name="tile_new_session_description">新しい OpenChamber セッションを開始</string>
+     <string name="shortcut_new_session">新しいセッション</string>
++    <string name="shortcut_waiting">自分待ち</string>
+     <string name="shortcut_dictate">音声入力</string>
+     <string name="sealed_push_channel_name">エージェントの更新</string>
+     <string name="widget_usage_label">使用量</string>
+diff --git a/packages/mobile/android/app/src/main/res/values-ko/strings.xml b/packages/mobile/android/app/src/main/res/values-ko/strings.xml
+index dfb1d5488..d4ce7f918 100644
+--- a/packages/mobile/android/app/src/main/res/values-ko/strings.xml
++++ b/packages/mobile/android/app/src/main/res/values-ko/strings.xml
+@@ -3,6 +3,7 @@
+     <string name="tile_new_session">새 세션</string>
+     <string name="tile_new_session_description">새 OpenChamber 세션 시작</string>
+     <string name="shortcut_new_session">새 세션</string>
++    <string name="shortcut_waiting">내 응답 대기</string>
+     <string name="shortcut_dictate">받아쓰기</string>
+     <string name="sealed_push_channel_name">에이전트 업데이트</string>
+     <string name="widget_usage_label">사용량</string>
+diff --git a/packages/mobile/android/app/src/main/res/values-nl/strings.xml b/packages/mobile/android/app/src/main/res/values-nl/strings.xml
+index b279db44f..1b27f361a 100644
+--- a/packages/mobile/android/app/src/main/res/values-nl/strings.xml
++++ b/packages/mobile/android/app/src/main/res/values-nl/strings.xml
+@@ -3,6 +3,7 @@
+     <string name="tile_new_session">Nieuwe sessie</string>
+     <string name="tile_new_session_description">Een nieuwe OpenChamber-sessie starten</string>
+     <string name="shortcut_new_session">Nieuwe sessie</string>
++    <string name="shortcut_waiting">Wacht op mij</string>
+     <string name="shortcut_dictate">Dicteren</string>
+     <string name="sealed_push_channel_name">Agent-updates</string>
+     <string name="widget_usage_label">Gebruik</string>
+diff --git a/packages/mobile/android/app/src/main/res/values-pl/strings.xml b/packages/mobile/android/app/src/main/res/values-pl/strings.xml
+index a5e2f2434..d70efcd77 100644
+--- a/packages/mobile/android/app/src/main/res/values-pl/strings.xml
++++ b/packages/mobile/android/app/src/main/res/values-pl/strings.xml
+@@ -3,6 +3,7 @@
+     <string name="tile_new_session">Nowa sesja</string>
+     <string name="tile_new_session_description">Rozpocznij nową sesję OpenChamber</string>
+     <string name="shortcut_new_session">Nowa sesja</string>
++    <string name="shortcut_waiting">Czeka na mnie</string>
+     <string name="shortcut_dictate">Dyktowanie</string>
+     <string name="sealed_push_channel_name">Aktualizacje agenta</string>
+     <string name="widget_usage_label">Użycie</string>
+diff --git a/packages/mobile/android/app/src/main/res/values-pt-rBR/strings.xml b/packages/mobile/android/app/src/main/res/values-pt-rBR/strings.xml
+index 0d1b55e3a..acda8d5f8 100644
+--- a/packages/mobile/android/app/src/main/res/values-pt-rBR/strings.xml
++++ b/packages/mobile/android/app/src/main/res/values-pt-rBR/strings.xml
+@@ -3,6 +3,7 @@
+     <string name="tile_new_session">Nova sessão</string>
+     <string name="tile_new_session_description">Iniciar uma nova sessão do OpenChamber</string>
+     <string name="shortcut_new_session">Nova sessão</string>
++    <string name="shortcut_waiting">Esperando por mim</string>
+     <string name="shortcut_dictate">Ditado</string>
+     <string name="sealed_push_channel_name">Atualizações do agente</string>
+     <string name="widget_usage_label">Uso</string>
+diff --git a/packages/mobile/android/app/src/main/res/values-tr/strings.xml b/packages/mobile/android/app/src/main/res/values-tr/strings.xml
+index 9f692bafd..526678cee 100644
+--- a/packages/mobile/android/app/src/main/res/values-tr/strings.xml
++++ b/packages/mobile/android/app/src/main/res/values-tr/strings.xml
+@@ -3,6 +3,7 @@
+     <string name="tile_new_session">Yeni oturum</string>
+     <string name="tile_new_session_description">Yeni bir OpenChamber oturumu başlat</string>
+     <string name="shortcut_new_session">Yeni oturum</string>
++    <string name="shortcut_waiting">Beni bekleyenler</string>
+     <string name="shortcut_dictate">Dikte</string>
+     <string name="sealed_push_channel_name">Ajan güncellemeleri</string>
+     <string name="widget_usage_label">Kullanım</string>
+diff --git a/packages/mobile/android/app/src/main/res/values-uk/strings.xml b/packages/mobile/android/app/src/main/res/values-uk/strings.xml
+index 5cc2c375c..2db4784d3 100644
+--- a/packages/mobile/android/app/src/main/res/values-uk/strings.xml
++++ b/packages/mobile/android/app/src/main/res/values-uk/strings.xml
+@@ -3,6 +3,7 @@
+     <string name="tile_new_session">Нова сесія</string>
+     <string name="tile_new_session_description">Почати нову сесію OpenChamber</string>
+     <string name="shortcut_new_session">Нова сесія</string>
++    <string name="shortcut_waiting">Чекає на мене</string>
+     <string name="shortcut_dictate">Диктування</string>
+     <string name="sealed_push_channel_name">Оновлення агентів</string>
+     <string name="widget_usage_label">Використання</string>
+diff --git a/packages/mobile/android/app/src/main/res/values-zh-rCN/strings.xml b/packages/mobile/android/app/src/main/res/values-zh-rCN/strings.xml
+index f95bdfe0f..15bc0b3cd 100644
+--- a/packages/mobile/android/app/src/main/res/values-zh-rCN/strings.xml
++++ b/packages/mobile/android/app/src/main/res/values-zh-rCN/strings.xml
+@@ -3,6 +3,7 @@
+     <string name="tile_new_session">新建会话</string>
+     <string name="tile_new_session_description">新建 OpenChamber 会话</string>
+     <string name="shortcut_new_session">新建会话</string>
++    <string name="shortcut_waiting">等我处理</string>
+     <string name="shortcut_dictate">语音输入</string>
+     <string name="sealed_push_channel_name">智能体更新</string>
+     <string name="widget_usage_label">用量</string>
+diff --git a/packages/mobile/android/app/src/main/res/values-zh-rTW/strings.xml b/packages/mobile/android/app/src/main/res/values-zh-rTW/strings.xml
+index 5661aff53..dd26521f5 100644
+--- a/packages/mobile/android/app/src/main/res/values-zh-rTW/strings.xml
++++ b/packages/mobile/android/app/src/main/res/values-zh-rTW/strings.xml
+@@ -3,6 +3,7 @@
+     <string name="tile_new_session">新增會話</string>
+     <string name="tile_new_session_description">新增 OpenChamber 會話</string>
+     <string name="shortcut_new_session">新增會話</string>
++    <string name="shortcut_waiting">等我處理</string>
+     <string name="shortcut_dictate">語音輸入</string>
+     <string name="sealed_push_channel_name">代理程式更新</string>
+     <string name="widget_usage_label">用量</string>
+diff --git a/packages/mobile/android/app/src/main/res/values/strings.xml b/packages/mobile/android/app/src/main/res/values/strings.xml
+index c00f69736..122238ab9 100644
+--- a/packages/mobile/android/app/src/main/res/values/strings.xml
++++ b/packages/mobile/android/app/src/main/res/values/strings.xml
+@@ -9,6 +9,7 @@
+     <string name="tile_new_session_subtitle" translatable="false">OpenChamber</string>
+     <string name="tile_new_session_description">Start a new OpenChamber session</string>
+     <string name="shortcut_new_session">New session</string>
++    <string name="shortcut_waiting">Waiting on me</string>
+     <string name="shortcut_dictate">Dictate</string>
+     <string name="widget_usage_label">Usage</string>
+     <string name="widget_sessions_label">Sessions</string>
+diff --git a/packages/mobile/android/app/src/main/res/xml/shortcuts.xml b/packages/mobile/android/app/src/main/res/xml/shortcuts.xml
+index 55c024b6b..d37e48e62 100644
+--- a/packages/mobile/android/app/src/main/res/xml/shortcuts.xml
++++ b/packages/mobile/android/app/src/main/res/xml/shortcuts.xml
+@@ -1,6 +1,7 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <!-- The app-icon quick actions, mirroring the iOS UIApplicationShortcutItems in Info.plist.
+-     New session opens the same openchamber:// deep link the web layer routes. Dictate starts the
++     New session and Waiting on me open the same openchamber:// deep links the web layer routes;
++     Waiting on me opens the session list on the sessions waiting on the user. Dictate starts the
+      microphone, which no link may do, so it targets the unexported DictateShortcut alias of
+      MainActivity instead: only this app and the launcher (which starts shortcuts as this app) can
+      reach it. The icons are plain vector glyphs rather than the adaptive launcher icon, which
+@@ -17,6 +18,17 @@
+             android:targetClass="com.openchamber.app.MainActivity"
+             android:data="openchamber://new" />
+     </shortcut>
++    <shortcut
++        android:shortcutId="waiting"
++        android:enabled="true"
++        android:icon="@drawable/ic_shortcut_waiting"
++        android:shortcutShortLabel="@string/shortcut_waiting">
++        <intent
++            android:action="android.intent.action.VIEW"
++            android:targetPackage="com.openchamber.app"
++            android:targetClass="com.openchamber.app.MainActivity"
++            android:data="openchamber://sessions?filter=attention" />
++    </shortcut>
+     <shortcut
+         android:shortcutId="dictate"
+         android:enabled="true"
+diff --git a/packages/mobile/ios/App/App/Info.plist b/packages/mobile/ios/App/App/Info.plist
+index e48655019..3cfb170a2 100644
+--- a/packages/mobile/ios/App/App/Info.plist
++++ b/packages/mobile/ios/App/App/Info.plist
+@@ -88,6 +88,19 @@
+ 				<string>openchamber://new</string>
+ 			</dict>
+ 		</dict>
++		<dict>
++			<key>UIApplicationShortcutItemType</key>
++			<string>com.openchamber.app.shortcut.waiting</string>
++			<key>UIApplicationShortcutItemTitle</key>
++			<string>SHORTCUT_WAITING_TITLE</string>
++			<key>UIApplicationShortcutItemIconSymbolName</key>
++			<string>bell</string>
++			<key>UIApplicationShortcutItemUserInfo</key>
++			<dict>
++				<key>url</key>
++				<string>openchamber://sessions?filter=attention</string>
++			</dict>
++		</dict>
+ 		<dict>
+ 			<key>UIApplicationShortcutItemType</key>
+ 			<string>com.openchamber.app.shortcut.dictate</string>
+diff --git a/packages/mobile/ios/App/App/ar.lproj/InfoPlist.strings b/packages/mobile/ios/App/App/ar.lproj/InfoPlist.strings
+index d4198cb2e..d04ed3de8 100644
+--- a/packages/mobile/ios/App/App/ar.lproj/InfoPlist.strings
++++ b/packages/mobile/ios/App/App/ar.lproj/InfoPlist.strings
+@@ -1,3 +1,4 @@
+ /* The home-screen quick actions. Info.plist holds these keys, and iOS swaps in the phone's language. */
+ "SHORTCUT_NEW_SESSION_TITLE" = "جلسة جديدة";
++"SHORTCUT_WAITING_TITLE" = "بانتظاري";
+ "SHORTCUT_DICTATE_TITLE" = "الإملاء";
+diff --git a/packages/mobile/ios/App/App/de.lproj/InfoPlist.strings b/packages/mobile/ios/App/App/de.lproj/InfoPlist.strings
+index 6fd80d717..3d3d673fc 100644
+--- a/packages/mobile/ios/App/App/de.lproj/InfoPlist.strings
++++ b/packages/mobile/ios/App/App/de.lproj/InfoPlist.strings
+@@ -1,3 +1,4 @@
+ /* The home-screen quick actions. Info.plist holds these keys, and iOS swaps in the phone's language. */
+ "SHORTCUT_NEW_SESSION_TITLE" = "Neue Sitzung";
++"SHORTCUT_WAITING_TITLE" = "Wartet auf mich";
+ "SHORTCUT_DICTATE_TITLE" = "Spracheingabe";
+diff --git a/packages/mobile/ios/App/App/en.lproj/InfoPlist.strings b/packages/mobile/ios/App/App/en.lproj/InfoPlist.strings
+index 31e5e1376..e2904e4a8 100644
+--- a/packages/mobile/ios/App/App/en.lproj/InfoPlist.strings
++++ b/packages/mobile/ios/App/App/en.lproj/InfoPlist.strings
+@@ -1,3 +1,4 @@
+ /* The home-screen quick actions. Info.plist holds these keys, and iOS swaps in the phone's language. */
+ "SHORTCUT_NEW_SESSION_TITLE" = "New session";
++"SHORTCUT_WAITING_TITLE" = "Waiting on me";
+ "SHORTCUT_DICTATE_TITLE" = "Dictate";
+diff --git a/packages/mobile/ios/App/App/es.lproj/InfoPlist.strings b/packages/mobile/ios/App/App/es.lproj/InfoPlist.strings
+index 20326f144..596b36007 100644
+--- a/packages/mobile/ios/App/App/es.lproj/InfoPlist.strings
++++ b/packages/mobile/ios/App/App/es.lproj/InfoPlist.strings
+@@ -1,3 +1,4 @@
+ /* The home-screen quick actions. Info.plist holds these keys, and iOS swaps in the phone's language. */
+ "SHORTCUT_NEW_SESSION_TITLE" = "Nueva sesión";
++"SHORTCUT_WAITING_TITLE" = "Esperándome";
+ "SHORTCUT_DICTATE_TITLE" = "Dictado";
+diff --git a/packages/mobile/ios/App/App/fr.lproj/InfoPlist.strings b/packages/mobile/ios/App/App/fr.lproj/InfoPlist.strings
+index 095eee872..2ba3fafc7 100644
+--- a/packages/mobile/ios/App/App/fr.lproj/InfoPlist.strings
++++ b/packages/mobile/ios/App/App/fr.lproj/InfoPlist.strings
+@@ -1,3 +1,4 @@
+ /* The home-screen quick actions. Info.plist holds these keys, and iOS swaps in the phone's language. */
+ "SHORTCUT_NEW_SESSION_TITLE" = "Nouvelle session";
++"SHORTCUT_WAITING_TITLE" = "En attente de moi";
+ "SHORTCUT_DICTATE_TITLE" = "Dictée";
+diff --git a/packages/mobile/ios/App/App/he.lproj/InfoPlist.strings b/packages/mobile/ios/App/App/he.lproj/InfoPlist.strings
+index 798d50e69..d9a3c3d07 100644
+--- a/packages/mobile/ios/App/App/he.lproj/InfoPlist.strings
++++ b/packages/mobile/ios/App/App/he.lproj/InfoPlist.strings
+@@ -1,3 +1,4 @@
+ /* The home-screen quick actions. Info.plist holds these keys, and iOS swaps in the phone's language. */
+ "SHORTCUT_NEW_SESSION_TITLE" = "הפעלה חדשה";
++"SHORTCUT_WAITING_TITLE" = "ממתין לי";
+ "SHORTCUT_DICTATE_TITLE" = "הכתבה";
+diff --git a/packages/mobile/ios/App/App/ja.lproj/InfoPlist.strings b/packages/mobile/ios/App/App/ja.lproj/InfoPlist.strings
+index acd43273e..9882066a1 100644
+--- a/packages/mobile/ios/App/App/ja.lproj/InfoPlist.strings
++++ b/packages/mobile/ios/App/App/ja.lproj/InfoPlist.strings
+@@ -1,3 +1,4 @@
+ /* The home-screen quick actions. Info.plist holds these keys, and iOS swaps in the phone's language. */
+ "SHORTCUT_NEW_SESSION_TITLE" = "新しいセッション";
++"SHORTCUT_WAITING_TITLE" = "自分待ち";
+ "SHORTCUT_DICTATE_TITLE" = "音声入力";
+diff --git a/packages/mobile/ios/App/App/ko.lproj/InfoPlist.strings b/packages/mobile/ios/App/App/ko.lproj/InfoPlist.strings
+index 07534d246..38763ef0d 100644
+--- a/packages/mobile/ios/App/App/ko.lproj/InfoPlist.strings
++++ b/packages/mobile/ios/App/App/ko.lproj/InfoPlist.strings
+@@ -1,3 +1,4 @@
+ /* The home-screen quick actions. Info.plist holds these keys, and iOS swaps in the phone's language. */
+ "SHORTCUT_NEW_SESSION_TITLE" = "새 세션";
++"SHORTCUT_WAITING_TITLE" = "내 응답 대기";
+ "SHORTCUT_DICTATE_TITLE" = "받아쓰기";
+diff --git a/packages/mobile/ios/App/App/nl.lproj/InfoPlist.strings b/packages/mobile/ios/App/App/nl.lproj/InfoPlist.strings
+index 19610365e..6f9ac3e6b 100644
+--- a/packages/mobile/ios/App/App/nl.lproj/InfoPlist.strings
++++ b/packages/mobile/ios/App/App/nl.lproj/InfoPlist.strings
+@@ -1,3 +1,4 @@
+ /* The home-screen quick actions. Info.plist holds these keys, and iOS swaps in the phone's language. */
+ "SHORTCUT_NEW_SESSION_TITLE" = "Nieuwe sessie";
++"SHORTCUT_WAITING_TITLE" = "Wacht op mij";
+ "SHORTCUT_DICTATE_TITLE" = "Dicteren";
+diff --git a/packages/mobile/ios/App/App/pl.lproj/InfoPlist.strings b/packages/mobile/ios/App/App/pl.lproj/InfoPlist.strings
+index 1bbf85f9a..b6cccc4d6 100644
+--- a/packages/mobile/ios/App/App/pl.lproj/InfoPlist.strings
++++ b/packages/mobile/ios/App/App/pl.lproj/InfoPlist.strings
+@@ -1,3 +1,4 @@
+ /* The home-screen quick actions. Info.plist holds these keys, and iOS swaps in the phone's language. */
+ "SHORTCUT_NEW_SESSION_TITLE" = "Nowa sesja";
++"SHORTCUT_WAITING_TITLE" = "Czeka na mnie";
+ "SHORTCUT_DICTATE_TITLE" = "Dyktowanie";
+diff --git a/packages/mobile/ios/App/App/pt-BR.lproj/InfoPlist.strings b/packages/mobile/ios/App/App/pt-BR.lproj/InfoPlist.strings
+index 3e5baf645..207ce6e8d 100644
+--- a/packages/mobile/ios/App/App/pt-BR.lproj/InfoPlist.strings
++++ b/packages/mobile/ios/App/App/pt-BR.lproj/InfoPlist.strings
+@@ -1,3 +1,4 @@
+ /* The home-screen quick actions. Info.plist holds these keys, and iOS swaps in the phone's language. */
+ "SHORTCUT_NEW_SESSION_TITLE" = "Nova sessão";
++"SHORTCUT_WAITING_TITLE" = "Esperando por mim";
+ "SHORTCUT_DICTATE_TITLE" = "Ditado";
+diff --git a/packages/mobile/ios/App/App/tr.lproj/InfoPlist.strings b/packages/mobile/ios/App/App/tr.lproj/InfoPlist.strings
+index f85f925ef..70b17e79f 100644
+--- a/packages/mobile/ios/App/App/tr.lproj/InfoPlist.strings
++++ b/packages/mobile/ios/App/App/tr.lproj/InfoPlist.strings
+@@ -1,3 +1,4 @@
+ /* The home-screen quick actions. Info.plist holds these keys, and iOS swaps in the phone's language. */
+ "SHORTCUT_NEW_SESSION_TITLE" = "Yeni oturum";
++"SHORTCUT_WAITING_TITLE" = "Beni bekleyenler";
+ "SHORTCUT_DICTATE_TITLE" = "Dikte";
+diff --git a/packages/mobile/ios/App/App/uk.lproj/InfoPlist.strings b/packages/mobile/ios/App/App/uk.lproj/InfoPlist.strings
+index 440498a13..75a9397fa 100644
+--- a/packages/mobile/ios/App/App/uk.lproj/InfoPlist.strings
++++ b/packages/mobile/ios/App/App/uk.lproj/InfoPlist.strings
+@@ -1,3 +1,4 @@
+ /* The home-screen quick actions. Info.plist holds these keys, and iOS swaps in the phone's language. */
+ "SHORTCUT_NEW_SESSION_TITLE" = "Нова сесія";
++"SHORTCUT_WAITING_TITLE" = "Чекає на мене";
+ "SHORTCUT_DICTATE_TITLE" = "Диктування";
+diff --git a/packages/mobile/ios/App/App/zh-Hans.lproj/InfoPlist.strings b/packages/mobile/ios/App/App/zh-Hans.lproj/InfoPlist.strings
+index 620c6ccd9..ed22786cf 100644
+--- a/packages/mobile/ios/App/App/zh-Hans.lproj/InfoPlist.strings
++++ b/packages/mobile/ios/App/App/zh-Hans.lproj/InfoPlist.strings
+@@ -1,3 +1,4 @@
+ /* The home-screen quick actions. Info.plist holds these keys, and iOS swaps in the phone's language. */
+ "SHORTCUT_NEW_SESSION_TITLE" = "新建会话";
++"SHORTCUT_WAITING_TITLE" = "等我处理";
+ "SHORTCUT_DICTATE_TITLE" = "语音输入";
+diff --git a/packages/mobile/ios/App/App/zh-Hant.lproj/InfoPlist.strings b/packages/mobile/ios/App/App/zh-Hant.lproj/InfoPlist.strings
+index 1cf624ae0..0dd8b335a 100644
+--- a/packages/mobile/ios/App/App/zh-Hant.lproj/InfoPlist.strings
++++ b/packages/mobile/ios/App/App/zh-Hant.lproj/InfoPlist.strings
+@@ -1,3 +1,4 @@
+ /* The home-screen quick actions. Info.plist holds these keys, and iOS swaps in the phone's language. */
+ "SHORTCUT_NEW_SESSION_TITLE" = "新增會話";
++"SHORTCUT_WAITING_TITLE" = "等我處理";
+ "SHORTCUT_DICTATE_TITLE" = "語音輸入";
+diff --git a/packages/ui/src/apps/mobileSidebar/MobileSessionList.tsx b/packages/ui/src/apps/mobileSidebar/MobileSessionList.tsx
+index 06ba9b8b3..1fb08f821 100644
+--- a/packages/ui/src/apps/mobileSidebar/MobileSessionList.tsx
++++ b/packages/ui/src/apps/mobileSidebar/MobileSessionList.tsx
+@@ -23,6 +23,7 @@ import { MOBILE_TREE_GEOMETRY } from './mobileSidebarGeometry';
+ import { useMobileSidebarActions, useMobileSidebarRowsStore } from './mobileSidebarState';
+ import { MobileShowControl } from './mobileRowParts';
+ import { findCurrentRowIndex } from './mobileCurrentRow';
++import { MobileSidebarFocusChip } from './MobileSidebarFocusChip';
+ import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
+ import { SidebarConversationRow, SidebarSearchArchivedCaption, SidebarSearchShowMore, SidebarSearchMore } from '@/components/session/sidebar/SidebarConversationRow';
+ 
+@@ -135,16 +136,19 @@ export const MobileSessionList: React.FC<SessionProjectListProps> = ({ model, vi
+   }, [actions, childStores, geometry, model, phone, t, view.homeDirectory]);
+ 
+   return (
+-    <ScrollableOverlay ref={setScrollElement} outerClassName="min-h-0 flex-1" className="px-3 pb-4 [overflow-anchor:none]" useScrollShadow disableHorizontal>
+-      <SessionSidebarRows
+-        model={model.rowModel}
+-        scrollElement={scrollElement}
+-        pinnedRowIndexes={pinnedRowIndexes}
+-        renderRow={renderRow}
+-        onFirstVisibleIndexChange={NO_FIRST_VISIBLE}
+-        guideSlotStartPx={geometry.base}
+-        scrollRequest={scrollRequest}
+-      />
+-    </ScrollableOverlay>
++    <>
++      <MobileSidebarFocusChip />
++      <ScrollableOverlay ref={setScrollElement} outerClassName="min-h-0 flex-1" className="px-3 pb-4 [overflow-anchor:none]" useScrollShadow disableHorizontal>
++        <SessionSidebarRows
++          model={model.rowModel}
++          scrollElement={scrollElement}
++          pinnedRowIndexes={pinnedRowIndexes}
++          renderRow={renderRow}
++          onFirstVisibleIndexChange={NO_FIRST_VISIBLE}
++          guideSlotStartPx={geometry.base}
++          scrollRequest={scrollRequest}
++        />
++      </ScrollableOverlay>
++    </>
+   );
+ };
+diff --git a/packages/ui/src/apps/mobileSidebar/MobileSidebarFocusChip.test.tsx b/packages/ui/src/apps/mobileSidebar/MobileSidebarFocusChip.test.tsx
+new file mode 100644
+index 000000000..cc2456eca
+--- /dev/null
++++ b/packages/ui/src/apps/mobileSidebar/MobileSidebarFocusChip.test.tsx
+@@ -0,0 +1,77 @@
++import { afterEach, beforeEach, expect, test } from 'bun:test';
++import React, { act } from 'react';
++import { createRoot, type Root } from 'react-dom/client';
++import { Window } from 'happy-dom';
++import { I18nProvider } from '@/lib/i18n';
++import { sessionsFilterFocus } from '@/lib/sidebarSections';
++import { focusSidebarSection, useSidebarSectionsUiStore } from '@/components/session/sidebar/sections/sectionActions';
++import { MobileSidebarFocusChip } from './MobileSidebarFocusChip';
++import { useMobileSidebarRowsStore } from './mobileSidebarState';
++
++let win: Window;
++let root: Root;
++let host: HTMLElement;
++const descriptors = new Map<string, PropertyDescriptor | undefined>();
++
++const render = async () => {
++  await act(async () => root.render(
++    <I18nProvider>
++      <MobileSidebarFocusChip />
++    </I18nProvider>,
++  ));
++};
++
++const chip = () => host.querySelector<HTMLButtonElement>('button');
++
++beforeEach(() => {
++  useSidebarSectionsUiStore.setState({ focus: null });
++  win = new Window({ url: 'http://localhost/' });
++  const globals = {
++    window: win, document: win.document, navigator: win.navigator, localStorage: win.localStorage,
++    Node: win.Node, Element: win.Element, HTMLElement: win.HTMLElement,
++    Event: win.Event, MouseEvent: win.MouseEvent, MutationObserver: win.MutationObserver,
++    getComputedStyle: win.getComputedStyle.bind(win),
++    requestAnimationFrame: win.requestAnimationFrame.bind(win),
++    cancelAnimationFrame: win.cancelAnimationFrame.bind(win),
++    ResizeObserver: win.ResizeObserver, IS_REACT_ACT_ENVIRONMENT: true,
++  };
++  for (const key of Object.keys(globals)) descriptors.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
++  Object.assign(globalThis, globals);
++  host = document.createElement('div');
++  document.body.appendChild(host);
++  root = createRoot(host);
++});
++
++afterEach(async () => {
++  await act(async () => root.unmount());
++  useSidebarSectionsUiStore.setState({ focus: null });
++  await win.happyDOM.close();
++  for (const [key, descriptor] of descriptors) {
++    if (descriptor) Object.defineProperty(globalThis, key, descriptor);
++    else Reflect.deleteProperty(globalThis, key);
++  }
++});
++
++test('the list shows no chip until a link focuses it', async () => {
++  await render();
++  expect(chip()).toBeNull();
++});
++
++test('a focused list names its section on a chip, and the chip shows every session again', async () => {
++  await render();
++  await act(async () => focusSidebarSection(sessionsFilterFocus('attention', 'Waiting on me')!));
++  expect(chip()?.textContent).toBe('Waiting on me');
++  expect(chip()?.getAttribute('aria-label')).toBe('Show all sessions');
++
++  await act(async () => chip()?.click());
++  expect(useSidebarSectionsUiStore.getState().focus).toBeNull();
++  expect(chip()).toBeNull();
++});
++
++test('closing the list drops the focus, so the next open shows every session', async () => {
++  await render();
++  await act(async () => focusSidebarSection(sessionsFilterFocus('attention', 'Waiting on me')!));
++  await act(async () => useMobileSidebarRowsStore.getState().reset());
++  expect(useSidebarSectionsUiStore.getState().focus).toBeNull();
++  expect(chip()).toBeNull();
++});
+diff --git a/packages/ui/src/apps/mobileSidebar/MobileSidebarFocusChip.tsx b/packages/ui/src/apps/mobileSidebar/MobileSidebarFocusChip.tsx
+new file mode 100644
+index 000000000..12e8d26fe
+--- /dev/null
++++ b/packages/ui/src/apps/mobileSidebar/MobileSidebarFocusChip.tsx
+@@ -0,0 +1,26 @@
++import { Icon } from '@/components/icon/Icon';
++import { clearSidebarFocus, useSidebarSectionsUiStore } from '@/components/session/sidebar/sections/sectionActions';
++import { Button } from '@/components/ui/button';
++import { useI18n } from '@/lib/i18n';
++
++export const MobileSidebarFocusChip = () => {
++  const { t } = useI18n();
++  const focus = useSidebarSectionsUiStore((state) => state.focus);
++  if (!focus) return null;
++  return (
++    <div className="flex shrink-0 px-3 pb-1 pt-1">
++      <Button
++        type="button"
++        variant="chip"
++        size="sm"
++        aria-label={t('mobile.sessions.showAllAria')}
++        title={t('mobile.sessions.showAllAria')}
++        onClick={clearSidebarFocus}
++        style={{ touchAction: 'manipulation' }}
++      >
++        {focus.name}
++        <Icon name="close" className="size-4" />
++      </Button>
++    </div>
++  );
++};
+diff --git a/packages/ui/src/apps/mobileSidebar/mobileSidebarState.ts b/packages/ui/src/apps/mobileSidebar/mobileSidebarState.ts
+index 080317ae8..facda7e58 100644
+--- a/packages/ui/src/apps/mobileSidebar/mobileSidebarState.ts
++++ b/packages/ui/src/apps/mobileSidebar/mobileSidebarState.ts
+@@ -1,6 +1,7 @@
+ import React from 'react';
+ import { create } from 'zustand';
+ import type { WorktreeMetadata } from '@/types/worktree';
++import { clearSidebarFocus } from '@/components/session/sidebar/sections/sectionActions';
+ 
+ type MobileSidebarRowsState = {
+   revealedKey: string | null;
+@@ -34,7 +35,10 @@ export const useMobileSidebarRowsStore = create<MobileSidebarRowsState>()((set)
+       renamingKey: renamingGone ? null : state.renamingKey,
+     };
+   }),
+-  reset: () => set({ revealedKey: null, armedKey: null, renamingKey: null }),
++  reset: () => {
++    clearSidebarFocus();
++    set({ revealedKey: null, armedKey: null, renamingKey: null });
++  },
+ }));
+ 
+ export const useMobileRowSwipe = (key: string) => {
+diff --git a/packages/ui/src/apps/useMobileDeepLinkHandlers.ts b/packages/ui/src/apps/useMobileDeepLinkHandlers.ts
+index 8f77c194a..207956723 100644
+--- a/packages/ui/src/apps/useMobileDeepLinkHandlers.ts
++++ b/packages/ui/src/apps/useMobileDeepLinkHandlers.ts
+@@ -2,10 +2,15 @@ import React from 'react';
+ 
+ import type { MobileChangesInitialDiff } from '@/hooks/useMobileChangesNavigation';
+ import { closeAllBackLayers } from '@/lib/mobileBackLayers';
++import { useI18n } from '@/lib/i18n';
++import { sessionsFilterFocus } from '@/lib/sidebarSections';
+ import type { MobileWorkspaceTab } from '@/lib/mobileWorkspaceTabs';
+ import { useUIStore } from '@/stores/useUIStore';
+ 
++import { clearSidebarFocus, focusSidebarSection } from '@/components/session/sidebar/sections/sectionActions';
++
+ import { useDeepLinkHandlers } from './deepLinkNavigation';
++import type { SessionsFilter } from './deepLinks';
+ 
+ type SettingsPage = Parameters<ReturnType<typeof useUIStore.getState>['setSettingsPage']>[0];
+ 
+@@ -29,6 +34,7 @@ export function useMobileDeepLinkHandlers({
+   isTabletLayout, setSidebarOpen, setSessionsSheetOpen, setWorkspaceTab, setWorkspaceOpen, setOpenReceivedPage,
+   openSurface, openFilesSurface, openChangesSurface, openSettingsSurface, closeSurface, closeGuestPage, closeWorkspace,
+ }: MobileShell): void {
++  const { t } = useI18n();
+   const handlers = React.useMemo(
+     () => ({
+       showChat: () => {
+@@ -40,7 +46,10 @@ export function useMobileDeepLinkHandlers({
+         setSessionsSheetOpen(false);
+         useUIStore.getState().setRunOverviewKey(null);
+       },
+-      openSessions: () => {
++      openSessions: (filter?: SessionsFilter) => {
++        const focus = sessionsFilterFocus(filter, t('sessions.sidebar.sections.template.waiting'));
++        if (focus) focusSidebarSection(focus);
++        else clearSidebarFocus();
+         if (isTabletLayout) setSidebarOpen(true);
+         else setSessionsSheetOpen(true);
+       },
+@@ -66,7 +75,7 @@ export function useMobileDeepLinkHandlers({
+     }),
+     [
+       closeGuestPage, closeSurface, closeWorkspace, isTabletLayout, openChangesSurface, openFilesSurface, openSettingsSurface,
+-      openSurface, setOpenReceivedPage, setSessionsSheetOpen, setSidebarOpen, setWorkspaceOpen, setWorkspaceTab,
++      openSurface, setOpenReceivedPage, setSessionsSheetOpen, setSidebarOpen, setWorkspaceOpen, setWorkspaceTab, t,
+     ],
+   );
+   useDeepLinkHandlers(handlers);
+diff --git a/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx b/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx
+index 04d0e293c..eda67a2b6 100644
+--- a/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx
++++ b/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx
+@@ -62,7 +62,7 @@ import { resolveSidebarSectionMembership, resolveVisibleSidebarSections } from '
+ import { useSidebarPages } from '../pages/useSidebarPages';
+ import { buildSidebarWorkFacts } from '../sections/workFacts';
+ import { useSidebarClocks, useSidebarLiveFacts, useSidebarPlanSessions } from '../sections/useSidebarLiveFacts';
+-import { useSidebarSectionsUiStore } from '../sections/sectionActions';
++import { useSidebarSectionsUiStore, useSidebarSectionsView } from '../sections/sectionActions';
+ import { DEFAULT_PIN_LIST, sidebarSectionReadsLiveState, sidebarSectionReadsPlans, type SidebarWorkFacts } from '@/lib/sidebarSections';
+ import { useRemovingWorktreePaths } from '@/lib/worktrees/worktreeRemovalState';
+ import { buildSessionRootIndex, buildSidebarWorkIndex, buildWorktreeArchiveAnchors, isFiledInFolder, isGroupWork, orderInWorkWorks, selectInWorkSessions, orderSidebarWorks, type SidebarFolderMembership, type SidebarWorkRef } from '../works/sidebarWorks';
+@@ -466,8 +466,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+   const detailedZoneRows = useSessionDisplayStore((state) => state.detailedZoneRows);
+   const savedSections = useSessionDisplayStore((state) => state.sections);
+   const hiddenSections = useSessionDisplayStore((state) => state.hiddenSections);
+-  const sectionDraft = useSidebarSectionsUiStore((state) => state.draft);
+-  const sectionDraftIsNew = useSidebarSectionsUiStore((state) => state.draftIsNew);
++  const { draft: sectionDraft, draftIsNew: sectionDraftIsNew, focus: sectionFocus } = useSidebarSectionsView();
+   const listsPages = !topology.isVSCode && !view.mobileVariant;
+   const sidebarPages = useSidebarPages(listsPages);
+   const visibleSections = React.useMemo(() => resolveVisibleSidebarSections({
+@@ -475,12 +474,13 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+     hiddenSections,
+     draft: sectionDraft,
+     draftIsNew: sectionDraftIsNew,
++    focus: sectionFocus,
+     show: { chats: showChatsSection, pinned: showPinnedSection, work: sessionWorkEnabled && showWorkSection },
+     keepWorkInPlace,
+     keepPinnedInPlace,
+     customSections: !topology.isVSCode,
+     pages: listsPages,
+-  }), [hiddenSections, keepPinnedInPlace, keepWorkInPlace, listsPages, savedSections, sectionDraft, sectionDraftIsNew, sessionWorkEnabled, showChatsSection, showPinnedSection, showWorkSection, topology.isVSCode]);
++  }), [hiddenSections, keepPinnedInPlace, keepWorkInPlace, listsPages, savedSections, sectionDraft, sectionDraftIsNew, sectionFocus, sessionWorkEnabled, showChatsSection, showPinnedSection, showWorkSection, topology.isVSCode]);
+   const showPinned = visibleSections.some((section) => section.kind === 'pinned');
+   const showWork = visibleSections.some((section) => section.kind === 'work');
+   const customTimeSections = visibleSections.some((section) => section.kind === 'custom' && section.section.grouping === 'time');
+diff --git a/packages/ui/src/components/session/sidebar/sections/DOCUMENTATION.md b/packages/ui/src/components/session/sidebar/sections/DOCUMENTATION.md
+index 1dfeb70f5..8df5803b2 100644
+--- a/packages/ui/src/components/session/sidebar/sections/DOCUMENTATION.md
++++ b/packages/ui/src/components/session/sidebar/sections/DOCUMENTATION.md
+@@ -190,6 +190,10 @@ A section that filters on live state would take a work out of its project at
+ the start of every turn and give it back at its end, so the list would jump
+ under the pointer. New sections keep "Also show under projects" on.
+ 
++### Why the attention link focuses the list on a section and does not add one
++
++`openchamber://sessions?filter=attention` (the *Waiting on me* quick action and the iOS widget's attention link) opens the phone's session list on the sessions waiting on the user. The list is narrowed by a focus section held only in `useSidebarSectionsUiStore` (`focus`, set by `focusSidebarSection`, cleared by `clearSidebarFocus`): `resolveVisibleSidebarSections` then returns that one section, so membership, facts and rows are the ones a saved section gets. The focus is the *Waiting on me* template (`sessionsFilterFocus`, needs an answer or unread) with `hideWhenEmpty` off, so an empty result still shows the section and its empty row. It is never saved: the phone sheet shows it as a chip that clears it, and closing the sheet or the tablet sidebar clears it too, so a later open shows the whole list.
++
+ ### Why the built-in sections keep their show toggles
+ 
+ Older clients read `sidebarShowPinnedSection` and its siblings. Keeping them as
+diff --git a/packages/ui/src/components/session/sidebar/sections/sectionActions.ts b/packages/ui/src/components/session/sidebar/sections/sectionActions.ts
+index 378fcf61a..e55dfbe14 100644
+--- a/packages/ui/src/components/session/sidebar/sections/sectionActions.ts
++++ b/packages/ui/src/components/session/sidebar/sections/sectionActions.ts
+@@ -1,4 +1,5 @@
+ import { create } from 'zustand';
++import { useShallow } from 'zustand/react/shallow';
+ import { updateDesktopSettings } from '@/lib/persistence';
+ import {
+   createSidebarSectionId,
+@@ -23,6 +24,7 @@ type SidebarSectionsUiState = {
+   draftMatchCount: number | null;
+   pinListRequest: PinListRequest | null;
+   pinToRequest: PinToRequest | null;
++  focus: CustomSidebarSection | null;
+ };
+ 
+ export const useSidebarSectionsUiStore = create<SidebarSectionsUiState>(() => ({
+@@ -33,14 +35,25 @@ export const useSidebarSectionsUiStore = create<SidebarSectionsUiState>(() => ({
+   draftMatchCount: null,
+   pinListRequest: null,
+   pinToRequest: null,
++  focus: null,
+ }));
+ 
++export const useSidebarSectionsView = () => useSidebarSectionsUiStore(useShallow((state) => ({
++  draft: state.draft,
++  draftIsNew: state.draftIsNew,
++  focus: state.focus,
++})));
++
+ export const openSectionsManager = (): void => useSidebarSectionsUiStore.setState({ managerOpen: true });
+ export const closeSectionsManager = (): void => useSidebarSectionsUiStore.setState({ managerOpen: false, pagesListOpen: false, draft: null, draftIsNew: false, draftMatchCount: null });
+ export const openSidebarPagesList = (): void => useSidebarSectionsUiStore.setState({ pagesListOpen: true });
+ export const closeSidebarPagesList = (): void => useSidebarSectionsUiStore.setState({ pagesListOpen: false });
+ export const editSection = (section: CustomSidebarSection, isNew: boolean): void => useSidebarSectionsUiStore.setState({ managerOpen: true, pagesListOpen: false, draft: section, draftIsNew: isNew });
+ export const updateSectionDraft = (draft: CustomSidebarSection): void => useSidebarSectionsUiStore.setState({ draft });
++export const focusSidebarSection = (section: CustomSidebarSection): void => useSidebarSectionsUiStore.setState({ focus: section });
++export const clearSidebarFocus = (): void => {
++  if (useSidebarSectionsUiStore.getState().focus) useSidebarSectionsUiStore.setState({ focus: null });
++};
+ export const discardSectionDraft = (): void => useSidebarSectionsUiStore.setState({ draft: null, draftIsNew: false, draftMatchCount: null });
+ 
+ export const requestNewPinList = (pin: (listId: string) => void): void => useSidebarSectionsUiStore.setState({ pinListRequest: { pin } });
+diff --git a/packages/ui/src/components/session/sidebar/sections/sectionMembership.test.ts b/packages/ui/src/components/session/sidebar/sections/sectionMembership.test.ts
+index 2684f8c22..6eaaf06b7 100644
+--- a/packages/ui/src/components/session/sidebar/sections/sectionMembership.test.ts
++++ b/packages/ui/src/components/session/sidebar/sections/sectionMembership.test.ts
+@@ -1,5 +1,5 @@
+ import { describe, expect, test } from 'bun:test';
+-import { EMPTY_SIDEBAR_SECTION_FILTER, type CustomSidebarSection, type SidebarWorkFacts } from '@/lib/sidebarSections';
++import { EMPTY_SIDEBAR_SECTION_FILTER, sessionsFilterFocus, type CustomSidebarSection, type SidebarWorkFacts } from '@/lib/sidebarSections';
+ import type { SidebarWorkRef } from '../works/sidebarWorks';
+ import { isChatListedInPinSections, resolveSidebarSectionMembership, resolveVisibleSidebarSections, type VisibleSidebarSection } from './sectionMembership';
+ 
+@@ -179,3 +179,45 @@ describe('isChatListedInPinSections', () => {
+     expect(listed([{ kind: 'chats' }, { kind: 'work', claims: false }], 'pinned')).toBe(false);
+   });
+ });
++
++describe('the attention focus', () => {
++  const visibleWith = (focus: CustomSidebarSection | null) => resolveVisibleSidebarSections({
++    sections: [{ kind: 'builtin', id: 'chats' }, { kind: 'builtin', id: 'pinned' }, section('mine'), { kind: 'builtin', id: 'work' }, { kind: 'builtin', id: 'projects' }],
++    hiddenSections: [],
++    draft: null,
++    draftIsNew: false,
++    focus,
++    show: { chats: true, pinned: true, work: true },
++    keepWorkInPlace: false,
++    keepPinnedInPlace: false,
++    customSections: true,
++    pages: false,
++  });
++
++  test('only filter=attention focuses the list, on the Waiting on me template, and it stays when empty', () => {
++    const focus = sessionsFilterFocus('attention', 'Waiting on me');
++    expect(focus?.name).toBe('Waiting on me');
++    expect(focus?.filter.states).toEqual(['needs-answer', 'unread']);
++    expect(focus?.hideWhenEmpty).toBe(false);
++    expect(sessionsFilterFocus('recent', 'Waiting on me')).toBeNull();
++    expect(sessionsFilterFocus(undefined, 'Waiting on me')).toBeNull();
++  });
++
++  test('a focused list shows that one section and nothing else', () => {
++    const focus = sessionsFilterFocus('attention', 'Waiting on me')!;
++    expect(visibleWith(focus)).toEqual([{ kind: 'custom', section: focus, preview: false }]);
++    expect(visibleWith(null).map((entry) => entry.kind)).toEqual(['chats', 'pinned', 'custom', 'work', 'projects']);
++  });
++
++  test('it lists the works waiting on an answer or unread, and no other', () => {
++    const focus = sessionsFilterFocus('attention', 'Waiting on me')!;
++    const waiting = new Map([['a', { needsAnswer: true }], ['b', { unread: true }], ['c', { running: true }]]);
++    const result = resolveSidebarSectionMembership({
++      sections: [custom(focus)], pinned: [], work: [], isPinned: () => false,
++      all: [ref('a'), ref('b'), ref('c', 'p2')], projectIds: new Set(['p1', 'p2']),
++      factsOf: (work) => facts({ ...(work.kind === 'session' ? waiting.get(work.rootSessionId) : undefined), projectId: work.projectId }),
++      now: 1_000,
++    });
++    expect(result.custom.get(focus.id)?.map((work) => work.key)).toEqual(['session:a', 'session:b']);
++  });
++});
+diff --git a/packages/ui/src/components/session/sidebar/sections/sectionMembership.ts b/packages/ui/src/components/session/sidebar/sections/sectionMembership.ts
+index d829d8649..5f4380b95 100644
+--- a/packages/ui/src/components/session/sidebar/sections/sectionMembership.ts
++++ b/packages/ui/src/components/session/sidebar/sections/sectionMembership.ts
+@@ -23,6 +23,7 @@ export const resolveVisibleSidebarSections = ({
+   hiddenSections,
+   draft,
+   draftIsNew,
++  focus = null,
+   show,
+   keepWorkInPlace,
+   keepPinnedInPlace,
+@@ -33,12 +34,14 @@ export const resolveVisibleSidebarSections = ({
+   hiddenSections: readonly string[];
+   draft: CustomSidebarSection | null;
+   draftIsNew: boolean;
++  focus?: CustomSidebarSection | null;
+   show: Readonly<Record<Exclude<BuiltinSidebarSectionId, 'projects' | 'pages'>, boolean>>;
+   keepWorkInPlace: boolean;
+   keepPinnedInPlace: boolean;
+   customSections: boolean;
+   pages: boolean;
+ }): VisibleSidebarSection[] => {
++  if (customSections && focus) return [{ kind: 'custom', section: focus, preview: false }];
+   const entries: SidebarSectionEntry[] = [...sections];
+   if (customSections && draft && draftIsNew) {
+     const pinnedIndex = entries.findIndex((entry) => entry.kind === 'builtin' && entry.id === 'pinned');
+diff --git a/packages/ui/src/lib/i18n/messages/ar.ts b/packages/ui/src/lib/i18n/messages/ar.ts
+index 9a1929cb9..6415c0585 100644
+--- a/packages/ui/src/lib/i18n/messages/ar.ts
++++ b/packages/ui/src/lib/i18n/messages/ar.ts
+@@ -386,6 +386,7 @@ export const dict: Record<I18nKey, string> = {
+   'mobile.sessions.showMore': 'إظهار {count} أخرى',
+   'mobile.sessions.search.section.archived': 'المؤرشفة',
+   'mobile.sessions.clearSearchAria': 'مسح البحث',
++  'mobile.sessions.showAllAria': 'عرض كل الجلسات',
+   'mobile.header.noProject': 'اختر مشروعًا',
+   'mobile.header.activeSession': 'الجلسة النشطة',
+   'mobile.header.noSession': 'لا توجد جلسة نشطة',
+diff --git a/packages/ui/src/lib/i18n/messages/de.ts b/packages/ui/src/lib/i18n/messages/de.ts
+index dfc68141f..643e5a6aa 100644
+--- a/packages/ui/src/lib/i18n/messages/de.ts
++++ b/packages/ui/src/lib/i18n/messages/de.ts
+@@ -425,6 +425,7 @@ export const dict = {
+   'mobile.sessions.showMore': '{count} weitere anzeigen',
+   'mobile.sessions.search.section.archived': 'Archiviert',
+   'mobile.sessions.clearSearchAria': 'Suche löschen',
++  'mobile.sessions.showAllAria': 'Alle Sitzungen anzeigen',
+   'mobile.header.noProject': 'Projekt auswählen',
+   'mobile.header.activeSession': 'Aktive Sitzung',
+   'mobile.header.noSession': 'Keine aktive Sitzung',
+diff --git a/packages/ui/src/lib/i18n/messages/en.ts b/packages/ui/src/lib/i18n/messages/en.ts
+index 0e096e54b..3b4eb914d 100644
+--- a/packages/ui/src/lib/i18n/messages/en.ts
++++ b/packages/ui/src/lib/i18n/messages/en.ts
+@@ -472,6 +472,7 @@ export const dict = {
+   'mobile.sessions.showMore': 'Show {count} more',
+   'mobile.sessions.search.section.archived': 'Archived',
+   'mobile.sessions.clearSearchAria': 'Clear search',
++  'mobile.sessions.showAllAria': 'Show all sessions',
+   'mobile.header.noProject': 'Select a project',
+   'mobile.header.activeSession': 'Active session',
+   'mobile.header.noSession': 'No active session',
+diff --git a/packages/ui/src/lib/i18n/messages/es.ts b/packages/ui/src/lib/i18n/messages/es.ts
+index 161f78554..65b5f3c61 100644
+--- a/packages/ui/src/lib/i18n/messages/es.ts
++++ b/packages/ui/src/lib/i18n/messages/es.ts
+@@ -483,6 +483,7 @@ export const dict: Record<I18nKey, string> = {
+   "mobile.sessions.showMore": "Mostrar {count} más",
+   "mobile.sessions.search.section.archived": "Archivadas",
+   "mobile.sessions.clearSearchAria": "Limpiar búsqueda",
++  "mobile.sessions.showAllAria": "Mostrar todas las sesiones",
+   "mobile.header.noProject": "Selecciona un proyecto",
+   "mobile.header.activeSession": "Sesión activa",
+   "mobile.header.noSession": "No hay sesión activa",
+diff --git a/packages/ui/src/lib/i18n/messages/fr.ts b/packages/ui/src/lib/i18n/messages/fr.ts
+index ae7188a77..ebe9556e8 100644
+--- a/packages/ui/src/lib/i18n/messages/fr.ts
++++ b/packages/ui/src/lib/i18n/messages/fr.ts
+@@ -3483,6 +3483,7 @@ export const dict = {
+   'mobile.sessions.showMore': 'Afficher {count} de plus',
+   'mobile.sessions.search.section.archived': 'Archivées',
+   'mobile.sessions.clearSearchAria': 'Effacer la recherche',
++  'mobile.sessions.showAllAria': 'Afficher toutes les sessions',
+   'mobile.header.noProject': 'Sélectionnez un projet',
+   'mobile.header.activeSession': 'Session active',
+   'mobile.header.noSession': 'Aucune session active',
+diff --git a/packages/ui/src/lib/i18n/messages/he.ts b/packages/ui/src/lib/i18n/messages/he.ts
+index 06d20d41a..eaadbf280 100644
+--- a/packages/ui/src/lib/i18n/messages/he.ts
++++ b/packages/ui/src/lib/i18n/messages/he.ts
+@@ -385,6 +385,7 @@ export const dict = {
+   'mobile.sessions.showMore': 'הצג עוד {count}',
+   'mobile.sessions.search.section.archived': 'בארכיון',
+   'mobile.sessions.clearSearchAria': 'נקה חיפוש',
++  'mobile.sessions.showAllAria': 'הצג את כל ההפעלות',
+   'mobile.header.noProject': 'בחר פרויקט',
+   'mobile.header.activeSession': 'הפעלה פעילה',
+   'mobile.header.noSession': 'אין הפעלה פעילה',
+diff --git a/packages/ui/src/lib/i18n/messages/ja.ts b/packages/ui/src/lib/i18n/messages/ja.ts
+index a75728a43..07f73dda5 100644
+--- a/packages/ui/src/lib/i18n/messages/ja.ts
++++ b/packages/ui/src/lib/i18n/messages/ja.ts
+@@ -473,6 +473,7 @@ export const dict: Record<I18nKey, string> = {
+   'mobile.sessions.showMore': 'さらに{count}件表示',
+   'mobile.sessions.search.section.archived': 'アーカイブ済み',
+   'mobile.sessions.clearSearchAria': '検索をクリア',
++  'mobile.sessions.showAllAria': 'すべてのセッションを表示',
+   'mobile.header.noProject': 'プロジェクトを選択',
+   'mobile.header.activeSession': 'アクティブなセッション',
+   'mobile.header.noSession': 'アクティブなセッションがありません',
+diff --git a/packages/ui/src/lib/i18n/messages/ko.ts b/packages/ui/src/lib/i18n/messages/ko.ts
+index c0def37d2..fd2bbb1b2 100644
+--- a/packages/ui/src/lib/i18n/messages/ko.ts
++++ b/packages/ui/src/lib/i18n/messages/ko.ts
+@@ -473,6 +473,7 @@ export const dict: Record<I18nKey, string> = {
+   'mobile.sessions.showMore': '{count}개 더 보기',
+   'mobile.sessions.search.section.archived': '보관됨',
+   'mobile.sessions.clearSearchAria': '검색 지우기',
++  'mobile.sessions.showAllAria': '모든 세션 표시',
+   'mobile.header.noProject': '프로젝트 선택',
+   'mobile.header.activeSession': '활성 세션',
+   'mobile.header.noSession': '활성 세션 없음',
+diff --git a/packages/ui/src/lib/i18n/messages/nl.ts b/packages/ui/src/lib/i18n/messages/nl.ts
+index 50e8873f3..1e68cf0a9 100644
+--- a/packages/ui/src/lib/i18n/messages/nl.ts
++++ b/packages/ui/src/lib/i18n/messages/nl.ts
+@@ -472,6 +472,7 @@ export const dict = {
+   'mobile.sessions.showMore': 'Nog {count} tonen',
+   'mobile.sessions.search.section.archived': 'Gearchiveerd',
+   'mobile.sessions.clearSearchAria': 'Zoekopdracht wissen',
++  'mobile.sessions.showAllAria': 'Alle sessies tonen',
+   'mobile.header.noProject': 'Kies een project',
+   'mobile.header.activeSession': 'Actieve sessie',
+   'mobile.header.noSession': 'Geen actieve sessie',
+diff --git a/packages/ui/src/lib/i18n/messages/pl.ts b/packages/ui/src/lib/i18n/messages/pl.ts
+index ef3c00395..559f090fd 100644
+--- a/packages/ui/src/lib/i18n/messages/pl.ts
++++ b/packages/ui/src/lib/i18n/messages/pl.ts
+@@ -474,6 +474,7 @@ export const dict: Record<I18nKey, string> = {
+   'mobile.sessions.showMore': 'Pokaż jeszcze {count}',
+   'mobile.sessions.search.section.archived': 'Zarchiwizowane',
+   'mobile.sessions.clearSearchAria': 'Wyczyść wyszukiwanie',
++  'mobile.sessions.showAllAria': 'Pokaż wszystkie sesje',
+   'mobile.header.noProject': 'Wybierz projekt',
+   'mobile.header.activeSession': 'Aktywna sesja',
+   'mobile.header.noSession': 'Brak aktywnej sesji',
+diff --git a/packages/ui/src/lib/i18n/messages/pt-BR.ts b/packages/ui/src/lib/i18n/messages/pt-BR.ts
+index 191631775..0e759314a 100644
+--- a/packages/ui/src/lib/i18n/messages/pt-BR.ts
++++ b/packages/ui/src/lib/i18n/messages/pt-BR.ts
+@@ -483,6 +483,7 @@ export const dict: Record<I18nKey, string> = {
+   "mobile.sessions.showMore": "Mostrar mais {count}",
+   "mobile.sessions.search.section.archived": "Arquivadas",
+   "mobile.sessions.clearSearchAria": "Limpar busca",
++  "mobile.sessions.showAllAria": "Mostrar todas as sessões",
+   "mobile.header.noProject": "Selecione um projeto",
+   "mobile.header.activeSession": "Sessão ativa",
+   "mobile.header.noSession": "Nenhuma sessão ativa",
+diff --git a/packages/ui/src/lib/i18n/messages/tr.ts b/packages/ui/src/lib/i18n/messages/tr.ts
+index b4cc8b478..2644320df 100644
+--- a/packages/ui/src/lib/i18n/messages/tr.ts
++++ b/packages/ui/src/lib/i18n/messages/tr.ts
+@@ -396,6 +396,7 @@ export const dict = {
+   'mobile.sessions.showMore': '{count} tane daha göster',
+   'mobile.sessions.search.section.archived': 'Arşivlenenler',
+   'mobile.sessions.clearSearchAria': 'Aramayı temizle',
++  'mobile.sessions.showAllAria': 'Tüm session\'ları göster',
+   'mobile.header.noProject': 'Bir proje seç',
+   'mobile.header.activeSession': 'Etkin session',
+   'mobile.header.noSession': 'Etkin session yok',
+diff --git a/packages/ui/src/lib/i18n/messages/uk.ts b/packages/ui/src/lib/i18n/messages/uk.ts
+index 1ea274141..921356bbf 100644
+--- a/packages/ui/src/lib/i18n/messages/uk.ts
++++ b/packages/ui/src/lib/i18n/messages/uk.ts
+@@ -483,6 +483,7 @@ export const dict: Record<I18nKey, string> = {
+   "mobile.sessions.showMore": "Показати ще {count}",
+   "mobile.sessions.search.section.archived": "Архів",
+   "mobile.sessions.clearSearchAria": "Очистити пошук",
++  "mobile.sessions.showAllAria": "Показати всі сесії",
+   "mobile.header.noProject": "Виберіть проєкт",
+   "mobile.header.activeSession": "Активна сесія",
+   "mobile.header.noSession": "Немає активної сесії",
+diff --git a/packages/ui/src/lib/i18n/messages/zh-CN.ts b/packages/ui/src/lib/i18n/messages/zh-CN.ts
+index e126f127a..0192d1080 100644
+--- a/packages/ui/src/lib/i18n/messages/zh-CN.ts
++++ b/packages/ui/src/lib/i18n/messages/zh-CN.ts
+@@ -473,6 +473,7 @@ export const dict: Record<I18nKey, string> = {
+   'mobile.sessions.showMore': '再显示 {count} 个',
+   'mobile.sessions.search.section.archived': '已归档',
+   'mobile.sessions.clearSearchAria': '清除搜索',
++  'mobile.sessions.showAllAria': '显示所有会话',
+   'mobile.header.noProject': '选择项目',
+   'mobile.header.activeSession': '活动会话',
+   'mobile.header.noSession': '无活动会话',
+diff --git a/packages/ui/src/lib/i18n/messages/zh-TW.ts b/packages/ui/src/lib/i18n/messages/zh-TW.ts
+index 76a8adbf2..dd54fc6d3 100644
+--- a/packages/ui/src/lib/i18n/messages/zh-TW.ts
++++ b/packages/ui/src/lib/i18n/messages/zh-TW.ts
+@@ -473,6 +473,7 @@ export const dict: Record<I18nKey, string> = {
+   'mobile.sessions.showMore': '再顯示 {count} 個',
+   'mobile.sessions.search.section.archived': '已封存',
+   'mobile.sessions.clearSearchAria': '清除搜尋',
++  'mobile.sessions.showAllAria': '顯示所有會話',
+   'mobile.header.noProject': '選擇專案',
+   'mobile.header.activeSession': '作用中會話',
+   'mobile.header.noSession': '沒有作用中會話',
+diff --git a/packages/ui/src/lib/sidebarSections.ts b/packages/ui/src/lib/sidebarSections.ts
+index 24de64a6c..3ec3b8e5c 100644
+--- a/packages/ui/src/lib/sidebarSections.ts
++++ b/packages/ui/src/lib/sidebarSections.ts
+@@ -296,3 +296,7 @@ export const createSidebarSectionFromTemplate = (template: SidebarSectionTemplat
+     case 'blank': return base;
+   }
+ };
++
++export const sessionsFilterFocus = (filter: 'all' | 'attention' | 'recent' | undefined, waitingName: string): CustomSidebarSection | null => (
++  filter === 'attention' ? { ...createSidebarSectionFromTemplate('waiting', waitingName), hideWhenEmpty: false } : null
++);
