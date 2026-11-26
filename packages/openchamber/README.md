@@ -28,6 +28,18 @@ It exits non-zero when any patch needs a decision, so it belongs at the start
 of a base bump, before `source.nix` changes. Every patch must have a verdict
 before the queue moves.
 
+Patches apply at fuzz 0, in `source.nix` and in the script. A hunk whose
+context no longer matches fails the build; re-export the patch against the
+tree it applies to. Never raise the fuzz to get a bump green: GNU patch's
+default of 2 lets a hunk land wherever two lines of its context match.
+
+Each patch carries its own work only. When patch B rewrites lines that an
+earlier patch A added, `scripts/assert-openchamber-patch-overlap.mjs` fails
+unless A is in B's `follows` in `upstream.json`. Declare it when B really builds
+on A; otherwise the hunk belongs in A, and both patches get re-exported. A lint
+cleanup of another patch's file is the usual case: it goes into that patch. The
+shared settings files are listed by name in the script and are exempt.
+
 A green `nix build .#checks.x86_64-linux.openchamber` proves the patches apply
 and the version smoke test passes. It does **not** typecheck the server: run
 `node packages/web/scripts/check-server-types.mjs` from the repository root of

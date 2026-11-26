@@ -165,13 +165,27 @@
             assert !(self.packages.aarch64-linux ? dsh);
             assert !(self.packages ? "x86_64-darwin");
             pkgs.runCommand "dsh-platform-matrix" { } "touch $out";
+          # The OpenChamber queue's offline gates: every patch has a ledger
+          # record and a markers.json entry, and no patch rewrites another
+          # patch's lines without declaring it. They also run in `just check`;
+          # here they run in the build CI requires, so a missing markers entry
+          # fails the pull request instead of the release build after merge.
+          openchamber-queue =
+            pkgs.runCommand "openchamber-queue" { nativeBuildInputs = [ pkgs.nodejs ]; } ''
+              mkdir -p work/packages
+              cp -r ${./scripts} work/scripts
+              cp -r ${./packages/openchamber} work/packages/openchamber
+              node work/scripts/assert-openchamber-ledger.mjs
+              node work/scripts/assert-openchamber-patch-overlap.mjs
+              touch $out
+            '';
         in
         pkgs.lib.mapAttrs (
           _: package: pkgs.lib.attrByPath [ "passthru" "tests" "version" ] package package
         ) packages
         // extraTests
         // {
-          inherit dsh-platform-matrix;
+          inherit dsh-platform-matrix openchamber-queue;
         }
       );
     };

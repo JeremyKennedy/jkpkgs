@@ -12,6 +12,7 @@ upstream-backlog:
 check:
     node packages/pi/patch-context-files.test.mjs
     node scripts/assert-openchamber-ledger.mjs
+    node scripts/assert-openchamber-patch-overlap.mjs
     nix flake check --all-systems --no-build
     bash scripts/build-packages.sh --checks
 
