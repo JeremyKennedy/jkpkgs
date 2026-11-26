@@ -78,6 +78,11 @@ let
       # image viewer patch.
       ./patches/pdf-viewer-zoom.patch
       ./patches/dictation-recovery.patch
+      # The Waiting on me app-icon quick action (#6554), and the phone's session
+      # list narrowed to the sessions waiting on the user when a link asks for
+      # filter=attention. Written against plain upstream for its PR, so it
+      # sits ahead of the attention patches.
+      ./patches/waiting-shortcut.patch
       # Cross-instance attention, with its two fixes folded in: a question that
       # ends in error is checked against OpenCode's own form list before it is
       # shown, and a click in the attention dialog opens the clicked session
