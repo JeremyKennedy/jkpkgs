@@ -1,16 +1,16 @@
 diff --git a/packages/web/server/lib/gitea/DOCUMENTATION.md b/packages/web/server/lib/gitea/DOCUMENTATION.md
-index da6b39114..fc4a8cdc5 100644
+index 6f37c6484..e4bdda6ef 100644
 --- a/packages/web/server/lib/gitea/DOCUMENTATION.md
 +++ b/packages/web/server/lib/gitea/DOCUMENTATION.md
-@@ -42,6 +42,7 @@ The standard table's `/issues/update` edits an issue's title and body (`PATCH /i
- - Reviewers are set as a whole set by numeric user id, like GitLab's. Ids are turned into usernames through the collaborators and the current review requests, then the difference is sent as `POST` (add) and `DELETE` (remove) on `requested_reviewers`. The two calls are not atomic; reconciliation succeeds only when the current set matches. Gitea lists in `requested_reviewers` everyone with a standing review, not only open requests, and a `DELETE` for someone who already reviewed answers 204 and changes nothing. So before any write, a removal reads `/pulls/{n}/reviews` and refuses with `400 GITEA_REVIEWER_HAS_REVIEWED`, naming the logins, when someone to remove has a submitted review (`APPROVED`, `REQUEST_CHANGES` or `COMMENT`, not dismissed). 1.21 answers an empty set as `null`, read as empty.
+@@ -47,6 +47,7 @@ The standard table's `/issues/update` edits an issue's title and body (`PATCH /i
+ - Assignee candidates are the repository's assignable people (`GET /repos/{o}/{r}/assignees`), which on an owner-only repository still names the owner while the collaborator list is empty. That endpoint answers everyone in one response and ignores `page` and `limit`, so it is read once, never page by page. `/references/reviewers?role=assignee` selects that list; the default role keeps the collaborators. Both map through `mapGiteaUser` and answer numeric ids.
  - `head.label` is the bare branch name even for a fork's branch, so `headLabel` is built as `owner:branch` from `head.repo`, the form the worktree flow reads an owner from.
  - Capabilities off: review threads (no reply or resolve API), uploads (attachments are served to a browser session), stacks, the reference picker.
 +- A folder whose remote repository was deleted or renamed reads as having no repository, not as a failed read: the across-repository search skips that remote on 404/410, and the folder's single lookup answers `SOURCE_CONTROL_NO_REPOSITORY` with 404, since a missing target is not a stale one.
  
  ## Enterprise mode
  
-@@ -179,3 +180,13 @@ A comment or a review write leaves nothing the sender can read back by id: Gitea
+@@ -186,3 +187,13 @@ A comment or a review write leaves nothing the sender can read back by id: Gitea
  A review is a `PENDING` review; only its author reads it, and `/pr/review` submits it with the verdict. Comments sit on one line of one side (`new_position` or `old_position`): Gitea has no range and no comment on a whole file, so `reviewDraftFileComments` is off, and it has no replies or resolving, so threads read `canReply: false, canResolve: false`. Adding a comment is the same `POST /reviews` with `event: PENDING`, since the API has no route to add to a pending review, and a review comment is edited and removed through the issue comment routes; releases that answer those with an empty 204 and change nothing are reported as such. A verdict on a draft begun on an older commit is refused, and the draft still goes out as a comment. None of this has been run against a live instance yet.
  
  `/pr/comment/update|delete` and `/issues/comment/update|delete` edit and remove a comment through `PATCH`/`DELETE /issues/comments/{id}` (kinds `change-request-comment-update|delete`, `issue-comment-update|delete`; a pull request comment is an issue comment here). Both read the comment first and refuse one whose address is not the target: Gitea answers the HTML URL in `issue_url`, and leaves it empty on a pull request comment, where `pull_request_url` names the pull request instead, so both are read as `<origin>/<owner>/<name>/(issues|pulls)/<number>`. A comment carries `canUpdate`/`canDelete`, true only when its author is the connected account. An edit must read back exactly; a delete is `succeeded` when the comment reads 404, and a comment still readable right after a 2xx delete stays `outcome-unknown` rather than failed, since a stale read and a lost write look the same.
@@ -25,10 +25,10 @@ index da6b39114..fc4a8cdc5 100644
 +
 +A single-item lookup accepts `#12` or `12` (a bare number reads every asked repository), or a link to an item on the instance; anything else is a text search. A folder whose remote repository was deleted or renamed reads as having no repository, not as a failed read: the search skips that remote on 404/410, and the folder's single lookup answers `SOURCE_CONTROL_NO_REPOSITORY` with 404, since a missing target is not a stale one.
 diff --git a/packages/web/server/lib/gitea/descriptor.ts b/packages/web/server/lib/gitea/descriptor.ts
-index 0cb4e3a5a..4a9bcd0ee 100644
+index 12c9f27f7..27a716ab7 100644
 --- a/packages/web/server/lib/gitea/descriptor.ts
 +++ b/packages/web/server/lib/gitea/descriptor.ts
-@@ -37,7 +37,7 @@ export const giteaDescriptor = Object.freeze({
+@@ -39,7 +39,7 @@ export const giteaDescriptor = Object.freeze({
      stacks: false,
      changeRequestPatch: true,
      liveSummaries: true,
@@ -37,17 +37,17 @@ index 0cb4e3a5a..4a9bcd0ee 100644
      multipleAccounts: true,
    }),
    authMethods: Object.freeze({ device: false, pat: true, cli: Object.freeze({ tool: 'gt' }) }),
-@@ -87,7 +87,7 @@ export const giteaDescriptor = Object.freeze({
+@@ -89,7 +89,7 @@ export const giteaDescriptor = Object.freeze({
        user: Object.freeze(['/{user}']),
      }),
      features: Object.freeze({
 -      referenceSearch: false, referenceDetail: false, listStatuses: false, referencesAcross: false,
 +      referenceSearch: false, referenceDetail: false, listStatuses: false, referencesAcross: true,
        startThread: false, reviewDrafts: true, reviewDraftFileComments: false, authorCanReview: false, projectUploads: false, issueCloseReason: false,
-       issueEdit: true, changeRequestEdit: true, commentEdit: true,
+       issueAssignees: true, issueEdit: true, baseChange: true, updateBranch: true, rebase: false, changeRequestEdit: true, commentEdit: true,
        changeRequestTemplates: Object.freeze([
 diff --git a/packages/web/server/lib/gitea/mappers.test.js b/packages/web/server/lib/gitea/mappers.test.js
-index b738f6eab..76945bb56 100644
+index 038dabb85..abc9f5cf7 100644
 --- a/packages/web/server/lib/gitea/mappers.test.js
 +++ b/packages/web/server/lib/gitea/mappers.test.js
 @@ -29,6 +29,8 @@ describe('Gitea mappers', () => {
@@ -70,7 +70,7 @@ index b738f6eab..76945bb56 100644
  
    it('maps a 1.21 pull request, which has no draft flag, by its title', () => {
 diff --git a/packages/web/server/lib/gitea/mappers.ts b/packages/web/server/lib/gitea/mappers.ts
-index a4780fe3c..30d650e2b 100644
+index e98ba199c..e15948ffd 100644
 --- a/packages/web/server/lib/gitea/mappers.ts
 +++ b/packages/web/server/lib/gitea/mappers.ts
 @@ -124,12 +124,19 @@ const pullState = (value: JsonObject) => {
@@ -105,10 +105,10 @@ index a4780fe3c..30d650e2b 100644
      head,
    };
 diff --git a/packages/web/server/lib/gitea/provider.test.js b/packages/web/server/lib/gitea/provider.test.js
-index 0dc784ee6..fb5bbeb24 100644
+index ee23730a0..2b64876d7 100644
 --- a/packages/web/server/lib/gitea/provider.test.js
 +++ b/packages/web/server/lib/gitea/provider.test.js
-@@ -444,12 +444,99 @@ describe('Gitea behind the route shell', () => {
+@@ -530,12 +530,99 @@ describe('Gitea behind the route shell', () => {
        ['post', '/api/source-control/gitea/pr/thread/reply'],
        ['post', '/api/source-control/gitea/pr/thread/resolve'],
        ['get', '/api/source-control/gitea/uploads/0123456789abcdef0123456789abcdef/a.png'],
@@ -210,10 +210,10 @@ index 0dc784ee6..fb5bbeb24 100644
  });
  
 diff --git a/packages/web/server/lib/gitea/provider.ts b/packages/web/server/lib/gitea/provider.ts
-index 0f9cda95b..b59f101d6 100644
+index 82b1e029b..2c218b46c 100644
 --- a/packages/web/server/lib/gitea/provider.ts
 +++ b/packages/web/server/lib/gitea/provider.ts
-@@ -4,14 +4,16 @@ import { classifyGiteaFailure, createGiteaClient } from './client.js';
+@@ -5,14 +5,16 @@ import { classifyGiteaFailure, createGiteaClient } from './client.js';
  import { giteaDescriptor } from './descriptor.js';
  import { createGtCli } from './gt-cli.js';
  import { createGiteaResourceService } from './resources.js';
@@ -232,7 +232,7 @@ index 0f9cda95b..b59f101d6 100644
  import type { BindingMutationTarget } from '../source-control/binding-service-contracts.js';
  import type { GiteaFetch } from './client.js';
  import type { GiteaResourceOptions } from './resources.js';
-@@ -257,7 +259,9 @@ export function createGiteaFamilyProvider(build: GiteaFamilyProviderOptions) {
+@@ -289,7 +291,9 @@ export function createGiteaFamilyProvider(build: GiteaFamilyProviderOptions) {
      if (resolveRepos) options.resolveRepos = resolveRepos;
      const service = createResourceService(options);
      const identity = identityFor(session.instance, session.accountId);
@@ -243,7 +243,7 @@ index 0f9cda95b..b59f101d6 100644
      for (const method of Object.keys(methods)) {
        const operation = methods[method];
        if (!(operation instanceof Function)) continue;
-@@ -309,6 +313,41 @@ export function createGiteaFamilyProvider(build: GiteaFamilyProviderOptions) {
+@@ -341,6 +345,41 @@ export function createGiteaFamilyProvider(build: GiteaFamilyProviderOptions) {
        readChangeRequestFile: ({ session, directory, number, sourceRepo, remote, path, previousPath, status, binary, linked }: PatchRead & Pick<Parameters<Service['changeRequestFileContents']>[2], 'path' | 'previousPath' | 'status' | 'binary'>) => serviceFor(session)
          .changeRequestFileContents(directory, number, { project: projectSelector(sourceRepo), remote, path, previousPath, status, binary, linked }),
        liveSummaries: ({ session, refs, issueRefs }: { session: ProviderSession } & Parameters<Service['liveSummaries']>[0]) => serviceFor(session).liveSummaries({ refs, issueRefs }),
@@ -1421,10 +1421,10 @@ index 000000000..337b3b7a3
 +  };
 +}
 diff --git a/packages/web/server/lib/gitea/resources.ts b/packages/web/server/lib/gitea/resources.ts
-index e3be9a482..6cf2948a9 100644
+index a42fbe207..343eeb2e7 100644
 --- a/packages/web/server/lib/gitea/resources.ts
 +++ b/packages/web/server/lib/gitea/resources.ts
-@@ -32,6 +32,17 @@ type Remote = string | null | undefined;
+@@ -34,6 +34,17 @@ type Remote = string | null | undefined;
  type Selector = Repository | null | undefined;
  type NetworkOptions = { requireComplete?: boolean; linked?: boolean | undefined };
  type ReadOptions = { remote?: Remote; linked?: boolean | undefined; project?: Selector; includeReferences?: boolean | undefined };
@@ -1442,7 +1442,7 @@ index e3be9a482..6cf2948a9 100644
  type Ref = { owner: string; repo: string; number: number };
  type ListOptions = {
    labels?: string[] | undefined;
-@@ -131,11 +142,24 @@ export function createGiteaResourceService({
+@@ -133,11 +144,24 @@ export function createGiteaResourceService({
      const resolved = await resolveRepos(directory, origin, remote, { sshUrl });
      const repos: Repo[] = [];
      for (const candidate of resolved.repos) {
@@ -1469,7 +1469,7 @@ index e3be9a482..6cf2948a9 100644
      return [first, ...rest];
    };
  
-@@ -505,6 +529,76 @@ export function createGiteaResourceService({
+@@ -507,6 +531,76 @@ export function createGiteaResourceService({
        return { items, page, hasMore: result.hasMore };
      },
  
@@ -1547,7 +1547,7 @@ index e3be9a482..6cf2948a9 100644
        const { target } = await network(directory, selector, remote, { linked });
        const issue = requireIssue(await client.get(`${repoPath(target.project)}/issues/${number}`), target.project);
 diff --git a/packages/web/server/lib/source-control/provider-descriptors.test.js b/packages/web/server/lib/source-control/provider-descriptors.test.js
-index 79c3799e2..582f94072 100644
+index a88bfcd3a..513d91512 100644
 --- a/packages/web/server/lib/source-control/provider-descriptors.test.js
 +++ b/packages/web/server/lib/source-control/provider-descriptors.test.js
 @@ -76,13 +76,22 @@ describe('source control provider descriptors', () => {
@@ -1575,10 +1575,10 @@ index 79c3799e2..582f94072 100644
      expect(github.instance.origin('github.com').origin).toBe('https://github.com');
      expect(github.instance.origin('ghe.example.com').origin).toBe('https://ghe.example.com');
 diff --git a/packages/web/server/lib/source-control/provider-publication-freeze.json b/packages/web/server/lib/source-control/provider-publication-freeze.json
-index 60e723c20..0ffacd0cc 100644
+index 8c8e11779..c6478a364 100644
 --- a/packages/web/server/lib/source-control/provider-publication-freeze.json
 +++ b/packages/web/server/lib/source-control/provider-publication-freeze.json
-@@ -286,7 +286,7 @@
+@@ -313,7 +313,7 @@
          "referenceSearch": false,
          "referenceDetail": false,
          "listStatuses": false,
@@ -1588,10 +1588,10 @@ index 60e723c20..0ffacd0cc 100644
          "reviewDrafts": true,
          "startThread": false,
 diff --git a/packages/web/server/lib/source-control/provider-routes.ts b/packages/web/server/lib/source-control/provider-routes.ts
-index 865be17f9..8a74b389c 100644
+index 8f8c428b9..62afa19ab 100644
 --- a/packages/web/server/lib/source-control/provider-routes.ts
 +++ b/packages/web/server/lib/source-control/provider-routes.ts
-@@ -884,6 +884,7 @@ export function registerProviderRoutes(app: Router, {
+@@ -817,6 +817,7 @@ export function registerProviderRoutes(app: Router, {
      route('post', '/references/across', 'referencePicker', async (req, res) => {
        let impl;
        try {

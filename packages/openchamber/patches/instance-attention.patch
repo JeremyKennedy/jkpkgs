@@ -74,10 +74,10 @@ index 429eca4f9..7b053b421 100644
    useSessionStatusBootstrap();
  
 diff --git a/packages/ui/src/apps/DOCUMENTATION.md b/packages/ui/src/apps/DOCUMENTATION.md
-index f230fa678..d3b0ae087 100644
+index 2e09ce701..cef341532 100644
 --- a/packages/ui/src/apps/DOCUMENTATION.md
 +++ b/packages/ui/src/apps/DOCUMENTATION.md
-@@ -136,6 +136,21 @@
+@@ -137,6 +137,21 @@
  - Widgets consume display-only snapshots; network reads remain in the connected app and Android sync runs only with placed widgets. Unloaded stores and failed builders preserve native snapshots. Quota timestamps reflect provider answers, and failed refreshes cannot rewrite old data as fresh. Queued native refresh taps are acknowledged after fetching, including taps arriving during a fetch; bridge failure leaves them queued.
  - Widget session ordering, unread state and project ownership match the shared lifecycle and sidebar, including worktrees and isolated spaces. The iOS bridge returns a JSON primitive or null so failed construction cannot overwrite a good App Group snapshot. Widget quotas use the Usage page's selected providers, models, formatting and theme colors without copying credentials.
  
@@ -100,7 +100,7 @@ index f230fa678..d3b0ae087 100644
  
  ### Why mobile push registers with every saved instance and not only the connected one
 diff --git a/packages/ui/src/apps/MobileApp.tsx b/packages/ui/src/apps/MobileApp.tsx
-index 8dca7667d..4a26c2fc9 100644
+index ae8619846..7eb4dce02 100644
 --- a/packages/ui/src/apps/MobileApp.tsx
 +++ b/packages/ui/src/apps/MobileApp.tsx
 @@ -31,6 +31,9 @@ import { usePushVisibilityBeacon } from '@/hooks/usePushVisibilityBeacon';
@@ -113,7 +113,7 @@ index 8dca7667d..4a26c2fc9 100644
  import { useUpdatePolling } from '@/hooks/useUpdatePolling';
  import { useWindowTitle } from '@/hooks/useWindowTitle';
  import { useEnterprisePolicySync } from '@/hooks/useEnterprisePolicySync';
-@@ -1187,6 +1190,12 @@ function MobileAppContent({ apis }: MobileAppProps) {
+@@ -1162,6 +1165,12 @@ function MobileAppContent({ apis }: MobileAppProps) {
    useGuestMarksSync();
    useBrowserProviderSync();
    useAgentMemorySync(currentDirectory || null);
@@ -458,17 +458,23 @@ index 000000000..c2c05a5fb
 +};
 diff --git a/packages/ui/src/apps/MobileInstanceAttentionBell.test.tsx b/packages/ui/src/apps/MobileInstanceAttentionBell.test.tsx
 new file mode 100644
-index 000000000..4efba1939
+index 000000000..add01a54e
 --- /dev/null
 +++ b/packages/ui/src/apps/MobileInstanceAttentionBell.test.tsx
-@@ -0,0 +1,394 @@
-+import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
+@@ -0,0 +1,464 @@
++import { afterEach, beforeEach, expect, mock, spyOn, test } from 'bun:test';
 +import React, { act } from 'react';
 +import type { Root } from 'react-dom/client';
 +import { Window } from 'happy-dom';
 +
 +import { LOCAL_INSTANCE_ATTENTION_HOST_ID } from '@/lib/instanceAttention';
++import type { Session } from '@/lib/opencode/model';
++import { opencodeClient } from '@/lib/opencode/client';
++import { heldSessionOpen } from '@/sync/pending-session-open';
++import { getRuntimeApiBaseUrl, getRuntimeKey, switchRuntimeEndpoint } from '@/lib/runtime-switch';
++import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 +import { useInstanceAttentionStore } from '@/stores/useInstanceAttentionStore';
++import { useProjectsStore } from '@/stores/useProjectsStore';
 +import type { MobileSavedConnection } from './mobileConnections';
 +
 +type ConnectInput = {
@@ -499,8 +505,13 @@ index 000000000..4efba1939
 +const connectCalls: ConnectInput[] = [];
 +const openedSessions: Array<[string, string | null]> = [];
 +const openChanges: boolean[] = [];
++let openWaiters: Array<() => void> = [];
++const nextOpen = () => new Promise<void>((resolve) => { openWaiters.push(resolve); });
 +const setCurrentSession = mock((sessionId: string, directory: string | null) => {
 +  openedSessions.push([sessionId, directory]);
++  const waiters = openWaiters;
++  openWaiters = [];
++  for (const resolve of waiters) resolve();
 +});
 +
 +const messages = new Map<string, string>([
@@ -521,6 +532,13 @@ index 000000000..4efba1939
 +  ['mobile.connect.cancelPassword', 'Use another server'],
 +  ['mobile.connect.connecting', 'Connecting...'],
 +]);
++// A connect switches the runtime to that connection, as the real one does.
++const activate = (id: string | undefined): void => {
++  activeConnectionId = id ?? null;
++  const connection = connections.find((entry) => entry.id === id);
++  if (connection) switchRuntimeEndpoint({ apiBaseUrl: `http://${connection.id}.test`, runtimeKey: actualMobileConnections.secureTokenKeyOf(connection) });
++};
++
 +const translate = (key: string, params?: Record<string, string | number>): string => {
 +  let text = messages.get(key) ?? key;
 +  for (const [name, value] of Object.entries(params ?? {})) {
@@ -549,7 +567,7 @@ index 000000000..4efba1939
 +      setPendingConnection({ id: input.id ?? '', label: input.label, candidates: input.candidates });
 +      return;
 +    }
-+    activeConnectionId = input.id ?? null;
++    activate(input.id);
 +    onConnected();
 +  }, [onConnected]);
 +  const submitPassword = React.useCallback(async (password: string) => {
@@ -558,7 +576,7 @@ index 000000000..4efba1939
 +      setError('Could not unlock that server. Check the password.');
 +      return;
 +    }
-+    activeConnectionId = pendingConnection.id;
++    activate(pendingConnection.id);
 +    setPendingConnection(null);
 +    onConnected();
 +  }, [onConnected, pendingConnection]);
@@ -602,7 +620,17 @@ index 000000000..4efba1939
 +  useI18n: () => ({ t: translate }),
 +}));
 +mock.module('@/sync/session-ui-store', () => ({
-+  useSessionUIStore: { getState: () => ({ setCurrentSession }) },
++  getAdmissionNavigationRevision: () => 0,
++  useSessionUIStore: {
++    subscribe: () => () => undefined,
++    getState: () => ({
++      setCurrentSession,
++      currentSessionId: null,
++      currentSessionDirectory: null,
++      getDirectoryForSession: () => null,
++      availableWorktreesByProject: new Map(),
++    }),
++  },
 +}));
 +mock.module('@/components/ui/MobileOverlayPanel', () => ({
 +  ...actualMobileOverlayPanel,
@@ -627,6 +655,20 @@ index 000000000..4efba1939
 +
 +const { MobileInstanceAttentionBell } = await import('./MobileInstanceAttentionBell');
 +
++const originalRuntime = { apiBaseUrl: getRuntimeApiBaseUrl(), runtimeKey: getRuntimeKey() };
++const originalProjects = useProjectsStore.getState();
++let sessionRead: ReturnType<typeof spyOn> | null = null;
++const originalSessions = useGlobalSessionsStore.getState();
++const waitingSession: Session = {
++  id: 'ses_a',
++  projectID: 'project',
++  directory: '/repo',
++  title: 'Unify sessions',
++  time: { created: 1, updated: 1 },
++  cost: 0,
++  tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
++};
++
 +let dom: Window;
 +let root: Root;
 +const globals = new Map<string, PropertyDescriptor | undefined>();
@@ -636,13 +678,18 @@ index 000000000..4efba1939
 +  const values = {
 +    window: dom, document: dom.document, navigator: dom.navigator,
 +    Node: dom.Node, Element: dom.Element, HTMLElement: dom.HTMLElement,
-+    Event: dom.Event, MouseEvent: dom.MouseEvent, IS_REACT_ACT_ENVIRONMENT: true,
++    Event: dom.Event, CustomEvent: dom.CustomEvent, MouseEvent: dom.MouseEvent, IS_REACT_ACT_ENVIRONMENT: true,
 +  };
 +  for (const [name, value] of Object.entries(values)) {
 +    globals.set(name, Object.getOwnPropertyDescriptor(globalThis, name));
 +    Object.defineProperty(globalThis, name, { configurable: true, writable: true, value });
 +  }
 +  useInstanceAttentionStore.getState().reset();
++  // The server a row connects to has loaded its projects and sessions.
++  useProjectsStore.setState({ projects: [{ id: 'repo', path: '/repo' }], hasServerSnapshot: true, serverSnapshotFailed: false });
++  useGlobalSessionsStore.setState({ hasLoaded: true, status: 'ready', activeSessions: [waitingSession], archivedSessions: [] });
++  openWaiters = [];
++  sessionRead = spyOn(opencodeClient, 'getSessionUnscoped').mockImplementation(async () => waitingSession);
 +  connectCalls.length = 0;
 +  attentionRefreshCalls = 0;
 +  openedSessions.length = 0;
@@ -663,6 +710,10 @@ index 000000000..4efba1939
 +    else Reflect.deleteProperty(globalThis, name);
 +  }
 +  globals.clear();
++  sessionRead?.mockRestore();
++  switchRuntimeEndpoint(originalRuntime);
++  useProjectsStore.setState(originalProjects, true);
++  useGlobalSessionsStore.setState(originalSessions, true);
 +  await dom.happyDOM.abort();
 +  dom.close();
 +});
@@ -742,7 +793,9 @@ index 000000000..4efba1939
 +
 +  const row = findRow();
 +  expect(row).toBeDefined();
++  const sessionOpened = nextOpen();
 +  await act(async () => row?.click());
++  await sessionOpened;
 +
 +  expect(connectCalls).toEqual([{
 +    id: 'host-b',
@@ -799,13 +852,30 @@ index 000000000..4efba1939
 +  expect(document.body.textContent).toContain('bee');
 +  expect(document.querySelector('input[type="password"]')).not.toBeNull();
 +  expect(useInstanceAttentionStore.getState().hosts['host-b']).toBeDefined();
++  // The session stays held for that server, so the unlock's switch does not
++  // bring back the session it had open.
++  expect(heldSessionOpen()?.runtimeKey).toBe(actualMobileConnections.secureTokenKeyOf(connections[0]));
 +
 +  await typePassword('secret');
++  const sessionOpened = nextOpen();
 +  await submitPasswordPrompt();
++  await sessionOpened;
 +
 +  expect(openedSessions).toEqual([['ses_a', '/repo']]);
 +  expect(openChanges).toEqual([false]);
 +  expect(useInstanceAttentionStore.getState().hosts['host-b']).toBeUndefined();
++});
++
++test('closing the sheet at the password prompt lets the held session go', async () => {
++  seed();
++  needsLoginFor = 'host-b';
++  await render(true);
++  await act(async () => findRow()?.click());
++  expect(heldSessionOpen()).not.toBeNull();
++
++  await render(false);
++
++  expect(heldSessionOpen()).toBeNull();
 +});
 +
 +test('a wrong password stays in the sheet with the failure shown', async () => {
@@ -858,10 +928,10 @@ index 000000000..4efba1939
 +});
 diff --git a/packages/ui/src/apps/MobileInstanceAttentionBell.tsx b/packages/ui/src/apps/MobileInstanceAttentionBell.tsx
 new file mode 100644
-index 000000000..40bedc10a
+index 000000000..615289b38
 --- /dev/null
 +++ b/packages/ui/src/apps/MobileInstanceAttentionBell.tsx
-@@ -0,0 +1,262 @@
+@@ -0,0 +1,265 @@
 +import React from 'react';
 +
 +import { Button } from '@/components/ui/button';
@@ -884,6 +954,7 @@ index 000000000..40bedc10a
 +  finishInstanceAttentionJump,
 +  openInstanceAttentionItemWith,
 +  openLocalInstanceAttentionItem,
++  releaseInstanceAttentionHold,
 +} from '@/lib/instanceAttentionJump';
 +import { useI18n } from '@/lib/i18n';
 +import { cn } from '@/lib/utils';
@@ -893,6 +964,7 @@ index 000000000..40bedc10a
 +  connectionDisplayUrl,
 +  isActiveRuntimeConnection,
 +  isRelayOnly,
++  secureTokenKeyOf,
 +  useMobileConnection,
 +} from './mobileConnections';
 +import { mobileConnectionInputClass, mobileInputKeyboardProps } from './mobileConnectionUi';
@@ -966,6 +1038,7 @@ index 000000000..40bedc10a
 +  });
 +
 +  const clearPending = React.useCallback(() => {
++    if (pendingItemRef.current) releaseInstanceAttentionHold(pendingItemRef.current);
 +    pendingItemRef.current = null;
 +    setPassword('');
 +    if (pendingConnection) cancelPassword();
@@ -994,8 +1067,8 @@ index 000000000..40bedc10a
 +    if (hosts[item.hostId]?.status === 'error') return;
 +    pendingItemRef.current = item;
 +    tapInFlightRef.current = true;
-+    void openInstanceAttentionItemWith(item, async (hostId) => {
-+      const connection = connections.find((entry) => entry.id === hostId);
++    const connection = connections.find((entry) => entry.id === item.hostId);
++    void openInstanceAttentionItemWith(item, async () => {
 +      if (!connection) {
 +        // Removed elsewhere: drop the row instead of leaving a dead tap target.
 +        useInstanceAttentionStore.getState().dropHost(item.hostId);
@@ -1010,7 +1083,7 @@ index 000000000..40bedc10a
 +      // `connect` resolves even when it stopped at a password prompt or failed.
 +      // The jump only happened when the runtime really is that connection.
 +      return isActiveRuntimeConnection(connection);
-+    }).then((opened) => {
++    }, connection ? secureTokenKeyOf(connection) : undefined, { keepHoldWhenStopped: true }).then((opened) => {
 +      tapInFlightRef.current = false;
 +      if (!opened) return;
 +      pendingItemRef.current = null;
@@ -1712,7 +1785,7 @@ index 000000000..084d6edcd
 +    };
 +  });
 diff --git a/packages/ui/src/apps/runtimeEndpointReset.ts b/packages/ui/src/apps/runtimeEndpointReset.ts
-index 1d6798a8f..86eb08201 100644
+index 1d2e725e0..a7cd0c0f8 100644
 --- a/packages/ui/src/apps/runtimeEndpointReset.ts
 +++ b/packages/ui/src/apps/runtimeEndpointReset.ts
 @@ -54,6 +54,7 @@ import { resetSessionOrdering } from '@/sync/session-ordering';
@@ -1733,13 +1806,25 @@ index 1d6798a8f..86eb08201 100644
    resetPendingSessionAssists();
    resetRecoverableQuestions();
    resetBackgroundShells();
+diff --git a/packages/ui/src/components/desktop/DOCUMENTATION.md b/packages/ui/src/components/desktop/DOCUMENTATION.md
+index 3007b4dbb..17dc17c98 100644
+--- a/packages/ui/src/components/desktop/DOCUMENTATION.md
++++ b/packages/ui/src/components/desktop/DOCUMENTATION.md
+@@ -17,6 +17,7 @@ This module owns the desktop instance menu, host-switching UI, project app launc
+ - A switch probe publishes its final direct-or-relay outcome once, so an intermediate direct failure does not flash over a usable relay connection.
+ - Closing a switch-check dialog preserves the current instance. Cancellation after the direct leg skips relay setup and leaves status reporting to the menu probe; cancellation after a relay probe closes its unadopted tunnel. An ordinary cancelled check has no SSH connection to disconnect.
+ - A closing switch dialog retains its host label through the fade-out so its title stays stable.
++- The switcher starts from the hosts the previous open read (`useDesktopHostList`, module scope like pending window opens) and shows "Loading" only before any read; a failed read is not remembered. Remembered rows stay `inert` until this open's read lands, so a host removed elsewhere cannot be switched to from a stale row. The instance menu remounts it on every open, and a list that grew from Local-only to every host moved the attention rows below it while the user aimed at one.
+ - Relay-only rows describe the connection type because a `relay://` identifier is not a useful address to display.
+ - Both window-control styles retain their physical edge and button order in every language.
+ - Traffic-light hit targets preserve the titlebar's vertical hit band and the spacing between circles. Their right-edge inset remains separate from the classic Windows flush-edge convention.
 diff --git a/packages/ui/src/components/desktop/DesktopHostSwitcher.refresh.test.tsx b/packages/ui/src/components/desktop/DesktopHostSwitcher.refresh.test.tsx
 new file mode 100644
-index 000000000..8953ca878
+index 000000000..4c2c7502e
 --- /dev/null
 +++ b/packages/ui/src/components/desktop/DesktopHostSwitcher.refresh.test.tsx
-@@ -0,0 +1,98 @@
-+import { afterEach, expect, mock, test } from 'bun:test';
+@@ -0,0 +1,162 @@
++import { afterAll, expect, mock, test } from 'bun:test';
 +import React, { act } from 'react';
 +import { createRoot } from 'react-dom/client';
 +import { Window } from 'happy-dom';
@@ -1773,6 +1858,9 @@ index 000000000..8953ca878
 +  url: 'http://192.0.2.10:3000',
 +  apiUrl: 'http://192.0.2.10:3000',
 +};
++const readHosts = async () => ({ hosts: [host], defaultHostId: 'local', localOrigin: 'http://localhost' });
++// A read that has not answered yet, as on a slow shell.
++let pendingRead: (() => Promise<Awaited<ReturnType<typeof readHosts>>>) | null = null;
 +let probeCalls = 0;
 +let attentionRefreshCalls = 0;
 +
@@ -1781,7 +1869,7 @@ index 000000000..8953ca878
 +const hosts = await import('@/lib/desktopHosts');
 +mock.module('@/lib/desktopHosts', () => ({
 +  ...hosts,
-+  desktopHostsGet: async () => ({ hosts: [host], defaultHostId: 'local', localOrigin: 'http://localhost' }),
++  desktopHostsGet: () => (pendingRead ? pendingRead() : readHosts()),
 +  desktopLocalClientTokenGet: async () => 'local-token',
 +  desktopHostProbe: async (): Promise<HostProbeResult> => {
 +    probeCalls += 1;
@@ -1807,7 +1895,7 @@ index 000000000..8953ca878
 +  for (let turn = 0; turn < 4; turn += 1) await new Promise<void>((resolve) => setTimeout(resolve, 0));
 +};
 +
-+afterEach(async () => {
++afterAll(async () => {
 +  await dom.happyDOM.close();
 +});
 +
@@ -1837,8 +1925,69 @@ index 000000000..8953ca878
 +    await act(async () => mounted.unmount());
 +  }
 +});
++
++test('a second open shows the hosts the last open read while it reads them again', async () => {
++  const render = async () => {
++    const container = document.createElement('div');
++    document.body.append(container);
++    const mounted = createRoot(container);
++    await act(async () => {
++      mounted.render(<I18nProvider><DesktopHostSwitcherDialog open embedded onOpenChange={() => undefined} /></I18nProvider>);
++      await flush();
++    });
++    return { container, unmount: () => act(async () => mounted.unmount()) };
++  };
++
++  const first = await render();
++  expect(first.container.textContent).toContain('Paired server');
++  await first.unmount();
++
++  // The next open's read is still out: the list must already be the full one,
++  // so nothing below it moves when the read lands.
++  pendingRead = () => new Promise(() => undefined);
++  try {
++    const second = await render();
++    expect(second.container.textContent).toContain('Paired server');
++    expect(second.container.textContent).not.toContain('Loading');
++    // Remembered rows are shown but not usable until this open has read them.
++    expect(second.container.querySelectorAll('[inert]').length).toBeGreaterThan(0);
++    await second.unmount();
++  } finally {
++    pendingRead = null;
++  }
++});
++
++test('a failed read is not remembered for the next open', async () => {
++  const mount = async () => {
++    const container = document.createElement('div');
++    document.body.append(container);
++    const mounted = createRoot(container);
++    await act(async () => {
++      mounted.render(<I18nProvider><DesktopHostSwitcherDialog open embedded onOpenChange={() => undefined} /></I18nProvider>);
++      await flush();
++    });
++    return { container, unmount: () => act(async () => mounted.unmount()) };
++  };
++
++  const read = await mount();
++  expect(read.container.querySelectorAll('[inert]').length).toBe(0);
++  await read.unmount();
++
++  pendingRead = () => Promise.reject(new Error('shell unavailable'));
++  const failed = await mount();
++  await failed.unmount();
++
++  pendingRead = () => new Promise(() => undefined);
++  try {
++    const next = await mount();
++    expect(next.container.textContent).not.toContain('Paired server');
++    await next.unmount();
++  } finally {
++    pendingRead = null;
++  }
++});
 diff --git a/packages/ui/src/components/desktop/DesktopHostSwitcher.tsx b/packages/ui/src/components/desktop/DesktopHostSwitcher.tsx
-index f40db6035..ebb710980 100644
+index f40db6035..77250c268 100644
 --- a/packages/ui/src/components/desktop/DesktopHostSwitcher.tsx
 +++ b/packages/ui/src/components/desktop/DesktopHostSwitcher.tsx
 @@ -53,6 +53,7 @@ import { scheduleDesktopHostCandidateRefresh } from '@/lib/desktopRelayRestore';
@@ -1849,7 +1998,21 @@ index f40db6035..ebb710980 100644
  import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
  import {
    desktopSshConnect,
-@@ -228,6 +229,8 @@ export function DesktopHostSwitcherDialog({
+@@ -68,6 +69,7 @@ import {
+   waitForSshReady,
+ } from './desktopSshConnection';
+ import { finishSshWindowConnect, finishWindowOpen, hasPendingSshWindowConnect, isWindowOpenPending, startWindowOpen, usePendingWindowOpens } from './desktopWindowOpens';
++import { useDesktopHostList } from './useDesktopHostList';
+ 
+ type HostStatus = DesktopHostStatus;
+ 
+@@ -223,17 +225,17 @@ export function DesktopHostSwitcherDialog({
+   const setSettingsPage = useUIStore((state) => state.setSettingsPage);
+   const isRuntimeConnected = useConfigStore((state) => state.isConnected);
+ 
+-  const [configHosts, setConfigHosts] = React.useState<DesktopHost[]>([]);
+-  const [defaultHostId, setDefaultHostId] = React.useState<string | null>(null);
++  const { configHosts, setConfigHosts, defaultHostId, sshHostIds, hostsShown, hostsCurrent, applyRead, applySaved } = useDesktopHostList();
    const statusSnapshot = React.useSyncExternalStore(subscribeDesktopHostStatuses, getDesktopHostStatusSnapshot, getDesktopHostStatusSnapshot);
    const statusById = statusSnapshot.byHostId;
    const isProbing = statusSnapshot.isProbing;
@@ -1858,7 +2021,53 @@ index f40db6035..ebb710980 100644
    const [isLoading, setIsLoading] = React.useState(false);
    const [isSaving, setIsSaving] = React.useState(false);
    const [switchingHostId, setSwitchingHostId] = React.useState<string | null>(null);
-@@ -348,6 +351,22 @@ export function DesktopHostSwitcherDialog({
+   const openingHostIds = usePendingWindowOpens(setConfigHosts);
+   const sshWindowConnectPending = hasPendingSshWindowConnect(openingHostIds);
+-  const [sshHostIds, setSshHostIds] = React.useState<Record<string, true>>({});
+   const [sshStatusesById, setSshStatusesById] = React.useState<Record<string, DesktopSshInstanceStatus>>({});
+   const [switchModal, setSwitchModal] = React.useState<{
+     open: boolean;
+@@ -296,14 +298,13 @@ export function DesktopHostSwitcherDialog({
+     try {
+       const remote = nextHosts.filter((h) => h.id !== LOCAL_HOST_ID);
+       await desktopHostsSet({ hosts: remote, defaultHostId: nextDefaultHostId });
+-      setConfigHosts(remote);
+-      setDefaultHostId(nextDefaultHostId);
++      applySaved(remote, nextDefaultHostId);
+     } catch (err) {
+       setError(err instanceof Error ? err.message : t('desktopHostSwitcher.error.failedToSave'));
+     } finally {
+       setIsSaving(false);
+     }
+-  }, [t]);
++  }, [applySaved, t]);
+ 
+   const openRemoteInstancesSettings = React.useCallback(() => {
+     setSettingsPage('remote-instances');
+@@ -328,26 +329,38 @@ export function DesktopHostSwitcherDialog({
+       for (const instance of sshCfg.instances) {
+         nextSshHostIds[instance.id] = true;
+       }
+-      setConfigHosts(cfg.hosts || []);
++      applyRead({ hosts: cfg.hosts || [], defaultHostId: cfg.defaultHostId ?? null, sshHostIds: nextSshHostIds });
+       pruneDesktopHostStatuses((cfg.hosts || []).map((host) => host.id));
+-      setDefaultHostId(cfg.defaultHostId ?? null);
+-      setSshHostIds(nextSshHostIds);
+       setSshStatusesById(sshStatusMap);
+     } catch (err) {
+       setError(err instanceof Error ? err.message : t('desktopHostSwitcher.error.failedToLoad'));
+-      setConfigHosts([]);
+-      setDefaultHostId(null);
+-      setSshHostIds({});
++      applyRead(null);
+       setSshStatusesById({});
+     } finally {
+       setIsLoading(false);
+     }
+-  }, [t]);
++  }, [applyRead, t]);
+ 
+   const probeAll = React.useCallback(async (hosts: DesktopHost[]) => {
      await probeDesktopHosts(hosts);
    }, []);
  
@@ -1881,7 +2090,7 @@ index f40db6035..ebb710980 100644
    React.useEffect(() => {
      if (!open) {
        selectionTokenRef.current += 1;
-@@ -368,6 +387,13 @@ export function DesktopHostSwitcherDialog({
+@@ -368,6 +381,13 @@ export function DesktopHostSwitcherDialog({
      void probeAll(allHosts);
    }, [open, allHosts, probeAll]);
  
@@ -1895,7 +2104,7 @@ index f40db6035..ebb710980 100644
    React.useEffect(() => {
      if (!open || !isDesktopShell()) {
        return;
-@@ -831,11 +857,11 @@ export function DesktopHostSwitcherDialog({
+@@ -831,11 +851,11 @@ export function DesktopHostSwitcherDialog({
                  'hover:text-foreground hover:bg-interactive-hover',
                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
                )}
@@ -1909,7 +2118,7 @@ index f40db6035..ebb710980 100644
              </button>
            </div>
          </div>
-@@ -868,10 +894,10 @@ export function DesktopHostSwitcherDialog({
+@@ -868,10 +888,10 @@ export function DesktopHostSwitcherDialog({
                type="button"
                size="sm"
                variant="ghost"
@@ -1922,6 +2131,23 @@ index f40db6035..ebb710980 100644
                {t('desktopHostSwitcher.actions.refresh')}
              </Button>
            </div>
+@@ -888,7 +908,7 @@ export function DesktopHostSwitcherDialog({
+ 
+         <ScrollableOverlay outerClassName="flex-1 min-h-0" disableHorizontal>
+           <div className={cn('space-y-1', embedded && 'space-y-1.5 px-3 py-1')}>
+-            {isLoading ? (
++            {!hostsShown ? (
+               <div className="px-2 py-2 text-muted-foreground text-sm">{t('desktopHostSwitcher.state.loading')}</div>
+             ) : (
+               allHosts.map((host) => {
+@@ -911,6 +931,7 @@ export function DesktopHostSwitcherDialog({
+                 return (
+                   <div
+                     key={host.id}
++                    inert={!hostsCurrent}
+                     className={cn(
+                       'group flex items-center gap-2 px-2.5 py-2 rounded-md overflow-hidden',
+                       embedded && 'rounded-xl px-3 py-2.5',
 diff --git a/packages/ui/src/components/desktop/DesktopInstanceMenu.test.tsx b/packages/ui/src/components/desktop/DesktopInstanceMenu.test.tsx
 new file mode 100644
 index 000000000..4ce964bec
@@ -2387,6 +2613,56 @@ index 542a37075..0583345f4 100644
          </DropdownMenuContent>
        </DropdownMenu>
        <UpdateDialog
+diff --git a/packages/ui/src/components/desktop/useDesktopHostList.ts b/packages/ui/src/components/desktop/useDesktopHostList.ts
+new file mode 100644
+index 000000000..dfbe11814
+--- /dev/null
++++ b/packages/ui/src/components/desktop/useDesktopHostList.ts
+@@ -0,0 +1,44 @@
++import React from 'react';
++import { isDesktopShell } from '@/lib/desktop';
++import type { DesktopHost } from '@/lib/desktopHosts';
++
++type DesktopHostList = {
++  hosts: DesktopHost[];
++  defaultHostId: string | null;
++  sshHostIds: Record<string, true>;
++};
++
++let lastRead: DesktopHostList | null = null;
++
++export const useDesktopHostList = () => {
++  const [configHosts, setConfigHosts] = React.useState<DesktopHost[]>(() => lastRead?.hosts ?? []);
++  const [defaultHostId, setDefaultHostId] = React.useState<string | null>(() => lastRead?.defaultHostId ?? null);
++  const [sshHostIds, setSshHostIds] = React.useState<Record<string, true>>(() => lastRead?.sshHostIds ?? {});
++  const [remembered] = React.useState(() => lastRead !== null);
++  const [readThisOpen, setReadThisOpen] = React.useState(() => !isDesktopShell());
++
++  const applyRead = React.useCallback((list: DesktopHostList | null) => {
++    lastRead = list;
++    setConfigHosts(list?.hosts ?? []);
++    setDefaultHostId(list?.defaultHostId ?? null);
++    setSshHostIds(list?.sshHostIds ?? {});
++    setReadThisOpen(true);
++  }, []);
++
++  const applySaved = React.useCallback((hosts: DesktopHost[], nextDefaultHostId: string | null) => {
++    if (lastRead) lastRead = { ...lastRead, hosts, defaultHostId: nextDefaultHostId };
++    setConfigHosts(hosts);
++    setDefaultHostId(nextDefaultHostId);
++  }, []);
++
++  return {
++    configHosts,
++    setConfigHosts,
++    defaultHostId,
++    sshHostIds,
++    hostsShown: remembered || readThisOpen,
++    hostsCurrent: readThisOpen,
++    applyRead,
++    applySaved,
++  };
++};
 diff --git a/packages/ui/src/components/instance-attention/InstanceAttentionList.test.tsx b/packages/ui/src/components/instance-attention/InstanceAttentionList.test.tsx
 new file mode 100644
 index 000000000..c90f051dc
@@ -2821,6 +3097,102 @@ index 185b93ae0..756b5c957 100644
 +    useInstanceAttentionStore.getState().dropHost(id);
      if (directEditingId === id) {
        setDirectEditingId(null);
+     }
+diff --git a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
+index 05123bf7a..49d4f5b93 100644
+--- a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
++++ b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
+@@ -1423,7 +1423,11 @@ rest it is as quiet as the button was.
+ - Project selection on mount preserves launch navigation, including restored
+   sessions, links and drafts. Only a later user project switch selects that
+   project's remembered session. Unknown ownership keeps the switch pending until
+-  authoritative maps can resolve it.
++  authoritative maps can resolve it, and a project with no rows yet keeps the
++  open session instead of opening a draft: opening a session can activate its
++  project before that project's rows arrive. While a session is held across a
++  host switch (`sync/pending-session-open.ts`), a project change selects
++  nothing; the held session decides the project when it opens.
+ - A containing worktree may label a session only when it belongs to that session's
+   resolved project. Live branch lookup also checks the containing worktree root
+   for subdirectory sessions, whose own directory rarely has a Git status entry.
+diff --git a/packages/ui/src/components/session/sidebar/projects/useProjectSessionSelection.test.tsx b/packages/ui/src/components/session/sidebar/projects/useProjectSessionSelection.test.tsx
+index a5869d773..77edfdacb 100644
+--- a/packages/ui/src/components/session/sidebar/projects/useProjectSessionSelection.test.tsx
++++ b/packages/ui/src/components/session/sidebar/projects/useProjectSessionSelection.test.tsx
+@@ -4,6 +4,8 @@ import { createRoot, type Root } from 'react-dom/client';
+ import { Window } from 'happy-dom';
+ import { useSessionUIStore } from '@/sync/session-ui-store';
+ import { useUIStore } from '@/stores/useUIStore';
++import { getRuntimeKey } from '@/lib/runtime-switch';
++import { holdSessionOpen, releaseSessionOpen } from '@/sync/pending-session-open';
+ import { ProjectSessionSelectionEffect } from './useProjectSessionSelection';
+ 
+ type Props = React.ComponentProps<typeof ProjectSessionSelectionEffect>;
+@@ -98,6 +100,32 @@ test('an empty destination opens a draft in that project', async () => {
+   expect(drafts).toEqual([{ selectedProjectId: 'b', directoryOverride: '/b' }]);
+ });
+ 
++test('a session opened in a project whose rows have not arrived stays open', async () => {
++  // Owner not known yet, and the project it opened in has no rows: nothing
++  // says the session belongs elsewhere, so it must not become a draft.
++  await render({ sessionOwnerBySessionId: new Map() });
++  await render({
++    projectSections: [section('a', ['a-first']), { project: { id: 'b', normalizedPath: '/b' }, groups: [] }],
++    activeProjectId: 'b',
++  });
++  expect(selections).toEqual([]);
++  expect(drafts).toEqual([]);
++});
++
++test('a session held across a host switch keeps the sidebar from picking one', async () => {
++  // The switch restores that host's saved project; the held session decides
++  // the project once it opens, so the sidebar must not select from it first.
++  const held = holdSessionOpen({ runtimeKey: getRuntimeKey(), sessionId: 'ses_held', directory: '/b' });
++  try {
++    await render();
++    await render({ activeProjectId: 'b' });
++    expect(selections).toEqual([]);
++    expect(drafts).toEqual([]);
++  } finally {
++    releaseSessionOpen(held);
++  }
++});
++
+ test('same-project ownership keeps a worktree session absent from stale rows selected', async () => {
+   await render({ sessionOwnerBySessionId: new Map() });
+   await render({ activeProjectId: 'b' });
+diff --git a/packages/ui/src/components/session/sidebar/projects/useProjectSessionSelection.ts b/packages/ui/src/components/session/sidebar/projects/useProjectSessionSelection.ts
+index 0e6d7b658..fff40b675 100644
+--- a/packages/ui/src/components/session/sidebar/projects/useProjectSessionSelection.ts
++++ b/packages/ui/src/components/session/sidebar/projects/useProjectSessionSelection.ts
+@@ -4,6 +4,7 @@ import type { SessionGroup, SessionNode } from '../types';
+ import { normalizePath } from '../utils';
+ import { useUIStore } from '@/stores/useUIStore';
+ import { useSessionUIStore } from '@/sync/session-ui-store';
++import { isSessionOpenHeld } from '@/sync/pending-session-open';
+ 
+ type ProjectSection = {
+   project: { id: string; normalizedPath: string };
+@@ -64,6 +65,9 @@ function resolveMissingProjectSessionSelection<T>({
+   }
+ 
+   if (!projectMap || projectMap.size === 0) {
++    if (currentSessionId && currentSessionOwnerProjectId == null) {
++      return { kind: 'preserve-current' };
++    }
+     return { kind: 'open-draft' };
+   }
+ 
+@@ -148,6 +152,10 @@ const useProjectSessionSelection = (args: Args): void => {
+       return;
+     }
+ 
++    if (isSessionOpenHeld()) {
++      return;
++    }
++
+     if (previousActiveProjectRef.current === activeProjectId) {
+       return;
      }
 diff --git a/packages/ui/src/hooks/instanceAttentionVisibility.test.ts b/packages/ui/src/hooks/instanceAttentionVisibility.test.ts
 new file mode 100644
@@ -3554,7 +3926,7 @@ index 000000000..f15a3a013
 +});
 diff --git a/packages/ui/src/hooks/useInstanceAttentionPolling.ts b/packages/ui/src/hooks/useInstanceAttentionPolling.ts
 new file mode 100644
-index 000000000..31ba28a2f
+index 000000000..a66a6a7ea
 --- /dev/null
 +++ b/packages/ui/src/hooks/useInstanceAttentionPolling.ts
 @@ -0,0 +1,495 @@
@@ -3623,7 +3995,7 @@ index 000000000..31ba28a2f
 +  await Promise.all([...refreshListeners].map((listener) => listener()));
 +};
 +
-+const subscribeInstanceAttentionRefresh = (listener: InstanceAttentionRefreshListener): (() => void) => {
++export const subscribeInstanceAttentionRefresh = (listener: InstanceAttentionRefreshListener): (() => void) => {
 +  refreshListeners.add(listener);
 +  return () => {
 +    refreshListeners.delete(listener);
@@ -4342,23 +4714,28 @@ index 000000000..222afb33f
 +});
 diff --git a/packages/ui/src/hooks/useLocalInstanceAttention.ts b/packages/ui/src/hooks/useLocalInstanceAttention.ts
 new file mode 100644
-index 000000000..6e2cc6324
+index 000000000..1ef49a468
 --- /dev/null
 +++ b/packages/ui/src/hooks/useLocalInstanceAttention.ts
-@@ -0,0 +1,136 @@
+@@ -0,0 +1,165 @@
 +import React from 'react';
 +
 +import { useI18n } from '@/lib/i18n';
++import { opencodeClient } from '@/lib/opencode/client';
++import { normalizePath } from '@/lib/pathNormalization';
++import { planStalePendingForms } from '@/lib/pendingFormVerification';
++import { getRuntimeKey } from '@/lib/runtime-switch';
 +import { LOCAL_INSTANCE_ATTENTION_HOST_ID, type InstancePendingCounts } from '@/lib/instanceAttention';
 +import { localInstanceAttentionPoll } from '@/lib/localInstanceAttention';
 +import { useBackgroundImagesStore } from '@/sync/background-images';
 +import { useBackgroundShellsStore } from '@/sync/background-shells';
-+import { useGlobalBlockingRequestsStore } from '@/sync/global-blocking-requests';
++import { settleGlobalBlockingRequest, useGlobalBlockingRequestsStore } from '@/sync/global-blocking-requests';
 +import { collectOpenTurnSessionIds, useGlobalSessionStatusStore } from '@/sync/global-session-status';
 +import { usePrWatchStore } from '@/sync/pr-watch';
 +import { isSessionAdmitted } from '@/sync/session-admission';
 +import { useWorkflowActivityStore } from '@/sync/workflow-activity';
 +import { useGlobalSessionsStore, ensureGlobalSessionsLoaded } from '@/stores/useGlobalSessionsStore';
++import { subscribeInstanceAttentionRefresh } from './useInstanceAttentionPolling';
 +import { useInstanceAttentionStore } from '@/stores/useInstanceAttentionStore';
 +import { useProjectsStore } from '@/stores/useProjectsStore';
 +import type { Session } from '@/lib/opencode/model';
@@ -4421,6 +4798,30 @@ index 000000000..6e2cc6324
 +    [enabled],
 +  ));
 +  const loaded = useGlobalSessionsStore((state) => state.hasLoaded);
++
++  React.useEffect(() => {
++    if (!enabled) return;
++    const verify = async (): Promise<void> => {
++      const runtimeKey = getRuntimeKey();
++      const pending = useGlobalBlockingRequestsStore.getState().bySession;
++      const sessionsById = useGlobalSessionsStore.getState().entityById;
++      const stale = await planStalePendingForms(
++        pending,
++        (sessionId) => normalizePath(sessionsById.get(sessionId)?.directory ?? null),
++        async (directory) => {
++          try {
++            return await opencodeClient.listPendingForms({ directories: [directory] });
++          } catch {
++            return null;
++          }
++        },
++      );
++      if (runtimeKey !== getRuntimeKey()) return;
++      for (const { sessionId, formId } of stale) settleGlobalBlockingRequest('form', sessionId, formId);
++    };
++    void verify();
++    return subscribeInstanceAttentionRefresh(verify);
++  }, [enabled]);
 +
 +  React.useEffect(() => {
 +    if (!enabled || loaded) return;
@@ -4546,13 +4947,29 @@ index 000000000..aeae23569
 +  }, [enabled]);
 +};
 diff --git a/packages/ui/src/lib/DOCUMENTATION.md b/packages/ui/src/lib/DOCUMENTATION.md
-index 978d44ebe..2883223eb 100644
+index 0a5ba44b3..31e1bf87c 100644
 --- a/packages/ui/src/lib/DOCUMENTATION.md
 +++ b/packages/ui/src/lib/DOCUMENTATION.md
-@@ -190,3 +190,25 @@ The library owns shared session metadata readers, runtime transport and credenti
- ### Why candidate and asset reads bypass the runtime bridge
+@@ -100,7 +100,6 @@ The library owns shared session metadata readers, runtime transport and credenti
+ - A forked session's canonical directory is the prompt's directory. Directory-child insertion normalizes Windows paths and remains necessary alongside the global metadata upsert.
+ - A btw fork without its first question is unusable and is unlinked before deletion. Destruction unlinks first so a failed deletion cannot keep the parent's panel open; rename failure alone does not invalidate the fork.
+ - Ordinary user forks drop source-owned links and scheduled-run markers, retain content metadata, and pause active goals so two sessions cannot pursue the same goal unattended. File-backed objectives are copied only while the fork still owns the same goal; repair failure leaves the already usable fork intact.
+-- Forks map inherited context pins to copied messages when complete reads identify an unambiguous match. A temporary page-read failure gets one retry on the same runtime. If the read still fails, the pins stay untouched.
+ - Work hints and assists describe only the latest idle turn and remain hidden during live work. Revert invalidates the assist, and a later idle timestamp retires stale hints even when a clearing event is missed.
+ - Stored turn duration applies only to the idle transition it names. Metadata and session-record caches rely on immutable replacement; cached parsed data is shared read-only.
+ - Display lineage follows same-folder work origins with cycle protection; plain forks and multi-run lanes remain roots. VS Code uses OpenCode parentage alone, and display lineage never changes server subsession semantics.
+@@ -176,7 +175,6 @@ The library owns shared session metadata readers, runtime transport and credenti
+ - Background network lanes share one fixed aggregate budget with reserved session-list capacity so slow Git and discovery reads cannot fill the browser pool and block interactive session opening. Retired work resolves as unavailable, never authoritative empty success.
+ - Project action selections persist per runtime and project because the panel remounts. A deduplicated terminal response belongs to its creating peer, and directory listings use the same normalized keys as every terminal surface.
+ - Terminal sockets stay open briefly through tab switches to avoid repeated auth, upgrades and replay. Frame decompression preserves arrival order, adjacent output joins before encoding to retain split surrogates, and accepted resizes update retained snapshot geometry. A failed gzip snapshot retries through a fresh attach without compression; pre-open auth failure discards the stale URL token.
+-- A browser host terminal with no bearer, extra runtime headers, or relay first checks the resolver's same-origin `/auth/session`; a confirmed tunnel scope opens its same-origin cookie-backed socket without minting a URL token. Other runtimes and space terminals keep URL-token authentication.
+ - Preview extraction preserves announced paths and offers every announced server because output chunk order cannot decide which app the user meant. Inferred commands require announcements; loose fallback candidates stay local. Portless names replace their underlying loopback port only where those names resolve on the correct machine; server probes remain loopback-only.
+ - Project-action URL variables distinguish linked worktrees from the primary checkout. An unreadable linked branch fails instead of opening the main app, empty variables remove their separators, and truncated labels use a hash where secure-context crypto exists.
+ - Code row heights stay on whole pixels across editor and diff views because fractional rows drift under virtualization. Mobile retains its pinned code sizing. Theme-derived agent colors allocate from the complete roster; sparse palettes reuse syntax roles, and legacy migrated `#aaaaaa` means no configured agent color.
+@@ -220,3 +218,32 @@ Pairing and connection checks address a server before selecting it. Routing them
+ ### Why a pairing link is cleaned around its edges and inside `p` only, and not across the whole text
  
- Pairing and connection checks address a server before selecting it. Routing them through the active runtime could redeem a secret on the wrong server or attach that runtime's credentials. Bundled assets belong to the local UI build, while external and data/blob URLs retain their own destination. `fetchBypassingRuntimeBridge` preserves these requests without active-runtime URL rewriting or auth injection.
+ A link moved between machines picks up characters it never holds: line breaks from a wrapped mail or terminal line (a text field turns them into spaces), zero-width spaces and word joiners from chat apps, direction marks, a byte order mark. `parsePairingConnectionPayload` and `parsePairingConnectionPayloadString` drop whitespace, control and format characters around the text and from the decoded `p` value, which also covers the percent-encoded forms macOS hands over (`%0A`, `%E2%80%8B`). Removing them from the whole text was rejected: `& p=A&p=B` would become `&p=A&p=B`, and this parser would read A while the desktop shell, which confirms the server from the text as it came, showed B. The browser's `atob` refuses these characters where Node's `Buffer` skips them, so without the cleaning the shell's confirmation dialog accepts a link the window then rejects.
 +
 +## Cross-instance attention
 +
@@ -4563,10 +4980,13 @@ index 978d44ebe..2883223eb 100644
 +### Invariants
 +
 +- Both halves apply one folder rule, so the drawer cannot show a session the instance on screen hides. The local half filters with `isSessionAdmitted`; a polled half filters with the folders that host reports. A host that cannot answer (an unreadable settings or home route) leaves its rows standing rather than reading as "no folders", while a host that answers without any project is a real answer and admits only chats roots and spaces.
++- `lib/pendingFormVerification.ts` decides which indexed forms the server's own form list no longer holds: the host's cross-directory index keeps a form whose settlement event it missed (a question tool call that ended `error` never sent one), so the drawer asks OpenCode again for the directories of the forms it would show. A directory that could not be read keeps its forms, since absence from an unreadable answer proves nothing. The local half applies the plan and settles the index; a polled host's rows are filtered from the same answer inside the reader.
++- A pending form is checked against OpenCode's own form list before it becomes a row: the host's cross-directory index keeps a form whose settlement event it missed (a question tool call that ended `error` never sent one), so a polled host's rows are filtered by `/api/form` for that host, and the local half settles the index's stale forms from the same read when it mounts or the drawer is refreshed. A failed read keeps the form, since absence from an unreadable answer proves nothing.
 +- The local half reads this window's own session list when the store holds none. A host switch clears that list, and the phone has no global poller to refill it, so without the read the drawer showed only the other instances' rows until the sessions sheet was opened.
 +- The polled folders are the host's projects, the worktrees it lists under them, its chats roots, a `/spaces/<id>` folder and a deleted space's archived chats. A worktree outside every project path is the local half's normal case, so the poll reads `/api/git/project-worktrees` for it; when that read fails the project paths stand alone. A request whose session fell outside the 200-record page is resolved through its own detail route before the rule judges it, so a genuine request in a registered folder is kept and one in an unregistered folder is not shown.
 +- The app's own server is a poll target (`local`) only while the window shows a saved host and its page can reach that server (`pageReachesLocalOrigin`: the packaged UI, or a page already on the local origin). A page another instance served is cross-origin to the local server, so it has to be reloaded into the Local UI before it can read this machine; reading it anyway would report Local as unreachable. The read goes straight to the shell's local origin with the local client token and no shared probe, because the shell either runs that loopback server or reports none. The reserved `openchamber:this-instance` entry still names the instance on screen, so the two never describe the same server. The row label is the switcher's own key (`desktopHostSwitcher.instance.local`), so both surfaces name that server the same way in every locale.
 +- A jump to the app's own server goes through `activateLocalHost`, not the saved-host lookup, which does not hold Local. The endpoint switches in place on the app's own pages and the clicked session opens; the shell's reload branch is the fallback for a page that cannot switch in place.
++- A jump to another instance holds the clicked session for the target runtime key before switching (`sync/pending-session-open.ts`) and opens it only after the switch landed on that key, the new instance has its project list, and the session has been read by id. An activation that did not switch (a relay restore that stopped: no shell, host gone, already active) or that left another runtime active is not a jump: the hold is released and the row stays. A session the new instance cannot open (gone, or its folder not added) shows a toast instead of leaving the user on another session.
 +- A poll names no directory, so it never starts an OpenCode location or an MCP server. It uses the saved host's own address, client token and request headers.
 +- Reachability is the shared answer (`lib/desktopHostStatus.ts` `probeHost`), not a second probe. A relay answer hands its tunnel to the read, which closes it afterwards; a blocked status (`unreachable`, `wrong-service`, `incompatible`, `relay-limit`) reads nothing.
 +- Relay identity comes from `descriptorsEqual` in `lib/relay/runtime-tunnel.ts`, so the switcher's relay and the poller's relay cannot disagree.
@@ -4575,6 +4995,10 @@ index 978d44ebe..2883223eb 100644
 +- A failed poll keeps the host's last known items and marks it unreachable; a partial answer keeps the half that answered. Offline reads nothing and waits at the retry cap. A failed host backs off, and a hidden window schedules no further cycle.
 +- Removing a saved instance drops its rows; a tap on an unreachable host, or one no longer saved, keeps the surface open instead of switching blind.
 +- The runtime gate is deliberate: desktop and mobile run the pollers, while web and VS Code do not show cross-instance attention because neither owns a saved-instance switcher.
++
++### Why a jump holds the session across the switch and not selects it at click time
++
++The click runs on the old instance; right after the switch the new one has neither its project list nor its session list, so a session in a folder it does not know yet could not be selected and its deferred open was cancelled by whatever selected next: the switch's own restore of that runtime's last session, the launch restore, the settings bootstrap adopting the saved active project, or the sidebar reacting to that project. The user landed on the previous session or a draft. The held open opens through the same opener a `?session=` route uses, after the bootstrap settings sync, and those automatic writers stand aside while it is held; any navigation by the user drops it.
 diff --git a/packages/ui/src/lib/attentionDirectories.test.ts b/packages/ui/src/lib/attentionDirectories.test.ts
 new file mode 100644
 index 000000000..a6d864b12
@@ -4694,7 +5118,7 @@ index 000000000..6270a26cb
 +    || directories.roots.some((root) => holds(normalized, root));
 +};
 diff --git a/packages/ui/src/lib/desktopCurrentHost.ts b/packages/ui/src/lib/desktopCurrentHost.ts
-index 4de7b840c..a118eae2d 100644
+index 4de7b840c..f8644eb60 100644
 --- a/packages/ui/src/lib/desktopCurrentHost.ts
 +++ b/packages/ui/src/lib/desktopCurrentHost.ts
 @@ -10,6 +10,16 @@ import { getRuntimeApiBaseUrl, getRuntimeKey } from '@/lib/runtime-switch';
@@ -4714,17 +5138,19 @@ index 4de7b840c..a118eae2d 100644
  export const getLocalDesktopOrigin = (): string => {
    if (typeof window === 'undefined') return '';
    return window.__OPENCHAMBER_LOCAL_ORIGIN__?.trim() || '';
-@@ -20,7 +30,7 @@ export const withLocalDesktopHost = (hosts: DesktopHost[], localOrigin: string |
+@@ -19,8 +29,8 @@ export const withLocalDesktopHost = (hosts: DesktopHost[], localOrigin: string |
+   localOrigin ? [{ id: LOCAL_HOST_ID, label: 'Local', url: localOrigin }, ...hosts] : hosts
  );
  
- export const runtimeKeyForDesktopHost = (host: DesktopHost): string => {
+-export const runtimeKeyForDesktopHost = (host: DesktopHost): string => {
 -  if (host.id === LOCAL_HOST_ID) return 'local';
++export const runtimeKeyForDesktopHost = (host: Pick<DesktopHost, 'id'>): string => {
 +  if (host.id === LOCAL_HOST_ID) return LOCAL_RUNTIME_KEY;
    return `host:${host.id}`;
  };
  
 diff --git a/packages/ui/src/lib/desktopHostActions.ts b/packages/ui/src/lib/desktopHostActions.ts
-index a3cf3d32e..2cf170544 100644
+index a3cf3d32e..78e172cb6 100644
 --- a/packages/ui/src/lib/desktopHostActions.ts
 +++ b/packages/ui/src/lib/desktopHostActions.ts
 @@ -1,7 +1,23 @@
@@ -4753,7 +5179,7 @@ index a3cf3d32e..2cf170544 100644
  import { restoreDesktopRelayRuntime } from '@/lib/desktopRelayRestore';
  import { switchRuntimeEndpoint } from '@/lib/runtime-switch';
  
-@@ -13,7 +29,13 @@ const failureOf = (message: string): HostActionFailure => {
+@@ -13,13 +29,18 @@ const failureOf = (message: string): HostActionFailure => {
    return 'failed';
  };
  
@@ -4762,16 +5188,28 @@ index a3cf3d32e..2cf170544 100644
 + * Switches this window to a saved host. Relay hosts go through the E2EE tunnel
 + * restore; every other host switches the runtime endpoint in place. Shared with
 + * the sidebar's cross-instance attention jump, which needs the same switch
-+ * without opening the instance switcher.
++ * without opening the instance switcher. Answers whether the window switched:
++ * the relay restore can stop without switching (no shell, host gone, already
++ * active), and a caller must not act as if it had moved.
 + */
-+export const activateHost = async (hostId: string, options?: { reconnectActive?: boolean }): Promise<void> => {
++export const activateHost = async (hostId: string, options?: { reconnectActive?: boolean }): Promise<boolean> => {
    const host = (await desktopHostsGet()).hosts.find((entry) => entry.id === hostId);
    if (!host) throw new Error('host-not-found');
-   if (host.relay) {
-@@ -31,6 +53,31 @@ const activateHost = async (hostId: string, options?: { reconnectActive?: boolea
+-  if (host.relay) {
+-    await restoreDesktopRelayRuntime(host.id, options);
+-    return;
+-  }
++  if (host.relay) return restoreDesktopRelayRuntime(host.id, options);
+   const apiBaseUrl = normalizeHostUrl(getDesktopHostApiUrl(host));
+   if (!apiBaseUrl) throw new Error('host-not-found');
+   switchRuntimeEndpoint({
+@@ -29,6 +50,32 @@ const activateHost = async (hostId: string, options?: { reconnectActive?: boolea
+     runtimeKey: runtimeKeyForDesktopHost(host),
+     sshForwarded: host.sshForwarded === true,
    });
- };
- 
++  return true;
++};
++
 +/**
 + * Switches this window to the app's own server. The shell loads the Local UI
 + * into the window when the page belongs to another instance; on the app's own
@@ -4795,11 +5233,9 @@ index a3cf3d32e..2cf170544 100644
 +    runtimeKey: LOCAL_RUNTIME_KEY,
 +  });
 +  return true;
-+};
-+
+ };
+ 
  const pairAndActivate = async (link: string): Promise<void> => {
-   const config = await desktopHostsGet();
-   const imported = await importDesktopHostPairing(link, config.hosts);
 diff --git a/packages/ui/src/lib/desktopHostStatus.ts b/packages/ui/src/lib/desktopHostStatus.ts
 index 2fd918be1..dfeff2703 100644
 --- a/packages/ui/src/lib/desktopHostStatus.ts
@@ -4851,8 +5287,63 @@ index 2fd918be1..dfeff2703 100644
      return status;
    };
  
+diff --git a/packages/ui/src/lib/desktopRelayRestore.ts b/packages/ui/src/lib/desktopRelayRestore.ts
+index 0f2508216..3edbfdb66 100644
+--- a/packages/ui/src/lib/desktopRelayRestore.ts
++++ b/packages/ui/src/lib/desktopRelayRestore.ts
+@@ -92,16 +92,16 @@ export const scheduleDesktopHostCandidateRefresh = (hostId: string): void => {
+ export const restoreDesktopRelayRuntime = async (
+   targetHostId?: string,
+   options?: { reconnectActive?: boolean },
+-): Promise<void> => {
+-  if (!isElectronShell()) return;
++): Promise<boolean> => {
++  if (!isElectronShell()) return false;
+   const config = await desktopHostsGet().catch(() => null);
+-  if (!config) return;
++  if (!config) return false;
+   const hostId = targetHostId || (config.defaultHostId !== 'local' ? config.defaultHostId : null);
+-  if (!hostId) return;
++  if (!hostId) return false;
+   const host = config.hosts.find((entry) => entry.id === hostId);
+-  if (!host?.relay) return;
++  if (!host?.relay) return false;
+   const runtimeKey = `host:${host.id}`;
+-  if (getRuntimeKey() === runtimeKey && !options?.reconnectActive) return;
++  if (getRuntimeKey() === runtimeKey && !options?.reconnectActive) return false;
+ 
+   const switchToDirect = (url: string) => {
+     switchRuntimeEndpoint({
+@@ -124,7 +124,7 @@ export const restoreDesktopRelayRuntime = async (
+   const directUrl = host.apiUrl ? normalizeHostUrl(getDesktopHostApiUrl(host)) : null;
+   if (!directUrl) {
+     switchToRelay();
+-    return;
++    return true;
+   }
+ 
+   const probeOk = (probe: { status: string }) =>
+@@ -142,10 +142,10 @@ export const restoreDesktopRelayRuntime = async (
+   if (winner) {
+     if (probeOk(winner)) {
+       switchToDirect(directUrl);
+-      return;
++      return true;
+     }
+     switchToRelay();
+-    return;
++    return true;
+   }
+ 
+   switchToRelay();
+@@ -154,4 +154,5 @@ export const restoreDesktopRelayRuntime = async (
+     if (getRuntimeKey() !== runtimeKey) return;
+     switchToDirect(directUrl);
+   });
++  return true;
+ };
 diff --git a/packages/ui/src/lib/i18n/messages/ar.ts b/packages/ui/src/lib/i18n/messages/ar.ts
-index 7355d62d3..f11280a46 100644
+index 9a1929cb9..2eb9cd693 100644
 --- a/packages/ui/src/lib/i18n/messages/ar.ts
 +++ b/packages/ui/src/lib/i18n/messages/ar.ts
 @@ -44,6 +44,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
@@ -4863,7 +5354,7 @@ index 7355d62d3..f11280a46 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -4011,6 +4012,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -4018,6 +4019,7 @@ export const dict: Record<I18nKey, string> = {
    ...androidWidgetsI18n.ar,
    ...snippetsI18n.ar,
    ...sidebarWorkI18n.ar,
@@ -4872,7 +5363,7 @@ index 7355d62d3..f11280a46 100644
    ...worktreeArchiveI18n.ar,
    ...operatorChildrenI18n.ar,
 diff --git a/packages/ui/src/lib/i18n/messages/de.ts b/packages/ui/src/lib/i18n/messages/de.ts
-index 552c17294..26e2430fe 100644
+index dfc68141f..6912f57eb 100644
 --- a/packages/ui/src/lib/i18n/messages/de.ts
 +++ b/packages/ui/src/lib/i18n/messages/de.ts
 @@ -43,6 +43,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
@@ -4883,7 +5374,7 @@ index 552c17294..26e2430fe 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -245,6 +246,7 @@ export const dict = {
+@@ -247,6 +248,7 @@ export const dict = {
    ...androidWidgetsI18n.de,
    ...snippetsI18n.de,
    ...sidebarWorkI18n.de,
@@ -4892,7 +5383,7 @@ index 552c17294..26e2430fe 100644
    ...worktreeArchiveI18n.de,
    ...operatorChildrenI18n.de,
 diff --git a/packages/ui/src/lib/i18n/messages/en.ts b/packages/ui/src/lib/i18n/messages/en.ts
-index 472bc25c2..66387edc4 100644
+index 0e096e54b..4b92408a9 100644
 --- a/packages/ui/src/lib/i18n/messages/en.ts
 +++ b/packages/ui/src/lib/i18n/messages/en.ts
 @@ -43,6 +43,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
@@ -4903,7 +5394,7 @@ index 472bc25c2..66387edc4 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -245,6 +246,7 @@ export const dict = {
+@@ -247,6 +248,7 @@ export const dict = {
    ...androidWidgetsI18n.en,
    ...snippetsI18n.en,
    ...sidebarWorkI18n.en,
@@ -4912,7 +5403,7 @@ index 472bc25c2..66387edc4 100644
    ...worktreeArchiveI18n.en,
    ...operatorChildrenI18n.en,
 diff --git a/packages/ui/src/lib/i18n/messages/es.ts b/packages/ui/src/lib/i18n/messages/es.ts
-index a7948b064..499c1fa16 100644
+index 161f78554..80fecc175 100644
 --- a/packages/ui/src/lib/i18n/messages/es.ts
 +++ b/packages/ui/src/lib/i18n/messages/es.ts
 @@ -44,6 +44,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
@@ -4923,7 +5414,7 @@ index a7948b064..499c1fa16 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -256,6 +257,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -258,6 +259,7 @@ export const dict: Record<I18nKey, string> = {
    ...androidWidgetsI18n.es,
    ...snippetsI18n.es,
    ...sidebarWorkI18n.es,
@@ -4932,7 +5423,7 @@ index a7948b064..499c1fa16 100644
    ...worktreeArchiveI18n.es,
    ...operatorChildrenI18n.es,
 diff --git a/packages/ui/src/lib/i18n/messages/fr.ts b/packages/ui/src/lib/i18n/messages/fr.ts
-index b184f7473..34a9547f4 100644
+index ae7188a77..4c0c4a679 100644
 --- a/packages/ui/src/lib/i18n/messages/fr.ts
 +++ b/packages/ui/src/lib/i18n/messages/fr.ts
 @@ -43,6 +43,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
@@ -4943,7 +5434,7 @@ index b184f7473..34a9547f4 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -245,6 +246,7 @@ export const dict = {
+@@ -247,6 +248,7 @@ export const dict = {
    ...androidWidgetsI18n.fr,
    ...snippetsI18n.fr,
    ...sidebarWorkI18n.fr,
@@ -4952,7 +5443,7 @@ index b184f7473..34a9547f4 100644
    ...worktreeArchiveI18n.fr,
    ...operatorChildrenI18n.fr,
 diff --git a/packages/ui/src/lib/i18n/messages/he.ts b/packages/ui/src/lib/i18n/messages/he.ts
-index b5f2c8a2e..e4108ad28 100644
+index 06d20d41a..2c60f22c4 100644
 --- a/packages/ui/src/lib/i18n/messages/he.ts
 +++ b/packages/ui/src/lib/i18n/messages/he.ts
 @@ -43,6 +43,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
@@ -4963,7 +5454,7 @@ index b5f2c8a2e..e4108ad28 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -4010,6 +4011,7 @@ export const dict = {
+@@ -4017,6 +4018,7 @@ export const dict = {
    ...androidWidgetsI18n.he,
    ...snippetsI18n.he,
    ...sidebarWorkI18n.he,
@@ -5014,10 +5505,10 @@ index 000000000..67b392d8e
 +});
 diff --git a/packages/ui/src/lib/i18n/messages/instance-attention.i18n.ts b/packages/ui/src/lib/i18n/messages/instance-attention.i18n.ts
 new file mode 100644
-index 000000000..757697858
+index 000000000..2fbf02790
 --- /dev/null
 +++ b/packages/ui/src/lib/i18n/messages/instance-attention.i18n.ts
-@@ -0,0 +1,198 @@
+@@ -0,0 +1,213 @@
 +/** Attention: every session that needs the user, on this instance and the saved ones. Merged into each locale's main dictionary. */
 +export const instanceAttentionI18n = {
 +  en: {
@@ -5032,6 +5523,7 @@ index 000000000..757697858
 +    'instanceAttention.kind.failed': 'Failed',
 +    'instanceAttention.kind.unread': 'Unread',
 +    'instanceAttention.unreachable': 'No answer from {instances}; showing their last known items.',
++    'instanceAttention.openFailed': 'Could not open the session on {instance}. It may have been deleted there, or its folder was not added.',
 +  },
 +  de: {
 +    'instanceAttention.ariaOne': '{count} Sitzung wartet auf dich',
@@ -5045,6 +5537,7 @@ index 000000000..757697858
 +    'instanceAttention.kind.failed': 'Fehlgeschlagen',
 +    'instanceAttention.kind.unread': 'Ungelesen',
 +    'instanceAttention.unreachable': 'Keine Antwort von {instances}; die zuletzt bekannten Einträge werden angezeigt.',
++    'instanceAttention.openFailed': 'Die Sitzung auf {instance} konnte nicht geöffnet werden. Sie wurde dort vielleicht gelöscht, oder ihr Ordner wurde nicht hinzugefügt.',
 +  },
 +  fr: {
 +    'instanceAttention.ariaOne': '{count} session vous attend',
@@ -5058,6 +5551,7 @@ index 000000000..757697858
 +    'instanceAttention.kind.failed': 'Échec',
 +    'instanceAttention.kind.unread': 'Non lu',
 +    'instanceAttention.unreachable': 'Pas de réponse de {instances} ; les derniers éléments connus sont affichés.',
++    'instanceAttention.openFailed': 'Impossible d\'ouvrir la session sur {instance}. Elle a peut-être été supprimée, ou son dossier n\'a pas été ajouté.',
 +  },
 +  nl: {
 +    'instanceAttention.ariaOne': '{count} sessie wacht op je',
@@ -5071,6 +5565,7 @@ index 000000000..757697858
 +    'instanceAttention.kind.failed': 'Mislukt',
 +    'instanceAttention.kind.unread': 'Ongelezen',
 +    'instanceAttention.unreachable': 'Geen antwoord van {instances}; de laatst bekende items worden getoond.',
++    'instanceAttention.openFailed': 'De sessie op {instance} kon niet worden geopend. Mogelijk is ze daar verwijderd, of is de map niet toegevoegd.',
 +  },
 +  es: {
 +    'instanceAttention.ariaOne': '{count} sesión te está esperando',
@@ -5084,6 +5579,7 @@ index 000000000..757697858
 +    'instanceAttention.kind.failed': 'Fallida',
 +    'instanceAttention.kind.unread': 'Sin leer',
 +    'instanceAttention.unreachable': 'Sin respuesta de {instances}; se muestran los últimos elementos conocidos.',
++    'instanceAttention.openFailed': 'No se pudo abrir la sesión en {instance}. Puede que se haya eliminado allí o que su carpeta no se haya añadido.',
 +  },
 +  'pt-BR': {
 +    'instanceAttention.ariaOne': '{count} sessão está aguardando você',
@@ -5097,6 +5593,7 @@ index 000000000..757697858
 +    'instanceAttention.kind.failed': 'Falhou',
 +    'instanceAttention.kind.unread': 'Não lida',
 +    'instanceAttention.unreachable': 'Sem resposta de {instances}; os últimos itens conhecidos são exibidos.',
++    'instanceAttention.openFailed': 'Não foi possível abrir a sessão em {instance}. Ela pode ter sido excluída lá, ou a pasta dela não foi adicionada.',
 +  },
 +  ja: {
 +    'instanceAttention.ariaOne': '{count} 件のセッションがあなたの対応を待っています',
@@ -5110,6 +5607,7 @@ index 000000000..757697858
 +    'instanceAttention.kind.failed': '失敗',
 +    'instanceAttention.kind.unread': '未読',
 +    'instanceAttention.unreachable': '{instances} から応答がありません。最後に確認した項目を表示しています。',
++    'instanceAttention.openFailed': '{instance} のセッションを開けませんでした。削除されたか、フォルダーが追加されていない可能性があります。',
 +  },
 +  ko: {
 +    'instanceAttention.ariaOne': '{count}개의 세션이 당신의 응답을 기다리고 있습니다',
@@ -5123,6 +5621,7 @@ index 000000000..757697858
 +    'instanceAttention.kind.failed': '실패',
 +    'instanceAttention.kind.unread': '읽지 않음',
 +    'instanceAttention.unreachable': '{instances}에서 응답이 없습니다. 마지막으로 확인된 항목을 표시합니다.',
++    'instanceAttention.openFailed': '{instance}의 세션을 열 수 없습니다. 삭제되었거나 해당 폴더가 추가되지 않았을 수 있습니다.',
 +  },
 +  pl: {
 +    'instanceAttention.ariaOne': '{count} sesja czeka na Ciebie',
@@ -5136,6 +5635,7 @@ index 000000000..757697858
 +    'instanceAttention.kind.failed': 'Niepowodzenie',
 +    'instanceAttention.kind.unread': 'Nieprzeczytane',
 +    'instanceAttention.unreachable': 'Brak odpowiedzi od {instances}; pokazano ostatnie znane pozycje.',
++    'instanceAttention.openFailed': 'Nie udało się otworzyć sesji na {instance}. Mogła zostać tam usunięta albo jej folder nie został dodany.',
 +  },
 +  uk: {
 +    'instanceAttention.ariaOne': '{count} сесія чекає на вас',
@@ -5149,6 +5649,7 @@ index 000000000..757697858
 +    'instanceAttention.kind.failed': 'Помилка',
 +    'instanceAttention.kind.unread': 'Непрочитане',
 +    'instanceAttention.unreachable': 'Немає відповіді від {instances}; показано останні відомі елементи.',
++    'instanceAttention.openFailed': 'Не вдалося відкрити сесію на {instance}. Можливо, її там видалено або її теку не додано.',
 +  },
 +  tr: {
 +    'instanceAttention.ariaOne': '{count} oturum sizi bekliyor',
@@ -5162,6 +5663,7 @@ index 000000000..757697858
 +    'instanceAttention.kind.failed': 'Başarısız',
 +    'instanceAttention.kind.unread': 'Okunmadı',
 +    'instanceAttention.unreachable': '{instances} yanıt vermedi; bilinen son öğeler gösteriliyor.',
++    'instanceAttention.openFailed': '{instance} üzerindeki oturum açılamadı. Orada silinmiş olabilir ya da klasörü eklenmemiş olabilir.',
 +  },
 +  ar: {
 +    'instanceAttention.ariaOne': '{count} جلسة في انتظارك',
@@ -5175,6 +5677,7 @@ index 000000000..757697858
 +    'instanceAttention.kind.failed': 'فشل',
 +    'instanceAttention.kind.unread': 'غير مقروء',
 +    'instanceAttention.unreachable': 'لا رد من {instances}؛ يتم عرض آخر العناصر المعروفة.',
++    'instanceAttention.openFailed': 'تعذّر فتح الجلسة على {instance}. ربما حُذفت هناك، أو لم يُضَف مجلدها.',
 +  },
 +  he: {
 +    'instanceAttention.ariaOne': '{count} סשן ממתין לך',
@@ -5188,6 +5691,7 @@ index 000000000..757697858
 +    'instanceAttention.kind.failed': 'נכשל',
 +    'instanceAttention.kind.unread': 'לא נקרא',
 +    'instanceAttention.unreachable': 'אין תגובה מ{instances}; מוצגים הפריטים האחרונים הידועים.',
++    'instanceAttention.openFailed': 'לא ניתן לפתוח את הסשן ב-{instance}. ייתכן שהוא נמחק שם, או שהתיקייה שלו לא נוספה.',
 +  },
 +  'zh-CN': {
 +    'instanceAttention.ariaOne': '{count} 个会话正在等待你处理',
@@ -5201,6 +5705,7 @@ index 000000000..757697858
 +    'instanceAttention.kind.failed': '失败',
 +    'instanceAttention.kind.unread': '未读',
 +    'instanceAttention.unreachable': '{instances} 没有响应，显示上次已知的项目。',
++    'instanceAttention.openFailed': '无法打开 {instance} 上的会话。它可能已在那里被删除，或其文件夹未被添加。',
 +  },
 +  'zh-TW': {
 +    'instanceAttention.ariaOne': '{count} 個會話正在等待你處理',
@@ -5214,10 +5719,11 @@ index 000000000..757697858
 +    'instanceAttention.kind.failed': '失敗',
 +    'instanceAttention.kind.unread': '未讀',
 +    'instanceAttention.unreachable': '{instances} 沒有回應，顯示上次已知的項目。',
++    'instanceAttention.openFailed': '無法開啟 {instance} 上的會話。它可能已在那裡被刪除，或其資料夾未被加入。',
 +  },
 +} as const;
 diff --git a/packages/ui/src/lib/i18n/messages/ja.ts b/packages/ui/src/lib/i18n/messages/ja.ts
-index af7fb9b6a..0a885a885 100644
+index a75728a43..0a3f1e43a 100644
 --- a/packages/ui/src/lib/i18n/messages/ja.ts
 +++ b/packages/ui/src/lib/i18n/messages/ja.ts
 @@ -44,6 +44,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
@@ -5228,7 +5734,7 @@ index af7fb9b6a..0a885a885 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -246,6 +247,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -248,6 +249,7 @@ export const dict: Record<I18nKey, string> = {
    ...androidWidgetsI18n.ja,
    ...snippetsI18n.ja,
    ...sidebarWorkI18n.ja,
@@ -5237,7 +5743,7 @@ index af7fb9b6a..0a885a885 100644
    ...worktreeArchiveI18n.ja,
    ...operatorChildrenI18n.ja,
 diff --git a/packages/ui/src/lib/i18n/messages/ko.ts b/packages/ui/src/lib/i18n/messages/ko.ts
-index 0aa55f321..330cb1b16 100644
+index c0def37d2..b182a3604 100644
 --- a/packages/ui/src/lib/i18n/messages/ko.ts
 +++ b/packages/ui/src/lib/i18n/messages/ko.ts
 @@ -44,6 +44,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
@@ -5248,7 +5754,7 @@ index 0aa55f321..330cb1b16 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -246,6 +247,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -248,6 +249,7 @@ export const dict: Record<I18nKey, string> = {
    ...androidWidgetsI18n.ko,
    ...snippetsI18n.ko,
    ...sidebarWorkI18n.ko,
@@ -5257,7 +5763,7 @@ index 0aa55f321..330cb1b16 100644
    ...worktreeArchiveI18n.ko,
    ...operatorChildrenI18n.ko,
 diff --git a/packages/ui/src/lib/i18n/messages/nl.ts b/packages/ui/src/lib/i18n/messages/nl.ts
-index 80ab7c01f..dfdebbb64 100644
+index 50e8873f3..11509be70 100644
 --- a/packages/ui/src/lib/i18n/messages/nl.ts
 +++ b/packages/ui/src/lib/i18n/messages/nl.ts
 @@ -43,6 +43,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
@@ -5268,7 +5774,7 @@ index 80ab7c01f..dfdebbb64 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -245,6 +246,7 @@ export const dict = {
+@@ -247,6 +248,7 @@ export const dict = {
    ...androidWidgetsI18n.nl,
    ...snippetsI18n.nl,
    ...sidebarWorkI18n.nl,
@@ -5277,7 +5783,7 @@ index 80ab7c01f..dfdebbb64 100644
    ...worktreeArchiveI18n.nl,
    ...operatorChildrenI18n.nl,
 diff --git a/packages/ui/src/lib/i18n/messages/pl.ts b/packages/ui/src/lib/i18n/messages/pl.ts
-index f86656a58..0d94b08de 100644
+index ef3c00395..684f0db5c 100644
 --- a/packages/ui/src/lib/i18n/messages/pl.ts
 +++ b/packages/ui/src/lib/i18n/messages/pl.ts
 @@ -44,6 +44,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
@@ -5288,7 +5794,7 @@ index f86656a58..0d94b08de 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -246,6 +247,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -248,6 +249,7 @@ export const dict: Record<I18nKey, string> = {
    ...androidWidgetsI18n.pl,
    ...snippetsI18n.pl,
    ...sidebarWorkI18n.pl,
@@ -5297,7 +5803,7 @@ index f86656a58..0d94b08de 100644
    ...worktreeArchiveI18n.pl,
    ...operatorChildrenI18n.pl,
 diff --git a/packages/ui/src/lib/i18n/messages/pt-BR.ts b/packages/ui/src/lib/i18n/messages/pt-BR.ts
-index e29d5707d..f4b3af50a 100644
+index 191631775..d781c9267 100644
 --- a/packages/ui/src/lib/i18n/messages/pt-BR.ts
 +++ b/packages/ui/src/lib/i18n/messages/pt-BR.ts
 @@ -44,6 +44,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
@@ -5308,7 +5814,7 @@ index e29d5707d..f4b3af50a 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -256,6 +257,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -258,6 +259,7 @@ export const dict: Record<I18nKey, string> = {
    ...androidWidgetsI18n['pt-BR'],
    ...snippetsI18n['pt-BR'],
    ...sidebarWorkI18n['pt-BR'],
@@ -5317,7 +5823,7 @@ index e29d5707d..f4b3af50a 100644
    ...worktreeArchiveI18n['pt-BR'],
    ...operatorChildrenI18n['pt-BR'],
 diff --git a/packages/ui/src/lib/i18n/messages/tr.ts b/packages/ui/src/lib/i18n/messages/tr.ts
-index 2f640153c..3febae193 100644
+index b4cc8b478..91a3207c6 100644
 --- a/packages/ui/src/lib/i18n/messages/tr.ts
 +++ b/packages/ui/src/lib/i18n/messages/tr.ts
 @@ -43,6 +43,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
@@ -5328,7 +5834,7 @@ index 2f640153c..3febae193 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -184,6 +185,7 @@ export const dict = {
+@@ -186,6 +187,7 @@ export const dict = {
    ...androidWidgetsI18n.tr,
    ...snippetsI18n.tr,
    ...sidebarWorkI18n.tr,
@@ -5337,7 +5843,7 @@ index 2f640153c..3febae193 100644
    ...worktreeArchiveI18n.tr,
    ...operatorChildrenI18n.tr,
 diff --git a/packages/ui/src/lib/i18n/messages/uk.ts b/packages/ui/src/lib/i18n/messages/uk.ts
-index 51a9d25d1..29becdfdf 100644
+index 1ea274141..92fc1e90e 100644
 --- a/packages/ui/src/lib/i18n/messages/uk.ts
 +++ b/packages/ui/src/lib/i18n/messages/uk.ts
 @@ -44,6 +44,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
@@ -5348,7 +5854,7 @@ index 51a9d25d1..29becdfdf 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -256,6 +257,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -258,6 +259,7 @@ export const dict: Record<I18nKey, string> = {
    ...androidWidgetsI18n.uk,
    ...snippetsI18n.uk,
    ...sidebarWorkI18n.uk,
@@ -5357,7 +5863,7 @@ index 51a9d25d1..29becdfdf 100644
    ...worktreeArchiveI18n.uk,
    ...operatorChildrenI18n.uk,
 diff --git a/packages/ui/src/lib/i18n/messages/zh-CN.ts b/packages/ui/src/lib/i18n/messages/zh-CN.ts
-index 5a5cbc1db..86abe959a 100644
+index e126f127a..58d8867ca 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-CN.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-CN.ts
 @@ -44,6 +44,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
@@ -5368,7 +5874,7 @@ index 5a5cbc1db..86abe959a 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -246,6 +247,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -248,6 +249,7 @@ export const dict: Record<I18nKey, string> = {
    ...androidWidgetsI18n['zh-CN'],
    ...snippetsI18n['zh-CN'],
    ...sidebarWorkI18n['zh-CN'],
@@ -5377,7 +5883,7 @@ index 5a5cbc1db..86abe959a 100644
    ...worktreeArchiveI18n['zh-CN'],
    ...operatorChildrenI18n['zh-CN'],
 diff --git a/packages/ui/src/lib/i18n/messages/zh-TW.ts b/packages/ui/src/lib/i18n/messages/zh-TW.ts
-index ec4e49ab1..8543850df 100644
+index 76a8adbf2..5ac8ea00e 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-TW.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-TW.ts
 @@ -44,6 +44,7 @@ import { androidWidgetsI18n } from './android-widgets.i18n';
@@ -5388,7 +5894,7 @@ index ec4e49ab1..8543850df 100644
  import { sidebarSectionsI18n } from './sidebar-sections.i18n';
  import { worktreeArchiveI18n } from './worktree-archive.i18n';
  import { operatorChildrenI18n } from './operator-children.i18n';
-@@ -246,6 +247,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -248,6 +249,7 @@ export const dict: Record<I18nKey, string> = {
    ...androidWidgetsI18n['zh-TW'],
    ...snippetsI18n['zh-TW'],
    ...sidebarWorkI18n['zh-TW'],
@@ -5398,10 +5904,10 @@ index ec4e49ab1..8543850df 100644
    ...operatorChildrenI18n['zh-TW'],
 diff --git a/packages/ui/src/lib/instanceAttention.test.ts b/packages/ui/src/lib/instanceAttention.test.ts
 new file mode 100644
-index 000000000..ea75bc58a
+index 000000000..a4ab4f984
 --- /dev/null
 +++ b/packages/ui/src/lib/instanceAttention.test.ts
-@@ -0,0 +1,482 @@
+@@ -0,0 +1,551 @@
 +import { describe, expect, test } from 'bun:test';
 +
 +import type { JsonValue } from '@opencode/client';
@@ -5700,6 +6206,75 @@ index 000000000..ea75bc58a
 +    });
 +  });
 +
++  test('a form the host still reports but OpenCode no longer holds is left out', async () => {
++    const staleStatus: JsonValue = {
++      sessions: {},
++      pending: {
++        ses_waiting: {
++          permissions: [],
++          forms: [{ id: 'frm_gone', sessionID: 'ses_waiting', title: 'Questions' }],
++          pages: [],
++        },
++      },
++      serverTime: 1_000,
++    };
++    // SAFETY: the stub answers each route the reader calls; OpenCode's own
++    // form list is empty, which is the truth a lost settlement hides.
++    const fetchImpl = (async (input: string | URL | Request) => {
++      const url = String(input);
++      if (url.includes('/api/sessions/status')) return response(staleStatus);
++      if (url.includes('/api/config/settings')) return response(settingsPayload);
++      if (url.includes('/api/fs/home')) return response(homePayload);
++      if (url.includes('/api/git/project-worktrees')) return response({ projects: [] });
++      if (url.includes('/api/form')) return response({ location: { directory: '/repo' }, data: [] });
++      return response(sessionPayload);
++    }) as typeof fetch;
++
++    const poll = await readInstanceAttention({ ...transport, fetchImpl });
++    const items = collectInstanceAttention([{
++      hostId: 'host-b',
++      hostLabel: 'Build box',
++      sessions: poll.sessions ?? [],
++      pending: poll.pending ?? new Map(),
++      busy: poll.busy ?? undefined,
++      directories: poll.directories,
++    }]);
++
++    expect(poll.pending?.has('ses_waiting')).toBe(false);
++    expect(items.map((item) => item.kind)).not.toContain('question');
++  });
++
++  test('a form OpenCode still holds keeps its row', async () => {
++    const liveStatus: JsonValue = {
++      sessions: {},
++      pending: {
++        ses_waiting: {
++          permissions: [],
++          forms: [{ id: 'frm_live', sessionID: 'ses_waiting', title: 'Questions' }],
++          pages: [],
++        },
++      },
++      serverTime: 1_000,
++    };
++    // SAFETY: the stub answers each route the reader calls; OpenCode's form
++    // list holds the same form the host reported.
++    const fetchImpl = (async (input: string | URL | Request) => {
++      const url = String(input);
++      if (url.includes('/api/sessions/status')) return response(liveStatus);
++      if (url.includes('/api/config/settings')) return response(settingsPayload);
++      if (url.includes('/api/fs/home')) return response(homePayload);
++      if (url.includes('/api/git/project-worktrees')) return response({ projects: [] });
++      if (url.includes('/api/form')) {
++        return response({ location: { directory: '/repo' }, data: [{ id: 'frm_live', sessionID: 'ses_waiting', title: 'Questions' }] });
++      }
++      return response(sessionPayload);
++    }) as typeof fetch;
++
++    const poll = await readInstanceAttention({ ...transport, fetchImpl });
++
++    expect(poll.pending?.get('ses_waiting')).toEqual({ permissions: 0, forms: 1, pages: 0 });
++  });
++
 +  test('a host with no projects at all answers with an empty list, not "did not say"', async () => {
 +    // SAFETY: the stub answers a settings body that has no projects key, as a
 +    // fresh host does; the reader must read it as "no projects", not as a
@@ -5886,10 +6461,10 @@ index 000000000..ea75bc58a
 +});
 diff --git a/packages/ui/src/lib/instanceAttention.ts b/packages/ui/src/lib/instanceAttention.ts
 new file mode 100644
-index 000000000..836d1e701
+index 000000000..78b2e2a1f
 --- /dev/null
 +++ b/packages/ui/src/lib/instanceAttention.ts
-@@ -0,0 +1,683 @@
+@@ -0,0 +1,748 @@
 +import type { JsonValue } from '@opencode/client';
 +import { z } from 'zod';
 +
@@ -5904,6 +6479,7 @@ index 000000000..836d1e701
 +import { descriptorsEqual, getActiveRelayDescriptor, getActiveRelayTunnel } from '@/lib/relay/runtime-tunnel';
 +import { createRelayTunnelClient, type RelayTunnelClient } from '@/lib/relay/tunnel-client';
 +import { addRuntimeProxyHeaders, fetchBypassingRuntimeBridge, sanitizeHeadersForBrowser } from '@/lib/runtime-fetch';
++import { isUnreadSessionFields } from '@/sync/session-unread';
 +
 +// Cross-instance attention: what a saved desktop instance needs from the user
 +// while this window shows another one. The sidebar already reports the active
@@ -6002,14 +6578,7 @@ index 000000000..836d1e701
 + * OpenCode owns `time.idle`/`time.viewed`, and a child session reports to its
 + * parent instead of to the user.
 + */
-+// The unread rule over the bare fields, kept here rather than imported from
-+// session-unread.ts: that module pulls the session stores and the OpenCode
-+// client into every consumer, including the mobile connection and desktop
-+// switcher paths that only need this four-line predicate.
-+const isFinishedUnseen = (session: InstanceSessionSummary): boolean => (
-+  !session.parentID && !session.archived
-+  && session.idle !== undefined && (session.viewed === undefined || session.viewed < session.idle)
-+);
++const isFinishedUnseen = (session: InstanceSessionSummary): boolean => isUnreadSessionFields(session);
 +
 +/**
 + * The reason a top-level session asks for the user. Pending requests are read
@@ -6203,6 +6772,72 @@ index 000000000..836d1e701
 +  canonicalLegacyChatsRoot: z.string().optional(),
 +}).passthrough();
 +
++const formRecordSchema = z.object({
++  id: z.string().min(1),
++  sessionID: z.string().min(1),
++}).passthrough();
++
++const formListSchema = z.union([
++  z.object({ data: z.array(formRecordSchema) }).passthrough(),
++  z.array(formRecordSchema),
++]);
++
++const formCountsOf = (forms: readonly { sessionID: string }[]): ReadonlyMap<string, number> => {
++  const counts = new Map<string, number>();
++  for (const form of forms) counts.set(form.sessionID, (counts.get(form.sessionID) ?? 0) + 1);
++  return counts;
++};
++
++const readDirectoryFormCounts = async (
++  root: string,
++  directory: string,
++  headers: Headers,
++  fetchImpl: typeof fetch,
++  signal: AbortSignal | undefined,
++): Promise<ReadonlyMap<string, number> | null> => {
++  const requestHeaders = new Headers(headers);
++  requestHeaders.set('x-opencode-directory', encodeURIComponent(directory));
++  const payload = await readJson(`${root}/api/form`, requestHeaders, fetchImpl, signal);
++  const parsed = formListSchema.safeParse(payload);
++  if (!parsed.success) return null;
++  return formCountsOf(Array.isArray(parsed.data) ? parsed.data : parsed.data.data);
++};
++
++const withVerifiedForms = async (
++  root: string,
++  sessions: readonly InstanceSessionSummary[],
++  pending: ReadonlyMap<string, InstancePendingCounts>,
++  headers: Headers,
++  fetchImpl: typeof fetch,
++  signal: AbortSignal | undefined,
++): Promise<ReadonlyMap<string, InstancePendingCounts>> => {
++  const directories = new Map<string, string[]>();
++  const directoryBySession = new Map(sessions.map((session) => [session.id, session.directory]));
++  for (const [sessionId, counts] of pending) {
++    if (counts.forms === 0) continue;
++    const directory = directoryBySession.get(sessionId);
++    if (!directory) continue;
++    const list = directories.get(directory);
++    if (list) list.push(sessionId);
++    else directories.set(directory, [sessionId]);
++  }
++  if (directories.size === 0) return pending;
++  const next = new Map(pending);
++  await Promise.all([...directories].map(async ([directory, sessionIds]) => {
++    const live = await readDirectoryFormCounts(root, directory, headers, fetchImpl, signal);
++    if (!live) return;
++    for (const sessionId of sessionIds) {
++      const entry = next.get(sessionId);
++      if (!entry) continue;
++      next.set(sessionId, { ...entry, forms: live.get(sessionId) ?? 0 });
++    }
++  }));
++  for (const [sessionId, entry] of next) {
++    if (entry.permissions === 0 && entry.forms === 0 && entry.pages === 0) next.delete(sessionId);
++  }
++  return next;
++};
++
 +const projectSessionSummary = (record: z.infer<typeof sessionListRecordSchema>): InstanceSessionSummary => ({
 +  id: record.id,
 +  parentID: record.parentID,
@@ -6215,7 +6850,8 @@ index 000000000..836d1e701
 +  outcome: record.outcome,
 +});
 +
-+const pendingCounts = (snapshot: HostSessionStatusSnapshot): ReadonlyMap<string, InstancePendingCounts> => {  const pending = new Map<string, InstancePendingCounts>();
++const pendingCounts = (snapshot: HostSessionStatusSnapshot): ReadonlyMap<string, InstancePendingCounts> => {
++  const pending = new Map<string, InstancePendingCounts>();
 +  for (const [sessionId, entry] of Object.entries(snapshot.pending ?? {})) {
 +    pending.set(sessionId, {
 +      permissions: entry.permissions.length,
@@ -6427,16 +7063,20 @@ index 000000000..836d1e701
 +    ? (Array.isArray(sessionList.data) ? sessionList.data : sessionList.data.data)
 +    : null;
 +  const sessions = records ? records.map(projectSessionSummary) : null;
-+  const pending = status.success ? pendingCounts(status.data) : null;
++  const rawPending = status.success ? pendingCounts(status.data) : null;
++  const withOffPage = sessions && rawPending && directories
++    ? await withPendingSessions(sessions, rawPending, (sessionId) => readSessionDirectory(
++      `${root}/api/session/${encodeURIComponent(sessionId)}`,
++      headers,
++      fetchImpl,
++      options.signal,
++    ))
++    : sessions;
++  const pending = rawPending && withOffPage
++    ? await withVerifiedForms(root, withOffPage, rawPending, headers, fetchImpl, options.signal)
++    : rawPending;
 +  return {
-+    sessions: sessions && pending && directories
-+      ? await withPendingSessions(sessions, pending, (sessionId) => readSessionDirectory(
-+        `${root}/api/session/${encodeURIComponent(sessionId)}`,
-+        headers,
-+        fetchImpl,
-+        options.signal,
-+      ))
-+      : sessions,
++    sessions: withOffPage,
 +    pending,
 +    busy: status.success ? busySessionIds(status.data) : null,
 +    directories,
@@ -6573,42 +7213,233 @@ index 000000000..836d1e701
 +    .filter((host) => host.status === 'error')
 +    .map((host) => host.label),
 +)];
+diff --git a/packages/ui/src/lib/instanceAttentionJump.switch.test.tsx b/packages/ui/src/lib/instanceAttentionJump.switch.test.tsx
+new file mode 100644
+index 000000000..4ebbd4439
+--- /dev/null
++++ b/packages/ui/src/lib/instanceAttentionJump.switch.test.tsx
+@@ -0,0 +1,145 @@
++import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
++import React, { act } from 'react';
++import { createRoot, type Root } from 'react-dom/client';
++import { Window } from 'happy-dom';
++
++import { useRouter } from '@/hooks/useRouter';
++import type { InstanceAttentionItem } from '@/lib/instanceAttention';
++import type { Session } from '@/lib/opencode/model';
++import { opencodeClient } from '@/lib/opencode/client';
++import { getRuntimeApiBaseUrl, getRuntimeKey, switchRuntimeEndpoint } from '@/lib/runtime-switch';
++import { useDirectoryStore } from '@/stores/useDirectoryStore';
++import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
++import { useProjectsStore } from '@/stores/useProjectsStore';
++import { useSessionUIStore } from '@/sync/session-ui-store';
++import { openInstanceAttentionItemWith } from './instanceAttentionJump';
++
++const session = (id: string): Session => ({
++  id,
++  projectID: 'project',
++  directory: '/repo',
++  title: id,
++  time: { created: 1, updated: 1 },
++  cost: 0,
++  tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
++});
++
++const item: InstanceAttentionItem = {
++  key: 'target:ses_clicked',
++  hostId: 'target',
++  hostLabel: 'Target',
++  sessionId: 'ses_clicked',
++  directory: '/repo',
++  title: 'Clicked',
++  kind: 'unread',
++  at: 10,
++};
++
++const RouterHost = () => {
++  useRouter();
++  return null;
++};
++
++const originalUI = useSessionUIStore.getState();
++const originalProjects = useProjectsStore.getState();
++const originalSessions = useGlobalSessionsStore.getState();
++const originalDirectory = useDirectoryStore.getState();
++const originalRuntime = { apiBaseUrl: getRuntimeApiBaseUrl(), runtimeKey: getRuntimeKey() };
++const globals = new Map<string, PropertyDescriptor | undefined>();
++let dom: Window;
++let clickedOpened: () => void = () => undefined;
++let fetchSpy: ReturnType<typeof spyOn> | null = null;
++let sessionRead: ReturnType<typeof spyOn> | null = null;
++
++const moveTo = (runtimeKey: string) => {
++  switchRuntimeEndpoint({ apiBaseUrl: `https://${runtimeKey.replace(':', '-')}.test`, runtimeKey });
++};
++
++const mountApp = async (): Promise<Root> => {
++  const host = document.createElement('div');
++  document.body.append(host);
++  const root = createRoot(host);
++  await act(async () => root.render(<RouterHost />));
++  return root;
++};
++
++const routedSession = () => new URLSearchParams(window.location.search).get('session');
++
++beforeEach(() => {
++  dom = new Window({ url: 'http://localhost/' });
++  const values = {
++    window: dom, document: dom.document, navigator: dom.navigator,
++    Node: dom.Node, Element: dom.Element, HTMLElement: dom.HTMLElement,
++    Event: dom.Event, CustomEvent: dom.CustomEvent, IS_REACT_ACT_ENVIRONMENT: true,
++  };
++  for (const [name, value] of Object.entries(values)) {
++    globals.set(name, Object.getOwnPropertyDescriptor(globalThis, name));
++    Object.defineProperty(globalThis, name, { configurable: true, writable: true, value });
++  }
++  useProjectsStore.setState({ projects: [{ id: 'repo', path: '/repo' }], hasServerSnapshot: true, serverSnapshotFailed: false });
++  useGlobalSessionsStore.setState({
++    hasLoaded: true,
++    status: 'ready',
++    activeSessions: [session('ses_remembered'), session('ses_clicked'), session('ses_here')],
++    archivedSessions: [],
++  });
++  useDirectoryStore.setState({ currentDirectory: '/repo', homeDirectory: '/home/me', isHomeReady: true });
++  sessionRead = spyOn(opencodeClient, 'getSessionUnscoped').mockImplementation(async (id: string) => session(id));
++  fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(null, { status: 404 }));
++  useSessionUIStore.setState({
++    setCurrentSession: (id, directory, options) => {
++      originalUI.setCurrentSession(id, directory, options);
++      if (id === 'ses_clicked' && useSessionUIStore.getState().currentSessionId === id) clickedOpened();
++    },
++  });
++});
++
++afterEach(() => {
++  fetchSpy?.mockRestore();
++  sessionRead?.mockRestore();
++  switchRuntimeEndpoint(originalRuntime);
++  useSessionUIStore.setState(originalUI, true);
++  useProjectsStore.setState(originalProjects, true);
++  useGlobalSessionsStore.setState(originalSessions, true);
++  useDirectoryStore.setState(originalDirectory, true);
++  for (const [name, descriptor] of globals) {
++    if (descriptor) Object.defineProperty(globalThis, name, descriptor);
++    else Reflect.deleteProperty(globalThis, name);
++  }
++  globals.clear();
++  dom.close();
++});
++
++test('a jump to an instance with a remembered session lands on the clicked one after the app remounts', async () => {
++  // The window had a session open on the target before; it is on another instance now.
++  moveTo('host:target');
++  useSessionUIStore.setState({ currentSessionId: 'ses_remembered', currentSessionDirectory: '/repo' });
++  useSessionUIStore.getState().prepareForRuntimeSwitch('host:target');
++  moveTo('host:here');
++  useSessionUIStore.setState({ currentSessionId: 'ses_here', currentSessionDirectory: '/repo' });
++  const before = await mountApp();
++  expect(routedSession()).toBe('ses_here');
++
++  const clicked = new Promise<void>((resolve) => { clickedOpened = resolve; });
++  // The switch as the app runs it: the store restore for the new runtime while
++  // the old app is still mounted, then the auth gate unmounting that app.
++  const opened = await openInstanceAttentionItemWith(item, async () => {
++    useSessionUIStore.getState().prepareForRuntimeSwitch('host:here');
++    moveTo('host:target');
++    useProjectsStore.setState({ hasServerSnapshot: false });
++    useSessionUIStore.getState().restoreForRuntimeSwitch('host:target', 'host:here');
++    await act(async () => before.unmount());
++    return true;
++  }, 'host:target');
++  expect(opened).toBe(true);
++
++  // The app mounts again on the new runtime and replays its URL, then the
++  // settings sync brings the project list.
++  const after = await mountApp();
++  await act(async () => useProjectsStore.setState({ hasServerSnapshot: true }));
++  await clicked;
++
++  expect(useSessionUIStore.getState().currentSessionId).toBe('ses_clicked');
++  expect(routedSession()).toBe('ses_clicked');
++  await act(async () => after.unmount());
++});
 diff --git a/packages/ui/src/lib/instanceAttentionJump.test.ts b/packages/ui/src/lib/instanceAttentionJump.test.ts
 new file mode 100644
-index 000000000..770182801
+index 000000000..7659bbcfa
 --- /dev/null
 +++ b/packages/ui/src/lib/instanceAttentionJump.test.ts
-@@ -0,0 +1,198 @@
-+import { beforeEach, describe, expect, mock, test } from 'bun:test';
+@@ -0,0 +1,328 @@
++import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from 'bun:test';
 +
++import { toast } from '@/components/ui';
 +import { LOCAL_HOST_ID } from '@/lib/desktopCurrentHost';
 +import { LOCAL_INSTANCE_ATTENTION_HOST_ID, type InstanceAttentionItem } from '@/lib/instanceAttention';
++import type { Session } from '@/lib/opencode/model';
++import { OpencodeApiError, opencodeClient } from '@/lib/opencode/client';
++import { getRuntimeApiBaseUrl, getRuntimeKey, switchRuntimeEndpoint } from '@/lib/runtime-switch';
++import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 +import { useInstanceAttentionStore } from '@/stores/useInstanceAttentionStore';
++import { useProjectsStore } from '@/stores/useProjectsStore';
++import { heldSessionOpen, type HeldSessionOpen } from '@/sync/pending-session-open';
++
++type Held = HeldSessionOpen;
 +
 +const activations: string[] = [];
 +const localActivations: boolean[] = [];
 +const openedSessions: Array<[string, string | null]> = [];
++const heldAtSwitch: Array<Held | null> = [];
++let openWaiters: Array<() => void> = [];
++const nextOpen = () => new Promise<void>((resolve) => { openWaiters.push(resolve); });
++let sessionRead: ReturnType<typeof spyOn> | null = null;
++let readSession: (id: string) => Promise<Session> = async (id) => session(id);
 +let failNextActivation = false;
 +let nextLocalSwitch = true;
++// What a saved host's activation does: switch the window and say so, or stop
++// without switching (a relay restore that bailed) and say that.
++let hostSwitches = true;
++
++const moveTo = (runtimeKey: string) => {
++  switchRuntimeEndpoint({ apiBaseUrl: `https://${runtimeKey.replace(':', '-')}.test`, runtimeKey });
++};
 +
 +const activateHost = mock(async (hostId: string) => {
 +  activations.push(hostId);
++  heldAtSwitch.push(heldSessionOpen());
 +  if (failNextActivation) {
 +    failNextActivation = false;
 +    throw new Error('unreachable');
 +  }
++  if (!hostSwitches) return false;
++  moveTo(`host:${hostId}`);
++  return true;
 +});
 +const activateLocalHost = mock(async () => {
 +  localActivations.push(true);
++  heldAtSwitch.push(heldSessionOpen());
++  if (nextLocalSwitch) moveTo('local');
 +  return nextLocalSwitch;
 +});
 +const setCurrentSession = mock((sessionId: string, directory: string | null) => {
 +  openedSessions.push([sessionId, directory]);
++  const waiters = openWaiters;
++  openWaiters = [];
++  for (const resolve of waiters) resolve();
 +});
 +
 +mock.module('@/lib/desktopHostActions', () => ({ activateHost, activateLocalHost }));
 +mock.module('@/sync/session-ui-store', () => ({
-+  useSessionUIStore: { getState: () => ({ setCurrentSession }) },
++  getAdmissionNavigationRevision: () => 0,
++  useSessionUIStore: {
++    subscribe: () => () => undefined,
++    getState: () => ({
++      setCurrentSession,
++      currentSessionId: null,
++      currentSessionDirectory: null,
++      getDirectoryForSession: () => null,
++      availableWorktreesByProject: new Map(),
++    }),
++  },
 +}));
 +
 +const { finishInstanceAttentionJump, openInstanceAttentionItem, openInstanceAttentionItemWith } = await import('./instanceAttentionJump');
@@ -6625,13 +7456,55 @@ index 000000000..770182801
 +  ...overrides,
 +});
 +
++const localItem = () => item({
++  key: `${LOCAL_HOST_ID}:ses_navi`,
++  hostId: LOCAL_HOST_ID,
++  hostLabel: 'Local',
++  sessionId: 'ses_navi',
++});
++
++const originalRuntime = { apiBaseUrl: getRuntimeApiBaseUrl(), runtimeKey: getRuntimeKey() };
++const originalProjects = useProjectsStore.getState();
++const originalSessions = useGlobalSessionsStore.getState();
++
++const session = (id: string): Session => ({
++  id,
++  projectID: 'project',
++  directory: '/repo',
++  title: id,
++  time: { created: 1, updated: 1 },
++  cost: 0,
++  tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
++});
++
 +beforeEach(() => {
 +  activations.length = 0;
 +  localActivations.length = 0;
 +  openedSessions.length = 0;
++  heldAtSwitch.length = 0;
++  openWaiters = [];
 +  failNextActivation = false;
 +  nextLocalSwitch = true;
++  hostSwitches = true;
++  moveTo('host:start');
 +  useInstanceAttentionStore.getState().reset();
++  readSession = async (id) => session(id);
++  sessionRead = spyOn(opencodeClient, 'getSessionUnscoped').mockImplementation((id: string) => readSession(id));
++  // What the instance switched to has loaded: its projects and its sessions.
++  useProjectsStore.setState({ projects: [{ id: 'repo', path: '/repo' }], hasServerSnapshot: true, serverSnapshotFailed: false });
++  useGlobalSessionsStore.setState({
++    hasLoaded: true,
++    status: 'ready',
++    activeSessions: [session('ses_a'), session('ses_navi')],
++    archivedSessions: [],
++  });
++});
++
++afterEach(() => {
++  sessionRead?.mockRestore();
++  switchRuntimeEndpoint(originalRuntime);
++  useProjectsStore.setState(originalProjects, true);
++  useGlobalSessionsStore.setState(originalSessions, true);
 +});
 +
 +const seed = (): void => {
@@ -6651,15 +7524,43 @@ index 000000000..770182801
 +};
 +
 +describe('cross-instance attention jump', () => {
-+  test('switches to the host, drops it and opens the session', async () => {
++  test('holds the session for the host before switching, then opens it there', async () => {
 +    seed();
++    const sessionOpened = nextOpen();
 +
 +    const opened = await openInstanceAttentionItem(item());
 +
 +    expect(opened).toBe(true);
 +    expect(activations).toEqual(['host-b']);
-+    expect(openedSessions).toEqual([['ses_a', '/repo']]);
++    // Held before the switch, so the switch does not restore that host's last session.
++    expect(heldAtSwitch.map((entry) => entry?.runtimeKey)).toEqual(['host:host-b']);
 +    expect(useInstanceAttentionStore.getState().hosts['host-b']).toBeUndefined();
++    await sessionOpened;
++    expect(openedSessions).toEqual([['ses_a', '/repo']]);
++    expect(heldSessionOpen()).toBeNull();
++  });
++
++  test('an activation that did not switch is not a jump', async () => {
++    seed();
++    hostSwitches = false;
++
++    const opened = await openInstanceAttentionItem(item());
++
++    expect(opened).toBe(false);
++    expect(getRuntimeKey()).toBe('host:start');
++    expect(openedSessions).toEqual([]);
++    expect(heldSessionOpen()).toBeNull();
++    expect(useInstanceAttentionStore.getState().hosts['host-b']).toBeDefined();
++  });
++
++  test('a switch that says it happened but left another runtime active is not a jump', async () => {
++    seed();
++    const opened = await openInstanceAttentionItemWith(item(), async () => true, 'host:host-b');
++
++    expect(opened).toBe(false);
++    expect(openedSessions).toEqual([]);
++    expect(heldSessionOpen()).toBeNull();
++    expect(useInstanceAttentionStore.getState().hosts['host-b']).toBeDefined();
 +  });
 +
 +  test('a failed switch keeps the host and does not open a session', async () => {
@@ -6670,6 +7571,7 @@ index 000000000..770182801
 +
 +    expect(opened).toBe(false);
 +    expect(openedSessions).toEqual([]);
++    expect(heldSessionOpen()).toBeNull();
 +    expect(useInstanceAttentionStore.getState().hosts['host-b']).toBeDefined();
 +  });
 +
@@ -6688,12 +7590,30 @@ index 000000000..770182801
 +  test('the guard releases after a failure so the next jump can run', async () => {
 +    seed();
 +    failNextActivation = true;
++    const sessionOpened = nextOpen();
 +
 +    await openInstanceAttentionItem(item());
 +    await openInstanceAttentionItem(item());
 +
 +    expect(activations).toEqual(['host-b', 'host-b']);
++    await sessionOpened;
 +    expect(openedSessions).toEqual([['ses_a', '/repo']]);
++  });
++
++  test('a session the new instance cannot open says so', async () => {
++    seed();
++    readSession = async () => { throw new OpencodeApiError('session.get', 'Session not found', { status: 404 }); };
++    let shown: (message: string) => void = () => undefined;
++    const toastShown = new Promise<string>((resolve) => { shown = resolve; });
++    const error = spyOn(toast, 'error').mockImplementation((message) => { shown(String(message)); return 0; });
++    try {
++      expect(await openInstanceAttentionItem(item({ sessionId: 'ses_gone' }))).toBe(true);
++
++      expect(await toastShown).toContain('Build box');
++      expect(openedSessions).toEqual([]);
++    } finally {
++      error.mockRestore();
++    }
 +  });
 +
 +  test('a local item opens the session without switching hosts', async () => {
@@ -6711,18 +7631,16 @@ index 000000000..770182801
 +
 +  test('an item from the app own server switches back to Local and opens the session', async () => {
 +    seedLocal();
++    const sessionOpened = nextOpen();
 +
-+    const opened = await openInstanceAttentionItem(item({
-+      key: `${LOCAL_HOST_ID}:ses_navi`,
-+      hostId: LOCAL_HOST_ID,
-+      hostLabel: 'Local',
-+      sessionId: 'ses_navi',
-+    }));
++    const opened = await openInstanceAttentionItem(localItem());
 +
 +    expect(opened).toBe(true);
 +    // Local is not a saved host, so it goes through the shell's own switch.
 +    expect(activations).toEqual([]);
 +    expect(localActivations).toEqual([true]);
++    expect(heldAtSwitch.map((entry) => entry?.runtimeKey)).toEqual(['local']);
++    await sessionOpened;
 +    expect(openedSessions).toEqual([['ses_navi', '/repo']]);
 +    expect(useInstanceAttentionStore.getState().hosts[LOCAL_HOST_ID]).toBeUndefined();
 +  });
@@ -6731,29 +7649,28 @@ index 000000000..770182801
 +    seedLocal();
 +    nextLocalSwitch = false;
 +
-+    const opened = await openInstanceAttentionItem(item({
-+      key: `${LOCAL_HOST_ID}:ses_navi`,
-+      hostId: LOCAL_HOST_ID,
-+      hostLabel: 'Local',
-+      sessionId: 'ses_navi',
-+    }));
++    const opened = await openInstanceAttentionItem(localItem());
 +
 +    expect(opened).toBe(false);
 +    expect(openedSessions).toEqual([]);
++    expect(heldSessionOpen()).toBeNull();
 +    expect(useInstanceAttentionStore.getState().hosts[LOCAL_HOST_ID]).toBeDefined();
 +  });
 +
 +  test('the phone supplies its own switch and gets the same open path', async () => {
 +    seed();
 +    const switched: string[] = [];
++    const sessionOpened = nextOpen();
 +
 +    const opened = await openInstanceAttentionItemWith(item(), async (hostId) => {
 +      switched.push(hostId);
++      moveTo('phone:host-b');
 +      return true;
-+    });
++    }, 'phone:host-b');
 +
 +    expect(opened).toBe(true);
 +    expect(switched).toEqual(['host-b']);
++    await sessionOpened;
 +    expect(openedSessions).toEqual([['ses_a', '/repo']]);
 +    expect(useInstanceAttentionStore.getState().hosts['host-b']).toBeUndefined();
 +  });
@@ -6761,32 +7678,46 @@ index 000000000..770182801
 +  test('a switch that stopped at a password prompt keeps the host and opens nothing', async () => {
 +    seed();
 +
-+    const opened = await openInstanceAttentionItemWith(item(), async () => false);
++    const opened = await openInstanceAttentionItemWith(item(), async () => false, 'phone:host-b');
 +
 +    expect(opened).toBe(false);
 +    expect(openedSessions).toEqual([]);
++    expect(heldSessionOpen()).toBeNull();
 +    expect(useInstanceAttentionStore.getState().hosts['host-b']).toBeDefined();
 +  });
 +
-+  test('finishing a deferred switch drops the host and opens the session', () => {
++  test('finishing a deferred switch drops the host and opens the session on the runtime now shown', async () => {
 +    seed();
++    moveTo('phone:host-b');
++    const sessionOpened = nextOpen();
 +
 +    finishInstanceAttentionJump(item());
 +
-+    expect(openedSessions).toEqual([['ses_a', '/repo']]);
 +    expect(useInstanceAttentionStore.getState().hosts['host-b']).toBeUndefined();
++    await sessionOpened;
++    expect(openedSessions).toEqual([['ses_a', '/repo']]);
 +  });
 +});
 diff --git a/packages/ui/src/lib/instanceAttentionJump.ts b/packages/ui/src/lib/instanceAttentionJump.ts
 new file mode 100644
-index 000000000..93c1bddf7
+index 000000000..9752031ee
 --- /dev/null
 +++ b/packages/ui/src/lib/instanceAttentionJump.ts
-@@ -0,0 +1,84 @@
+@@ -0,0 +1,125 @@
++import { toast } from '@/components/ui';
 +import { activateHost, activateLocalHost } from '@/lib/desktopHostActions';
-+import { LOCAL_HOST_ID } from '@/lib/desktopCurrentHost';
++import { LOCAL_HOST_ID, LOCAL_RUNTIME_KEY, runtimeKeyForDesktopHost } from '@/lib/desktopCurrentHost';
++import { formatMessage, useI18nStore } from '@/lib/i18n';
 +import { isLocalInstanceAttentionHost, type InstanceAttentionItem } from '@/lib/instanceAttention';
++import { getRuntimeKey } from '@/lib/runtime-switch';
 +import { useInstanceAttentionStore } from '@/stores/useInstanceAttentionStore';
++import {
++  completeSessionOpen,
++  heldSessionOpen,
++  holdSessionOpen,
++  releaseSessionOpen,
++  type HeldSessionOpen,
++} from '@/sync/pending-session-open';
 +import { useSessionUIStore } from '@/sync/session-ui-store';
 +
 +// One switch-and-open path for every cross-instance attention surface: a row
@@ -6796,14 +7727,38 @@ index 000000000..93c1bddf7
 +
 +let opening = false;
 +
++const holdFor = (item: InstanceAttentionItem, runtimeKey: string): HeldSessionOpen => holdSessionOpen({
++  runtimeKey,
++  sessionId: item.sessionId,
++  directory: item.directory,
++});
++
++const reportOpen = async (item: InstanceAttentionItem, held: HeldSessionOpen): Promise<void> => {
++  if (await completeSessionOpen(held) !== 'failed') return;
++  toast.error(formatMessage(useI18nStore.getState().dictionary, 'instanceAttention.openFailed', {
++    instance: item.hostLabel,
++  }));
++};
++
++export const releaseInstanceAttentionHold = (item: InstanceAttentionItem): void => {
++  const held = heldSessionOpen();
++  if (held?.sessionId === item.sessionId) releaseSessionOpen(held);
++};
++
 +/**
 + * Drops the server and opens its session once the switch is known to have
-+ * happened. The phone's password unlock reaches this after its own switch, so
-+ * a prompt that stopped the first attempt does not leave the item behind.
++ * happened. The session opens when the new instance has loaded its projects
++ * and sessions, not here: at this point that instance knows neither. The
++ * phone's password unlock reaches this after its own switch, so a prompt that
++ * stopped the first attempt does not leave the item behind.
 + */
 +export const finishInstanceAttentionJump = (item: InstanceAttentionItem): void => {
 +  useInstanceAttentionStore.getState().dropHost(item.hostId);
-+  useSessionUIStore.getState().setCurrentSession(item.sessionId, item.directory);
++  const held = heldSessionOpen();
++  const current = held && held.runtimeKey === getRuntimeKey() && held.sessionId === item.sessionId
++    ? held
++    : holdFor(item, getRuntimeKey());
++  void reportOpen(item, current);
 +};
 +
 +/**
@@ -6813,23 +7768,33 @@ index 000000000..93c1bddf7
 + * that stopped at a password prompt keeps its items and the surface stays open.
 + * A successful switch drops the server at once: it is the active instance now,
 + * not an "other" one.
++ *
++ * With the target's runtime key, the open is held before switching, so the
++ * switch does not restore the session that runtime last had open. A surface
++ * whose switch can finish later (the phone's password prompt) keeps the hold
++ * when this switch stops and releases it itself.
 + */
 +export const openInstanceAttentionItemWith = async (
 +  item: InstanceAttentionItem,
 +  switchToHost: (hostId: string) => Promise<boolean>,
++  targetRuntimeKey?: string,
++  options?: { keepHoldWhenStopped?: boolean },
 +): Promise<boolean> => {
 +  if (opening) return false;
 +  opening = true;
++  const held = targetRuntimeKey ? holdFor(item, targetRuntimeKey) : null;
 +  let switched = false;
 +  try {
 +    switched = await switchToHost(item.hostId);
 +  } catch (error) {
 +    console.warn('[instance-attention] host switch failed', error);
-+    return false;
 +  } finally {
 +    opening = false;
 +  }
-+  if (!switched) return false;
++  if (!switched || (targetRuntimeKey && getRuntimeKey() !== targetRuntimeKey)) {
++    if (held && !options?.keepHoldWhenStopped) releaseSessionOpen(held);
++    return false;
++  }
 +  finishInstanceAttentionJump(item);
 +  return true;
 +};
@@ -6860,12 +7825,9 @@ index 000000000..93c1bddf7
 +  // The app's own server is not in the saved list, so `activateHost` cannot
 +  // find it: the shell's Local switch is the path back to this machine.
 +  if (item.hostId === LOCAL_HOST_ID) {
-+    return openInstanceAttentionItemWith(item, activateLocalHost);
++    return openInstanceAttentionItemWith(item, activateLocalHost, LOCAL_RUNTIME_KEY);
 +  }
-+  return openInstanceAttentionItemWith(item, async (hostId) => {
-+    await activateHost(hostId);
-+    return true;
-+  });
++  return openInstanceAttentionItemWith(item, activateHost, runtimeKeyForDesktopHost({ id: item.hostId }));
 +};
 diff --git a/packages/ui/src/lib/instanceAttentionRelay.test.ts b/packages/ui/src/lib/instanceAttentionRelay.test.ts
 new file mode 100644
@@ -7210,6 +8172,126 @@ index d70421ac4..75a48a428 100644
  export const activeSessionSnapshotSchema = z.record(z.string().min(1), z.object({ type: z.literal("running") }))
  
  const hostPermissionRequestSchema = z.object({
+diff --git a/packages/ui/src/lib/pendingFormVerification.test.ts b/packages/ui/src/lib/pendingFormVerification.test.ts
+new file mode 100644
+index 000000000..0b6baef84
+--- /dev/null
++++ b/packages/ui/src/lib/pendingFormVerification.test.ts
+@@ -0,0 +1,71 @@
++import { describe, expect, test } from 'bun:test';
++
++import { planStalePendingForms, type PendingFormsBySession } from './pendingFormVerification';
++
++const form = (id: string) => ({ id });
++
++const pending = (directory: string, ...ids: string[]): PendingFormsBySession => new Map([
++  ['ses_a', { directory, forms: ids.map(form) }],
++]);
++
++describe('finding the indexed forms the server no longer holds', () => {
++  test('a form missing from the server answer is stale', async () => {
++    const stale = await planStalePendingForms(
++      pending('/repo', 'frm_gone', 'frm_live'),
++      () => '/repo',
++      async () => [form('frm_live')],
++    );
++
++    expect(stale).toEqual([{ sessionId: 'ses_a', formId: 'frm_gone' }]);
++  });
++
++  test('a form the server still holds is kept', async () => {
++    const stale = await planStalePendingForms(
++      pending('/repo', 'frm_live'),
++      () => '/repo',
++      async () => [form('frm_live')],
++    );
++
++    expect(stale).toEqual([]);
++  });
++
++  test('an unreadable answer keeps every form', async () => {
++    const stale = await planStalePendingForms(
++      pending('/repo', 'frm_a'),
++      () => '/repo',
++      async () => null,
++    );
++
++    expect(stale).toEqual([]);
++  });
++
++  test('the session record decides the directory, then the index entry', async () => {
++    const asked: string[] = [];
++    const stale = await planStalePendingForms(
++      pending('/indexed', 'frm_a'),
++      () => '/from-session',
++      async (directory) => {
++        asked.push(directory);
++        return [];
++      },
++    );
++
++    expect(asked).toEqual(['/from-session']);
++    expect(stale).toEqual([{ sessionId: 'ses_a', formId: 'frm_a' }]);
++  });
++
++  test('a session already read for one directory is not asked about twice', async () => {
++    const bySession: PendingFormsBySession = new Map([
++      ['ses_a', { directory: '/repo', forms: [form('frm_a')] }],
++      ['ses_b', { directory: '/repo', forms: [form('frm_b')] }],
++    ]);
++    const asked: string[] = [];
++    const stale = await planStalePendingForms(bySession, () => null, async (directory) => {
++      asked.push(directory);
++      return [form('frm_a')];
++    });
++
++    expect(asked).toEqual(['/repo']);
++    expect(stale).toEqual([{ sessionId: 'ses_b', formId: 'frm_b' }]);
++  });
++});
+diff --git a/packages/ui/src/lib/pendingFormVerification.ts b/packages/ui/src/lib/pendingFormVerification.ts
+new file mode 100644
+index 000000000..ae4121927
+--- /dev/null
++++ b/packages/ui/src/lib/pendingFormVerification.ts
+@@ -0,0 +1,37 @@
++export type PendingFormLike = { id: string };
++
++export type PendingFormsBySession = ReadonlyMap<string, {
++  directory: string;
++  forms: readonly PendingFormLike[];
++}>;
++
++type StalePendingForm = { sessionId: string; formId: string };
++
++export const planStalePendingForms = async (
++  bySession: PendingFormsBySession,
++  directoryOfSession: (sessionId: string) => string | null,
++  readForms: (directory: string) => Promise<readonly PendingFormLike[] | null>,
++): Promise<StalePendingForm[]> => {
++  const byDirectory = new Map<string, string[]>();
++  for (const [sessionId, entry] of bySession) {
++    if (entry.forms.length === 0) continue;
++    const directory = directoryOfSession(sessionId) ?? entry.directory;
++    if (!directory) continue;
++    const list = byDirectory.get(directory);
++    if (list) list.push(sessionId);
++    else byDirectory.set(directory, [sessionId]);
++  }
++
++  const stale: StalePendingForm[] = [];
++  for (const [directory, sessionIds] of byDirectory) {
++    const live = await readForms(directory);
++    if (!live) continue;
++    const liveIds = new Set(live.map((form) => form.id));
++    for (const sessionId of sessionIds) {
++      for (const form of bySession.get(sessionId)?.forms ?? []) {
++        if (!liveIds.has(form.id)) stale.push({ sessionId, formId: form.id });
++      }
++    }
++  }
++  return stale;
++};
 diff --git a/packages/ui/src/lib/relay/runtime-tunnel.ts b/packages/ui/src/lib/relay/runtime-tunnel.ts
 index a5e6234c5..f02ca5d05 100644
 --- a/packages/ui/src/lib/relay/runtime-tunnel.ts
@@ -7224,7 +8306,7 @@ index a5e6234c5..f02ca5d05 100644
    a.serverId === b.serverId &&
    a.grant === b.grant &&
 diff --git a/packages/ui/src/stores/DOCUMENTATION.md b/packages/ui/src/stores/DOCUMENTATION.md
-index 76827969b..194606edc 100644
+index e5b63b75d..a88955962 100644
 --- a/packages/ui/src/stores/DOCUMENTATION.md
 +++ b/packages/ui/src/stores/DOCUMENTATION.md
 @@ -109,6 +109,45 @@ owner cannot replace the catalog or finish the current owner's loading state.
@@ -7618,6 +8700,75 @@ index 000000000..079bb4ccc
 +
 +  reset: () => set({ hosts: EMPTY_HOSTS, items: [] }),
 +}));
+diff --git a/packages/ui/src/sync/DOCUMENTATION.md b/packages/ui/src/sync/DOCUMENTATION.md
+index 9dd535efa..e88b68b22 100644
+--- a/packages/ui/src/sync/DOCUMENTATION.md
++++ b/packages/ui/src/sync/DOCUMENTATION.md
+@@ -546,7 +546,22 @@ a trust answer holds no network slot.
+ 
+ Launch restore (`last-session-restore.ts`) and runtime-memory restoration do
+ not reopen a session outside every project, because opening it would register
+-its folder without the user choosing it.
++its folder without the user choosing it. Neither reopens anything while a
++session is held for the active runtime (`pending-session-open.ts`): a
++cross-instance jump holds the clicked session before switching and opens it,
++with a deliberate admission, once the new runtime's project list (the bootstrap
++settings sync, which also adopts the saved active project) has arrived and the
++session itself has been read by id (`getSessionUnscoped`). It does not wait
++for the paginated session list, which on a slow server is several round trips
++while the window shows a draft. A navigation or a switch to another key
++releases the hold as it happens, not after the loads, so the restores and the
++sidebar stop standing aside at once; a second switch on the same key (a relay
++host moving to its direct address) keeps waiting for that server's project
++list, and an admission that switch cancelled is retried once the list is back
++instead of reporting the session as unopenable. A read that says the session is gone, or an admission that fails,
++reports `failed`; a read that did not answer falls back to the row's folder.
++The phone keeps the hold while a password prompt stands between the tap and
++the switch, and releases it when the prompt or the sheet is dismissed.
+ 
+ `setCurrentSession` gates unknown destinations before fetching messages,
+ publishing selection or changing directories. Unknown links resolve session
+diff --git a/packages/ui/src/sync/global-blocking-requests.ts b/packages/ui/src/sync/global-blocking-requests.ts
+index c0da6046d..4c10177e1 100644
+--- a/packages/ui/src/sync/global-blocking-requests.ts
++++ b/packages/ui/src/sync/global-blocking-requests.ts
+@@ -217,6 +217,36 @@ export const applyGlobalBlockingRequestEvents = (rawDirectory: string, payloads:
+   reducer.publish();
+ };
+ 
++/**
++ * Clears one request the host says is no longer waiting. A verification read
++ * can find a form the index kept after a lost settlement; recording it as
++ * settled here also keeps the next snapshot from putting it back.
++ */
++export const settleGlobalBlockingRequest = (
++  kind: 'permission' | 'form',
++  sessionID: string,
++  requestID: string,
++): void => {
++  if (!sessionID || !requestID) return;
++  settledByRead.add(settledKey(kind === 'permission' ? 'permissions' : 'forms', sessionID, requestID));
++  const state = useGlobalBlockingRequestsStore.getState();
++  const existing = state.bySession.get(sessionID);
++  if (!existing) return;
++  const bySession = new Map(state.bySession);
++  if (kind === 'permission') {
++    const permissions = existing.permissions.filter((entry) => entry.id !== requestID);
++    if (permissions.length === existing.permissions.length) return;
++    if (permissions.length === 0 && existing.forms.length === 0 && existing.pages.length === 0) bySession.delete(sessionID);
++    else bySession.set(sessionID, { ...existing, permissions });
++  } else {
++    const forms = existing.forms.filter((entry) => entry.id !== requestID);
++    if (forms.length === existing.forms.length) return;
++    if (forms.length === 0 && existing.permissions.length === 0 && existing.pages.length === 0) bySession.delete(sessionID);
++    else bySession.set(sessionID, { ...existing, forms });
++  }
++  useGlobalBlockingRequestsStore.setState({ bySession });
++};
++
+ export const indexedBlockingRequestDirectories = (): Set<string> => new Set(
+   [...useGlobalBlockingRequestsStore.getState().bySession.values()]
+     .filter((entry) => entry.permissions.length > 0 || entry.forms.length > 0)
 diff --git a/packages/ui/src/sync/host-session-status-seed.ts b/packages/ui/src/sync/host-session-status-seed.ts
 index 1e00660cd..fb29dd8c0 100644
 --- a/packages/ui/src/sync/host-session-status-seed.ts
@@ -7647,11 +8798,486 @@ index 1e00660cd..fb29dd8c0 100644
  
  type SeedDependencies = {
    isKnown: (sessionId: string) => boolean;
+diff --git a/packages/ui/src/sync/last-session-restore.ts b/packages/ui/src/sync/last-session-restore.ts
+index d6260eb30..479315085 100644
+--- a/packages/ui/src/sync/last-session-restore.ts
++++ b/packages/ui/src/sync/last-session-restore.ts
+@@ -4,6 +4,7 @@ import { ensureGlobalSessionsLoaded, refreshGlobalSessions, resolveGlobalSession
+ import { useSessionUIStore } from './session-ui-store';
+ import { isSessionAdmitted } from './session-admission';
+ import { clearLastActiveSession, readLastActiveSession } from './last-session-cache';
++import { isSessionOpenHeld } from './pending-session-open';
+ import { isContextWindow } from '@/lib/contextWindow/role';
+ 
+ export type LastSessionRestoreResult =
+@@ -22,7 +23,7 @@ const loadSessionList = (refresh: boolean) =>
+ export const restoreLastActiveSession = async (options: {
+     readonly refresh: boolean;
+ }): Promise<LastSessionRestoreResult> => {
+-    if (useSessionUIStore.getState().currentSessionId) return 'none';
++    if (useSessionUIStore.getState().currentSessionId || isSessionOpenHeld()) return 'none';
+     const runtimeKey = getRuntimeKey();
+     const persisted = readLastActiveSession(runtimeKey);
+     if (!persisted) return 'none';
+@@ -38,7 +39,7 @@ export const restoreLastActiveSession = async (options: {
+     }
+ 
+     const latest = useSessionUIStore.getState();
+-    if (latest.currentSessionId || readLastActiveSession(runtimeKey)?.sessionId !== persisted.sessionId) {
++    if (latest.currentSessionId || isSessionOpenHeld(runtimeKey) || readLastActiveSession(runtimeKey)?.sessionId !== persisted.sessionId) {
+         return 'none';
+     }
+     if (!isSessionAdmitted(resolveGlobalSessionDirectory(session))) return 'none';
+@@ -54,7 +55,7 @@ type ReopenedSession = { readonly runtimeKey: string; readonly sessionId: string
+ 
+ const reopenLastActiveSession = (): ReopenedSession | null => {
+     const ui = useSessionUIStore.getState();
+-    if (ui.currentSessionId) return null;
++    if (ui.currentSessionId || isSessionOpenHeld()) return null;
+     const runtimeKey = getRuntimeKey();
+     const persisted = readLastActiveSession(runtimeKey);
+     if (!persisted) return null;
+diff --git a/packages/ui/src/sync/pending-session-open.switch.test.ts b/packages/ui/src/sync/pending-session-open.switch.test.ts
+new file mode 100644
+index 000000000..fad96184c
+--- /dev/null
++++ b/packages/ui/src/sync/pending-session-open.switch.test.ts
+@@ -0,0 +1,101 @@
++import { afterAll, expect, spyOn, test } from 'bun:test';
++import { Window } from 'happy-dom';
++import type { Session } from '@/lib/opencode/model';
++
++// The admission module listens for endpoint changes from the moment it loads,
++// so the window exists before any app module is imported.
++const dom = new Window({ url: 'http://localhost/' });
++Object.assign(globalThis, { window: dom, document: dom.document, CustomEvent: dom.CustomEvent, Event: dom.Event, localStorage: dom.localStorage });
++const originalFetch = globalThis.fetch;
++const offline = spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json({}));
++
++const { opencodeClient } = await import('@/lib/opencode/client');
++const { getRuntimeApiBaseUrl, getRuntimeKey, switchRuntimeEndpoint } = await import('@/lib/runtime-switch');
++const { useGlobalSessionsStore } = await import('@/stores/useGlobalSessionsStore');
++const { useProjectsStore } = await import('@/stores/useProjectsStore');
++const { useSessionUIStore } = await import('./session-ui-store');
++const { completeSessionOpen, holdSessionOpen } = await import('./pending-session-open');
++
++const session = (id: string, directory: string): Session => ({
++  id,
++  projectID: 'project',
++  directory,
++  title: id,
++  time: { created: 1, updated: 1 },
++  cost: 0,
++  tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
++});
++
++const originalRuntime = { apiBaseUrl: getRuntimeApiBaseUrl(), runtimeKey: getRuntimeKey() };
++const originalUI = useSessionUIStore.getState();
++const originalProjects = useProjectsStore.getState();
++const originalSessions = useGlobalSessionsStore.getState();
++
++afterAll(() => {
++  offline.mockRestore();
++  globalThis.fetch = originalFetch;
++  switchRuntimeEndpoint(originalRuntime);
++  useSessionUIStore.setState(originalUI, true);
++  useProjectsStore.setState(originalProjects, true);
++  useGlobalSessionsStore.setState(originalSessions, true);
++  dom.close();
++});
++
++test('a switch to the same runtime during admission retries it instead of reporting failure', async () => {
++  switchRuntimeEndpoint({ apiBaseUrl: 'https://relay.test', runtimeKey: 'host:admission-relay' });
++  useProjectsStore.setState({ projects: [{ id: 'repo', path: '/repo' }], hasServerSnapshot: true, serverSnapshotFailed: false });
++  useGlobalSessionsStore.setState({ activeSessions: [], archivedSessions: [], entityById: new Map(), hasLoaded: true });
++  const selected: Array<[string | null, string | null | undefined]> = [];
++  useSessionUIStore.setState({
++    currentSessionId: null,
++    availableWorktreesByProject: new Map(),
++    setCurrentSession: (id, directory) => {
++      selected.push([id, directory]);
++      useSessionUIStore.setState({ currentSessionId: id, currentSessionDirectory: directory ?? null });
++    },
++  });
++
++  const home = spyOn(opencodeClient, 'getFilesystemHomeInfo').mockImplementation(async () => ({ home: '/home/me', chatsRoot: '/home/me/chats' }));
++  let trustRequested: () => void = () => undefined;
++  const trustAsked = new Promise<void>((resolve) => { trustRequested = resolve; });
++  let releaseTrust: () => void = () => undefined;
++  const trustAnswered = new Promise<void>((resolve) => { releaseTrust = resolve; });
++  let trustReads = 0;
++  const read = spyOn(opencodeClient, 'getSessionUnscoped').mockImplementation(async (id: string) => session(id, '/outside'));
++  offline.mockImplementation(async (input) => {
++    const url = new URL(String(input));
++    if (url.pathname === '/api/opencode/trust') {
++      trustReads += 1;
++      if (trustReads === 1) {
++        trustRequested();
++        await trustAnswered;
++      }
++      return Response.json({ directory: '/outside', trusted: true, fingerprint: null, items: [] });
++    }
++    // Admission lists the folder's worktrees first (one batched read): a
++    // plain folder that is no repository has none.
++    if (url.pathname === '/api/git/project-worktrees') {
++      return Response.json({ projects: [{ directory: '/outside', isGitRepository: false, worktrees: [] }] });
++    }
++    if (url.pathname === '/api/projects/session-directory') {
++      return Response.json({ project: { id: 'outside', path: '/outside' } });
++    }
++    return Response.json({});
++  });
++  try {
++    const held = holdSessionOpen({ runtimeKey: 'host:admission-relay', sessionId: 'ses_clicked', directory: '/outside' });
++    const outcome = completeSessionOpen(held);
++    await trustAsked;
++
++    // The direct probe wins while the session's folder is being admitted:
++    // same instance and key, new address.
++    switchRuntimeEndpoint({ apiBaseUrl: 'https://direct.test', runtimeKey: 'host:admission-relay' });
++    releaseTrust();
++
++    expect(await outcome).toBe('opened');
++    expect(selected[0]).toEqual(['ses_clicked', '/outside']);
++  } finally {
++    home.mockRestore();
++    read.mockRestore();
++  }
++});
+diff --git a/packages/ui/src/sync/pending-session-open.test.ts b/packages/ui/src/sync/pending-session-open.test.ts
+new file mode 100644
+index 000000000..099b0bf0d
+--- /dev/null
++++ b/packages/ui/src/sync/pending-session-open.test.ts
+@@ -0,0 +1,188 @@
++import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
++import { Window } from 'happy-dom';
++import type { Session } from '@/lib/opencode/model';
++import { OpencodeApiError, opencodeClient } from '@/lib/opencode/client';
++import { getRuntimeApiBaseUrl, getRuntimeKey, switchRuntimeEndpoint } from '@/lib/runtime-switch';
++import { useDirectoryStore } from '@/stores/useDirectoryStore';
++import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
++import { useProjectsStore } from '@/stores/useProjectsStore';
++import { clearLastActiveSession, persistLastActiveSession } from './last-session-cache';
++import { beginLastSessionRestore, restoreLastActiveSession } from './last-session-restore';
++import { completeSessionOpen, holdSessionOpen, isSessionOpenHeld, releaseSessionOpen } from './pending-session-open';
++import { useSessionUIStore } from './session-ui-store';
++
++const session = (id: string, directory = '/repo'): Session => ({
++  id,
++  projectID: 'project',
++  directory,
++  title: id,
++  time: { created: 1, updated: 1 },
++  cost: 0,
++  tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
++});
++
++const originalUI = useSessionUIStore.getState();
++const originalProjects = useProjectsStore.getState();
++const originalSessions = useGlobalSessionsStore.getState();
++const originalDirectory = useDirectoryStore.getState();
++
++let selected: Array<[string | null, string | null | undefined]> = [];
++let sessionListReads = 0;
++let readSession: (id: string) => Promise<Session> = async (id) => session(id);
++let sessionRead: ReturnType<typeof spyOn> | null = null;
++
++beforeEach(() => {
++  selected = [];
++  sessionListReads = 0;
++  readSession = async (id) => session(id);
++  sessionRead = spyOn(opencodeClient, 'getSessionUnscoped').mockImplementation((id: string) => readSession(id));
++  // The new runtime right after the switch: neither its project list nor its
++  // session list has arrived, and the session list is slow (it never answers here).
++  useProjectsStore.setState({ projects: [{ id: 'repo', path: '/repo' }], activeProjectId: 'repo', hasServerSnapshot: false, serverSnapshotFailed: false });
++  useGlobalSessionsStore.setState({
++    hasLoaded: false,
++    status: 'idle',
++    activeSessions: [],
++    archivedSessions: [],
++    loadSessions: () => {
++      sessionListReads += 1;
++      return new Promise(() => undefined);
++    },
++  });
++  useSessionUIStore.setState({
++    currentSessionId: null,
++    currentSessionDirectory: null,
++    setCurrentSession: (id, directory) => {
++      selected.push([id, directory]);
++      useSessionUIStore.setState({ currentSessionId: id, currentSessionDirectory: directory ?? null });
++    },
++  });
++  clearLastActiveSession(getRuntimeKey());
++});
++
++afterEach(() => {
++  sessionRead?.mockRestore();
++  useSessionUIStore.setState(originalUI, true);
++  useProjectsStore.setState(originalProjects, true);
++  useGlobalSessionsStore.setState(originalSessions, true);
++  useDirectoryStore.setState(originalDirectory, true);
++  clearLastActiveSession(getRuntimeKey());
++});
++
++describe('a session held across a host switch', () => {
++  test('opens once the projects are known and the session is read, ahead of the launch restore and without the session list', async () => {
++    persistLastActiveSession(getRuntimeKey(), { sessionId: 'ses_last', directory: '/repo' });
++    const held = holdSessionOpen({ runtimeKey: getRuntimeKey(), sessionId: 'ses_clicked', directory: '/repo' });
++
++    const outcome = completeSessionOpen(held);
++    // The App remounts on the new runtime and starts its launch restore.
++    beginLastSessionRestore({ selectNow: true, refresh: false });
++    expect(await restoreLastActiveSession({ refresh: false })).toBe('none');
++    expect(selected).toEqual([]);
++
++    useProjectsStore.setState({ hasServerSnapshot: true });
++    expect(await outcome).toBe('opened');
++
++    expect(selected[0]).toEqual(['ses_clicked', '/repo']);
++    expect(useSessionUIStore.getState().currentSessionId).toBe('ses_clicked');
++    expect(isSessionOpenHeld()).toBe(false);
++    // The opener reads the list afterwards; the open did not wait for it.
++    expect(sessionListReads).toBeLessThanOrEqual(1);
++  });
++
++  test('the switch does not bring back the session that runtime had open', () => {
++    useSessionUIStore.setState(originalUI, true);
++    useDirectoryStore.setState({ currentDirectory: '/repo', homeDirectory: '/home/me', isHomeReady: true });
++    useSessionUIStore.setState({ currentSessionId: 'ses_last', currentSessionDirectory: '/repo' });
++    useSessionUIStore.getState().prepareForRuntimeSwitch('host:held-a');
++    useSessionUIStore.getState().restoreForRuntimeSwitch('host:held-b', 'host:held-a');
++
++    const held = holdSessionOpen({ runtimeKey: 'host:held-a', sessionId: 'ses_clicked', directory: '/repo' });
++    try {
++      useSessionUIStore.getState().prepareForRuntimeSwitch('host:held-b');
++      useSessionUIStore.getState().restoreForRuntimeSwitch('host:held-a', 'host:held-b');
++      expect(useSessionUIStore.getState().currentSessionId).toBeNull();
++    } finally {
++      releaseSessionOpen(held);
++    }
++  });
++
++  test('navigating elsewhere while the new instance loads releases it at once', async () => {
++    const held = holdSessionOpen({ runtimeKey: getRuntimeKey(), sessionId: 'ses_clicked', directory: '/repo' });
++    const outcome = completeSessionOpen(held);
++
++    // The user picks something else before the project list has arrived.
++    originalUI.setCurrentSession(null);
++    expect(isSessionOpenHeld()).toBe(false);
++
++    expect(await outcome).toBe('dropped');
++    expect(selected).toEqual([]);
++  });
++
++  test('a session the new instance says is gone reports failure', async () => {
++    readSession = async () => { throw new OpencodeApiError('session.get', 'Session not found', { status: 404 }); };
++    const held = holdSessionOpen({ runtimeKey: getRuntimeKey(), sessionId: 'ses_gone', directory: '/repo' });
++    const outcome = completeSessionOpen(held);
++    useProjectsStore.setState({ hasServerSnapshot: true });
++
++    expect(await outcome).toBe('failed');
++    expect(selected).toEqual([]);
++    expect(isSessionOpenHeld()).toBe(false);
++  });
++
++  test('a session read that did not answer still opens in the row folder', async () => {
++    readSession = async () => { throw new Error('network'); };
++    const held = holdSessionOpen({ runtimeKey: getRuntimeKey(), sessionId: 'ses_clicked', directory: '/repo' });
++    const outcome = completeSessionOpen(held);
++    useProjectsStore.setState({ hasServerSnapshot: true });
++
++    expect(await outcome).toBe('opened');
++    expect(selected[0]).toEqual(['ses_clicked', '/repo']);
++  });
++});
++
++describe('a held session and a second switch to the same runtime', () => {
++  const globals = new Map<string, PropertyDescriptor | undefined>();
++  let dom: Window;
++  const originalRuntime = { apiBaseUrl: getRuntimeApiBaseUrl(), runtimeKey: getRuntimeKey() };
++
++  beforeEach(() => {
++    dom = new Window({ url: 'http://localhost/' });
++    for (const [name, value] of Object.entries({ window: dom, CustomEvent: dom.CustomEvent, Event: dom.Event })) {
++      globals.set(name, Object.getOwnPropertyDescriptor(globalThis, name));
++      Object.defineProperty(globalThis, name, { configurable: true, writable: true, value });
++    }
++  });
++
++  afterEach(() => {
++    switchRuntimeEndpoint(originalRuntime);
++    for (const [name, descriptor] of globals) {
++      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
++      else Reflect.deleteProperty(globalThis, name);
++    }
++    globals.clear();
++    dom.close();
++  });
++
++  test('keeps waiting for the server project list when a relay switch moves to the direct address', async () => {
++    switchRuntimeEndpoint({ apiBaseUrl: 'https://relay.test', runtimeKey: 'host:relay' });
++    let sessionWasRead: () => void = () => undefined;
++    const read = new Promise<void>((resolve) => { sessionWasRead = resolve; });
++    readSession = async (id) => { sessionWasRead(); return session(id); };
++    const held = holdSessionOpen({ runtimeKey: 'host:relay', sessionId: 'ses_clicked', directory: '/repo' });
++    const outcome = completeSessionOpen(held);
++    await read;
++
++    // The direct probe wins: same instance, same key, new address. Its reset
++    // shows the persisted projects again until the server's list arrives.
++    switchRuntimeEndpoint({ apiBaseUrl: 'https://direct.test', runtimeKey: 'host:relay' });
++    useProjectsStore.setState({ hasServerSnapshot: false });
++    for (let step = 0; step < 10; step += 1) await Promise.resolve();
++    expect(selected).toEqual([]);
++    expect(isSessionOpenHeld('host:relay')).toBe(true);
++
++    useProjectsStore.setState({ hasServerSnapshot: true });
++    expect(await outcome).toBe('opened');
++    expect(selected[0]).toEqual(['ses_clicked', '/repo']);
++  });
++});
+diff --git a/packages/ui/src/sync/pending-session-open.ts b/packages/ui/src/sync/pending-session-open.ts
+new file mode 100644
+index 000000000..1373c05e0
+--- /dev/null
++++ b/packages/ui/src/sync/pending-session-open.ts
+@@ -0,0 +1,98 @@
++import { isOpencodeNotFound, opencodeClient } from '@/lib/opencode/client';
++import { normalizePath } from '@/lib/pathNormalization';
++import { openSession } from '@/lib/router/openSessionFromRoute';
++import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
++import { resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
++import { useProjectsStore } from '@/stores/useProjectsStore';
++import { admitSession, isSessionAdmitted } from './session-admission';
++import { getAdmissionNavigationRevision, useSessionUIStore } from './session-ui-store';
++
++export type HeldSessionOpen = {
++  readonly runtimeKey: string;
++  readonly sessionId: string;
++  readonly directory: string | null;
++};
++
++type SessionOpenOutcome = 'opened' | 'failed' | 'dropped';
++
++let held: HeldSessionOpen | null = null;
++
++export const holdSessionOpen = (target: HeldSessionOpen): HeldSessionOpen => {
++  held = target;
++  return target;
++};
++
++export const releaseSessionOpen = (target: HeldSessionOpen): void => {
++  if (held === target) held = null;
++};
++
++export const isSessionOpenHeld = (runtimeKey: string = getRuntimeKey()): boolean => held?.runtimeKey === runtimeKey;
++
++export const heldSessionOpen = (): HeldSessionOpen | null => held;
++
++type SessionRead = { readonly directory: string | null; readonly gone: boolean };
++
++const readSession = (sessionId: string): Promise<SessionRead> => opencodeClient.getSessionUnscoped(sessionId).then(
++  (session) => ({ directory: normalizePath(resolveGlobalSessionDirectory(session)), gone: false }),
++  (error) => ({ directory: null, gone: isOpencodeNotFound(error) }),
++);
++
++const projectListKnown = (): boolean => {
++  const projects = useProjectsStore.getState();
++  return projects.hasServerSnapshot || projects.serverSnapshotFailed;
++};
++
++const watchHold = (target: HeldSessionOpen) => {
++  const revision = getAdmissionNavigationRevision();
++  const left = () => held !== target
++    || getRuntimeKey() !== target.runtimeKey
++    || getAdmissionNavigationRevision() !== revision;
++  let wake: () => void = () => undefined;
++  let endpointChanges = 0;
++  const check = () => {
++    if (!left()) return;
++    releaseSessionOpen(target);
++    wake();
++  };
++  const stops = [
++    useSessionUIStore.subscribe(check),
++    useProjectsStore.subscribe(() => { check(); wake(); }),
++    subscribeRuntimeEndpointChanged(() => { endpointChanges += 1; check(); }),
++  ];
++  const until = (ready: () => boolean) => new Promise<void>((resolve) => {
++    wake = () => { if (left() || ready()) resolve(); };
++    wake();
++  });
++  return { left, until, endpointChanges: () => endpointChanges, stop: () => { for (const stop of stops) stop(); } };
++};
++
++export const completeSessionOpen = async (target: HeldSessionOpen): Promise<SessionOpenOutcome> => {
++  const hold = watchHold(target);
++  const settle = (outcome: SessionOpenOutcome): SessionOpenOutcome => {
++    hold.stop();
++    releaseSessionOpen(target);
++    return outcome;
++  };
++  if (hold.left()) return settle('dropped');
++
++  const [, read] = await Promise.all([hold.until(projectListKnown), readSession(target.sessionId)]);
++  if (hold.left()) return settle('dropped');
++  if (read.gone) return settle('failed');
++  const directory = read.directory ?? normalizePath(target.directory);
++  if (!directory) return settle('failed');
++
++  let admitted: string | null = null;
++  for (;;) {
++    const changesBefore = hold.endpointChanges();
++    admitted = isSessionAdmitted(directory) ? directory : await admitSession(target.sessionId, directory, true);
++    if (hold.left()) return settle('dropped');
++    if (admitted || hold.endpointChanges() === changesBefore) break;
++    await hold.until(projectListKnown);
++    if (hold.left()) return settle('dropped');
++  }
++  if (!admitted) return settle('failed');
++
++  settle('opened');
++  void openSession(target.sessionId, { directory: admitted });
++  return 'opened';
++};
+diff --git a/packages/ui/src/sync/session-ui-store.ts b/packages/ui/src/sync/session-ui-store.ts
+index b3d61845b..587f9cbf4 100644
+--- a/packages/ui/src/sync/session-ui-store.ts
++++ b/packages/ui/src/sync/session-ui-store.ts
+@@ -108,6 +108,7 @@ import { clearLastActiveSession, persistLastActiveSession, readLastActiveSession
+ import { createSessionDraftId, useSessionDraftsStore } from "@/stores/useSessionDraftsStore"
+ import { persistWorktreeTopology, readPersistedWorktreeTopology } from "./worktree-topology-cache"
+ import { rememberRuntimeLiveStatus } from "./runtime-live-memory"
++import { isSessionOpenHeld } from "./pending-session-open"
+ import {
+   createInputHistoryIdentity,
+   useInputHistoryStore,
+@@ -1351,8 +1352,8 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
+   restoreForRuntimeSwitch: (apiBaseUrl?: string | null, previousRuntimeKey?: string | null) => {
+     const key = runtimeMemoryKey(apiBaseUrl)
+     const memory = runtimeSessionMemory.get(key)
+-    const restoredSessionId = memory?.sessionId ?? activeSessionByRuntime.get(key) ?? null
+-    const restoredDraft = memory?.draft ? cloneDraft(memory.draft) : { ...DEFAULT_DRAFT }
++    const restoredSessionId = isSessionOpenHeld(key) ? null : memory?.sessionId ?? activeSessionByRuntime.get(key) ?? null
++    const restoredDraft = memory?.draft && !isSessionOpenHeld(key) ? cloneDraft(memory.draft) : { ...DEFAULT_DRAFT }
+     const restoredDirectory = memory?.directory ?? null
+     const availableWorktreesByProject = memory?.availableWorktreesByProject
+       ?? readPersistedWorktreeTopology(key)
+@@ -1390,7 +1391,6 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
+   },
+ 
+ 
+-
+   openNewSessionDraft: (options) => {
+     if (!options?.automatic) admissionNavigationRevision += 1
+     if (!options?.automatic) {
 diff --git a/packages/ui/src/sync/session-unread.ts b/packages/ui/src/sync/session-unread.ts
-index 4a63e9c16..b6a69fde2 100644
+index 6e61de4fb..dbc2d1dd3 100644
 --- a/packages/ui/src/sync/session-unread.ts
 +++ b/packages/ui/src/sync/session-unread.ts
-@@ -24,6 +24,19 @@ const markOf = (session: Session): number | null => {
+@@ -26,6 +26,19 @@ const markOf = (session: Session): number | null => {
  
  const hasUnreadMark = (session: Session): boolean => markOf(session) !== null
  
@@ -7671,7 +9297,7 @@ index 4a63e9c16..b6a69fde2 100644
  export const canSessionBeUnread = (session: Session | undefined): session is Session => (
    Boolean(session) && !session?.parentID && session?.time.archived === undefined
  )
-@@ -33,6 +46,17 @@ const hasUnseenTurn = (session: Session): boolean => {
+@@ -35,6 +48,17 @@ const hasUnseenTurn = (session: Session): boolean => {
    return idle !== undefined && (viewed === undefined || viewed < idle)
  }
  
@@ -7689,7 +9315,7 @@ index 4a63e9c16..b6a69fde2 100644
  export const isSessionUnread = (session: Session | undefined): boolean => (
    canSessionBeUnread(session) && (hasUnseenTurn(session) || hasUnreadMark(session))
  )
-@@ -41,6 +65,17 @@ export const isSessionMarkedUnread = (session: Session | undefined): boolean =>
+@@ -43,6 +67,17 @@ export const isSessionMarkedUnread = (session: Session | undefined): boolean =>
    canSessionBeUnread(session) && hasUnreadMark(session)
  )
  
@@ -7707,3 +9333,22 @@ index 4a63e9c16..b6a69fde2 100644
  export const isSessionUnreadWithError = (session: Session | undefined): boolean => (
    canSessionBeUnread(session) && hasUnseenTurn(session) && session.outcome === "failed"
  )
+diff --git a/packages/web/src/runtimeConfig.ts b/packages/web/src/runtimeConfig.ts
+index 071c1f135..14f666c94 100644
+--- a/packages/web/src/runtimeConfig.ts
++++ b/packages/web/src/runtimeConfig.ts
+@@ -104,12 +104,12 @@ export const createConfiguredWebAPIs = () => {
+ 
+ 
+ 
+-  const restoreRelayRuntime = (): Promise<void> => {
++  const restoreRelayRuntime = (): Promise<boolean> => {
+ 
+ 
+     if (relayHostId) return restoreDesktopRelayRuntime(relayHostId, { reconnectActive: true });
+ 
+-    if (explicitRuntime) return Promise.resolve();
++    if (explicitRuntime) return Promise.resolve(false);
+ 
+     return restoreDesktopRelayRuntime();
+   };

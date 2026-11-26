@@ -11,7 +11,7 @@
     flake = false;
   };
   inputs.openchamber = {
-    url = "github:openchamber/openchamber/62f77fbfa3cb3c0045eb49fd7ec84e8494cdabf9";
+    url = "github:openchamber/openchamber/e69cbb878782865bd0ce6f11290befa815e4f621";
     flake = false;
   };
   inputs.rust-overlay = {

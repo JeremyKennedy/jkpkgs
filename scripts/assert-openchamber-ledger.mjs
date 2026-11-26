@@ -137,6 +137,27 @@ if (Array.isArray(candidates)) {
   }
 }
 
+// A retired patch left the queue because upstream carries it (`same`, with the
+// pull request and merge commit that did) or shipped a different design for the
+// need (`alternative`). Its record says which, so the reason survives the file.
+const retired = ledger.retired ?? [];
+if (!Array.isArray(retired)) {
+  problems.push('"retired" must be an array');
+} else {
+  for (const entry of retired) {
+    const name = entry?.name || '(unnamed retired patch)';
+    if (!entry?.name) problems.push('retired: no name');
+    if (queue.includes(entry?.name)) problems.push(`${name}: retired but still in the queue`);
+    if (patchFiles.includes(entry?.name)) problems.push(`${name}: retired but its patch file is still in packages/openchamber/patches`);
+    if (entry?.relationship !== 'same' && entry?.relationship !== 'alternative') {
+      problems.push(`${name}: a retired patch's relationship is same or alternative, not '${entry?.relationship}'`);
+    }
+    if (!entry?.pr && !entry?.mergedAs) problems.push(`${name}: a retired patch names the upstream pr or mergedAs that carries it`);
+    if (!entry?.note) problems.push(`${name}: a retired patch needs a note with the content evidence`);
+    if (!entry?.since) problems.push(`${name}: a retired patch needs a "since" date`);
+  }
+}
+
 if (problems.length > 0) {
   console.error('OpenChamber patch ledger problems:');
   for (const problem of problems) console.error(`  ${problem}`);
@@ -145,6 +166,7 @@ if (problems.length > 0) {
 }
 
 const candidateCount = Array.isArray(candidates) ? candidates.length : 0;
+const retiredCount = Array.isArray(retired) ? retired.length : 0;
 console.log(
-  `OpenChamber patch ledger: ${queue.length} patches recorded, ${candidateCount} candidate${candidateCount === 1 ? '' : 's'}`,
+  `OpenChamber patch ledger: ${queue.length} patches recorded, ${candidateCount} candidate${candidateCount === 1 ? '' : 's'}, ${retiredCount} retired`,
 );

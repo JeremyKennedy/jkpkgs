@@ -1,8 +1,8 @@
 diff --git a/packages/ui/src/apps/mobileSidebar/MobileRowDisplayItems.tsx b/packages/ui/src/apps/mobileSidebar/MobileRowDisplayItems.tsx
-index 2a2543f83..a635c84fe 100644
+index 8a4f4afb4..2f7357a9d 100644
 --- a/packages/ui/src/apps/mobileSidebar/MobileRowDisplayItems.tsx
 +++ b/packages/ui/src/apps/mobileSidebar/MobileRowDisplayItems.tsx
-@@ -13,6 +13,8 @@ export const MobileRowDisplayItems: React.FC = () => {
+@@ -15,6 +15,8 @@ export const MobileRowDisplayItems: React.FC = () => {
    const setDetailedZoneRows = useSessionDisplayStore((state) => state.setDetailedZoneRows);
    const worktreeNameByBranch = useSessionDisplayStore((state) => state.worktreeNameByBranch);
    const setWorktreeNameByBranch = useSessionDisplayStore((state) => state.setWorktreeNameByBranch);
@@ -10,8 +10,8 @@ index 2a2543f83..a635c84fe 100644
 +  const setHideEmptyWorktrees = useSessionDisplayStore((state) => state.setHideEmptyWorktrees);
    const showSubagentSessions = useSessionDisplayStore((state) => state.showSubagentSessions);
    const setShowSubagentSessions = useSessionDisplayStore((state) => state.setShowSubagentSessions);
- 
-@@ -33,6 +35,10 @@ export const MobileRowDisplayItems: React.FC = () => {
+   const pinnedInWork = useSessionDisplayStore((state) => state.pinnedInWork);
+@@ -38,6 +40,10 @@ export const MobileRowDisplayItems: React.FC = () => {
          setWorktreeNameByBranch(!worktreeNameByBranch);
          void updateDesktopSettings({ sidebarWorktreeNameByBranch: !worktreeNameByBranch });
        })}
@@ -43,10 +43,10 @@ index b8683225e..1cf806376 100644
          projectSortOrder,
          emptyState,
 diff --git a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-index 1f5bede3f..b3fe7cd31 100644
+index 30324ec2e..8d73dfc38 100644
 --- a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
 +++ b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-@@ -671,6 +671,15 @@ may replace that agent-owned seed. A session with explicit `workTitle.by: 'user'
+@@ -674,6 +674,15 @@ may replace that agent-owned seed. A session with explicit `workTitle.by: 'user'
  keeps user ownership in the worktree. No marker is required to seed the title.
  A move onto a branch that already exists keeps that branch's name.
  
@@ -62,7 +62,7 @@ index 1f5bede3f..b3fe7cd31 100644
  ### Spaces
  
  An isolated space is a work like a worktree (`isGroupWork`, maintainer
-@@ -736,8 +745,8 @@ time, everything else groups by project); the phone follows the same
+@@ -739,8 +748,8 @@ time, everything else groups by project); the phone follows the same
  setting, and VS Code always groups by project. The display menu (the header's
  "…", titled Display mode) opens with Select sessions, then Grouping, then
  (grouped by project) the project sort and project display, Detailed rows,
@@ -74,27 +74,27 @@ index 1f5bede3f..b3fe7cd31 100644
  is disabled while none is unread. Customize sections is its own header button
  (`list-settings`), shown where the manager is (`showSectionControls`); a click
 diff --git a/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx b/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx
-index 79a3760fe..77a0d59e0 100644
+index a051abd5e..e421877a2 100644
 --- a/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx
 +++ b/packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx
-@@ -66,7 +66,7 @@ import { useSidebarAttentionFacts, useSidebarLiveFacts, useSidebarPlanSessions,
+@@ -65,7 +65,7 @@ import { useSidebarAttentionFacts, useSidebarClocks, useSidebarLiveFacts, useSid
  import { useSidebarSectionsUiStore } from '../sections/sectionActions';
  import { DEFAULT_PIN_LIST, sidebarSectionReadsLiveState, sidebarSectionReadsPlans, type SidebarWorkFacts } from '@/lib/sidebarSections';
  import { useRemovingWorktreePaths } from '@/lib/worktrees/worktreeRemovalState';
--import { buildSessionRootIndex, buildSidebarWorkIndex, buildWorktreeArchiveAnchors, isFiledInFolder, isGroupWork, orderInWorkWorks, orderInWorkWorksByAttention, orderSidebarWorks, type SidebarFolderMembership, type SidebarWorkRef } from '../works/sidebarWorks';
-+import { buildSessionRootIndex, buildSidebarWorkIndex, buildWorktreeArchiveAnchors, isFiledInFolder, isEmptyWorktreeWork, isGroupWork, orderInWorkWorks, orderInWorkWorksByAttention, orderSidebarWorks, type SidebarFolderMembership, type SidebarWorkRef } from '../works/sidebarWorks';
+-import { buildSessionRootIndex, buildSidebarWorkIndex, buildWorktreeArchiveAnchors, isFiledInFolder, isGroupWork, orderInWorkWorks, orderInWorkWorksByAttention, selectInWorkSessions, orderSidebarWorks, type SidebarFolderMembership, type SidebarWorkRef } from '../works/sidebarWorks';
++import { buildSessionRootIndex, buildSidebarWorkIndex, buildWorktreeArchiveAnchors, isFiledInFolder, isEmptyWorktreeWork, isGroupWork, orderInWorkWorks, orderInWorkWorksByAttention, selectInWorkSessions, orderSidebarWorks, type SidebarFolderMembership, type SidebarWorkRef } from '../works/sidebarWorks';
+ import { buildTimelineEntries } from './timelineEntries';
  import { getSessionLifecycleOrderValue } from '@/sync/session-ordering';
  import { useSessionDraftsStore, type SessionDraft } from '@/stores/useSessionDraftsStore';
- import { useSidebarGroupStatus } from './useSidebarGroupStatus';
-@@ -96,6 +96,7 @@ const EMPTY_IDS: ReadonlySet<string> = new Set();
+@@ -95,6 +95,7 @@ const EMPTY_IDS: ReadonlySet<string> = new Set();
  const NO_REVEALED_SECTIONS: ReadonlySet<SearchResultSection> = new Set();
  const EMPTY_SEARCH_LOCATIONS = new Map<string, SidebarSessionLocation>();
  const EMPTY_SEARCH_PROJECTS = new Map<string, ConversationResultProject>();
 +const EMPTY_GROUP_KEYS: ReadonlySet<string> = new Set();
  const NO_DRAFTS: readonly SessionDraft[] = [];
- const NO_SESSIONS: readonly Session[] = [];
  const NO_PLAN_PROJECTS: readonly { id: string; path: string }[] = [];
-@@ -137,6 +138,8 @@ type SessionProjectCollectionProps = {
+ type ZoneWorks = { pinned: readonly Session[]; pinnedWorktrees: readonly SidebarWorkRef[]; work: readonly SidebarWorkRef[] };
+@@ -135,6 +136,8 @@ type SessionProjectCollectionProps = {
      mobileVariant: boolean;
      hideDirectoryControls: boolean;
      showOnlyMainWorkspace: boolean;
@@ -103,10 +103,10 @@ index 79a3760fe..77a0d59e0 100644
      isDesktopShellRuntime: boolean;
      projectSortOrder: import('@/stores/useSessionDisplayStore').ProjectSortOrder;
      emptyState: React.ReactNode;
-@@ -583,6 +586,27 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
-     return sessions.length > 0 ? sessions : NO_SESSIONS;
-   }, [collection.orderedSessions, collection.pinnedSessionIds, isPinnedWork, sessionRootIndex, sessionWorkEnabled, workIndex]);
-   useClosePinnedWork(pinnedSessionsInWork);
+@@ -571,6 +574,27 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+     return Boolean(root && isSessionPinned(collection.pinnedSessionIds, root.directory, root.id));
+   }, [collection.pinnedSessionIds, collection.sessionById]);
+   useClosePinnedWork({ orderedSessions: collection.orderedSessions, pinnedSessionIds: collection.pinnedSessionIds, sessionRootIndex, workIndex, isPinnedWork });
 +  // Worktree works with nothing in them, by group key, while the display
 +  // setting hides them. A draft, a pin, an archived session or a removal in
 +  // flight keeps a worktree listed; its folders and its search matches stay
@@ -124,67 +124,56 @@ index 79a3760fe..77a0d59e0 100644
 +    );
 +    const keys = new Set<string>();
 +    for (const ref of workIndex.groupWorks) {
-+      if (isEmptyWorktreeWork(ref, { draftGroupKeys, archiveAnchors: worktreeArchiveAnchors, removingDirectories: removingWorktreePaths, hasOpenDraftIn })) keys.add(ref.key);
++      if (isEmptyWorktreeWork(ref, { draftGroupKeys, archiveAnchors: worktreeArchive.anchors, removingDirectories: removingWorktreePaths, hasOpenDraftIn })) keys.add(ref.key);
 +    }
 +    return keys;
-+  }, [draftPlacement, openDraftDirectory, removingWorktreePaths, view.hasSessionSearchQuery, view.hideEmptyWorktrees, workIndex, worktreeArchiveAnchors]);
++  }, [draftPlacement, openDraftDirectory, removingWorktreePaths, view.hasSessionSearchQuery, view.hideEmptyWorktrees, workIndex, worktreeArchive]);
    // Which root folder holds each session and worktree: the Folder condition,
    // the list by time and the work facts read it.
    const folderByMember = React.useMemo(() => {
-@@ -638,7 +662,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+@@ -630,7 +654,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
        ? orderInWorkWorksByAttention(
-         orderInWorkWorks(collection.orderedSessions, workIndex, sessionRootIndex, isChatDirectoryPath),
+         orderInWorkWorks(getTimeOrderedSessions(), workIndex, sessionRootIndex, isChatDirectoryPath),
          (ref) => buildInWorkAttention(ref, inWorkAttentionContext),
--      ).filter((ref) => !isPinnedWork(ref))
-+      ).filter((ref) => !isPinnedWork(ref) && !hiddenWorktreeGroupKeys.has(ref.key))
+-      ).filter((ref) => pinnedInWork || !isPinnedWork(ref))
++      ).filter((ref) => (pinnedInWork || !isPinnedWork(ref)) && !hiddenWorktreeGroupKeys.has(ref.key))
        : [];
      const begun = showWork
-       ? workIndex.groupWorks.filter((ref) => ref.group.sessions.length === 0 && !isPinnedWork(ref) && !work.some((entry) => entry.key === ref.key) && (
-@@ -663,7 +687,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
-         !session.time?.archived && !isChatDirectoryPath(session.directory)
-       ), worktreeArchiveAnchors);
-       const seen = new Set(all.map((ref) => ref.key));
--      const unstarted = workIndex.groupWorks.filter((ref) => !seen.has(ref.key));
-+      const unstarted = workIndex.groupWorks.filter((ref) => !seen.has(ref.key) && !hiddenWorktreeGroupKeys.has(ref.key));
-       const leads = (ref: SidebarWorkRef): boolean => ref.kind === 'group' && Boolean(ref.group.space && liveSpaceIds.has(ref.group.space.id));
-       all = [...unstarted.filter(leads), ...all, ...unstarted.filter((ref) => !leads(ref))];
-     }
-@@ -675,7 +699,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
-       work: heldWorkOrder ? holdOrder(listed, heldWorkOrder, (ref) => ref.key) : listed,
-       all,
-     };
--  }, [collection.orderedSessions, getTimeOrderedSessions, collection.nestedSessionIds, collection.pinnedSessionIds, customTimeSections, draftPlacement, heldWorkOrder, inWorkAttentionContext, isPinnedWork, liveSpaceIds, openDraftDirectory, openDraftSpaceId, ownership.bySessionId, removingWorktreePaths, rootSessionIds, sessionRootIndex, showPinned, showSubagentSessions, showWork, workIndex, worktreeArchiveAnchors]);
-+  }, [collection.orderedSessions, getTimeOrderedSessions, collection.nestedSessionIds, collection.pinnedSessionIds, customTimeSections, draftPlacement, hiddenWorktreeGroupKeys, heldWorkOrder, inWorkAttentionContext, isPinnedWork, liveSpaceIds, openDraftDirectory, openDraftSpaceId, ownership.bySessionId, removingWorktreePaths, rootSessionIds, sessionRootIndex, showPinned, showSubagentSessions, showWork, workIndex, worktreeArchiveAnchors]);
+       ? workIndex.groupWorks.filter((ref) => ref.group.sessions.length === 0 && (pinnedInWork || !isPinnedWork(ref)) && !work.some((entry) => entry.key === ref.key) && (
+@@ -659,10 +683,10 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+       !session.time?.archived && (!isChatDirectoryPath(session.directory) || (customPinSections && isPinnedRoot(session)))
+     ), worktreeArchive.anchors, (session) => isChatDirectoryPath(session.directory) ? sessionRef(session) : undefined);
+     const seen = new Set(all.map((ref) => ref.key));
+-    const unstarted = workIndex.groupWorks.filter((ref) => !seen.has(ref.key));
++    const unstarted = workIndex.groupWorks.filter((ref) => !seen.has(ref.key) && !hiddenWorktreeGroupKeys.has(ref.key));
+     const leads = (ref: SidebarWorkRef): boolean => ref.kind === 'group' && Boolean(ref.group.space && liveSpaceIds.has(ref.group.space.id));
+     return { pinned, work: shownWork, all: [...unstarted.filter(leads), ...all, ...unstarted.filter((ref) => !leads(ref))] };
+-  }, [collection.orderedSessions, getTimeOrderedSessions, collection.nestedSessionIds, collection.pinnedSessionIds, customPinSections, customTimeSections, draftPlacement, heldWorkOrder, inWorkAttentionContext, isPinnedWork, liveSpaceIds, openDraftDirectory, openDraftSpaceId, ownership.bySessionId, pinnedInWork, removingWorktreePaths, sessionRootIndex, showPinned, showSubagentSessions, showWork, workIndex, worktreeArchive]);
++  }, [collection.orderedSessions, getTimeOrderedSessions, collection.nestedSessionIds, collection.pinnedSessionIds, customPinSections, customTimeSections, draftPlacement, hiddenWorktreeGroupKeys, heldWorkOrder, inWorkAttentionContext, isPinnedWork, liveSpaceIds, openDraftDirectory, openDraftSpaceId, ownership.bySessionId, pinnedInWork, removingWorktreePaths, sessionRootIndex, showPinned, showSubagentSessions, showWork, workIndex, worktreeArchive]);
    React.useEffect(() => {
      shownWorkOrderRef.current = sectionCandidates.work.map((ref) => ref.key);
    }, [sectionCandidates]);
-@@ -790,9 +814,11 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
-     const inFolder = (ref: SidebarWorkRef): boolean => isFiledInFolder(ref, folderByMember);
-     const refs = orderSidebarWorks(collection.orderedSessions, workIndex, (session) => (
-       !session.time?.archived && !isChatDirectoryPath(session.directory)
--    ), worktreeArchiveAnchors).filter((ref) => !listedKeys.has(ref.key) && !inClaimedProject(ref.projectId) && !inFolder(ref));
-+    ), worktreeArchiveAnchors).filter((ref) => !listedKeys.has(ref.key) && !inClaimedProject(ref.projectId) && !inFolder(ref) && !hiddenWorktreeGroupKeys.has(ref.key));
-     const seen = new Set(refs.map((ref) => ref.key));
--    const unstarted = workIndex.groupWorks.filter((ref) => !seen.has(ref.key) && !listedKeys.has(ref.key) && !inClaimedProject(ref.projectId) && !inFolder(ref));
-+    // Works nobody has started a session in: worktrees close the list, spaces
-+    // lead it, as in a project's list (`mergeWorktreeEntries`).
-+    const unstarted = workIndex.groupWorks.filter((ref) => !seen.has(ref.key) && !listedKeys.has(ref.key) && !inClaimedProject(ref.projectId) && !inFolder(ref) && !hiddenWorktreeGroupKeys.has(ref.key));
-     const leads = (ref: SidebarWorkRef): boolean => ref.kind === 'group' && Boolean(ref.group.space && liveSpaceIds.has(ref.group.space.id));
-     refs.unshift(...unstarted.filter(leads));
-     refs.push(...unstarted.filter((ref) => !leads(ref)));
-@@ -803,7 +829,10 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
-         .map(({ draft, projectId }): SessionSidebarWorkEntry => ({ kind: 'draft', draft, projectId })),
-       ...toWorkEntries([...refs.filter(isPinnedWorktree), ...refs.filter((ref) => !isPinnedWorktree(ref))]),
-     ];
--  }, [collection.orderedSessions, draftPlacement, folderByMember, liveSpaceIds, membership.claimedKeys, membership.claimedProjectIds, timeGrouping, toWorkEntries, workIndex, worktreeArchiveAnchors, zoneWorks]);
-+  }, [collection.orderedSessions, draftPlacement, folderByMember, hiddenWorktreeGroupKeys, liveSpaceIds, membership.claimedKeys, membership.claimedProjectIds, timeGrouping, toWorkEntries, view.hasSessionSearchQuery, workIndex, worktreeArchiveAnchors, zoneWorks]);
+@@ -777,14 +801,17 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+       workIndex,
+       archive: worktreeArchive,
+       include: (session) => !session.time?.archived && !isChatDirectoryPath(session.directory),
+-      isExcluded: (ref) => listedKeys.has(ref.key) || inClaimedProject(ref.projectId) || isFiledInFolder(ref, folderByMember),
++      isExcluded: (ref) => listedKeys.has(ref.key) || inClaimedProject(ref.projectId) || isFiledInFolder(ref, folderByMember) || hiddenWorktreeGroupKeys.has(ref.key),
+       isLiveSpace: (ref) => ref.kind === 'group' && Boolean(ref.group.space && liveSpaceIds.has(ref.group.space.id)),
+       orderValueOf: (session) => getSessionLifecycleOrderValue(session, collection.sessionOrderRanks),
+       isPinned: (session) => isSessionPinned(collection.pinnedSessionIds, session.directory, session.id),
+       rootDrafts: draftPlacement.rootDrafts.filter(({ projectId }) => !inClaimedProject(projectId)),
+       toWorkEntries,
+     });
+-  }, [collection.orderedSessions, collection.pinnedSessionIds, collection.sessionOrderRanks, draftPlacement, folderByMember, isPinnedWork, liveSpaceIds, membership.claimedKeys, membership.claimedProjectIds, timeGrouping, toWorkEntries, workIndex, worktreeArchive, zoneWorks]);
++  }, [collection.orderedSessions, collection.pinnedSessionIds, collection.sessionOrderRanks, draftPlacement, folderByMember, hiddenWorktreeGroupKeys, isPinnedWork, liveSpaceIds, membership.claimedKeys, membership.claimedProjectIds, timeGrouping, toWorkEntries, workIndex, worktreeArchive, zoneWorks]);
 +  // What leaves its project for the sections: what a section takes, and
 +  // during a search also what a section only lists, so a search lists each
 +  // match once.
    const { movedSessionIds, movedGroupKeys } = React.useMemo(() => {
      const sessionIds: string[] = [];
      const groupKeys: string[] = [];
-@@ -884,7 +913,8 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+@@ -865,7 +892,8 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
      if (timeEntries) {
        if (!projectView.collapsedActivities.has('timeline')) {
          timeEntries.forEach(addEntry);
@@ -194,7 +183,7 @@ index 79a3760fe..77a0d59e0 100644
          for (const section of projectSections) {
            section.groups.find((group) => group.isMain)?.sessions.filter((node) => folderByMember.get(node.session.id)?.projectId === section.project.id).forEach(addNode);
          }
-@@ -898,7 +928,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+@@ -879,7 +907,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
        });
      });
      return { targets, repositoryRefs: [...repositoryRefs.values()], trackerItems: [...trackerItems.values()] };
@@ -203,28 +192,28 @@ index 79a3760fe..77a0d59e0 100644
    const shownPrTargets = shownPrs.targets;
    const discoveryCandidatesRef = React.useRef<{ signature: string; candidates: Array<{ directory: string; branch: string }> } | null>(null);
    const discoveryCandidates = React.useMemo(() => {
-@@ -1237,6 +1267,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+@@ -1216,6 +1244,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
      pinnedSessionIds: collection.pinnedSessionIds,
      sessionOrderIndex,
-     worktreeArchiveAnchors,
+     worktreeArchiveAnchors: worktreeArchive.anchors,
 +    hiddenWorktreeGroupKeys,
      liveSpaceIds,
      groupStatusByKey,
      folderAuthorityByOwner,
-@@ -1251,7 +1282,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
+@@ -1230,7 +1259,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
      sessionBatchSize,
      runIndex,
      blocks: sidebarBlocks,
--  }), [blockDrag, sidebarBlocks, runIndex, archivedChatGroup, chatGroup, showChatsSection, rowCollapsedActivities, pinnedItems, pinnedWorktreeEntries, workEntries, timeEntries, draftPlacement, movedSessionIds, movedGroupKeys, detailedZoneRows, showSubagentSessions, collapsedFolderIds, collection.pinnedSessionIds, expandedParents, folderAuthorityByOwner, foldersMap, groupStatusByKey, orderedSectionsForRender, ownership.bySessionId, projectSections, collapsedGroups, rowCollapsedProjects, selectedSingleProjectId, sessionOrderIndex, singleProjectMode, view.activeProjectId, view.hasSessionSearchQuery, view.hideDirectoryControls, view.homeDirectory, view.showOnlyMainWorkspace, sessionBatchSize, visibleCountByContainer, worktreeArchiveAnchors, liveSpaceIds, conversationResults, revealedSearchSections, searchSectionsWithMore, searchIncomplete, searchLocationById, searchProjectById]);
-+  }), [blockDrag, sidebarBlocks, runIndex, archivedChatGroup, chatGroup, showChatsSection, rowCollapsedActivities, pinnedItems, pinnedWorktreeEntries, workEntries, timeEntries, draftPlacement, movedSessionIds, movedGroupKeys, detailedZoneRows, showSubagentSessions, collapsedFolderIds, collection.pinnedSessionIds, expandedParents, folderAuthorityByOwner, foldersMap, groupStatusByKey, orderedSectionsForRender, ownership.bySessionId, projectSections, collapsedGroups, rowCollapsedProjects, selectedSingleProjectId, sessionOrderIndex, singleProjectMode, view.activeProjectId, view.hasSessionSearchQuery, view.hideDirectoryControls, view.homeDirectory, view.showOnlyMainWorkspace, sessionBatchSize, visibleCountByContainer, worktreeArchiveAnchors, hiddenWorktreeGroupKeys, liveSpaceIds, conversationResults, revealedSearchSections, searchSectionsWithMore, searchIncomplete, searchLocationById, searchProjectById]);
+-  }), [blockDrag, sidebarBlocks, runIndex, archivedChatGroup, chatGroup, showChatsSection, rowCollapsedActivities, pinnedItems, pinnedWorktreeEntries, workEntries, timeEntries, timelineTodayStart, draftPlacement, movedSessionIds, movedGroupKeys, detailedZoneRows, showSubagentSessions, collapsedFolderIds, collection.pinnedSessionIds, expandedParents, folderAuthorityByOwner, foldersMap, groupStatusByKey, orderedSectionsForRender, ownership.bySessionId, projectSections, collapsedGroups, rowCollapsedProjects, selectedSingleProjectId, sessionOrderIndex, singleProjectMode, view.activeProjectId, view.hasSessionSearchQuery, view.hideDirectoryControls, view.homeDirectory, view.showOnlyMainWorkspace, sessionBatchSize, visibleCountByContainer, worktreeArchive, liveSpaceIds, conversationResults, revealedSearchSections, searchSectionsWithMore, searchIncomplete, searchLocationById, searchProjectById]);
++  }), [blockDrag, sidebarBlocks, runIndex, archivedChatGroup, chatGroup, showChatsSection, rowCollapsedActivities, pinnedItems, pinnedWorktreeEntries, workEntries, timeEntries, timelineTodayStart, hiddenWorktreeGroupKeys, draftPlacement, movedSessionIds, movedGroupKeys, detailedZoneRows, showSubagentSessions, collapsedFolderIds, collection.pinnedSessionIds, expandedParents, folderAuthorityByOwner, foldersMap, groupStatusByKey, orderedSectionsForRender, ownership.bySessionId, projectSections, collapsedGroups, rowCollapsedProjects, selectedSingleProjectId, sessionOrderIndex, singleProjectMode, view.activeProjectId, view.hasSessionSearchQuery, view.hideDirectoryControls, view.homeDirectory, view.showOnlyMainWorkspace, sessionBatchSize, visibleCountByContainer, worktreeArchive, liveSpaceIds, conversationResults, revealedSearchSections, searchSectionsWithMore, searchIncomplete, searchLocationById, searchProjectById]);
    React.useEffect(() => {
      onSearchMatchCountChange(searchTotalCount);
    }, [searchTotalCount, onSearchMatchCountChange]);
 diff --git a/packages/ui/src/components/session/sidebar/sessionSidebarRowModel.test.ts b/packages/ui/src/components/session/sidebar/sessionSidebarRowModel.test.ts
-index 2f2ef8603..fd343b00c 100644
+index 2bd5eed1f..038abac13 100644
 --- a/packages/ui/src/components/session/sidebar/sessionSidebarRowModel.test.ts
 +++ b/packages/ui/src/components/session/sidebar/sessionSidebarRowModel.test.ts
-@@ -708,6 +708,20 @@ describe('buildSessionSidebarRowModel', () => {
+@@ -712,6 +712,20 @@ describe('buildSessionSidebarRowModel', () => {
      expect(rows.at(-1)).toBe(header);
    });
  
@@ -245,7 +234,7 @@ index 2f2ef8603..fd343b00c 100644
    test('a worktree group with sessions keeps its saved collapse', () => {
      const worktree = group([node('wt-session')], { id: 'worktree:/wt', label: 'feature', isMain: false, directory: '/wt', folderScopeKey: '/wt' });
      const input = args([project([group([]), worktree])]);
-@@ -971,6 +985,18 @@ describe('buildSessionSidebarRowModel', () => {
+@@ -975,6 +989,18 @@ describe('buildSessionSidebarRowModel', () => {
          'zone:work', 'work:worktree:/wt@0:mixed', 'project:a1@1', 'project:project-a', 'folder:Releases', 'project:root@0',
        ]);
      });
@@ -254,7 +243,7 @@ index 2f2ef8603..fd343b00c 100644
 +      const empty = worktree([], 'empty');
 +      const input = args([project([group([node('root')]), empty])]);
 +      input.foldersMap = { '/repo': [{ id: 'f', name: 'Releases', createdAt: 1, sessionIds: ['worktree:/empty'] }] };
-+      input.timeEntries = sessionWorks([timelineItem('root')]);
++      input.timeEntries = undatedTimeline(sessionWorks([timelineItem('root')]));
 +      input.hiddenWorktreeGroupKeys = new Set(['project-a:worktree:/empty']);
 +
 +      const rows = listedOf(buildSessionSidebarRowModel(input).rows);
@@ -265,10 +254,10 @@ index 2f2ef8603..fd343b00c 100644
  
    describe('multi-run rows', () => {
 diff --git a/packages/ui/src/components/session/sidebar/sessionSidebarRowModel.ts b/packages/ui/src/components/session/sidebar/sessionSidebarRowModel.ts
-index 86cf8ad48..946ddcd85 100644
+index 757dbe8c8..3758faf06 100644
 --- a/packages/ui/src/components/session/sidebar/sessionSidebarRowModel.ts
 +++ b/packages/ui/src/components/session/sidebar/sessionSidebarRowModel.ts
-@@ -145,6 +145,16 @@ export type SessionSidebarRowModelArgs = {
+@@ -150,6 +150,16 @@ export type SessionSidebarRowModelArgs = {
    pinnedSessionIds: ReadonlySet<string>;
    sessionOrderIndex: ReadonlyMap<string, number>;
    worktreeArchiveAnchors?: ReadonlyMap<string, number>;
@@ -285,7 +274,7 @@ index 86cf8ad48..946ddcd85 100644
    liveSpaceIds?: ReadonlySet<string>;
    groupStatusByKey: ReadonlyMap<string, SessionSidebarGroupStatus>;
    folderAuthorityByOwner: ReadonlyMap<string, SessionSidebarOwnerAuthority>;
-@@ -1056,7 +1066,11 @@ export const buildSessionSidebarRowModel = (args: SessionSidebarRowModelArgs): S
+@@ -1045,7 +1055,11 @@ export const buildSessionSidebarRowModel = (args: SessionSidebarRowModelArgs): S
        if (captionCollapsed) return;
      }
      for (const section of projectSections) {
@@ -298,7 +287,7 @@ index 86cf8ad48..946ddcd85 100644
        const projectCollapsed = !args.singleProjectMode && !args.showOnlyMainWorkspace && args.collapsedProjects.has(section.project.id);
        if (!args.showOnlyMainWorkspace) {
          const rowIndex = rows.length;
-@@ -1103,7 +1117,8 @@ export const buildSessionSidebarRowModel = (args: SessionSidebarRowModelArgs): S
+@@ -1092,7 +1106,8 @@ export const buildSessionSidebarRowModel = (args: SessionSidebarRowModelArgs): S
          const collapsed = appendActivityHeader('timeline');
          if (!collapsed) {
            for (const { section, rootGroup } of foldered) {
@@ -333,15 +322,15 @@ index e537b8e20..9a6b75a14 100644
    }
    if (!isSingleProjectMode) {
 diff --git a/packages/ui/src/components/session/sidebar/works/sidebarWorks.test.ts b/packages/ui/src/components/session/sidebar/works/sidebarWorks.test.ts
-index fb852c8c9..3cc98b54e 100644
+index 93f918ee3..e8790b68f 100644
 --- a/packages/ui/src/components/session/sidebar/works/sidebarWorks.test.ts
 +++ b/packages/ui/src/components/session/sidebar/works/sidebarWorks.test.ts
 @@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
  import type { Session } from '@/lib/opencode/model';
  import type { SessionGroup, SessionNode } from '../types';
  import type { ProjectSection } from '../projects/sessionProjectRender';
--import { buildSessionRootIndex, buildSidebarWorkIndex, buildWorktreeArchiveAnchors, isGroupWork, orderInWorkWorks, orderInWorkWorksByAttention, orderSidebarWorks, type InWorkAttention, type SidebarWorkRef } from './sidebarWorks';
-+import { buildSessionRootIndex, buildSidebarWorkIndex, buildWorktreeArchiveAnchors, isEmptyWorktreeWork, isGroupWork, orderInWorkWorks, orderInWorkWorksByAttention, orderSidebarWorks, type InWorkAttention, type SidebarWorkRef } from './sidebarWorks';
+-import { buildSessionRootIndex, buildSidebarWorkIndex, buildWorktreeArchiveAnchors, isGroupWork, orderInWorkWorks, orderInWorkWorksByAttention, orderSidebarWorks, resolveWorkActivity, type InWorkAttention, type SidebarWorkRef } from './sidebarWorks';
++import { buildSessionRootIndex, buildSidebarWorkIndex, buildWorktreeArchiveAnchors, isEmptyWorktreeWork, isGroupWork, orderInWorkWorks, orderInWorkWorksByAttention, orderSidebarWorks, resolveWorkActivity, type InWorkAttention, type SidebarWorkRef } from './sidebarWorks';
  import { pickWorkSessionToOpen } from './workActions';
  
  // SAFETY: works read only ids, forks and metadata.
@@ -378,10 +367,10 @@ index fb852c8c9..3cc98b54e 100644
      const index = buildSidebarWorkIndex([section]);
      const order = ['w2', 'review', 'w1', 'lonely', 'root'].map((id) => session(id));
 diff --git a/packages/ui/src/components/session/sidebar/works/sidebarWorks.ts b/packages/ui/src/components/session/sidebar/works/sidebarWorks.ts
-index b23b2cb38..54c337913 100644
+index ee8071734..1ed8e46ab 100644
 --- a/packages/ui/src/components/session/sidebar/works/sidebarWorks.ts
 +++ b/packages/ui/src/components/session/sidebar/works/sidebarWorks.ts
-@@ -19,6 +19,37 @@ export const isGroupWork = (group: SessionGroup): boolean => (
+@@ -20,6 +20,37 @@ export const isGroupWork = (group: SessionGroup): boolean => (
    !group.isMain && group.isArchivedBucket !== true && (Boolean(group.space) || group.worktree !== null)
  );
  
@@ -420,10 +409,10 @@ index b23b2cb38..54c337913 100644
  
  export const findWorkFolderId = (ref: SidebarWorkRef, folderByMember: ReadonlyMap<string, SidebarFolderMembership>): string | null => {
 diff --git a/packages/ui/src/lib/i18n/messages/ar.ts b/packages/ui/src/lib/i18n/messages/ar.ts
-index f11280a46..0d38a592c 100644
+index 2eb9cd693..150bfcfb8 100644
 --- a/packages/ui/src/lib/i18n/messages/ar.ts
 +++ b/packages/ui/src/lib/i18n/messages/ar.ts
-@@ -627,6 +627,7 @@ export const dict: Record<I18nKey, string> = {
+@@ -625,6 +625,7 @@ export const dict: Record<I18nKey, string> = {
    'sessions.sidebar.header.displayMode.showSubagents': 'إظهار جلسات الوكلاء الفرعيين',
    'sessions.sidebar.header.displayMode.detailedZoneRows': 'صفوف مفصّلة',
    'sessions.sidebar.header.displayMode.worktreeNameByBranch': 'تسمية worktree باسم الفرع',
@@ -432,7 +421,7 @@ index f11280a46..0d38a592c 100644
    'sessions.sidebar.header.displayMode.showArchived': 'إظهار الجلسات المؤرشفة',
    'sessions.sidebar.header.displayMode.collapseAll': 'طي الكل',
 diff --git a/packages/ui/src/lib/i18n/messages/de.ts b/packages/ui/src/lib/i18n/messages/de.ts
-index 26e2430fe..67b843c9f 100644
+index 6912f57eb..7ed0684e7 100644
 --- a/packages/ui/src/lib/i18n/messages/de.ts
 +++ b/packages/ui/src/lib/i18n/messages/de.ts
 @@ -661,6 +661,7 @@ export const dict = {
@@ -444,7 +433,7 @@ index 26e2430fe..67b843c9f 100644
    'sessions.sidebar.header.displayMode.showArchived': 'Archivierte Sitzungen anzeigen',
    'sessions.sidebar.header.displayMode.collapseAll': 'Alle einklappen',
 diff --git a/packages/ui/src/lib/i18n/messages/en.ts b/packages/ui/src/lib/i18n/messages/en.ts
-index 66387edc4..acbab5b86 100644
+index 4b92408a9..313f80644 100644
 --- a/packages/ui/src/lib/i18n/messages/en.ts
 +++ b/packages/ui/src/lib/i18n/messages/en.ts
 @@ -712,6 +712,7 @@ export const dict = {
@@ -456,7 +445,7 @@ index 66387edc4..acbab5b86 100644
    'sessions.sidebar.header.displayMode.showArchived': 'Show archived sessions',
    'sessions.sidebar.header.displayMode.collapseAll': 'Collapse all',
 diff --git a/packages/ui/src/lib/i18n/messages/es.ts b/packages/ui/src/lib/i18n/messages/es.ts
-index 499c1fa16..74ada49a1 100644
+index 80fecc175..4f6088476 100644
 --- a/packages/ui/src/lib/i18n/messages/es.ts
 +++ b/packages/ui/src/lib/i18n/messages/es.ts
 @@ -722,6 +722,7 @@ export const dict: Record<I18nKey, string> = {
@@ -468,10 +457,10 @@ index 499c1fa16..74ada49a1 100644
    "sessions.sidebar.header.displayMode.showArchived": "Mostrar sesiones archivadas",
    "sessions.sidebar.header.displayMode.collapseAll": "Colapsar todo",
 diff --git a/packages/ui/src/lib/i18n/messages/fr.ts b/packages/ui/src/lib/i18n/messages/fr.ts
-index 34a9547f4..0d0147e6b 100644
+index 4c0c4a679..ebc167c9c 100644
 --- a/packages/ui/src/lib/i18n/messages/fr.ts
 +++ b/packages/ui/src/lib/i18n/messages/fr.ts
-@@ -546,6 +546,7 @@ export const dict = {
+@@ -550,6 +550,7 @@ export const dict = {
    'sessions.sidebar.header.displayMode.showSubagents': 'Afficher les sessions des sous-agents',
    'sessions.sidebar.header.displayMode.detailedZoneRows': 'Lignes détaillées',
    'sessions.sidebar.header.displayMode.worktreeNameByBranch': 'Nommer les worktrees d’après leur branche',
@@ -480,10 +469,10 @@ index 34a9547f4..0d0147e6b 100644
    'sessions.sidebar.header.displayMode.collapseAll': 'Tout réduire',
    'sessions.sidebar.header.displayMode.expandAll': 'Tout développer',
 diff --git a/packages/ui/src/lib/i18n/messages/he.ts b/packages/ui/src/lib/i18n/messages/he.ts
-index e4108ad28..c35d10519 100644
+index 2c60f22c4..6a2f6a0d8 100644
 --- a/packages/ui/src/lib/i18n/messages/he.ts
 +++ b/packages/ui/src/lib/i18n/messages/he.ts
-@@ -626,6 +626,7 @@ export const dict = {
+@@ -624,6 +624,7 @@ export const dict = {
    'sessions.sidebar.header.displayMode.showSubagents': 'הצג הפעלות של סוכני משנה',
    'sessions.sidebar.header.displayMode.detailedZoneRows': 'שורות מפורטות',
    'sessions.sidebar.header.displayMode.worktreeNameByBranch': 'שם worktree לפי הענף',
@@ -492,7 +481,7 @@ index e4108ad28..c35d10519 100644
    'sessions.sidebar.header.displayMode.showArchived': 'הצג הפעלות בארכיון',
    'sessions.sidebar.header.displayMode.collapseAll': 'כווץ הכול',
 diff --git a/packages/ui/src/lib/i18n/messages/ja.ts b/packages/ui/src/lib/i18n/messages/ja.ts
-index 0a885a885..707a21447 100644
+index 0a3f1e43a..227bc6cc4 100644
 --- a/packages/ui/src/lib/i18n/messages/ja.ts
 +++ b/packages/ui/src/lib/i18n/messages/ja.ts
 @@ -713,6 +713,7 @@ export const dict: Record<I18nKey, string> = {
@@ -504,7 +493,7 @@ index 0a885a885..707a21447 100644
    'sessions.sidebar.header.displayMode.showArchived': 'アーカイブ済みセッションを表示',
    'sessions.sidebar.header.displayMode.collapseAll': 'すべて折りたたむ',
 diff --git a/packages/ui/src/lib/i18n/messages/ko.ts b/packages/ui/src/lib/i18n/messages/ko.ts
-index 330cb1b16..c87d72b39 100644
+index b182a3604..9603f8f21 100644
 --- a/packages/ui/src/lib/i18n/messages/ko.ts
 +++ b/packages/ui/src/lib/i18n/messages/ko.ts
 @@ -713,6 +713,7 @@ export const dict: Record<I18nKey, string> = {
@@ -516,7 +505,7 @@ index 330cb1b16..c87d72b39 100644
    'sessions.sidebar.header.displayMode.showArchived': '보관된 세션 표시',
    'sessions.sidebar.header.displayMode.collapseAll': '모두 접기',
 diff --git a/packages/ui/src/lib/i18n/messages/nl.ts b/packages/ui/src/lib/i18n/messages/nl.ts
-index dfdebbb64..9b8cba4e6 100644
+index 11509be70..2ba20db20 100644
 --- a/packages/ui/src/lib/i18n/messages/nl.ts
 +++ b/packages/ui/src/lib/i18n/messages/nl.ts
 @@ -712,6 +712,7 @@ export const dict = {
@@ -528,7 +517,7 @@ index dfdebbb64..9b8cba4e6 100644
    'sessions.sidebar.header.displayMode.showArchived': 'Gearchiveerde sessies tonen',
    'sessions.sidebar.header.displayMode.collapseAll': 'Alles inklappen',
 diff --git a/packages/ui/src/lib/i18n/messages/pl.ts b/packages/ui/src/lib/i18n/messages/pl.ts
-index 0d94b08de..bd3b6de69 100644
+index 684f0db5c..af019146d 100644
 --- a/packages/ui/src/lib/i18n/messages/pl.ts
 +++ b/packages/ui/src/lib/i18n/messages/pl.ts
 @@ -545,6 +545,7 @@ export const dict: Record<I18nKey, string> = {
@@ -540,7 +529,7 @@ index 0d94b08de..bd3b6de69 100644
    'sessions.sidebar.header.displayMode.showArchived': 'Pokaż zarchiwizowane sesje',
    'sessions.sidebar.header.displayMode.collapseAll': 'Zwiń wszystkie',
 diff --git a/packages/ui/src/lib/i18n/messages/pt-BR.ts b/packages/ui/src/lib/i18n/messages/pt-BR.ts
-index f4b3af50a..829ace822 100644
+index d781c9267..2908013dc 100644
 --- a/packages/ui/src/lib/i18n/messages/pt-BR.ts
 +++ b/packages/ui/src/lib/i18n/messages/pt-BR.ts
 @@ -722,6 +722,7 @@ export const dict: Record<I18nKey, string> = {
@@ -552,7 +541,7 @@ index f4b3af50a..829ace822 100644
    "sessions.sidebar.header.displayMode.showArchived": "Mostrar sessões arquivadas",
    "sessions.sidebar.header.displayMode.collapseAll": "Recolher tudo",
 diff --git a/packages/ui/src/lib/i18n/messages/tr.ts b/packages/ui/src/lib/i18n/messages/tr.ts
-index 3febae193..4dae444c2 100644
+index 91a3207c6..fcf8f13cb 100644
 --- a/packages/ui/src/lib/i18n/messages/tr.ts
 +++ b/packages/ui/src/lib/i18n/messages/tr.ts
 @@ -636,6 +636,7 @@ export const dict = {
@@ -564,7 +553,7 @@ index 3febae193..4dae444c2 100644
    'sessions.sidebar.header.displayMode.showArchived': 'Arşivlenmiş session\'ları göster',
    'sessions.sidebar.header.displayMode.collapseAll': 'Tümünü daralt',
 diff --git a/packages/ui/src/lib/i18n/messages/uk.ts b/packages/ui/src/lib/i18n/messages/uk.ts
-index 29becdfdf..52a79a6d5 100644
+index 92fc1e90e..0087045ed 100644
 --- a/packages/ui/src/lib/i18n/messages/uk.ts
 +++ b/packages/ui/src/lib/i18n/messages/uk.ts
 @@ -722,6 +722,7 @@ export const dict: Record<I18nKey, string> = {
@@ -576,7 +565,7 @@ index 29becdfdf..52a79a6d5 100644
    "sessions.sidebar.header.displayMode.showArchived": "Показувати архівовані сесії",
    "sessions.sidebar.header.displayMode.collapseAll": "Згорнути все",
 diff --git a/packages/ui/src/lib/i18n/messages/zh-CN.ts b/packages/ui/src/lib/i18n/messages/zh-CN.ts
-index 86abe959a..17fc4e30d 100644
+index 58d8867ca..4453634a2 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-CN.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-CN.ts
 @@ -713,6 +713,7 @@ export const dict: Record<I18nKey, string> = {
@@ -588,7 +577,7 @@ index 86abe959a..17fc4e30d 100644
    'sessions.sidebar.header.displayMode.showArchived': '显示已归档会话',
    'sessions.sidebar.header.displayMode.collapseAll': '全部折叠',
 diff --git a/packages/ui/src/lib/i18n/messages/zh-TW.ts b/packages/ui/src/lib/i18n/messages/zh-TW.ts
-index 8543850df..8b63838c5 100644
+index 5ac8ea00e..0b0a92bc5 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-TW.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-TW.ts
 @@ -738,6 +738,7 @@ export const dict: Record<I18nKey, string> = {
@@ -600,10 +589,10 @@ index 8543850df..8b63838c5 100644
    'sessions.sidebar.header.displayMode.showArchived': '顯示已封存會話',
    'sessions.sidebar.header.displayMode.collapseAll': '全部摺疊',
 diff --git a/packages/ui/src/lib/settings/registry.ts b/packages/ui/src/lib/settings/registry.ts
-index 27e387374..e1ea6edc2 100644
+index 121557da3..72b01a21b 100644
 --- a/packages/ui/src/lib/settings/registry.ts
 +++ b/packages/ui/src/lib/settings/registry.ts
-@@ -363,6 +363,7 @@ export const SETTINGS_REGISTRY = {
+@@ -342,6 +342,7 @@ export const SETTINGS_REGISTRY = {
    sidebarDetailedZoneRows: field({ scope: 'profile', perSurface: true, parse: parseBoolean, ui: sessionDisplayField('detailedZoneRows') }),
    sidebarShowSubagentSessions: field({ scope: 'profile', perSurface: true, parse: parseBoolean, ui: sessionDisplayField('showSubagentSessions') }),
    sidebarWorktreeNameByBranch: field({ scope: 'profile', parse: parseBoolean, ui: sessionDisplayField('worktreeNameByBranch') }),
@@ -612,10 +601,10 @@ index 27e387374..e1ea6edc2 100644
    sidebarPinLists: field({ scope: 'profile', parse: fromSchema(sidebarPinListsSchema), ui: { read: () => useSessionDisplayStore.getState().pinLists, write: (value) => useSessionDisplayStore.getState().setPinLists(value), autoSave: false } }),
    sidebarHiddenSections: field({ scope: 'profile', perSurface: true, parse: fromSchema(hiddenSidebarSectionsSchema), ui: { read: () => useSessionDisplayStore.getState().hiddenSections, write: (value) => useSessionDisplayStore.getState().setHiddenSections(value), autoSave: false } }),
 diff --git a/packages/ui/src/stores/useSessionDisplayStore.ts b/packages/ui/src/stores/useSessionDisplayStore.ts
-index 486213222..971405993 100644
+index 867001bec..53983883c 100644
 --- a/packages/ui/src/stores/useSessionDisplayStore.ts
 +++ b/packages/ui/src/stores/useSessionDisplayStore.ts
-@@ -45,6 +45,12 @@ type SessionDisplayStore = {
+@@ -46,6 +46,12 @@ type SessionDisplayStore = {
    detailedZoneRows: boolean;
    showSubagentSessions: boolean;
    worktreeNameByBranch: boolean;
@@ -628,7 +617,7 @@ index 486213222..971405993 100644
    sections: SidebarSectionEntry[];
    pinLists: SidebarPinList[];
    hiddenSections: string[];
-@@ -64,6 +70,7 @@ type SessionDisplayStore = {
+@@ -65,6 +71,7 @@ type SessionDisplayStore = {
    setDetailedZoneRows: (detailed: boolean) => void;
    setShowSubagentSessions: (show: boolean) => void;
    setWorktreeNameByBranch: (byBranch: boolean) => void;
@@ -636,7 +625,7 @@ index 486213222..971405993 100644
    setShowArchivedSessions: (show: boolean) => void;
    toggleArchivedSessions: () => void;
    setProjectSortOrder: (order: ProjectSortOrder) => void;
-@@ -140,6 +147,7 @@ export const useSessionDisplayStore = create<SessionDisplayStore>()(
+@@ -142,6 +149,7 @@ export const useSessionDisplayStore = create<SessionDisplayStore>()(
        detailedZoneRows: getSettingsSurface() === 'mobile',
        showSubagentSessions: true,
        worktreeNameByBranch: false,
@@ -644,7 +633,7 @@ index 486213222..971405993 100644
        sections: [...DEFAULT_SIDEBAR_SECTIONS],
        pinLists: [],
        hiddenSections: [],
-@@ -159,6 +167,7 @@ export const useSessionDisplayStore = create<SessionDisplayStore>()(
+@@ -161,6 +169,7 @@ export const useSessionDisplayStore = create<SessionDisplayStore>()(
        setDetailedZoneRows: (detailed) => set({ detailedZoneRows: detailed }),
        setShowSubagentSessions: (show) => set({ showSubagentSessions: show }),
        setWorktreeNameByBranch: (byBranch) => set({ worktreeNameByBranch: byBranch }),
@@ -653,10 +642,10 @@ index 486213222..971405993 100644
        toggleArchivedSessions: () => set((state) => ({ showArchivedSessions: !state.showArchivedSessions })),
        setProjectSortOrder: (order) => set({ projectSortOrder: order }),
 diff --git a/packages/vscode/src/settings-registry.json b/packages/vscode/src/settings-registry.json
-index 3e476ae45..fdbcbab3a 100644
+index e1f4f73ab..72ffafa2e 100644
 --- a/packages/vscode/src/settings-registry.json
 +++ b/packages/vscode/src/settings-registry.json
-@@ -404,6 +404,9 @@
+@@ -410,6 +410,9 @@
      "sidebarWorktreeNameByBranch": {
        "scope": "profile"
      },
@@ -667,7 +656,7 @@ index 3e476ae45..fdbcbab3a 100644
        "scope": "profile"
      },
 diff --git a/packages/web/server/lib/settings/settings-helpers.test.js b/packages/web/server/lib/settings/settings-helpers.test.js
-index 05d9ce192..25d40f15c 100644
+index 8150efa00..c77ed76f8 100644
 --- a/packages/web/server/lib/settings/settings-helpers.test.js
 +++ b/packages/web/server/lib/settings/settings-helpers.test.js
 @@ -1026,7 +1026,7 @@ describe('settings registry gate', () => {
@@ -680,18 +669,18 @@ index 05d9ce192..25d40f15c 100644
      defaultGitIdentityId: 'global', permissionAutoAccept: { sessions: { s: true }, revision: 1 }, permissionDefaultMode: 'safety', messageSearchEnabled: true, messageSearchReasoningEnabled: true,
      agentControlToolEnabled: true, agentScheduleToolEnabled: true, agentWebToolEnabled: true, browserProvider: 'builtin', agentMemoryToolEnabled: true, agentMemoryDreamingEnabled: true, agentMemoryDreamingModel: 'openai/gpt-mini', agentMemoryDreamingVariant: 'low', agentKnowledgeToolEnabled: true, agentNotifyToolEnabled: true, agentRenderToolEnabled: true, agentImageToolEnabled: true, agentSecretToolEnabled: true, agentUsageToolEnabled: true, agentTerminalToolEnabled: true, agentActionsToolEnabled: true, agentImageModel: 'openrouter/openai/gpt-image-2', agentWorkflowToolEnabled: true, agentWorkflowAutoApprove: true, agentWorkflowAutoApproveLeads: true, isolatedSpacesEnabled: true, isolatedSpacesIdleStop: { enabled: true, hours: 4 }, isolatedSpacesSshHost: 'me@box.local:2222', openCodeUpdateToastDismissedVersion: '1.0.0',
 diff --git a/packages/web/server/lib/settings/settings-helpers.ts b/packages/web/server/lib/settings/settings-helpers.ts
-index b6b0f6b34..bde9107a8 100644
+index aed97f03a..2cf9be519 100644
 --- a/packages/web/server/lib/settings/settings-helpers.ts
 +++ b/packages/web/server/lib/settings/settings-helpers.ts
-@@ -157,6 +157,7 @@ type BooleanSettingsKey =
-   | 'showToolFileIcons' | 'showTurnChangedFiles' | 'collapsibleUserMessages' | 'stickyUserHeader'
+@@ -160,6 +160,7 @@ type BooleanSettingsKey =
+   | 'showToolFileIcons' | 'showTurnChangedFiles' | 'keepEarlierReplies' | 'collapsibleUserMessages' | 'stickyUserHeader'
    | 'promptNavigatorEnabled' | 'wideChatLayoutEnabled' | 'showSplitAssistantMessageActions' | 'directoryShowHidden'
    | 'filesViewShowGitignored' | 'reportUsage' | 'responseStyleEnabled' | 'dictationEnabled' | 'dictationAutoSend'
 +  | 'sidebarHideEmptyWorktrees'
    | 'sttCorrectTranscript' | (typeof AGENT_TOOL_BOOLEAN_KEYS)[number];
  
  type StringSettingsKey =
-@@ -596,6 +597,9 @@ export const createSettingsHelpers = (dependencies: SettingsHelpersDependencies)
+@@ -599,6 +600,9 @@ export const createSettingsHelpers = (dependencies: SettingsHelpersDependencies)
      if (candidate.sidebarWorktreeNameByBranch === true || candidate.sidebarWorktreeNameByBranch === false) {
        result.sidebarWorktreeNameByBranch = candidate.sidebarWorktreeNameByBranch;
      }
@@ -702,10 +691,10 @@ index b6b0f6b34..bde9107a8 100644
  
      if (Array.isArray(candidate.securityScopedBookmarks)) {
 diff --git a/packages/web/server/lib/settings/settings-registry.json b/packages/web/server/lib/settings/settings-registry.json
-index 3e476ae45..fdbcbab3a 100644
+index e1f4f73ab..72ffafa2e 100644
 --- a/packages/web/server/lib/settings/settings-registry.json
 +++ b/packages/web/server/lib/settings/settings-registry.json
-@@ -404,6 +404,9 @@
+@@ -410,6 +410,9 @@
      "sidebarWorktreeNameByBranch": {
        "scope": "profile"
      },

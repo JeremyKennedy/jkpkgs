@@ -118,6 +118,12 @@ patch, and a record without an `intent`.
 yet, each with `name`, `intent`, `note` and `since`. A candidate becomes a patch
 record when someone writes the patch, not before.
 
+`retired` keeps the record of a patch that left the queue: `name`,
+`relationship` (`same` when upstream carries it, `alternative` when upstream
+shipped another design for the need), the `pr` and `mergedAs` that did it, a
+`note` with the content evidence, and `since`. The ledger fails a retired name
+that is still queued or still has a patch file.
+
 ## Waiting for acceptance
 
 A feature request goes upstream first, and the pull request opens alongside it.

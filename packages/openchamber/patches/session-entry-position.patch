@@ -1,8 +1,8 @@
 diff --git a/packages/ui/src/components/chat/ChatContainer.tsx b/packages/ui/src/components/chat/ChatContainer.tsx
-index 98ba2f102..bf98b73d0 100644
+index 7c8f7c515..c1691aa98 100644
 --- a/packages/ui/src/components/chat/ChatContainer.tsx
 +++ b/packages/ui/src/components/chat/ChatContainer.tsx
-@@ -170,6 +170,20 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
+@@ -178,6 +178,20 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
      useAutoOpenDraft({ autoOpenDraft, liveSessionId, draftOpen });
  
      const { composerOverlayHeight, onStatusOverlayNode } = useStatusOverlayHeight();
@@ -23,7 +23,7 @@ index 98ba2f102..bf98b73d0 100644
      const {
          scrollRef,
          scrollNode,
-@@ -202,6 +216,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
+@@ -210,6 +224,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
          messageListRef,
          sessionIsWorking,
          revealGate,
@@ -184,7 +184,7 @@ index 000000000..315b3f1d5
 +    return { kind: 'conversation-start' };
 +};
 diff --git a/packages/ui/src/components/sections/openchamber/ChatSettings.tsx b/packages/ui/src/components/sections/openchamber/ChatSettings.tsx
-index e35742c8d..b184eeef7 100644
+index aa3b8036e..72b581815 100644
 --- a/packages/ui/src/components/sections/openchamber/ChatSettings.tsx
 +++ b/packages/ui/src/components/sections/openchamber/ChatSettings.tsx
 @@ -32,7 +32,7 @@ import { updateDesktopSettings } from '@/lib/persistence';
@@ -209,7 +209,7 @@ index e35742c8d..b184eeef7 100644
  const FOLLOW_UP_BEHAVIOR_OPTIONS: ChipOption<FollowUpBehavior>[] = [
    { id: 'steer', labelKey: 'settings.openchamber.visual.option.followUpBehavior.steer.label' },
    { id: 'queue', labelKey: 'settings.openchamber.visual.option.followUpBehavior.queue.label' },
-@@ -147,6 +153,8 @@ const MessagesTab: React.FC = () => {
+@@ -149,6 +155,8 @@ const MessagesTab: React.FC = () => {
    const setStreamingAutoFollowEnabled = useUIStore((state) => state.setStreamingAutoFollowEnabled);
    const chatWidth = useUIStore((state) => state.chatWidth);
    const setChatWidth = useUIStore((state) => state.setChatWidth);
@@ -218,15 +218,15 @@ index e35742c8d..b184eeef7 100644
    const promptNavigatorEnabled = useUIStore((state) => state.promptNavigatorEnabled);
    const setPromptNavigatorEnabled = useUIStore((state) => state.setPromptNavigatorEnabled);
    const autoExpandAnsweredQuestions = useUIStore((state) => state.autoExpandAnsweredQuestions);
-@@ -176,6 +184,7 @@ const MessagesTab: React.FC = () => {
+@@ -178,6 +186,7 @@ const MessagesTab: React.FC = () => {
    const mermaidOptions = useChipOptions(MERMAID_RENDERING_OPTIONS);
    const diffLayoutOptions = useChipOptions(DIFF_LAYOUT_OPTIONS);
    const chatWidthOptions = useChipOptions(CHAT_WIDTH_OPTIONS);
 +  const sessionEntryPositionOptions = useChipOptions(SESSION_ENTRY_POSITION_OPTIONS);
  
-   const handleActivityRenderModeChange = (mode: 'collapsed' | 'text' | 'summary') => {
+   const handleActivityRenderModeChange = (mode: 'collapsed' | 'grouped' | 'summary') => {
      setActivityRenderMode(mode);
-@@ -260,6 +269,18 @@ const MessagesTab: React.FC = () => {
+@@ -273,6 +282,18 @@ const MessagesTab: React.FC = () => {
              aria-label={t('settings.openchamber.visual.field.chatWidth')}
            />
          </SettingsFieldRow>
@@ -258,7 +258,7 @@ index d0d9e36e7..9710006aa 100644
    ['chat.selection-approval-text', 'messages'],
    ['chat.user-message-rendering', 'messages'],
 diff --git a/packages/ui/src/hooks/useChatTimelineScroll.test.tsx b/packages/ui/src/hooks/useChatTimelineScroll.test.tsx
-index fcc3a2d12..81b0def0e 100644
+index 8507dc35a..c630d2504 100644
 --- a/packages/ui/src/hooks/useChatTimelineScroll.test.tsx
 +++ b/packages/ui/src/hooks/useChatTimelineScroll.test.tsx
 @@ -23,6 +23,8 @@ let missing: number;
@@ -376,22 +376,21 @@ index fcc3a2d12..81b0def0e 100644
      await render('visible'); await frame();
      act(() => scroll.goToBottom());
 diff --git a/packages/ui/src/hooks/useChatTimelineScroll.ts b/packages/ui/src/hooks/useChatTimelineScroll.ts
-index 8bd947a97..73568f489 100644
+index 0fa99473b..c6bd7fe14 100644
 --- a/packages/ui/src/hooks/useChatTimelineScroll.ts
 +++ b/packages/ui/src/hooks/useChatTimelineScroll.ts
-@@ -14,10 +14,9 @@ import {
+@@ -14,9 +14,8 @@ import {
      type MessageViewportAnchor,
      type ViewportAnchorAlignment,
  } from '@/components/chat/lib/scroll/messageViewportAnchor';
 -import { readSessionScrollPosition, rememberOutgoingSessionScrollPosition } from '@/components/chat/lib/scroll/sessionScrollMemory';
 +import { rememberOutgoingSessionScrollPosition } from '@/components/chat/lib/scroll/sessionScrollMemory';
- import { REPLY_START_GAP_PX } from '@/components/chat/lib/scroll/scrollGaps';
  import {
 -    isWaitingPageRevealPending,
      pendingWaitingPageID,
      releaseWaitingPageRevealOutside,
      subscribeRequestReveal,
-@@ -59,6 +58,8 @@ import {
+@@ -64,6 +63,8 @@ import {
      onTabStep,
  } from '@/components/chat/lib/scroll/timelineScrollIntent';
  
@@ -400,7 +399,7 @@ index 8bd947a97..73568f489 100644
  export interface TimelineListHandle {
      getState: () => TimelineListMeasurementState & {
          readonly scroll: number;
-@@ -83,8 +84,11 @@ export type LinkedMessageState = 'exists' | 'missing' | 'unknown';
+@@ -88,8 +89,11 @@ export type LinkedMessageState = 'exists' | 'missing' | 'unknown';
  
  interface TimelineAnchorHandle {
      alignViewportAnchor: (anchor: MessageViewportAnchor) => ViewportAnchorAlignment;
@@ -412,7 +411,7 @@ index 8bd947a97..73568f489 100644
  interface UseChatTimelineScrollOptions {
      currentSessionId: string | null;
      currentSessionKey: string | null;
-@@ -97,6 +101,7 @@ interface UseChatTimelineScrollOptions {
+@@ -102,6 +106,7 @@ interface UseChatTimelineScrollOptions {
      pinned?: boolean;
      revealGate?: TimelineRevealGate | null;
      onActiveTurnChange?: (turnId: string | null) => void;
@@ -420,16 +419,16 @@ index 8bd947a97..73568f489 100644
  }
  
  interface UseChatTimelineScrollResult {
-@@ -211,7 +216,7 @@ const findFollowStops = (node: HTMLElement, stopAfterUserMessage: boolean, reply
-     return stops;
- };
+@@ -150,7 +155,7 @@ const drawsScrollInWholePixels = (): boolean => (
+     globalThis.CSS?.supports?.('-webkit-touch-callout', 'none') === true
+ );
  
 -type PositionTarget =
 +export type PositionTarget =
      | { readonly kind: 'remembered'; readonly anchor: MessageViewportAnchor }
      | { readonly kind: 'link'; readonly anchor: MessageViewportAnchor; readonly request: MessageFocusRequest };
  
-@@ -240,6 +245,7 @@ export const useChatTimelineScroll = ({
+@@ -179,6 +184,7 @@ export const useChatTimelineScroll = ({
      pinned = false,
      revealGate = null,
      onActiveTurnChange,
@@ -437,7 +436,7 @@ index 8bd947a97..73568f489 100644
  }: UseChatTimelineScrollOptions): UseChatTimelineScrollResult => {
      const sessionIsWorkingRef = React.useRef(sessionIsWorking);
      sessionIsWorkingRef.current = sessionIsWorking;
-@@ -319,6 +325,9 @@ export const useChatTimelineScroll = ({
+@@ -260,6 +266,9 @@ export const useChatTimelineScroll = ({
      checkLinkedMessageRef.current = checkLinkedMessage;
      const currentSessionIdRef = React.useRef(currentSessionId);
      currentSessionIdRef.current = currentSessionId;
@@ -447,7 +446,7 @@ index 8bd947a97..73568f489 100644
  
      const cancelShowButtonTimer = React.useCallback(() => {
          if (showButtonTimerRef.current !== null) {
-@@ -1098,38 +1107,27 @@ export const useChatTimelineScroll = ({
+@@ -1057,38 +1066,27 @@ export const useChatTimelineScroll = ({
          hideScrollButton();
      }, [currentSessionId, currentSessionKey, hideScrollButton, pinned]);
  
@@ -638,10 +637,10 @@ index 000000000..3cbede9df
 +    }, [currentSessionKey, entryReplyMessageId, jumpToEnd, linkTarget, onManualNavigation, pinned, revealGate, scrollNode, showPositionTarget]);
 +};
 diff --git a/packages/ui/src/lib/i18n/messages/ar.settings.ts b/packages/ui/src/lib/i18n/messages/ar.settings.ts
-index 8fd2fb279..17515cf3f 100644
+index d4289f173..919670b0a 100644
 --- a/packages/ui/src/lib/i18n/messages/ar.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/ar.settings.ts
-@@ -2517,6 +2517,12 @@ export const settingsDict = {
+@@ -2528,6 +2528,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.questionsInPromptSelectorInfo': 'يعرض كل سؤال مجاب عنه تحت المطالبة الخاصة به في منتقي المطالبات.',
    'settings.openchamber.visual.field.stickyUserHeaderAria': 'تثبيت رأس رسالة المستخدم',
    'settings.openchamber.visual.field.stickyUserHeader': 'تثبيت رأس رسالة المستخدم',
@@ -655,10 +654,10 @@ index 8fd2fb279..17515cf3f 100644
    'settings.openchamber.visual.field.promptNavigatorEnabled': 'متصفح الطلبات',
    'settings.openchamber.visual.field.autoSaveEnabledAria': 'الحفظ التلقائي للملفات',
 diff --git a/packages/ui/src/lib/i18n/messages/de.settings.ts b/packages/ui/src/lib/i18n/messages/de.settings.ts
-index 06ef7faaa..7d2f31eca 100644
+index 043f02db8..962b8f5e5 100644
 --- a/packages/ui/src/lib/i18n/messages/de.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/de.settings.ts
-@@ -2458,6 +2458,12 @@ export const settingsDict = {
+@@ -2469,6 +2469,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.questionsInPromptSelectorInfo': 'Zeigt jede beantwortete Frage unter ihrem Prompt im Prompt-Auswahlmenü.',
    'settings.openchamber.visual.field.stickyUserHeaderAria': 'Fixierter Benutzerheader',
    'settings.openchamber.visual.field.stickyUserHeader': 'Fixierter Benutzerkopf',
@@ -672,10 +671,10 @@ index 06ef7faaa..7d2f31eca 100644
    'settings.openchamber.visual.field.promptNavigatorEnabled': 'Prompt-Navigator',
    'settings.openchamber.visual.field.chatWidth': 'Chatbreite',
 diff --git a/packages/ui/src/lib/i18n/messages/en.settings.ts b/packages/ui/src/lib/i18n/messages/en.settings.ts
-index a325bab39..e5587dd68 100644
+index 60b497bfd..b7810583b 100644
 --- a/packages/ui/src/lib/i18n/messages/en.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/en.settings.ts
-@@ -2546,6 +2546,12 @@ export const settingsDict = {
+@@ -2557,6 +2557,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.questionsInPromptSelectorInfo': 'Shows each answered question under its prompt in the prompt selector.',
    'settings.openchamber.visual.field.stickyUserHeaderAria': 'Sticky user header',
    'settings.openchamber.visual.field.stickyUserHeader': 'Sticky user header',
@@ -689,10 +688,10 @@ index a325bab39..e5587dd68 100644
    'settings.openchamber.visual.field.promptNavigatorEnabled': 'Prompt navigator',
    'settings.openchamber.visual.field.autoSaveEnabledAria': 'Auto-save files',
 diff --git a/packages/ui/src/lib/i18n/messages/es.settings.ts b/packages/ui/src/lib/i18n/messages/es.settings.ts
-index 3b331b14f..ebef6a6ff 100644
+index 05ab48f99..7015dc6d4 100644
 --- a/packages/ui/src/lib/i18n/messages/es.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/es.settings.ts
-@@ -2496,6 +2496,12 @@ export const settingsDict = {
+@@ -2507,6 +2507,12 @@ export const settingsDict = {
    "settings.openchamber.visual.field.questionsInPromptSelectorInfo": "Muestra cada pregunta respondida bajo su prompt en el selector de prompts.",
    "settings.openchamber.visual.field.stickyUserHeaderAria": "Encabezado del usuario fijo",
    "settings.openchamber.visual.field.stickyUserHeader": "Encabezado de usuario fijo",
@@ -706,10 +705,10 @@ index 3b331b14f..ebef6a6ff 100644
    "settings.openchamber.visual.field.promptNavigatorEnabled": "Navegador de prompts",
    "settings.openchamber.visual.field.autoSaveEnabledAria": "Guardado automático de archivos",
 diff --git a/packages/ui/src/lib/i18n/messages/fr.settings.ts b/packages/ui/src/lib/i18n/messages/fr.settings.ts
-index 06063a319..5b265a15b 100644
+index 9117a4e56..6f9e02141 100644
 --- a/packages/ui/src/lib/i18n/messages/fr.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/fr.settings.ts
-@@ -2385,6 +2385,12 @@ export const settingsDict = {
+@@ -2396,6 +2396,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.questionsInPromptSelectorInfo': 'Affiche chaque question répondue sous son prompt dans le sélecteur de prompts.',
    'settings.openchamber.visual.field.stickyUserHeaderAria': 'En-tête utilisateur collant',
    'settings.openchamber.visual.field.stickyUserHeader': 'En-tête utilisateur collant',
@@ -723,10 +722,10 @@ index 06063a319..5b265a15b 100644
    'settings.openchamber.visual.field.promptNavigatorEnabled': 'Navigateur de prompts',
    'settings.openchamber.visual.field.autoSaveEnabledAria': 'Enregistrement automatique des fichiers',
 diff --git a/packages/ui/src/lib/i18n/messages/he.settings.ts b/packages/ui/src/lib/i18n/messages/he.settings.ts
-index 0df059f25..11a261864 100644
+index 08018e572..1ac8dfffa 100644
 --- a/packages/ui/src/lib/i18n/messages/he.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/he.settings.ts
-@@ -2517,6 +2517,12 @@ export const settingsDict = {
+@@ -2528,6 +2528,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.questionsInPromptSelectorInfo': 'מציג כל שאלה שנענתה תחת ההנחיה שלה בבורר ההנחיות.',
    'settings.openchamber.visual.field.stickyUserHeaderAria': 'כותרת משתמש נצמדת',
    'settings.openchamber.visual.field.stickyUserHeader': 'כותרת משתמש נצמדת',
@@ -740,10 +739,10 @@ index 0df059f25..11a261864 100644
    'settings.openchamber.visual.field.promptNavigatorEnabled': 'ניווט בין הנחיות',
    'settings.openchamber.visual.field.autoSaveEnabledAria': 'שמירה אוטומטית של קבצים',
 diff --git a/packages/ui/src/lib/i18n/messages/ja.settings.ts b/packages/ui/src/lib/i18n/messages/ja.settings.ts
-index bcf0884c9..19e7a0089 100644
+index f364ebb64..3116dba27 100644
 --- a/packages/ui/src/lib/i18n/messages/ja.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/ja.settings.ts
-@@ -2529,6 +2529,12 @@ export const settingsDict = {
+@@ -2540,6 +2540,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.questionsInPromptSelectorInfo': 'セレクターで、各回答済みの質問を対応するプロンプトの下に表示します。',
    'settings.openchamber.visual.field.stickyUserHeaderAria': 'ユーザーヘッダー固定',
    'settings.openchamber.visual.field.stickyUserHeader': 'ユーザーヘッダー固定',
@@ -757,10 +756,10 @@ index bcf0884c9..19e7a0089 100644
    'settings.openchamber.visual.field.promptNavigatorEnabled': 'プロンプトナビゲーター',
    'settings.openchamber.visual.field.autoSaveEnabledAria': 'ファイルの自動保存',
 diff --git a/packages/ui/src/lib/i18n/messages/ko.settings.ts b/packages/ui/src/lib/i18n/messages/ko.settings.ts
-index 5f785a7c7..59591687c 100644
+index 925073cd1..5aa57f22a 100644
 --- a/packages/ui/src/lib/i18n/messages/ko.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/ko.settings.ts
-@@ -2496,6 +2496,12 @@ export const settingsDict = {
+@@ -2507,6 +2507,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.questionsInPromptSelectorInfo': '선택기에서 각 답변한 질문을 해당 프롬프트 아래에 표시합니다.',
    'settings.openchamber.visual.field.stickyUserHeaderAria': '고정 사용자 헤더',
    'settings.openchamber.visual.field.stickyUserHeader': '고정 사용자 헤더',
@@ -774,10 +773,10 @@ index 5f785a7c7..59591687c 100644
    'settings.openchamber.visual.field.promptNavigatorEnabled': '프롬프트 탐색기',
    'settings.openchamber.visual.field.autoSaveEnabledAria': '파일 자동 저장',
 diff --git a/packages/ui/src/lib/i18n/messages/nl.settings.ts b/packages/ui/src/lib/i18n/messages/nl.settings.ts
-index 113757c24..650094ca9 100644
+index f3b5aaebe..b42db3a85 100644
 --- a/packages/ui/src/lib/i18n/messages/nl.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/nl.settings.ts
-@@ -2519,6 +2519,12 @@ export const settingsDict = {
+@@ -2530,6 +2530,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.questionsInPromptSelectorInfo': 'Toont elke beantwoorde vraag onder de bijbehorende prompt in de promptkiezer.',
    'settings.openchamber.visual.field.stickyUserHeaderAria': 'Vaste gebruikerskop',
    'settings.openchamber.visual.field.stickyUserHeader': 'Vaste gebruikerskop',
@@ -791,10 +790,10 @@ index 113757c24..650094ca9 100644
    'settings.openchamber.visual.field.promptNavigatorEnabled': 'Promptnavigator',
    'settings.openchamber.visual.field.autoSaveEnabledAria': 'Bestanden automatisch opslaan',
 diff --git a/packages/ui/src/lib/i18n/messages/pl.settings.ts b/packages/ui/src/lib/i18n/messages/pl.settings.ts
-index 06c8b838d..972623a0a 100644
+index dac45c55a..0239f1890 100644
 --- a/packages/ui/src/lib/i18n/messages/pl.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/pl.settings.ts
-@@ -1416,6 +1416,12 @@ export const settingsDict = {
+@@ -1418,6 +1418,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.showTurnChangedFilesAria': 'Pokaż zmienione pliki w ukończonych turach',
    'settings.openchamber.visual.field.spacingDensity': 'Gęstość odstępów',
    'settings.openchamber.visual.field.stickyUserHeader': 'Przyklejony nagłówek użytkownika',
@@ -808,10 +807,10 @@ index 06c8b838d..972623a0a 100644
    'settings.openchamber.visual.field.promptNavigatorEnabledAria': 'Nawigator promptów',
    'settings.openchamber.visual.field.promptNavigatorEnabled': 'Nawigator promptów',
 diff --git a/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts b/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
-index 9360a9c01..c72ed65d3 100644
+index d1c43d53f..f919eda28 100644
 --- a/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/pt-BR.settings.ts
-@@ -2496,6 +2496,12 @@ export const settingsDict = {
+@@ -2507,6 +2507,12 @@ export const settingsDict = {
    "settings.openchamber.visual.field.questionsInPromptSelectorInfo": "Mostra cada pergunta respondida sob o seu prompt no seletor de prompts.",
    "settings.openchamber.visual.field.stickyUserHeaderAria": "Cabeçalho do usuário fixo",
    "settings.openchamber.visual.field.stickyUserHeader": "Cabeçalho do usuário fixo",
@@ -825,10 +824,10 @@ index 9360a9c01..c72ed65d3 100644
    "settings.openchamber.visual.field.promptNavigatorEnabled": "Navegador de prompts",
    "settings.openchamber.visual.field.autoSaveEnabledAria": "Salvamento automático de arquivos",
 diff --git a/packages/ui/src/lib/i18n/messages/tr.settings.ts b/packages/ui/src/lib/i18n/messages/tr.settings.ts
-index 45aac4037..4fffb41ad 100644
+index e7df6d1a3..d11a2d0af 100644
 --- a/packages/ui/src/lib/i18n/messages/tr.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/tr.settings.ts
-@@ -2383,6 +2383,12 @@ export const settingsDict = {
+@@ -2394,6 +2394,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.questionsInPromptSelectorInfo': 'Her yanıtlanan soruyu istem seçicide kendi isteminin altında gösterir.',
    'settings.openchamber.visual.field.stickyUserHeaderAria': 'Yapışkan kullanıcı üstbilgisi',
    'settings.openchamber.visual.field.stickyUserHeader': 'Yapışkan Kullanıcı Üstbilgisi',
@@ -842,10 +841,10 @@ index 45aac4037..4fffb41ad 100644
    'settings.openchamber.visual.field.promptNavigatorEnabled': 'Prompt Gezgini',
    'settings.openchamber.visual.field.autoSaveEnabledAria': 'Dosyaları otomatik kaydet',
 diff --git a/packages/ui/src/lib/i18n/messages/uk.settings.ts b/packages/ui/src/lib/i18n/messages/uk.settings.ts
-index a2a248ae7..d88a253d6 100644
+index 17dd291f2..3e023cdd3 100644
 --- a/packages/ui/src/lib/i18n/messages/uk.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/uk.settings.ts
-@@ -2496,6 +2496,12 @@ export const settingsDict = {
+@@ -2507,6 +2507,12 @@ export const settingsDict = {
    "settings.openchamber.visual.field.questionsInPromptSelectorInfo": "Показує кожну відповідь на запитання під її запитом у виборі запитів.",
    "settings.openchamber.visual.field.stickyUserHeaderAria": "Закріплений заголовок користувача",
    "settings.openchamber.visual.field.stickyUserHeader": "Закріплений заголовок користувача",
@@ -859,10 +858,10 @@ index a2a248ae7..d88a253d6 100644
    "settings.openchamber.visual.field.promptNavigatorEnabled": "Навігатор промптів",
    "settings.openchamber.visual.field.autoSaveEnabledAria": "Автозбереження файлів",
 diff --git a/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts b/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
-index 6f2040615..6a9ab2d3a 100644
+index 1d1b785d1..07b837329 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-CN.settings.ts
-@@ -2496,6 +2496,12 @@ export const settingsDict = {
+@@ -2507,6 +2507,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.questionsInPromptSelectorInfo': '在选择器中于对应提示下显示每个已回答的问题。',
    'settings.openchamber.visual.field.stickyUserHeaderAria': '固定用户消息头',
    'settings.openchamber.visual.field.stickyUserHeader': '固定用户消息头',
@@ -876,10 +875,10 @@ index 6f2040615..6a9ab2d3a 100644
    'settings.openchamber.visual.field.promptNavigatorEnabled': '提示词导航',
    'settings.openchamber.visual.field.autoSaveEnabledAria': '自动保存文件',
 diff --git a/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts b/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
-index d8ef37153..04bc2bb1a 100644
+index 35610627b..a35677608 100644
 --- a/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
 +++ b/packages/ui/src/lib/i18n/messages/zh-TW.settings.ts
-@@ -2374,6 +2374,12 @@ export const settingsDict = {
+@@ -2385,6 +2385,12 @@ export const settingsDict = {
    'settings.openchamber.visual.field.questionsInPromptSelectorInfo': '在選擇器中於對應提示下顯示每個已回答的問題。',
    'settings.openchamber.visual.field.stickyUserHeaderAria': '固定使用者訊息標頭',
    'settings.openchamber.visual.field.stickyUserHeader': '固定使用者訊息標頭',
@@ -902,10 +901,10 @@ index 000000000..f5f90d4e8
 +
 +export const DEFAULT_SESSION_ENTRY_POSITION: SessionEntryPosition = 'last-position';
 diff --git a/packages/ui/src/lib/settings/registry.ts b/packages/ui/src/lib/settings/registry.ts
-index da399bbd4..938447db5 100644
+index c7fea1865..61c5c7b01 100644
 --- a/packages/ui/src/lib/settings/registry.ts
 +++ b/packages/ui/src/lib/settings/registry.ts
-@@ -442,6 +442,7 @@ export const SETTINGS_REGISTRY = {
+@@ -421,6 +421,7 @@ export const SETTINGS_REGISTRY = {
    stickyUserHeader: field({ scope: 'profile', perSurface: true, parse: parseBoolean, ui: uiStore('stickyUserHeader', (v) => useUIStore.getState().setStickyUserHeader(v)) }),
    promptNavigatorEnabled: field({ scope: 'profile', perSurface: true, parse: parseBoolean, ui: uiStore('promptNavigatorEnabled', (v) => useUIStore.getState().setPromptNavigatorEnabled(v)) }),
    chatWidth: field({ scope: 'profile', perSurface: true, parse: parseChatWidth, ui: uiStore('chatWidth', (v) => useUIStore.getState().setChatWidth(v)) }),
@@ -913,7 +912,7 @@ index da399bbd4..938447db5 100644
    wideChatLayoutEnabled: field({ scope: 'profile', perSurface: true, parse: parseBoolean }),
    autoExpandAnsweredQuestions: field({ scope: 'profile', parse: parseBoolean, ui: uiStore('autoExpandAnsweredQuestions', (v) => useUIStore.getState().setAutoExpandAnsweredQuestions(v)) }),
    listQuestionsInPromptSelector: field({ scope: 'profile', parse: parseBoolean, ui: uiStore('listQuestionsInPromptSelector', (v) => useUIStore.getState().setListQuestionsInPromptSelector(v)) }),
-@@ -639,12 +640,7 @@ export const SETTINGS_REGISTRY = {
+@@ -618,12 +619,7 @@ export const SETTINGS_REGISTRY = {
      parse: parseMobileKeyboardModeValue,
      ui: uiStore('mobileKeyboardMode', (v) => useUIStore.getState().setMobileKeyboardMode(v)),
    }),
@@ -977,18 +976,18 @@ index 000000000..ed5968167
 +  },
 +];
 diff --git a/packages/ui/src/lib/settings/search.ts b/packages/ui/src/lib/settings/search.ts
-index b731f23a1..bf72e3234 100644
+index aed4389ae..4b2f083e1 100644
 --- a/packages/ui/src/lib/settings/search.ts
 +++ b/packages/ui/src/lib/settings/search.ts
-@@ -11,6 +11,7 @@ import type { SettingsPageSlug, SettingsRuntimeContext } from './metadata';
- import { getSettingsPageMeta } from './metadata';
+@@ -12,6 +12,7 @@ import { getSettingsPageMeta } from './metadata';
  import { OPENCHAMBER_TOOLS_SEARCH_ITEMS } from './search-openchamber-tools';
+ import { CHAT_ACTIVITY_SEARCH_ITEMS } from './search-chat-activity';
  import { CHAT_SENDING_SEARCH_ITEMS } from './search-chat-sending';
 +import { CHAT_READING_SEARCH_ITEMS } from './search-chat-reading';
  import { SESSION_DEFAULTS_SEARCH_ITEMS } from './search-session-defaults';
  import { SIDEBAR_SESSION_SEARCH_ITEMS } from './search-sidebar-sessions';
  import { SESSION_COST_SEARCH_ITEMS, SESSION_GOAL_SEARCH_ITEMS } from './search-session-limits';
-@@ -379,25 +380,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
+@@ -380,25 +381,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
      titleKey: 'settings.openchamber.visual.section.reasoning',
      keywords: ['thinking', 'traces', 'collapse', 'expand', 'streaming'],
    },
@@ -1015,7 +1014,7 @@ index b731f23a1..bf72e3234 100644
    {
      id: 'chat.auto-expand-questions',
      page: 'chat',
-@@ -418,19 +401,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
+@@ -419,19 +402,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
      titleKey: 'settings.openchamber.visual.field.collapsibleUserMessages',
      keywords: ['collapse', 'expand', 'clamp', 'long messages', 'user messages'],
    },
@@ -1036,7 +1035,7 @@ index b731f23a1..bf72e3234 100644
      id: 'chat.code-block-line-wrap',
      page: 'chat',
 diff --git a/packages/ui/src/stores/ui/initialState.ts b/packages/ui/src/stores/ui/initialState.ts
-index 3cda596d2..96e547bbc 100644
+index 28f7c2289..51b774511 100644
 --- a/packages/ui/src/stores/ui/initialState.ts
 +++ b/packages/ui/src/stores/ui/initialState.ts
 @@ -5,6 +5,7 @@ import { getStoredMobileKeyboardMode } from '@/lib/mobileKeyboardMode';
@@ -1055,7 +1054,7 @@ index 3cda596d2..96e547bbc 100644
    | 'codeBlockLineWrap'
    | 'tableCellWrap'
    | 'copyMessagesAsPlainText'
-@@ -454,6 +456,7 @@ export const createInitialUIState = (): Pick<UIStore,
+@@ -455,6 +457,7 @@ export const createInitialUIState = (): Pick<UIStore,
    enterToSendConfigured: false,
    mobileReturnKeySends: false,
    chatWidth: 'default',
@@ -1064,10 +1063,10 @@ index 3cda596d2..96e547bbc 100644
    tableCellWrap: true,
    copyMessagesAsPlainText: true,
 diff --git a/packages/ui/src/stores/ui/persistence.ts b/packages/ui/src/stores/ui/persistence.ts
-index 891102e8c..553c16866 100644
+index 286e7a561..78ea5b04e 100644
 --- a/packages/ui/src/stores/ui/persistence.ts
 +++ b/packages/ui/src/stores/ui/persistence.ts
-@@ -417,6 +417,7 @@ const uiStorePersistOptions = {
+@@ -422,6 +422,7 @@ const uiStorePersistOptions = {
      enterToSendConfigured: state.enterToSendConfigured,
      mobileReturnKeySends: state.mobileReturnKeySends,
      chatWidth: state.chatWidth,
@@ -1076,7 +1075,7 @@ index 891102e8c..553c16866 100644
      tableCellWrap: state.tableCellWrap,
      copyMessagesAsPlainText: state.copyMessagesAsPlainText,
 diff --git a/packages/ui/src/stores/ui/preferenceActions.ts b/packages/ui/src/stores/ui/preferenceActions.ts
-index c492f5b11..ef9cc9d95 100644
+index 65d619067..bd3cb9656 100644
 --- a/packages/ui/src/stores/ui/preferenceActions.ts
 +++ b/packages/ui/src/stores/ui/preferenceActions.ts
 @@ -69,6 +69,7 @@ export const createPreferenceActions: UIStoreSlice<
@@ -1087,7 +1086,7 @@ index c492f5b11..ef9cc9d95 100644
    | 'setCodeBlockLineWrap'
    | 'setTableCellWrap'
    | 'setSelectionApprovalText'
-@@ -366,6 +367,10 @@ export const createPreferenceActions: UIStoreSlice<
+@@ -367,6 +368,10 @@ export const createPreferenceActions: UIStoreSlice<
      set({ chatWidth: value });
    },
  
@@ -1099,7 +1098,7 @@ index c492f5b11..ef9cc9d95 100644
      set({ codeBlockLineWrap: value });
    },
 diff --git a/packages/ui/src/stores/ui/types.ts b/packages/ui/src/stores/ui/types.ts
-index fe16c254e..fda66cc17 100644
+index 2ec5cc903..0a62437c4 100644
 --- a/packages/ui/src/stores/ui/types.ts
 +++ b/packages/ui/src/stores/ui/types.ts
 @@ -12,8 +12,11 @@ import type { MobileWorkspaceTab } from '@/lib/mobileWorkspaceTabs';
@@ -1122,7 +1121,7 @@ index fe16c254e..fda66cc17 100644
    codeBlockLineWrap: boolean;
    tableCellWrap: boolean;
    copyMessagesAsPlainText: boolean;
-@@ -609,6 +613,7 @@ export interface UIStore {
+@@ -610,6 +614,7 @@ export interface UIStore {
    setMobileReturnKeySends: (value: boolean) => void;
    setEnterToSendConfigured: (value: boolean) => void;
    setChatWidth: (value: ChatWidth) => void;
@@ -1143,10 +1142,10 @@ index 68b8edaa2..a4d01d88a 100644
  export { normalizeContextPanelDirectoryKey } from './ui/contextTabs';
  export { isTrackerBranchTab } from './ui/contextTabs';
 diff --git a/packages/vscode/src/settings-registry.json b/packages/vscode/src/settings-registry.json
-index 6a163e51e..c8513f135 100644
+index 17d342ef2..df9bc7dc6 100644
 --- a/packages/vscode/src/settings-registry.json
 +++ b/packages/vscode/src/settings-registry.json
-@@ -489,6 +489,10 @@
+@@ -495,6 +495,10 @@
        "scope": "profile",
        "perSurface": true
      },
@@ -1158,7 +1157,7 @@ index 6a163e51e..c8513f135 100644
        "scope": "profile",
        "perSurface": true
 diff --git a/packages/web/server/lib/settings/settings-helpers.test.js b/packages/web/server/lib/settings/settings-helpers.test.js
-index 3a956b0e0..2f73ad614 100644
+index 2164b651e..d70e645d4 100644
 --- a/packages/web/server/lib/settings/settings-helpers.test.js
 +++ b/packages/web/server/lib/settings/settings-helpers.test.js
 @@ -1052,7 +1052,7 @@ describe('settings registry gate', () => {
@@ -1168,13 +1167,13 @@ index 3a956b0e0..2f73ad614 100644
 -    stickyUserHeader: true, promptNavigatorEnabled: true, chatWidth: 'wider', wideChatLayoutEnabled: true, autoExpandAnsweredQuestions: true, listQuestionsInPromptSelector: true, showSplitAssistantMessageActions: true, showToolFileIcons: true,
 +    stickyUserHeader: true, promptNavigatorEnabled: true, chatWidth: 'wider', sessionEntryPosition: 'last-reply', wideChatLayoutEnabled: true, autoExpandAnsweredQuestions: true, listQuestionsInPromptSelector: true, showSplitAssistantMessageActions: true, showToolFileIcons: true,
      selectionApprovalText: 'Agreed.',
-     codeBlockLineWrap: true, tableCellWrap: true, copyMessagesAsPlainText: true, showTurnChangedFiles: true, toolJsonViewMode: 'raw',
-     timeFormatPreference: '24h', weekStartPreference: 'monday', messageStreamTransport: 'ws', diffLayoutPreference: 'inline', diffWrapLines: true, diffHideWhitespace: true,
+     codeBlockLineWrap: true, tableCellWrap: true, copyMessagesAsPlainText: true, showTurnChangedFiles: true, keepEarlierReplies: true, toolJsonViewMode: 'raw',
+     timeFormatPreference: '24h', weekStartPreference: 'monday', messageStreamTransport: 'ws', diffLayoutPreference: 'inline', diffWrapLines: true, diffHideWhitespace: true, referencePreviewNewestFirst: true, referencePreviewCollapseDescription: false,
 diff --git a/packages/web/server/lib/settings/settings-helpers.ts b/packages/web/server/lib/settings/settings-helpers.ts
-index 4a8883b4e..97b74ae0d 100644
+index ffbc08efe..63e1e1b8f 100644
 --- a/packages/web/server/lib/settings/settings-helpers.ts
 +++ b/packages/web/server/lib/settings/settings-helpers.ts
-@@ -250,6 +250,7 @@ export type SanitizedSettings = Partial<Record<BooleanSettingsKey, boolean>>
+@@ -253,6 +253,7 @@ export type SanitizedSettings = Partial<Record<BooleanSettingsKey, boolean>>
      mermaidRenderingMode?: 'svg' | 'ascii';
      userMessageRenderingMode?: 'markdown' | 'plain';
      chatWidth?: 'default' | 'wider' | 'wide' | 'full';
@@ -1182,7 +1181,7 @@ index 4a8883b4e..97b74ae0d 100644
      shortcutOverrides?: Record<string, string>;
      favoriteModels?: NonNullable<ReturnType<Normalization['sanitizeModelRefs']>>;
      recentModels?: NonNullable<ReturnType<Normalization['sanitizeModelRefs']>>;
-@@ -1080,9 +1081,8 @@ export const createSettingsHelpers = (dependencies: SettingsHelpersDependencies)
+@@ -1070,9 +1071,8 @@ export const createSettingsHelpers = (dependencies: SettingsHelpersDependencies)
      if (isBoolean(candidate.promptNavigatorEnabled)) {
        result.promptNavigatorEnabled = candidate.promptNavigatorEnabled;
      }
@@ -1195,10 +1194,10 @@ index 4a8883b4e..97b74ae0d 100644
        result.wideChatLayoutEnabled = candidate.wideChatLayoutEnabled;
      }
 diff --git a/packages/web/server/lib/settings/settings-registry.json b/packages/web/server/lib/settings/settings-registry.json
-index 6a163e51e..c8513f135 100644
+index 17d342ef2..df9bc7dc6 100644
 --- a/packages/web/server/lib/settings/settings-registry.json
 +++ b/packages/web/server/lib/settings/settings-registry.json
-@@ -489,6 +489,10 @@
+@@ -495,6 +495,10 @@
        "scope": "profile",
        "perSurface": true
      },

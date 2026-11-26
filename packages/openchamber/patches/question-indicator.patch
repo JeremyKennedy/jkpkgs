@@ -11,22 +11,21 @@ index 4808ee8db..688a09028 100644
  | `markdown` | `link`, `linkHover`, `inlineCode`, `inlineCodeBackground`, `blockquote`, `blockquoteBorder`, `listMarker`, `bold`, `italic`, `strikethrough`, `hr` |
  | `tools` | `border`, `icon`, `title`, `description`; `edit` accepts `addedBackground`, `removedBackground`, `modifiedBackground`, `lineNumber` |
 diff --git a/packages/ui/src/apps/MobileSessionStateBadges.tsx b/packages/ui/src/apps/MobileSessionStateBadges.tsx
-index b1ef20947..38643046c 100644
+index 2d68ea28a..01216c367 100644
 --- a/packages/ui/src/apps/MobileSessionStateBadges.tsx
 +++ b/packages/ui/src/apps/MobileSessionStateBadges.tsx
-@@ -5,7 +5,6 @@ import { useI18n } from '@/lib/i18n';
- import type { Session } from '@/lib/opencode/model';
- import { getSessionGoal } from '@/lib/sessionGoalMetadata';
+@@ -8,6 +8,7 @@ import { getSessionGoal } from '@/lib/sessionGoalMetadata';
  import { sessionGoalMarkLabelKey, sessionGoalStatusColor } from '@/lib/sessionGoalPresentation';
--import type { PendingRequests } from './usePendingRequests';
+ import type { BlockingRequestKind } from '@/sync/session-request-hooks';
+ import type { PendingRequests } from './usePendingRequests';
++import { SessionPendingMarks } from '@/components/session/SessionPendingMarks';
  
  export const MobileSessionGoalGlyph: React.FC<{ session: Session }> = ({ session }) => {
    const { t } = useI18n();
-@@ -21,28 +20,3 @@ export const MobileSessionGoalGlyph: React.FC<{ session: Session }> = ({ session
-     />
+@@ -24,30 +25,9 @@ export const MobileSessionGoalGlyph: React.FC<{ session: Session }> = ({ session
    );
  };
--
+ 
 -export const MobileSessionPendingBadges: React.FC<PendingRequests> = ({ hasPermission, hasForm }) => {
 -  const { t } = useI18n();
 -  if (!hasPermission && !hasForm) return null;
@@ -51,19 +50,79 @@ index b1ef20947..38643046c 100644
 -    </>
 -  );
 -};
++export const MobileSessionPendingBadges: React.FC<PendingRequests> = ({ hasPermission, hasForm }) => (
++  <SessionPendingMarks hasPermission={hasPermission} hasForm={hasForm} />
++);
+ 
+ const BADGE_BUTTON_STYLE: React.CSSProperties = { touchAction: 'manipulation', minHeight: 0, minWidth: 0 };
+ 
+@@ -60,7 +40,7 @@ export const MobileSessionPendingBadgeButtons: React.FC<PendingRequests & {
+       type="button"
+       data-pending-request-badge={kind}
+       className={cn(
+-        "relative inline-flex shrink-0 items-center rounded text-status-warning before:absolute before:-inset-y-3 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
++        "relative inline-flex shrink-0 items-center rounded before:absolute before:-inset-y-3 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+         kind === 'form' && hasPermission ? 'before:[inset-inline-start:-3px]' : 'before:[inset-inline-start:-0.5rem]',
+         kind === 'permission' && hasForm ? 'before:[inset-inline-end:-3px]' : 'before:[inset-inline-end:-0.5rem]',
+       )}
+@@ -71,7 +51,7 @@ export const MobileSessionPendingBadgeButtons: React.FC<PendingRequests & {
+         onOpen(kind);
+       }}
+     >
+-      <Icon name={icon} className="size-3" />
++      <Icon name={icon} className={cn('size-3', kind === 'form' ? 'text-status-question' : 'text-status-warning')} />
+     </button>
+   );
+   return (
 diff --git a/packages/ui/src/apps/MobileSessionSwitcher.tsx b/packages/ui/src/apps/MobileSessionSwitcher.tsx
-index b9af09f64..1c04e9cfa 100644
+index ce36b3c60..e36f74f03 100644
 --- a/packages/ui/src/apps/MobileSessionSwitcher.tsx
 +++ b/packages/ui/src/apps/MobileSessionSwitcher.tsx
-@@ -2,6 +2,7 @@ import React from 'react';
+@@ -2,11 +2,14 @@ import React from 'react';
  import { useSessionTurnActivity } from '@/sync/global-session-status';
  import { getSessionActivityTime } from '@/sync/session-ordering';
  import { SessionActivityIndicator } from '@/components/session/SessionActivityIndicator';
 +import { SessionPendingMarks } from '@/components/session/SessionPendingMarks';
  import type { Session } from '@/lib/opencode/model';
- import type { SessionNode } from '@/components/session/sidebar/types';
++import type { SessionNode } from '@/components/session/sidebar/types';
  
-@@ -65,7 +66,12 @@ const SwitcherRow: React.FC<{
+ import { SessionActivityDuration } from '@/components/session/SessionActivityDuration';
+ import { formatSessionCompactDateLabel } from '@/components/session/sidebar/utils';
+ import { useSwitcherItems } from '@/components/session/sidebar/shell/useSwitcherItems';
++import { usePendingRequests } from './usePendingRequests';
+ import { useTabletLayout } from '@/lib/device';
+ import { useI18n } from '@/lib/i18n';
+ import { cn } from '@/lib/utils';
+@@ -24,19 +27,25 @@ const getSessionTitle = (session: Session, fallback: string): string =>
+   session.title?.trim() || fallback;
+ 
+ const SwitcherRow: React.FC<{
+-  session: Session;
++  node: SessionNode;
+   meta: string;
+   active: boolean;
+   onSelect: () => void;
+-}> = ({ session, meta, active, onSelect }) => {
++}> = ({ node, meta, active, onSelect }) => {
+   const { t } = useI18n();
++  const session = node.session;
+   const isUnread = useSessionUnread(session.id);
+   const markedUnread = useSessionMarkedUnread(session.id);
+   const turnActivity = useSessionTurnActivity(session.id);
+   const isStreaming = turnActivity !== null;
+   const showUnreadDot = !isStreaming && isUnread && (!active || markedUnread);
++  // The recent list shows parents only: a row stands for its subsessions too,
++  // so their waiting requests count here, resolved as the desktop row does.
++  const pendingRequests = usePendingRequests(node, false, true, resolveGlobalSessionDirectory(session));
++  const { hasPermission: hasPendingPermission, hasForm: hasPendingForm } = pendingRequests;
++  const waitingOnUser = hasPendingPermission || hasPendingForm;
+   const hasActivityDuration = useHasSessionTurnDuration(session.id, isStreaming);
+-  const showActivityDuration = (isStreaming || showUnreadDot) && hasActivityDuration;
++  const showActivityDuration = (isStreaming || showUnreadDot) && !waitingOnUser && hasActivityDuration;
+   const timeLabel = formatSessionCompactDateLabel(getSessionActivityTime(session));
+ 
+   return (
+@@ -57,7 +66,12 @@ const SwitcherRow: React.FC<{
            <span className="block truncate typography-micro text-muted-foreground">{meta}</span>
          ) : null}
        </span>
@@ -77,38 +136,15 @@ index b9af09f64..1c04e9cfa 100644
          <SessionActivityIndicator
            state={turnActivity ?? 'unread'}
          />
-diff --git a/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx b/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx
-index 587ba39f4..527abfe65 100644
---- a/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx
-+++ b/packages/ui/src/apps/mobileSidebar/MobileSessionRow.tsx
-@@ -44,7 +44,8 @@ import { useSessionMarkedUnread, useSessionUnread } from '@/sync/session-unread'
- import { getSessionDirectory } from '../mobileSessionFields';
- import { MobileProjectIcon } from '../MobileProjectIcon';
- import { MobileSessionRenameForm } from '../MobileSessionRenameForm';
--import { MobileSessionGoalGlyph, MobileSessionPendingBadges } from '../MobileSessionStateBadges';
-+import { MobileSessionGoalGlyph } from '../MobileSessionStateBadges';
-+import { SessionPendingMarks } from '@/components/session/SessionPendingMarks';
- import { MobileSessionRowActions, MobileSwipeActionsRow, ROW_ACTION_SLOT_WIDTH, ROW_ACTIONS_WIDTH } from '../MobileSessionSwipe';
- import { mobileSessionTitleClass } from '../mobileSessionTitle';
- import { usePendingRequests } from '../usePendingRequests';
-@@ -240,7 +241,7 @@ export const MobileSessionRow: React.FC<{
-             <MobileSessionGoalGlyph session={session} />
-             {refMark(true)}
-             {marks}
--            <MobileSessionPendingBadges {...pendingRequests} />
-+            <SessionPendingMarks {...pendingRequests} />
-           </span>
-         </> : null}
-       />
-@@ -264,7 +265,7 @@ export const MobileSessionRow: React.FC<{
-           <MobileSessionGoalGlyph session={session} />
-           {refMark(false)}
-           {marks}
--          <MobileSessionPendingBadges {...pendingRequests} />
-+          <SessionPendingMarks {...pendingRequests} />
-           {leadMarker}
-           {pinMarker}
-           {liveState}
+@@ -202,7 +216,7 @@ export const MobileSessionSwitcher: React.FC<{
+               return (
+                 <SwitcherRow
+                   key={session.id}
+-                  session={session}
++                  node={item.node}
+                   meta={meta}
+                   active={session.id === currentSessionId}
+                   onSelect={() => {
 diff --git a/packages/ui/src/components/multirun/LaneStatusIcon.tsx b/packages/ui/src/components/multirun/LaneStatusIcon.tsx
 index a4e4b605e..ce18807d3 100644
 --- a/packages/ui/src/components/multirun/LaneStatusIcon.tsx
@@ -311,10 +347,10 @@ index 000000000..4c46d11f4
 +  );
 +};
 diff --git a/packages/ui/src/components/session/SessionSwitcherDropdown.tsx b/packages/ui/src/components/session/SessionSwitcherDropdown.tsx
-index 6b148efaf..31b659d81 100644
+index 5faef6d34..31b659d81 100644
 --- a/packages/ui/src/components/session/SessionSwitcherDropdown.tsx
 +++ b/packages/ui/src/components/session/SessionSwitcherDropdown.tsx
-@@ -11,6 +11,8 @@ import {
+@@ -11,15 +11,20 @@ import {
  } from '@/components/ui/dropdown-menu';
  import { Icon } from '@/components/icon/Icon';
  import { SessionActivityIndicator } from '@/components/session/SessionActivityIndicator';
@@ -323,22 +359,45 @@ index 6b148efaf..31b659d81 100644
  import { useWaitingBlink } from '@/hooks/useDurationTicker';
  import { useSessionUIStore } from '@/sync/session-ui-store';
  import { useSessionMarkedUnread, useSessionUnread } from '@/sync/session-unread';
-@@ -196,9 +198,12 @@ type SwitcherNodeProps = {
++import { useSessionBlockingRequests } from '@/sync/sync-context';
+ import {
+   findSwitcherItemAncestorIds,
+   useSwitcherItems,
+   type SwitcherItem,
+ } from '@/components/session/sidebar/shell/useSwitcherItems';
++import { selectBlockingBadgeSessionScopes } from '@/components/session/sidebar/sessions/sessionNodeItemUtils';
+ import { useUIStore } from '@/stores/useUIStore';
++import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
+ import { refreshGlobalSessions, refreshRecentGlobalSessions, resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
+ import { formatSessionCompactDateLabel } from './sidebar/utils';
+ import type { SessionNode } from './sidebar/types';
+@@ -193,8 +198,19 @@ type SwitcherNodeProps = {
  function SwitcherNode({ item, depth, variant, expandedParents, toggleParent, closeDropdown }: SwitcherNodeProps): React.ReactElement {
    const { node, secondaryMeta } = item;
    const session = node.session;
 -  const hasChildren = node.children.length > 0;
--  const isExpanded = expandedParents.has(session.id);
-   const showSubagentSessions = useSessionDisplayStore((state) => state.showSubagentSessions);
++  const showSubagentSessions = useSessionDisplayStore((state) => state.showSubagentSessions);
 +  // The node keeps every child, the workflow agents included, so their waiting
 +  // requests count for this row; only the listed ones get rows of their own.
 +  const childNodes = listedChildren(node, showSubagentSessions);
 +  const hasChildren = childNodes.length > 0;
-+  const isExpanded = expandedParents.has(session.id);
-   // A folded row stands for its subsessions too: their waiting requests count
-   // here, exactly as the sidebar's collapsed rows count them.
-   const blockingScopes = React.useMemo(
-@@ -221,7 +226,7 @@ function SwitcherNode({ item, depth, variant, expandedParents, toggleParent, clo
+   const isExpanded = expandedParents.has(session.id);
++  // A folded row stands for its subsessions too: their waiting requests count
++  // here, exactly as the sidebar's collapsed rows count them.
++  const blockingScopes = React.useMemo(
++    () => selectBlockingBadgeSessionScopes(node, isExpanded, resolveGlobalSessionDirectory(session), showSubagentSessions),
++    [isExpanded, node, session, showSubagentSessions],
++  );
++  const pendingRequests = useSessionBlockingRequests(blockingScopes);
+ 
+   return (
+     <>
+@@ -205,11 +221,12 @@ function SwitcherNode({ item, depth, variant, expandedParents, toggleParent, clo
+         secondaryMeta={secondaryMeta}
+         hasChildren={hasChildren}
+         isExpanded={isExpanded}
++        pendingRequests={pendingRequests}
+         onToggleExpand={hasChildren ? () => toggleParent(session.id) : undefined}
          closeDropdown={closeDropdown}
        />
        {hasChildren && isExpanded
@@ -347,7 +406,32 @@ index 6b148efaf..31b659d81 100644
              <SwitcherNode
                key={childNode.session.id}
                item={{ node: childNode, projectId: item.projectId, groupDirectory: item.groupDirectory, secondaryMeta }}
-@@ -358,7 +363,11 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
+@@ -232,11 +249,12 @@ type SwitcherRowProps = {
+   secondaryMeta: SecondaryMeta;
+   hasChildren: boolean;
+   isExpanded: boolean;
++  pendingRequests: { hasPermission: boolean; hasForm: boolean };
+   onToggleExpand?: () => void;
+   closeDropdown: () => void;
+ };
+ 
+-function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isExpanded, onToggleExpand, closeDropdown }: SwitcherRowProps): React.ReactElement {
++function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isExpanded, pendingRequests, onToggleExpand, closeDropdown }: SwitcherRowProps): React.ReactElement {
+   const { t } = useI18n();
+   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
+   const setCurrentSession = useSessionUIStore((state) => state.setCurrentSession);
+@@ -250,6 +268,10 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
+   const isStreaming = turnActivity !== null;
+   const runningBlink = useWaitingBlink(isStreaming);
+   const showUnreadDot = !isStreaming && isUnread && (!isActive || markedUnread);
++  const { hasPermission: hasPendingPermission, hasForm: hasPendingForm } = pendingRequests;
++  // A request waiting on the user stands for the turn: the running mark steps
++  // aside for the request badge, as it does on the sidebar and mobile rows.
++  const waitingOnUser = hasPendingPermission || hasPendingForm;
+ 
+   const timestamp = getSessionActivityTime(session) || Date.now();
+   const timeLabel = formatSessionCompactDateLabel(timestamp);
+@@ -341,7 +363,11 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
          ) : null}
        </div>
  
@@ -361,29 +445,120 @@ index 6b148efaf..31b659d81 100644
            <SessionActivityIndicator
              state={turnActivity ?? 'unread'}
 diff --git a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-index aed9d4184..60b4eb061 100644
+index 925955c96..05123bf7a 100644
 --- a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
 +++ b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-@@ -385,7 +385,7 @@ no Shift.
+@@ -386,7 +386,7 @@ no Shift.
  
  ### Why project trees resolve lineage globally
  
--The shared project tree checks parent presence against the global active and archived cache plus the merged active session list. Child expansion uses the lifecycle-ordered global graph. A child whose parent is known renders only beneath that parent, even when its own directory belongs to another project or worktree. An archived parent or intermediate never allows an active descendant to become an independent root. Project buckets contain roots only, so children do not consume root pagination or make a child-only worktree expandable. Temporary `/btw` forks and archived children remain hidden. Workflow agents (`metadata.openchamber.kind === 'workflow-agent'`) stay in the tree but get no rows, and neither does what they started (`listedChildren`): one run can start a hundred, and the run's card and Workflows panel list them. Their pending requests and activity still count for the row above, so an expanded parent's badge scope includes them (`selectBlockingBadgeSessionScopes`). The display option `showSubagentSessions` (sidebar display menu, Settings → Sessions) withholds the same way: every session an agent spawned (`parentID`, `isSubagentSession`) loses its row, and a parent left with no listed children loses the expander, while reviews and promoted btw sessions keep their rows; under a hidden subagent its whole branch goes with it, folders and Pinned included. A row's badge covers its own session and every descendant without a row of its own (`collectRowBadgeNodes`), so a hidden subagent's permission or question shows on the nearest visible parent, expanded or not, on desktop and phone alike, and a listed child still reports its own. Selection still uses each session's own directory. VS Code applies the same rule after its exact workspace filter.
-+The shared project tree checks parent presence against the global active and archived cache plus the merged active session list. Child expansion uses the lifecycle-ordered global graph. A child whose parent is known renders only beneath that parent, even when its own directory belongs to another project or worktree. An archived parent or intermediate never allows an active descendant to become an independent root. Project buckets contain roots only, so children do not consume root pagination or make a child-only worktree expandable. Temporary `/btw` forks and archived children remain hidden. Workflow agents (`metadata.openchamber.kind === 'workflow-agent'`) stay in the tree but get no rows, and neither does what they started (`listedChildren`): one run can start a hundred, and the run's card and Workflows panel list them. Their pending requests and activity still count for the row above, so an expanded parent's badge scope includes them (`selectBlockingBadgeSessionScopes`). The two session switchers build their trees the same way (`collectSwitcherChildren` in `shell/useSwitcherItems.ts` keeps every child), and take their child rows and chevron from `listedChildren`, so a run blocked only by workflow agents shows the mark and keeps no expand control. The display option `showSubagentSessions` (sidebar display menu, Settings → Sessions) withholds the same way: every session an agent spawned (`parentID`, `isSubagentSession`) loses its row, and a parent left with no listed children loses the expander, while reviews and promoted btw sessions keep their rows; under a hidden subagent its whole branch goes with it, folders and Pinned included. A row's badge covers its own session and every descendant without a row of its own (`collectRowBadgeNodes`), so a hidden subagent's permission or question shows on the nearest visible parent, expanded or not, on desktop and phone alike, and a listed child still reports its own. Selection still uses each session's own directory. VS Code applies the same rule after its exact workspace filter.
+-The shared project tree checks parent presence against the global active and archived cache plus the merged active session list. Child expansion uses the lifecycle-ordered global graph. A child whose parent is known renders only beneath that parent, even when its own directory belongs to another project or worktree. An archived parent or intermediate never allows an active descendant to become an independent root. Project buckets contain roots only, so children do not consume root pagination or make a child-only worktree expandable. Temporary `/btw` forks and archived children remain hidden. Workflow agents (`metadata.openchamber.kind === 'workflow-agent'`) stay in the tree but get no rows, and neither does what they started (`listedChildren`): one run can start a hundred, and the run's card and Workflows panel list them. Their pending requests and activity still count for the row above, so an expanded parent's badge scope includes them (`selectBlockingBadgeSessionScopes`). The display option `showSubagentSessions` (sidebar display menu, Settings → Sessions) withholds the same way: every session an agent spawned (`parentID`, `isSubagentSession`) loses its row, and a parent left with no listed children loses the expander, while reviews and promoted btw sessions keep their rows; under a hidden subagent its whole branch goes with it, folders and Pinned included. A row's badge covers its own session and every descendant without a row of its own (`collectRowBadgeNodes`), so a hidden subagent's permission or question shows on the nearest visible parent, expanded or not, on desktop and phone alike, and a listed child still reports its own. Clicking the badge opens the session that holds a request of that kind, in tree order: the row's own session first, then its descendants without a row (`findBlockingRequestTarget` reads the same stores the badge reads). It opens that session in its own directory, which for a worker in another worktree differs from the parent's, and brings the request (`revealRequest`) or the waiting page (`revealWaitingPage`) into view, as a request toast does. While multi-select is on, the badges stay plain marks and a click on them toggles the row. When the open session has no row of its own (a hidden subagent, or a child under a collapsed row), the nearest visible row above it takes the selected look, as a folded work does (`useShowsOpenHiddenSession`); the row's own unread mark and hover prefetch still go by its own session, and the phone's drawer scrolls to that row when it opens, ahead of the worktree header above it; the header stands in only while its group is folded (`apps/mobileSidebar/mobileCurrentRow.ts`). Selection still uses each session's own directory. VS Code applies the same rule after its exact workspace filter.
++The shared project tree checks parent presence against the global active and archived cache plus the merged active session list. Child expansion uses the lifecycle-ordered global graph. A child whose parent is known renders only beneath that parent, even when its own directory belongs to another project or worktree. An archived parent or intermediate never allows an active descendant to become an independent root. Project buckets contain roots only, so children do not consume root pagination or make a child-only worktree expandable. Temporary `/btw` forks and archived children remain hidden. Workflow agents (`metadata.openchamber.kind === 'workflow-agent'`) stay in the tree but get no rows, and neither does what they started (`listedChildren`): one run can start a hundred, and the run's card and Workflows panel list them. Their pending requests and activity still count for the row above, so an expanded parent's badge scope includes them (`selectBlockingBadgeSessionScopes`). The two session switchers build their trees the same way (`collectSwitcherChildren` in `shell/useSwitcherItems.ts` keeps every child), and take their child rows and chevron from `listedChildren`, so a run blocked only by workflow agents shows the mark and keeps no expand control. The display option `showSubagentSessions` (sidebar display menu, Settings → Sessions) withholds the same way: every session an agent spawned (`parentID`, `isSubagentSession`) loses its row, and a parent left with no listed children loses the expander, while reviews and promoted btw sessions keep their rows; under a hidden subagent its whole branch goes with it, folders and Pinned included. A row's badge covers its own session and every descendant without a row of its own (`collectRowBadgeNodes`), so a hidden subagent's permission or question shows on the nearest visible parent, expanded or not, on desktop and phone alike, and a listed child still reports its own. Clicking the badge opens the session that holds a request of that kind, in tree order: the row's own session first, then its descendants without a row (`findBlockingRequestTarget` reads the same stores the badge reads). It opens that session in its own directory, which for a worker in another worktree differs from the parent's, and brings the request (`revealRequest`) or the waiting page (`revealWaitingPage`) into view, as a request toast does. While multi-select is on, the badges stay plain marks and a click on them toggles the row. When the open session has no row of its own (a hidden subagent, or a child under a collapsed row), the nearest visible row above it takes the selected look, as a folded work does (`useShowsOpenHiddenSession`); the row's own unread mark and hover prefetch still go by its own session, and the phone's drawer scrolls to that row when it opens, ahead of the worktree header above it; the header stands in only while its group is folded (`apps/mobileSidebar/mobileCurrentRow.ts`). Selection still uses each session's own directory. VS Code applies the same rule after its exact workspace filter.
  
  Bucket-local lineage promoted cross-project subagents to independent rows and left their parent without an expansion control. The missing-parent fallback applies only while both active and archived sources lack the parent, and clears when either parent arrives. The project-section cache tracks each project's visible ancestors and descendants, including their order and record identity, so a lineage or same-ID semantic change rebuilds the affected trees without replacing unrelated project sections.
  
-@@ -418,7 +418,7 @@ bootstrap work. Selection and activity subscriptions stay session-scoped so a
+@@ -419,7 +419,7 @@ bootstrap work. Selection and activity subscriptions stay session-scoped so a
  structural list update does not make every row observe unrelated streaming
  updates.
  
--Session-row permission and form badges read the relevant directory-store buckets and show only whether something waits, without a count: one form can hold many questions, and a number that does not drop as the user answers them reads as wrong. A collapsed row covers its own pending requests and those of the descendants it hides; an expanded row covers only its own. The lookup never bootstraps a directory, so an unbootstrapped directory's store holds only live requests; until that store completes a bootstrap, the row lookup also reads permissions and forms from the cross-directory index, which the host seed fills at load, so a request already waiting in a project this client never opened still shows after a reload. Once the store completes a bootstrap it answers alone for the sessions it listed then, so a request whose settlement fell into a stream gap clears when the reconnect recovery re-reads the store. Mobile rows show the same icon-only badges through the same lookup and scopes (`apps/usePendingRequests.ts` calls `selectBlockingBadgeSessionScopes` and `useSessionBlockingRequests`), so a phone row and a desktop row agree about one session. A page an agent shows that waits for the user's answer has no directory-store bucket, so the row lookup also reads it from the cross-directory index and shows it as a form.
-+Session-row permission and form badges read the relevant directory-store buckets and show only whether something waits, without a count: one form can hold many questions, and a number that does not drop as the user answers them reads as wrong. A collapsed row covers its own pending requests and those of the descendants it hides; an expanded row covers only its own. The lookup never bootstraps a directory, so an unbootstrapped directory's store holds only live requests; until that store completes a bootstrap, the row lookup also reads permissions and forms from the cross-directory index, which the host seed fills at load, so a request already waiting in a project this client never opened still shows after a reload. Once the store completes a bootstrap it answers alone for the sessions it listed then, so a request whose settlement fell into a stream gap clears when the reconnect recovery re-reads the store. Mobile rows use the same lookup and the same marks: `SessionPendingMarks` (`components/session/`) draws the permission shield and the question mark at the row-mark size, as bare glyphs with the label as a tooltip on a row and as the native title elsewhere. `MobileSessionRow`, `MobileSessionSwitcher`, the desktop switcher and the sidebar's rows all take it, and the mobile rows build their scopes with `selectBlockingBadgeSessionScopes` and `useSessionBlockingRequests` (`apps/usePendingRequests.ts`), so a phone row and a desktop row agree about one session. A page an agent shows that waits for the user's answer has no directory-store bucket, so the row lookup also reads it from the cross-directory index and shows it as a form.
+-Session-row permission and form badges read the relevant directory-store buckets and show only whether something waits, without a count: one form can hold many questions, and a number that does not drop as the user answers them reads as wrong. A collapsed row covers its own pending requests and those of the descendants it hides; an expanded row covers its own and those of descendants without a row (hidden subagents, workflow agents). The lookup never bootstraps a directory, so an unbootstrapped directory's store holds only live requests; until that store completes a bootstrap, the row lookup also reads permissions and forms from the cross-directory index, which the host seed fills at load, so a request already waiting in a project this client never opened still shows after a reload. Once the store completes a bootstrap it answers alone for the sessions it listed then, so a request whose settlement fell into a stream gap clears when the reconnect recovery re-reads the store. Mobile rows show the same icon-only badges through the same lookup and scopes (`apps/usePendingRequests.ts` calls `selectBlockingBadgeSessionScopes` and `useSessionBlockingRequests`), so a phone row and a desktop row agree about one session. On the phone the row is itself a button, so the badge buttons sit beside it (after the row's button on a one-line row, over the end of the second line on a detailed one, which keeps an invisible copy to hold their room): a button inside a button is invalid and VoiceOver reads it as one control. Each badge button keeps its 12px glyph in the line, opting out of the 36px touch-layout button minimum, and takes a 36px-tall touch area from a pseudo-element, 8px past the glyph on each side; between two badges each area stops 3px past its glyph, so neither reaches the other's icon in the 6px gap of a detailed row. A tap opens the waiting session and closes the drawer; while the row's swipe actions are open, it closes them first, as a tap on the row does. A page an agent shows that waits for the user's answer has no directory-store bucket, so the row lookup also reads it from the cross-directory index and shows it as a form.
++Session-row permission and form badges read the relevant directory-store buckets and show only whether something waits, without a count: one form can hold many questions, and a number that does not drop as the user answers them reads as wrong. A collapsed row covers its own pending requests and those of the descendants it hides; an expanded row covers its own and those of descendants without a row (hidden subagents, workflow agents). The lookup never bootstraps a directory, so an unbootstrapped directory's store holds only live requests; until that store completes a bootstrap, the row lookup also reads permissions and forms from the cross-directory index, which the host seed fills at load, so a request already waiting in a project this client never opened still shows after a reload. Once the store completes a bootstrap it answers alone for the sessions it listed then, so a request whose settlement fell into a stream gap clears when the reconnect recovery re-reads the store. Mobile rows use the same lookup and the same marks: `SessionPendingMarks` (`components/session/`) draws the permission shield and the question mark at the row-mark size, the question in its own `status-question` colour, as bare glyphs with the label as a tooltip on a row and as the native title elsewhere. `MobileSessionRow` (through `MobileSessionPendingBadges`), `MobileSessionSwitcher`, the desktop switcher and the sidebar's plain row marks all take it, and the clickable badges (`PendingRequestBadges` with `onOpen`, `MobileSessionPendingBadgeButtons`) colour each glyph the same way. The mobile rows build their scopes with `selectBlockingBadgeSessionScopes` and `useSessionBlockingRequests` (`apps/usePendingRequests.ts`), so a phone row and a desktop row agree about one session. On the phone the row is itself a button, so the badge buttons sit beside it (after the row's button on a one-line row, over the end of the second line on a detailed one, which keeps an invisible copy to hold their room): a button inside a button is invalid and VoiceOver reads it as one control. Each badge button keeps its 12px glyph in the line, opting out of the 36px touch-layout button minimum, and takes a 36px-tall touch area from a pseudo-element, 8px past the glyph on each side; between two badges each area stops 3px past its glyph, so neither reaches the other's icon in the 6px gap of a detailed row. A tap opens the waiting session and closes the drawer; while the row's swipe actions are open, it closes them first, as a tap on the row does. A page an agent shows that waits for the user's answer has no directory-store bucket, so the row lookup also reads it from the cross-directory index and shows it as a form.
  
  A session row's menu and the header's session menus (a tab's, the title's)
  are one component, `sessions/SessionActionsMenuItems.tsx`; each surface
+@@ -1733,6 +1733,14 @@ hover, keyboard focus, and always-visible action buttons move them left without
+ 
+ ## Decisions
+ 
++### Why every row resolves a session's directory the same way
++
++A blocking-request badge asks which directory store owns a session, and a second resolver — the phone used to read the global session cache by id — answered that question with different fallbacks (no row session, no worktree path, no group directory). One session could then show its badge from its store on the desktop and from the additive index on the phone, which disagreed exactly after a lost settlement. `selectBlockingBadgeSessionScopes` is the only resolver: it walks the row's node, takes the session's own directory, then the node's worktree path, then the caller's group directory, and drops a session nothing can place. The row, the switcher and the phone all pass its scopes to `useSessionBlockingRequests`, so a session shows one badge everywhere; that lookup reads the cross-directory index only until the owning store's request snapshots are ready, and the store alone after, so no surface keeps a settled badge.
++
++### Why a collapsed header subscribes to a serialized directory signature
++
++`useCollapsedSessionActivityState` counts sessions by the store that owns them, and a session's directory can arrive after the header rendered, when the global session cache learns it. A selector that returned the resolved `[id, directory]` pairs as an array would hand React a new object on every global-sessions write and re-render every collapsed header. It returns one JSON string instead: the subscription follows the resolved directories, unchanged strings compare equal, and the scopes rebuild only when a directory actually changes. JSON keeps the encoding unambiguous for a directory that contains any separator.
++
+ ### Why merged cleanup asks the host whether a worktree is busy
+ 
+ The per-directory status cache (`getSessionLiveActivity`) answers "unknown" for a directory whose child store was evicted, which happens after 20 minutes nobody looks at it. A worktree waiting for its PR to merge is exactly that directory, so a cleanup gated on "confirmed idle" from the cache waited forever. `readWorktreeUse` asks the host's active-session map, one request that covers every directory, and treats a failed request as unknown, so the next pass retries.
+diff --git a/packages/ui/src/components/session/sidebar/folders/SessionSidebarFolderItem.test.tsx b/packages/ui/src/components/session/sidebar/folders/SessionSidebarFolderItem.test.tsx
+index 069e8301e..a2fdd325e 100644
+--- a/packages/ui/src/components/session/sidebar/folders/SessionSidebarFolderItem.test.tsx
++++ b/packages/ui/src/components/session/sidebar/folders/SessionSidebarFolderItem.test.tsx
+@@ -1,12 +1,30 @@
+ import React, { act } from 'react';
+-import { expect, test } from 'bun:test';
++import { expect, spyOn, test } from 'bun:test';
+ import { Window } from 'happy-dom';
++import { OpenCode } from '@opencode/client';
+ import type { Session } from '@/lib/opencode/model';
+ import { I18nProvider } from '@/lib/i18n';
++import { opencodeClient } from '@/lib/opencode/client';
+ import { replaceGlobalSessionStatusById } from '@/sync/global-session-status';
++import { SyncProvider } from '@/sync/sync-context';
+ import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
+ import { SessionSidebarFolderItem } from './SessionSidebarFolderItem';
+ 
++const createSdk = () => OpenCode.make({
++  baseUrl: 'https://folder.test',
++  fetch: async (request) => {
++    const path = new URL(request instanceof Request ? request.url : request.toString()).pathname;
++    if (path.endsWith('/event')) {
++      return new Response(new ReadableStream(), { headers: { 'content-type': 'text/event-stream' } });
++    }
++    const body = path.endsWith('/location')
++      ? { directory: '/repo', project: { id: 'project', directory: '/repo', canonical: '/repo' } }
++      : path.endsWith('/session/active') ? {}
++      : { data: [] };
++    return new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
++  },
++});
++
+ test('a collapsed virtual folder shows live and unread descendants without mounting them', async () => {
+   const dom = new Window({ url: 'http://localhost' });
+   const originals = new Map<string, PropertyDescriptor | undefined>();
+@@ -32,13 +50,25 @@ test('a collapsed virtual folder shows live and unread descendants without mount
+   });
+   const sessions = [{ session: session('parent'), worktree: null, children: [{ session: session('child', 'parent'), worktree: null, children: [] }] }];
+   const render = (isCollapsed = true, archivedBucket = false) => root.render(
+-    <I18nProvider><SessionSidebarFolderItem
+-      folder={{ id: 'folder', name: 'Folder', createdAt: 1, sessionIds: ['parent'] }}
+-      sessions={[]} activityNodes={sessions}
+-      isCollapsed={isCollapsed} archivedBucket={archivedBucket} renderBody={false}
+-      onToggle={() => undefined} onRename={() => undefined} onDelete={() => undefined}
+-    ><div data-hidden-session="child">Child session</div></SessionSidebarFolderItem></I18nProvider>,
++    <SyncProvider sdk={createSdk()} directory="">
++      <I18nProvider><SessionSidebarFolderItem
++        folder={{ id: 'folder', name: 'Folder', createdAt: 1, sessionIds: ['parent'] }}
++        sessions={[]} activityNodes={sessions}
++        isCollapsed={isCollapsed} archivedBucket={archivedBucket} renderBody={false}
++        onToggle={() => undefined} onRename={() => undefined} onDelete={() => undefined}
++      ><div data-hidden-session="child">Child session</div></SessionSidebarFolderItem></I18nProvider>
++    </SyncProvider>,
+   );
++  const mocks = [
++    spyOn(opencodeClient, 'getFilesystemHomeInfo').mockResolvedValue({ home: '/home' }),
++    spyOn(opencodeClient, 'getFilesystemHome').mockResolvedValue('/home'),
++    spyOn(opencodeClient, 'getLocation').mockResolvedValue({
++      directory: '/repo',
++      project: { id: 'project', directory: '/repo', canonical: '/repo' },
++    }),
++    spyOn(opencodeClient, 'getConfig').mockResolvedValue({}),
++    spyOn(opencodeClient, 'listProjects').mockResolvedValue([]),
++  ];
+   try {
+     replaceGlobalSessionStatusById(new Map());
+     useGlobalSessionsStore.getState().applySnapshot([session('parent'), session('child', 'parent')], []);
+@@ -62,6 +92,7 @@ test('a collapsed virtual folder shows live and unread descendants without mount
+     expect(container.querySelector('[aria-label="Unread updates"]')).toBeNull();
+   } finally {
+     await act(async () => root.unmount());
++    for (const mock of mocks) mock.mockRestore();
+     replaceGlobalSessionStatusById(new Map());
+     useGlobalSessionsStore.setState(originalSessions);
+     container.remove();
 diff --git a/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.marks.test.tsx b/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.marks.test.tsx
-index 2b6799450..f4e6ab993 100644
+index 2b6799450..acbe4e627 100644
 --- a/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.marks.test.tsx
 +++ b/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.marks.test.tsx
 @@ -16,9 +16,12 @@ const links: Array<{ url: string; directory: string | null }> = [];
@@ -408,24 +583,22 @@ index 2b6799450..f4e6ab993 100644
    win = new Window({ url: 'http://localhost/' });
    const globals = {
      window: win, document: win.document, navigator: win.navigator,
-@@ -253,6 +257,22 @@ test('a mark with nothing to open is an image, not a button', async () => {
+@@ -253,6 +257,20 @@ test('a mark with nothing to open is an image, not a button', async () => {
    expect(node?.getAttribute('aria-label')).toBe('Deploy Log: Deployed');
  });
  
-+test('a row waiting on the user draws the permission shield and the question mark as peer glyphs', async () => {
++test('a row waiting on the user draws the permission shield and the question mark, each in its own colour', async () => {
 +  pendingRequests = { hasPermission: true, hasForm: true };
 +  await render(rowProps());
 +
-+  const marks = Array.from(host.querySelectorAll<HTMLElement>('[data-session-pending-mark]'));
-+  expect(marks.map((mark) => mark.dataset.sessionPendingMark)).toEqual(['permission', 'form']);
-+  expect(marks.map((mark) => mark.getAttribute('aria-label'))).toEqual(['Permission required', 'Pending question']);
-+  for (const mark of marks) {
-+    // Neither mark is a chip: the row mark carries no pad, fill or outline.
-+    expect(mark.className).not.toContain('border');
-+    expect(mark.className).not.toContain('bg-');
-+    expect(mark.className).not.toContain('rounded');
-+    expect(mark.querySelector('svg')?.getAttribute('class')).toContain('size-3');
-+  }
++  // The row's badges open the waiting session (upstream's clickable badges);
++  // the question takes the question role, the permission stays a warning.
++  const badges = Array.from(host.querySelectorAll<HTMLElement>('[data-pending-request-badge]'));
++  expect(badges.map((badge) => badge.dataset.pendingRequestBadge)).toEqual(['permission', 'form']);
++  const glyphClasses = badges.map((badge) => badge.querySelector('svg')?.getAttribute('class') ?? '');
++  expect(glyphClasses[0]).toContain('text-status-warning');
++  expect(glyphClasses[1]).toContain('text-status-question');
++  for (const badge of badges) expect(badge.className).not.toContain('text-status-warning');
 +});
 +
  test('a row of an isolated space shows no marks', async () => {
@@ -444,6 +617,326 @@ index dc63d68be..709f49561 100644
  }));
  const aiRename = await import('@/sync/use-session-ai-rename');
  mock.module('@/sync/use-session-ai-rename', () => ({
+diff --git a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.behavior.test.tsx b/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.behavior.test.tsx
+index 0b9d27453..52da3cc20 100644
+--- a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.behavior.test.tsx
++++ b/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.behavior.test.tsx
+@@ -1,21 +1,31 @@
+-import { describe, expect, test } from 'bun:test';
++import { describe, expect, spyOn, test } from 'bun:test';
+ import React, { act } from 'react';
+ import { createRoot } from 'react-dom/client';
++import { OpenCode } from '@opencode/client';
+ import type { Session } from '@/lib/opencode/model';
++import { opencodeClient } from '@/lib/opencode/client';
+ import { replaceGlobalSessionStatusById, setSessionParentResolver } from '@/sync/global-session-status';
+ import { applyBackgroundShellEvents, resetBackgroundShells } from '@/sync/background-shells';
+-import { applyGlobalBlockingRequestEvents, resetGlobalBlockingRequests } from '@/sync/global-blocking-requests';
++import {
++  applyGlobalBlockingRequestEvents,
++  readHostBlockingRequestsSnapshot,
++  resetGlobalBlockingRequests,
++} from '@/sync/global-blocking-requests';
++import { SyncProvider, useDirectoryStore } from '@/sync/sync-context';
+ import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
+ import { useCollapsedSessionActivityState } from './collapsedActivityState';
+ import type { SessionNode } from '../types';
+ import { installHookTestDom } from '../test-utils/testDom';
+ 
++const CURRENT_DIR = '/workspace';
++const OTHER_DIR = '/other';
++
+ // SAFETY: the fixture supplies the minimal SDK identity used by the selector.
+-const node = (id: string): SessionNode => ({ session: { id } as Session, children: [], worktree: null });
++const node = (id: string, directory?: string): SessionNode => ({ session: { id, directory } as Session, children: [], worktree: null });
+ 
+-const record = (id: string, idle?: number): Session => {
++const record = (id: string, directory: string, idle?: number): Session => {
+   const session: Session = {
+-    id, title: id, directory: '/workspace', projectID: 'project', cost: 0,
++    id, title: id, directory, projectID: 'project', cost: 0,
+     tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+     time: { created: 1, updated: idle ?? 1 },
+   };
+@@ -23,122 +33,191 @@ const record = (id: string, idle?: number): Session => {
+   return session;
+ };
+ 
++const createSdk = () => OpenCode.make({
++  baseUrl: 'https://collapsed.test',
++  fetch: async (request) => {
++    const path = new URL(request instanceof Request ? request.url : request.toString()).pathname;
++    if (path.endsWith('/event')) {
++      return new Response(new ReadableStream(), { headers: { 'content-type': 'text/event-stream' } });
++    }
++    const body = path.endsWith('/location')
++      ? { directory: CURRENT_DIR, project: { id: 'project', directory: CURRENT_DIR, canonical: CURRENT_DIR } }
++      : path.endsWith('/session/active') ? {}
++      : { data: [] };
++    return new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
++  },
++});
++
++type HarnessCapture = { renders: number; state: string | null };
++
++const withHarness = async (
++  renderHarness: (capture: HarnessCapture, stores: { current: ReturnType<typeof useDirectoryStore> | null }) => React.ReactNode,
++  assert: (capture: HarnessCapture, stores: { current: ReturnType<typeof useDirectoryStore> | null }) => Promise<void>,
++) => {
++  const dom = installHookTestDom();
++  const previousSurface = window.__OPENCHAMBER_SURFACE__;
++  window.__OPENCHAMBER_SURFACE__ = 'desktop';
++  const mocks = [
++    spyOn(opencodeClient, 'getFilesystemHomeInfo').mockResolvedValue({ home: '/home' }),
++    spyOn(opencodeClient, 'getFilesystemHome').mockResolvedValue('/home'),
++    spyOn(opencodeClient, 'getLocation').mockResolvedValue({
++      directory: CURRENT_DIR,
++      project: { id: 'project', directory: CURRENT_DIR, canonical: CURRENT_DIR },
++    }),
++    spyOn(opencodeClient, 'getConfig').mockResolvedValue({}),
++    spyOn(opencodeClient, 'listProjects').mockResolvedValue([]),
++  ];
++  const root = createRoot(dom.container);
++  const capture: HarnessCapture = { renders: 0, state: null };
++  const stores: { current: ReturnType<typeof useDirectoryStore> | null } = { current: null };
++  try {
++    await act(async () => root.render(
++      <SyncProvider sdk={createSdk()} directory="">
++        {renderHarness(capture, stores)}
++      </SyncProvider>,
++    ));
++    await assert(capture, stores);
++  } finally {
++    await act(async () => root.unmount());
++    for (const mock of mocks) mock.mockRestore();
++    window.__OPENCHAMBER_SURFACE__ = previousSurface;
++    dom.restore();
++    resetGlobalBlockingRequests();
++  }
++};
++
+ describe('collapsed activity scalar selector', () => {
+   test('does not rerender for unrelated updates and rerenders for relevant scalar changes', async () => {
+-    const dom = installHookTestDom();
+-    const root = createRoot(dom.container);
+     replaceGlobalSessionStatusById(new Map());
+     const originalSessions = useGlobalSessionsStore.getState();
+-    useGlobalSessionsStore.getState().applySnapshot([record('relevant'), record('unrelated')], []);
+-    type ActivityCapture = { renders: number; state: string | null };
+-    const capture: ActivityCapture = { renders: 0, state: null };
+-    const Harness = () => {
++    useGlobalSessionsStore.getState().applySnapshot([record('relevant', CURRENT_DIR), record('unrelated', OTHER_DIR)], []);
++    const Harness: React.FC<{ capture: HarnessCapture }> = ({ capture }) => {
+       capture.renders += 1;
+-      capture.state = useCollapsedSessionActivityState({ nodes: [node('relevant')] });
++      const nodes = React.useMemo(() => [node('relevant', CURRENT_DIR)], []);
++      capture.state = useCollapsedSessionActivityState({ nodes });
+       return null;
+     };
+     try {
+-      await act(async () => root.render(React.createElement(Harness)));
+-      const initialRenders = capture.renders;
+-      await act(async () => replaceGlobalSessionStatusById(new Map([['unrelated', { status: { type: 'busy' }, directory: '/other' }]])));
+-      await act(async () => useGlobalSessionsStore.getState().upsertSession(record('unrelated', 2)));
+-      expect(capture.renders).toBe(initialRenders);
++      await withHarness((capture) => <Harness capture={capture} />, async (capture) => {
++        const initialRenders = capture.renders;
++        await act(async () => replaceGlobalSessionStatusById(new Map([['unrelated', { status: { type: 'busy' }, directory: OTHER_DIR }]])));
++        await act(async () => useGlobalSessionsStore.getState().upsertSession(record('unrelated', OTHER_DIR, 2)));
++        expect(capture.renders).toBe(initialRenders);
+ 
+-      await act(async () => useGlobalSessionsStore.getState().upsertSession(record('relevant', 3)));
+-      expect(capture.state).toBe('unread');
+-      const unreadRenders = capture.renders;
+-      await act(async () => replaceGlobalSessionStatusById(new Map([['relevant', { status: { type: 'busy' }, directory: '/workspace' }]])));
+-      expect(capture.state).toBe('active');
+-      expect(capture.renders).toBe(unreadRenders + 1);
++        await act(async () => useGlobalSessionsStore.getState().upsertSession(record('relevant', CURRENT_DIR, 3)));
++        expect(capture.state).toBe('unread');
++        const unreadRenders = capture.renders;
++        await act(async () => replaceGlobalSessionStatusById(new Map([['relevant', { status: { type: 'busy' }, directory: CURRENT_DIR }]])));
++        expect(capture.state).toBe('active');
++        expect(capture.renders).toBe(unreadRenders + 1);
+ 
+-      // A pending request outranks a running turn, and a request elsewhere is ignored.
+-      const activeRenders = capture.renders;
+-      await act(async () => applyGlobalBlockingRequestEvents('/other', [{
+-        type: 'form.created', properties: { form: { id: 'q-other', sessionID: 'unrelated', title: 'Pick', fields: [{ key: 'answer', type: 'boolean' }] } },
+-      }]));
+-      expect(capture.state).toBe('active');
+-      expect(capture.renders).toBe(activeRenders);
+-      await act(async () => applyGlobalBlockingRequestEvents('/workspace', [{
+-        type: 'form.created', properties: { form: { id: 'q1', sessionID: 'relevant', title: 'Pick', fields: [{ key: 'answer', type: 'boolean' }] } },
+-      }]));
+-      expect(capture.state).toBe('form');
+-      await act(async () => applyGlobalBlockingRequestEvents('/workspace', [{
+-        type: 'permission.asked',
+-        properties: { id: 'p1', sessionID: 'relevant', action: 'bash', resources: [] },
+-      }]));
+-      expect(capture.state).toBe('permission');
+-      await act(async () => applyGlobalBlockingRequestEvents('/workspace', [
+-        { type: 'permission.replied', properties: { sessionID: 'relevant', requestID: 'p1' } },
+-        { type: 'form.settled', properties: { sessionID: 'relevant', formID: 'q1' } },
+-      ]));
+-      expect(capture.state).toBe('active');
++        // A pending request outranks a running turn, and a request elsewhere is ignored.
++        const activeRenders = capture.renders;
++        await act(async () => applyGlobalBlockingRequestEvents(OTHER_DIR, [{
++          type: 'form.created', properties: { form: { id: 'q-other', sessionID: 'unrelated', title: 'Pick', fields: [{ key: 'answer', type: 'boolean' }] } },
++        }]));
++        expect(capture.state).toBe('active');
++        expect(capture.renders).toBe(activeRenders);
++        await act(async () => applyGlobalBlockingRequestEvents(CURRENT_DIR, [{
++          type: 'form.created', properties: { form: { id: 'q1', sessionID: 'relevant', title: 'Pick', fields: [{ key: 'answer', type: 'boolean' }] } },
++        }]));
++        expect(capture.state).toBe('form');
++        await act(async () => applyGlobalBlockingRequestEvents(CURRENT_DIR, [{
++          type: 'permission.asked',
++          properties: { id: 'p1', sessionID: 'relevant', action: 'bash', resources: [] },
++        }]));
++        expect(capture.state).toBe('permission');
++        await act(async () => applyGlobalBlockingRequestEvents(CURRENT_DIR, [
++          { type: 'permission.replied', properties: { sessionID: 'relevant', requestID: 'p1' } },
++          { type: 'form.settled', properties: { sessionID: 'relevant', formID: 'q1' } },
++        ]));
++        expect(capture.state).toBe('active');
++
++        // An idle parent whose unlisted child waits on a background command still reports active.
++        await act(async () => replaceGlobalSessionStatusById(new Map()));
++        expect(capture.state).toBe('unread');
++        await act(async () => {
++          setSessionParentResolver((id) => (id === 'child' ? 'relevant' : undefined));
++          applyBackgroundShellEvents(CURRENT_DIR, [{
++            type: 'shell.started',
++            properties: { shell: { id: 'sh_child', sessionID: 'child', command: 'sleep 300', file: '/tmp/sh_child.out', startedAt: 1 } },
++          }]);
++        });
++        expect(capture.state).toBe('active');
++        await act(async () => applyBackgroundShellEvents(CURRENT_DIR, [{
++          type: 'shell.ended',
++          properties: { shellID: 'sh_child', end: { kind: 'exited', status: 'exited', exit: 0 }, endedAt: 2 },
++        }]));
++        expect(capture.state).toBe('unread');
+ 
+-      // An idle parent whose unlisted child waits on a background command still reports active.
+-      await act(async () => replaceGlobalSessionStatusById(new Map()));
+-      expect(capture.state).toBe('unread');
+-      await act(async () => {
+-        setSessionParentResolver((id) => (id === 'child' ? 'relevant' : undefined));
+-        applyBackgroundShellEvents('/workspace', [{
++        // While a child is already busy, starting and ending its shell does not rerender the parent group.
++        await act(async () => replaceGlobalSessionStatusById(new Map([['child', { status: { type: 'busy' }, directory: CURRENT_DIR }]])));
++        expect(capture.state).toBe('active');
++        const busyChildRenders = capture.renders;
++        await act(async () => applyBackgroundShellEvents(CURRENT_DIR, [{
+           type: 'shell.started',
+-          properties: { shell: { id: 'sh_child', sessionID: 'child', command: 'sleep 300', file: '/tmp/sh_child.out', startedAt: 1 } },
+-        }]);
++          properties: { shell: { id: 'sh_fg', sessionID: 'child', command: 'ls', file: '/tmp/sh_fg.out', startedAt: 3 } },
++        }]));
++        await act(async () => applyBackgroundShellEvents(CURRENT_DIR, [{
++          type: 'shell.ended',
++          properties: { shellID: 'sh_fg', end: { kind: 'exited', status: 'exited', exit: 0 }, endedAt: 4 },
++        }]));
++        expect(capture.state).toBe('active');
++        expect(capture.renders).toBe(busyChildRenders);
+       });
+-      expect(capture.state).toBe('active');
+-      await act(async () => applyBackgroundShellEvents('/workspace', [{
+-        type: 'shell.ended',
+-        properties: { shellID: 'sh_child', end: { kind: 'exited', status: 'exited', exit: 0 }, endedAt: 2 },
+-      }]));
+-      expect(capture.state).toBe('unread');
+-
+-      // While a child is already busy, starting and ending its shell does not rerender the parent group.
+-      await act(async () => replaceGlobalSessionStatusById(new Map([['child', { status: { type: 'busy' }, directory: '/workspace' }]])));
+-      expect(capture.state).toBe('active');
+-      const busyChildRenders = capture.renders;
+-      await act(async () => applyBackgroundShellEvents('/workspace', [{
+-        type: 'shell.started',
+-        properties: { shell: { id: 'sh_fg', sessionID: 'child', command: 'ls', file: '/tmp/sh_fg.out', startedAt: 3 } },
+-      }]));
+-      await act(async () => applyBackgroundShellEvents('/workspace', [{
+-        type: 'shell.ended',
+-        properties: { shellID: 'sh_fg', end: { kind: 'exited', status: 'exited', exit: 0 }, endedAt: 4 },
+-      }]));
+-      expect(capture.state).toBe('active');
+-      expect(capture.renders).toBe(busyChildRenders);
+     } finally {
+-      await act(async () => root.unmount());
+       setSessionParentResolver(() => undefined);
+       resetBackgroundShells();
+       replaceGlobalSessionStatusById(new Map());
+-      resetGlobalBlockingRequests();
+       useGlobalSessionsStore.setState(originalSessions);
+-      dom.restore();
+     }
+   });
+ 
+   test('counts a request from a session that is listed only as blocking, such as a hidden subagent', async () => {
+-    const dom = installHookTestDom();
+-    const root = createRoot(dom.container);
+     replaceGlobalSessionStatusById(new Map());
+-    const capture: { state: string | null } = { state: null };
+-    const Harness = () => {
+-      capture.state = useCollapsedSessionActivityState({
+-        nodes: [node('lane')],
+-        blockingSessionIds: ['lane', 'lane-subagent'],
+-      });
++    const Harness: React.FC<{ capture: HarnessCapture }> = ({ capture }) => {
++      const nodes = React.useMemo(() => [node('lane', CURRENT_DIR)], []);
++      const blockingSessionIds = React.useMemo(() => ['lane', 'lane-subagent'], []);
++      capture.state = useCollapsedSessionActivityState({ nodes, blockingSessionIds });
+       return null;
+     };
+-    try {
+-      await act(async () => root.render(React.createElement(Harness)));
++    await withHarness((capture) => <Harness capture={capture} />, async (capture) => {
+       expect(capture.state).toBeNull();
+-      await act(async () => applyGlobalBlockingRequestEvents('/workspace', [{
++      await act(async () => applyGlobalBlockingRequestEvents(CURRENT_DIR, [{
+         type: 'permission.asked',
+         properties: { id: 'p-sub', sessionID: 'lane-subagent', action: 'bash', resources: [] },
+       }]));
+       expect(capture.state).toBe('permission');
+-    } finally {
+-      await act(async () => root.unmount());
+-      resetGlobalBlockingRequests();
+-      dom.restore();
+-    }
++    });
++  });
++
++  test('a bootstrapped directory drops a form the index kept after a lost settlement', async () => {
++    resetGlobalBlockingRequests();
++    const Harness: React.FC<{ capture: HarnessCapture; stores: { current: ReturnType<typeof useDirectoryStore> | null } }> = ({ capture, stores }) => {
++      stores.current = useDirectoryStore(OTHER_DIR, { bootstrap: false });
++      const nodes = React.useMemo(() => [node('other', OTHER_DIR)], []);
++      capture.state = useCollapsedSessionActivityState({ nodes });
++      return null;
++    };
++    await withHarness((capture, stores) => <Harness capture={capture} stores={stores} />, async (capture, stores) => {
++      await act(async () => useGlobalSessionsStore.getState().applySnapshot([record('other', OTHER_DIR)], []));
++      await act(async () => { await readHostBlockingRequestsSnapshot(async () => ({
++        sessions: {},
++        pending: { other: { permissions: [], forms: [{ id: 'answered', sessionID: 'other', title: 'Answer' }], pages: [] } },
++        serverTime: 0,
++      }), () => OTHER_DIR) });
++      // No store has bootstrapped yet, so the seeded form still counts.
++      expect(capture.state).toBe('form');
++
++      // The directory's own bootstrap read its pending forms and found none.
++      await act(async () => stores.current!.setState({ status: 'complete', requestCoverage: new Set(['other']) }));
++      expect(capture.state).toBeNull();
++
++      // A form the complete store holds still counts.
++      await act(async () => stores.current!.setState({
++        form: { other: [{ id: 'live', sessionID: 'other', title: 'Answer', fields: [{ key: 'answer', type: 'boolean' }] }] },
++      }));
++      expect(capture.state).toBe('form');
++    });
+   });
+ });
 diff --git a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.tsx b/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.tsx
 index f9a4882ae..af32c52a7 100644
 --- a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityIndicator.tsx
@@ -497,45 +990,206 @@ index f9a4882ae..af32c52a7 100644
      );
    }
    return <SessionActivityIndicator state={state === 'active' ? 'running' : 'unread'} className={className} tooltip />;
+diff --git a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityState.ts b/packages/ui/src/components/session/sidebar/sessions/collapsedActivityState.ts
+index 231ed038c..15a1a308b 100644
+--- a/packages/ui/src/components/session/sidebar/sessions/collapsedActivityState.ts
++++ b/packages/ui/src/components/session/sidebar/sessions/collapsedActivityState.ts
+@@ -1,14 +1,16 @@
+ import React from 'react';
+ import type { SessionNode } from '../types';
+ import { anySessionOrDescendantIn, useGlobalSessionStatusStore } from '@/sync/global-session-status';
+-import { useGlobalBlockingRequestsStore } from '@/sync/global-blocking-requests';
+ import { useBackgroundShellsStore } from '@/sync/background-shells';
+ import { useBackgroundImagesStore } from '@/sync/background-images';
+ import { useWorkflowActivityStore } from '@/sync/workflow-activity';
+ import { usePrWatchStore } from '@/sync/pr-watch';
+ import { useExtensionWaitsStore } from '@/sync/extension-waits';
+-import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
++import { resolveGlobalSessionDirectory, useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
+ import { isSessionUnread } from '@/sync/session-unread';
++import { useSessionBlockingRequests } from '@/sync/sync-context';
++import { selectIndexedBlockingRequests, useGlobalBlockingRequestsStore } from '@/sync/global-blocking-requests';
++import { selectBlockingBadgeSessionScopes } from './sessionNodeItemUtils';
+ 
+ export type CollapsedActivityState = 'permission' | 'form' | 'active' | 'unread' | null;
+ 
+@@ -85,6 +87,19 @@ export const useCollapsedSessionActivityState = ({
+     () => (blockingSessionIds && blockingSessionIds.length > 0 ? new Set([...ids.active, ...blockingSessionIds]) : ids.active),
+     [blockingSessionIds, ids.active],
+   );
++  // Where each counted session lives, as JSON: the subscription follows the
++  // resolved directories instead of the session map identity, so a change to an
++  // unrelated session does not rebuild the scopes of a collapsed header, and a
++  // directory containing any separator still encodes unambiguously.
++  const blockingDirectorySignature = useGlobalSessionsStore(React.useCallback((state) => {
++    if (!enabled || blockingIds.size === 0) return '';
++    const entries: [string, string][] = [];
++    for (const sessionId of blockingIds) {
++      const session = state.entityById.get(sessionId);
++      entries.push([sessionId, session ? resolveGlobalSessionDirectory(session) ?? '' : '']);
++    }
++    return JSON.stringify(entries);
++  }, [blockingIds, enabled]));
+   const active = useGlobalSessionStatusStore(React.useCallback((state): CollapsedActivityState => (
+     enabled && anySessionOrDescendantIn(ids.active, state.activeSessionIds) ? 'active' : null
+   ), [enabled, ids.active]));
+@@ -110,16 +125,55 @@ export const useCollapsedSessionActivityState = ({
+     }
+     return null;
+   }, [enabled, ids.unread]));
+-  const blocked = useGlobalBlockingRequestsStore(React.useCallback((state): CollapsedActivityState => {
+-    if (!enabled) return null;
+-    let result: CollapsedActivityState = null;
+-    for (const sessionId of blockingIds) {
+-      const pending = state.bySession.get(sessionId);
+-      if (!pending) continue;
+-      if (pending.permissions.length > 0) return 'permission';
+-      if (pending.forms.length > 0 || pending.pages.length > 0) result = 'form';
++  // Pending requests come from the directory store once it has read its own
++  // request snapshots, and from the cross-directory index before that, exactly
++  // as a session row counts them: a collapsed group in a project that was
++  // never opened still shows a seeded request, while a form the index kept
++  // after a lost settlement stops showing once its store is authoritative.
++  // Subtasks count too: a permission asked by a subagent blocks the whole
++  // family.
++  const scopes = React.useMemo(() => {
++    // Nothing counted, or nothing to resolve: the signature also tells the memo
++    // when a counted session's directory becomes known, since the helper below
++    // reads that resolution from the store.
++    if (!enabled || blockingDirectorySignature === '') return { scopes: [], unplacedSessionIDs: [] };
++    const sessionIDsByDirectory = new Map<string, string[]>();
++    const add = (directory: string, sessionID: string) => {
++      const sessionIDs = sessionIDsByDirectory.get(directory) ?? [];
++      sessionIDs.push(sessionID);
++      sessionIDsByDirectory.set(directory, sessionIDs);
++    };
++    for (const node of nodes) {
++      // Every session under a collapsed header is hidden, so all of them count.
++      for (const scope of selectBlockingBadgeSessionScopes(node, false, null)) {
++        for (const sessionID of scope.sessionIDs) add(scope.directory, sessionID);
++      }
++    }
++    // A session listed only as blocking, such as a hidden subagent, may have no
++    // row and no known directory: no store can answer for it, so the index does.
++    const unplacedSessionIDs: string[] = [];
++    for (const sessionID of blockingSessionIds ?? []) {
++      const session = useGlobalSessionsStore.getState().entityById.get(sessionID);
++      const directory = session ? resolveGlobalSessionDirectory(session) : null;
++      if (directory) add(directory, sessionID);
++      else unplacedSessionIDs.push(sessionID);
+     }
+-    return result;
+-  }, [enabled, blockingIds]));
++    return {
++      scopes: [...sessionIDsByDirectory].map(([directory, sessionIDs]) => ({ directory, sessionIDs })),
++      unplacedSessionIDs,
++    };
++  }, [blockingDirectorySignature, blockingSessionIds, enabled, nodes]);
++  const scopedRequests = useSessionBlockingRequests(scopes.scopes);
++  const unplacedRequests = useGlobalBlockingRequestsStore(React.useCallback(
++    (state) => selectIndexedBlockingRequests(state.bySession, scopes.unplacedSessionIDs),
++    [scopes.unplacedSessionIDs],
++  ));
++  const blocked: CollapsedActivityState = !enabled
++    ? null
++    : scopedRequests.hasPermission || unplacedRequests.hasPermission
++      ? 'permission'
++      : scopedRequests.hasForm || unplacedRequests.hasForm
++        ? 'form'
++        : null;
+   return blocked ?? active ?? waitingOnWorkflow ?? waitingOnShell ?? waitingOnImage ?? waitingOnPullRequest ?? waitingOnExtension ?? unread;
+ };
+diff --git a/packages/ui/src/components/session/sidebar/sessions/sessionNodeItemUtils.test.ts b/packages/ui/src/components/session/sidebar/sessions/sessionNodeItemUtils.test.ts
+index 1ea6a7191..33ef42e3d 100644
+--- a/packages/ui/src/components/session/sidebar/sessions/sessionNodeItemUtils.test.ts
++++ b/packages/ui/src/components/session/sidebar/sessions/sessionNodeItemUtils.test.ts
+@@ -118,6 +118,23 @@ describe('selectBlockingBadgeSessionScopes', () => {
+       { directory: '/fallback', sessionIDs: ['root'] },
+     ]);
+   });
++
++  test("a session with no directory resolves through its own worktree's path", () => {
++    const root: SessionNode = {
++      session: session('root', 'Root'),
++      children: [],
++      worktree: {
++        path: '/worktrees/feature',
++        projectDirectory: '/repo',
++        branch: 'feature',
++        label: 'feature',
++      },
++    };
++
++    expect(selectBlockingBadgeSessionScopes(root, false, null)).toEqual([
++      { directory: '/worktrees/feature', sessionIDs: ['root'] },
++    ]);
++  });
+ });
+ 
+ describe('nodeHasPinnedMembershipChange', () => {
 diff --git a/packages/ui/src/components/session/sidebar/sessions/sessionRowMarks.tsx b/packages/ui/src/components/session/sidebar/sessions/sessionRowMarks.tsx
-index 56ba8b877..a5e7c9839 100644
+index 51d165db7..310958338 100644
 --- a/packages/ui/src/components/session/sidebar/sessions/sessionRowMarks.tsx
 +++ b/packages/ui/src/components/session/sidebar/sessions/sessionRowMarks.tsx
-@@ -5,6 +5,7 @@ import type { SessionGoalPayload } from '@/lib/sessionGoalMetadata';
- import { sessionGoalMarkLabelKey, sessionGoalStatusColor } from '@/lib/sessionGoalPresentation';
+@@ -6,6 +6,7 @@ import { sessionGoalMarkLabelKey, sessionGoalStatusColor } from '@/lib/sessionGo
  import { cn } from '@/lib/utils';
  import { RowMarkTooltip } from './RowMarkTooltip';
+ import { handleRowActionMouseDown, handleRowActionPointerDown } from './sessionRowActionEvents';
 +import { SessionPendingMarks } from '@/components/session/SessionPendingMarks';
  
  export function SessionGoalMark({ goal }: { goal: SessionGoalPayload }): React.ReactNode {
    const { t } = useI18n();
-@@ -54,25 +55,5 @@ export function DoneHintMark({ className }: { className?: string }): React.React
- }
+@@ -57,8 +58,8 @@ export function DoneHintMark({ className }: { className?: string }): React.React
+ type PendingRequestBadgeKind = 'permission' | 'form';
  
- export function PendingRequestBadges({ hasPermission, hasForm }: { hasPermission: boolean; hasForm: boolean }): React.ReactNode {
--  const { t } = useI18n();
--  const pendingFormLabel = t('sessions.sidebar.session.status.questionPending');
--  const permissionLabel = t('sessions.sidebar.session.status.permissionRequired');
--  return (
--    <>
--      {hasPermission ? (
--        <RowMarkTooltip label={permissionLabel}>
--          <span className="inline-flex flex-shrink-0 items-center text-status-warning" aria-label={permissionLabel}>
--            <Icon name="shield" className="h-3 w-3" />
+ const PENDING_REQUEST_BADGES = [
+-  { kind: 'permission', icon: 'shield', labelKey: 'sessions.sidebar.session.status.permissionRequired', openLabelKey: 'sessions.sidebar.session.status.permissionRequiredOpen' },
+-  { kind: 'form', icon: 'question', labelKey: 'sessions.sidebar.session.status.questionPending', openLabelKey: 'sessions.sidebar.session.status.questionPendingOpen' },
++  { kind: 'permission', icon: 'shield', colorClass: 'text-status-warning', openLabelKey: 'sessions.sidebar.session.status.permissionRequiredOpen' },
++  { kind: 'form', icon: 'question', colorClass: 'text-status-question', openLabelKey: 'sessions.sidebar.session.status.questionPendingOpen' },
+ ] as const;
+ 
+ const BADGE_BUTTON_STYLE: React.CSSProperties = { minHeight: 0, minWidth: 0 };
+@@ -69,25 +70,18 @@ export function PendingRequestBadges({ hasPermission, hasForm, onOpen }: {
+   onOpen?: (kind: PendingRequestBadgeKind, target: HTMLElement) => void;
+ }): React.ReactNode {
+   const { t } = useI18n();
+-  return PENDING_REQUEST_BADGES.map(({ kind, icon, labelKey, openLabelKey }) => {
++  // The plain marks are the shared ones every session list draws; only the
++  // clickable badges are this row's own.
++  if (!onOpen) return <SessionPendingMarks hasPermission={hasPermission} hasForm={hasForm} tooltip />;
++  return PENDING_REQUEST_BADGES.map(({ kind, icon, colorClass, openLabelKey }) => {
+     if (!(kind === 'permission' ? hasPermission : hasForm)) return null;
+-    if (!onOpen) {
+-      const label = t(labelKey);
+-      return (
+-        <RowMarkTooltip key={kind} label={label}>
+-          <span className="inline-flex flex-shrink-0 items-center text-status-warning" aria-label={label}>
+-            <Icon name={icon} className="h-3 w-3" />
 -          </span>
 -        </RowMarkTooltip>
--      ) : null}
--      {hasForm ? (
--        <RowMarkTooltip label={pendingFormLabel}>
--          <span className="inline-flex flex-shrink-0 items-center text-status-warning" aria-label={pendingFormLabel}>
--            <Icon name="question" className="h-3 w-3" />
--          </span>
--        </RowMarkTooltip>
--      ) : null}
--    </>
--  );
-+  return <SessionPendingMarks hasPermission={hasPermission} hasForm={hasForm} tooltip />;
- }
+-      );
+-    }
+     const label = t(openLabelKey);
+     return (
+       <RowMarkTooltip key={kind} label={label}>
+         <button
+           type="button"
+           data-pending-request-badge={kind}
+-          className="relative inline-flex flex-shrink-0 cursor-pointer items-center rounded text-status-warning before:absolute before:-inset-1 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
++          className="relative inline-flex flex-shrink-0 cursor-pointer items-center rounded before:absolute before:-inset-1 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+           style={BADGE_BUTTON_STYLE}
+           aria-label={label}
+           onPointerDown={handleRowActionPointerDown}
+@@ -100,7 +94,7 @@ export function PendingRequestBadges({ hasPermission, hasForm, onOpen }: {
+             onOpen(kind, event.currentTarget);
+           }}
+         >
+-          <Icon name={icon} className="h-3 w-3" />
++          <Icon name={icon} className={cn('h-3 w-3', colorClass)} />
+         </button>
+       </RowMarkTooltip>
+     );
 diff --git a/packages/ui/src/components/session/sidebar/shell/useSwitcherItems.test.ts b/packages/ui/src/components/session/sidebar/shell/useSwitcherItems.test.ts
 index ea7227a8a..79568d74c 100644
 --- a/packages/ui/src/components/session/sidebar/shell/useSwitcherItems.test.ts
@@ -716,11 +1370,83 @@ index c18279c1f..721b3b8d2 100644
          projectId: matchedProject?.id ?? null,
          groupDirectory: directory,
          secondaryMeta: {
+diff --git a/packages/ui/src/components/session/sidebar/works/WorktreeWorkRow.marks.test.tsx b/packages/ui/src/components/session/sidebar/works/WorktreeWorkRow.marks.test.tsx
+index 36112e968..8af45eb1a 100644
+--- a/packages/ui/src/components/session/sidebar/works/WorktreeWorkRow.marks.test.tsx
++++ b/packages/ui/src/components/session/sidebar/works/WorktreeWorkRow.marks.test.tsx
+@@ -29,6 +29,7 @@ mock.module('@/lib/guests/open-url', () => ({
+   },
+ }));
+ const { WorktreeWorkRow } = await import('./WorktreeWorkRow');
++const { SyncRuntimeContext } = await import('@/sync/sync-runtime-context');
+ 
+ const WORKTREE = '/trees/app/feature-login';
+ 
+@@ -60,24 +61,42 @@ const group = (sessions: SessionGroup['sessions'] = []): SessionGroup => ({
+ });
+ 
+ const noop = () => undefined;
++// The row reads its blocking requests from the directory stores; this test
++// exercises only the guest marks, so a runtime whose child stores never exist
++// leaves the lookup on the cross-directory index and needs no real sync.
++const idleStore = {
++  getState: () => ({ permission: {}, form: {}, status: 'complete', requestCoverage: new Set<string>() }),
++  subscribe: () => () => undefined,
++};
++const runtime = {
++  childStores: {
++    getChild: () => idleStore,
++    ensureChild: () => idleStore,
++    pin: () => undefined,
++    unpin: () => undefined,
++    subscribeRegistry: () => () => undefined,
++  },
++} as unknown as import('@/sync/sync-runtime-context').SyncRuntime;
+ const row = (detailed: boolean, sessions?: SessionGroup['sessions']) => (
+-  <I18nProvider>
+-    <WorktreeWorkRow
+-      group={group(sessions)}
+-      groupKey="project-a:worktree:feature-login"
+-      projectId="project-a"
+-      depth={0}
+-      detailed={detailed}
+-      mixed={false}
+-      inPinnedZone={false}
+-      collapsed
+-      empty={!sessions?.length}
+-      alwaysShowActions={false}
+-      mobileVariant={false}
+-      onToggle={noop}
+-      setSessionSwitcherOpen={noop}
+-    />
+-  </I18nProvider>
++  <SyncRuntimeContext.Provider value={runtime}>
++    <I18nProvider>
++      <WorktreeWorkRow
++        group={group(sessions)}
++        groupKey="project-a:worktree:feature-login"
++        projectId="project-a"
++        depth={0}
++        detailed={detailed}
++        mixed={false}
++        inPinnedZone={false}
++        collapsed
++        empty={!sessions?.length}
++        alwaysShowActions={false}
++        mobileVariant={false}
++        onToggle={noop}
++        setSessionSwitcherOpen={noop}
++      />
++    </I18nProvider>
++  </SyncRuntimeContext.Provider>
+ );
+ 
+ let win: Window;
 diff --git a/packages/ui/src/lib/theme/DOCUMENTATION.md b/packages/ui/src/lib/theme/DOCUMENTATION.md
-index 3315123c4..b2801fcc3 100644
+index 498a2f5a4..1517ae4d6 100644
 --- a/packages/ui/src/lib/theme/DOCUMENTATION.md
 +++ b/packages/ui/src/lib/theme/DOCUMENTATION.md
-@@ -59,6 +59,8 @@ the exception. User-message backgrounds take on the primary's hue at their own
+@@ -75,6 +75,8 @@ the exception. User-message backgrounds take on the primary's hue at their own
  lightness (`tintColor`: 16% of its chroma in dark, 6% in light), so the bubble
  reads as colored without becoming a brighter patch, with enough separation from
  the canvas to remain visible. Mono keeps every role grayscale.
@@ -924,6 +1650,54 @@ index 7aee24dc6..1fb408805 100644
    --color-sidebar-primary: var(--sidebar-primary);
    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
    --color-sidebar-accent: var(--sidebar-accent);
+diff --git a/packages/ui/src/sync/global-blocking-requests.ts b/packages/ui/src/sync/global-blocking-requests.ts
+index 396c092d7..c0da6046d 100644
+--- a/packages/ui/src/sync/global-blocking-requests.ts
++++ b/packages/ui/src/sync/global-blocking-requests.ts
+@@ -20,6 +20,43 @@ type GlobalBlockingRequestsState = {
+   bySession: ReadonlyMap<string, PendingBlockingRequests>;
+ };
+ 
++/**
++ * Whether a permission or a form waits for a session: the reduction every
++ * badge consumer needs. Pages count as forms, since they block the agent the
++ * same way and have no store bucket of their own.
++ */
++export type BlockingRequestKinds = { hasPermission: boolean; hasForm: boolean };
++
++// Stable snapshots: a fresh object per read would re-render every subscribed
++// row on every index write.
++const NOTHING_PENDING: BlockingRequestKinds = { hasPermission: false, hasForm: false };
++const PERMISSION_PENDING: BlockingRequestKinds = { hasPermission: true, hasForm: false };
++const FORM_PENDING: BlockingRequestKinds = { hasPermission: false, hasForm: true };
++const PERMISSION_AND_FORM_PENDING: BlockingRequestKinds = { hasPermission: true, hasForm: true };
++
++/**
++ * Whether any of `sessionIDs` has a request in the index. It is the one copy of
++ * that scan for a session no directory store can speak for, such as a hidden
++ * subagent listed only as blocking, and for a surface that never mounts a row.
++ * Returns a shared object, so a selector built on it keeps its identity while
++ * the answer stands.
++ */
++export const selectIndexedBlockingRequests = (
++  bySession: GlobalBlockingRequestsState['bySession'],
++  sessionIDs: readonly string[],
++): BlockingRequestKinds => {
++  let hasPermission = false;
++  let hasForm = false;
++  for (const sessionID of sessionIDs) {
++    const pending = bySession.get(sessionID);
++    if (!pending) continue;
++    hasPermission ||= pending.permissions.length > 0;
++    hasForm ||= pending.forms.length > 0 || pending.pages.length > 0;
++  }
++  if (hasPermission) return hasForm ? PERMISSION_AND_FORM_PENDING : PERMISSION_PENDING;
++  return hasForm ? FORM_PENDING : NOTHING_PENDING;
++};
++
+ const EMPTY: readonly never[] = [];
+ type WaitingPageEvent = Extract<SyncEvent, { type: 'openchamber.page-waiting' | 'openchamber.page-settled' | 'session.deleted' }>;
+ const settledByRead = new Set<string>();
 diff --git a/packages/ui/src/types/theme.ts b/packages/ui/src/types/theme.ts
 index 6a5e03313..b288b0144 100644
 --- a/packages/ui/src/types/theme.ts
