@@ -40,6 +40,15 @@ on A; otherwise the hunk belongs in A, and both patches get re-exported. A lint
 cleanup of another patch's file is the usual case: it goes into that patch. The
 shared settings files are listed by name in the script and are exempt.
 
+Every patch has a `markers.json` entry. A `client` patch names a string that
+must appear in the mobile bundle the APK packages, and the
+`openchamber-mobile-markers` flake check asserts it: it runs upstream's
+`prepare-web-assets.mjs` on the core's web build and greps the result with
+`scripts/assert-patch-markers.sh`. That check is part of buildbot/nix-build,
+a required status, so a patch whose marker is missing fails its pull request.
+The Android smoke build runs the same script on the real APK tree, but only for
+app paths and as an unrequired status.
+
 A green `nix build .#checks.x86_64-linux.openchamber` proves the patches apply
 and the version smoke test passes. It does **not** typecheck the server: run
 `node packages/web/scripts/check-server-types.mjs` from the repository root of
