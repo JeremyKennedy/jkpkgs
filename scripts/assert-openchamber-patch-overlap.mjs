@@ -70,21 +70,37 @@ const records = JSON.parse(readFileSync(join(packageDir, 'upstream.json'), 'utf8
 const significant = (line) => line.length >= MIN_LINE_LENGTH && /[A-Za-z]/.test(line);
 
 // Per patch: file -> { added: Set of lines, removed: Map line -> count }.
+// Added lines are filed under the new path and removed lines under the old
+// one, so a patch that renames another patch's file and edits it is still
+// compared against the path the earlier patch added those lines to.
 const parsePatch = (name) => {
   const files = new Map();
-  let current = null;
+  const entry = (path) => {
+    if (!files.has(path)) files.set(path, { added: new Set(), removed: new Map() });
+    return files.get(path);
+  };
+  let oldFile = null;
+  let newFile = null;
+  let inHunk = false;
   for (const line of readFileSync(join(patchesDir, `${name}.patch`), 'utf8').split('\n')) {
     if (line.startsWith('diff --git ')) {
-      const path = line.slice(line.indexOf(' b/') + 3);
-      current = files.get(path) ?? { added: new Set(), removed: new Map() };
-      files.set(path, current);
+      const match = /^diff --git a\/(.+) b\/(.+)$/.exec(line);
+      oldFile = entry(match[1]);
+      newFile = entry(match[2]);
+      inHunk = false;
       continue;
     }
-    if (!current || line.startsWith('+++ ') || line.startsWith('--- ')) continue;
+    if (line.startsWith('@@')) {
+      inHunk = true;
+      continue;
+    }
+    // Before the first hunk, `---` and `+++` are the file headers; inside a
+    // hunk they are content lines that start with `--` or `++`.
+    if (!inHunk || !newFile) continue;
     const text = line.slice(1).trim();
     if (!significant(text)) continue;
-    if (line[0] === '+') current.added.add(text);
-    else if (line[0] === '-') current.removed.set(text, (current.removed.get(text) ?? 0) + 1);
+    if (line[0] === '+') newFile.added.add(text);
+    else if (line[0] === '-') oldFile.removed.set(text, (oldFile.removed.get(text) ?? 0) + 1);
   }
   return files;
 };

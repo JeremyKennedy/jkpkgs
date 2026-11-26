@@ -184,10 +184,16 @@ for name in $queue; do
 
   # Apply in queue order, so a patch that builds on an earlier one is judged in
   # the tree it actually ships in. Fuzz 0, the same as source.nix: a hunk that
-  # applies here only with fuzz fails the build, so it is a port.
+  # applies here only with fuzz fails the build, so it is a port. The dry run
+  # comes first so a patch that fails leaves no hunks and no .rej files behind,
+  # and every later patch is judged on a tree that holds only applied patches.
   before=$(snapshot "$scratch" "$patch_file")
-  if ! (cd "$scratch" && patch -p1 --fuzz=0 --forward --batch --quiet < "$patch_file" >/dev/null 2>&1) \
-     || [ -n "$(find "$scratch" -name '*.rej' -print -quit)" ]; then
+  apply=(patch -p1 --fuzz=0 --forward --batch --quiet)
+  if ! (cd "$scratch" && "${apply[@]}" --dry-run < "$patch_file" >/dev/null 2>&1); then
+    results+=("$name|port|does not apply in queue order to $tag")
+    continue
+  fi
+  if ! (cd "$scratch" && "${apply[@]}" < "$patch_file" >/dev/null 2>&1); then
     results+=("$name|port|does not apply in queue order to $tag")
     continue
   fi
