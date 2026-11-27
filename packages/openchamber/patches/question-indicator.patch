@@ -114,10 +114,10 @@ index ce36b3c60..bb20fe2b5 100644
                    onSelect={() => {
 diff --git a/packages/ui/src/components/multirun/LaneStatusIcon.test.tsx b/packages/ui/src/components/multirun/LaneStatusIcon.test.tsx
 new file mode 100644
-index 000000000..8468712e7
+index 000000000..595f42e22
 --- /dev/null
 +++ b/packages/ui/src/components/multirun/LaneStatusIcon.test.tsx
-@@ -0,0 +1,21 @@
+@@ -0,0 +1,27 @@
 +import { expect, test } from 'bun:test';
 +import React from 'react';
 +import { renderToStaticMarkup } from 'react-dom/server';
@@ -139,21 +139,29 @@ index 000000000..8468712e7
 +    expect(classes).not.toContain('text-destructive');
 +  }
 +});
++
++test('a working lane is blue like a running session in the sidebar, not the waiting amber', () => {
++  const classes = glyphClass('working');
++  expect(classes).toContain('text-status-info');
++  expect(classes).not.toContain('status-warning');
++});
 diff --git a/packages/ui/src/components/multirun/LaneStatusIcon.tsx b/packages/ui/src/components/multirun/LaneStatusIcon.tsx
-index a4e4b605e..069048365 100644
+index a4e4b605e..40a0d8b80 100644
 --- a/packages/ui/src/components/multirun/LaneStatusIcon.tsx
 +++ b/packages/ui/src/components/multirun/LaneStatusIcon.tsx
-@@ -7,8 +7,8 @@ import { LANE_STATUS_LABEL_KEYS, type LaneStatus } from '@/lib/multirun/laneStat
+@@ -7,9 +7,9 @@ import { LANE_STATUS_LABEL_KEYS, type LaneStatus } from '@/lib/multirun/laneStat
  import { cn } from '@/lib/utils';
  
  const STATUS_ICON = {
 -  permission: { name: 'shield', className: 'text-destructive' },
 -  question: { name: 'question', className: 'text-status-info' },
+-  working: { name: 'loader-4', className: 'text-[var(--status-warning)]' },
 +  permission: { name: 'shield', className: 'text-status-warning' },
 +  question: { name: 'question', className: 'text-status-warning' },
-   working: { name: 'loader-4', className: 'text-[var(--status-warning)]' },
++  working: { name: 'loader-4', className: 'text-status-info' },
    failed: { name: 'error-warning', className: 'text-[var(--status-error)]' },
    stopped: { name: 'stop', className: 'text-muted-foreground' },
+   notStarted: { name: 'time', className: 'text-muted-foreground' },
 diff --git a/packages/ui/src/components/overview/OverviewView.tsx b/packages/ui/src/components/overview/OverviewView.tsx
 index 046f1d4dd..17ecb0853 100644
 --- a/packages/ui/src/components/overview/OverviewView.tsx
