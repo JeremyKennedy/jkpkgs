@@ -1,17 +1,5 @@
-diff --git a/docs/CUSTOM_THEMES.md b/docs/CUSTOM_THEMES.md
-index 4808ee8db..688a09028 100644
---- a/docs/CUSTOM_THEMES.md
-+++ b/docs/CUSTOM_THEMES.md
-@@ -110,6 +110,7 @@ Add an override only when the default relationship does not fit your palette.
- | `interactive` | `selection`, `selectionForeground`, `hover`, `active`, `borderHover`, `borderFocus`, `focus`, `focusRing`, `cursor` |
- | `status` | Each status accepts `Foreground`, `Background` and `Border` suffixes |
- | `pr` | `open`, `draft`, `blocked`, `merged`, `closed` |
-+| `question` | `base` for the waiting-question mark; `foreground`, `background` and `border` derive from it |
- | `chat` | `userMessageBackground`, `divider`, legacy `background` used as the inline-code background fallback |
- | `markdown` | `link`, `linkHover`, `inlineCode`, `inlineCodeBackground`, `blockquote`, `blockquoteBorder`, `listMarker`, `bold`, `italic`, `strikethrough`, `hr` |
- | `tools` | `border`, `icon`, `title`, `description`; `edit` accepts `addedBackground`, `removedBackground`, `modifiedBackground`, `lineNumber` |
 diff --git a/packages/ui/src/apps/MobileSessionStateBadges.tsx b/packages/ui/src/apps/MobileSessionStateBadges.tsx
-index 2d68ea28a..01216c367 100644
+index 2d68ea28a..714803ecc 100644
 --- a/packages/ui/src/apps/MobileSessionStateBadges.tsx
 +++ b/packages/ui/src/apps/MobileSessionStateBadges.tsx
 @@ -8,6 +8,7 @@ import { getSessionGoal } from '@/lib/sessionGoalMetadata';
@@ -56,24 +44,6 @@ index 2d68ea28a..01216c367 100644
  
  const BADGE_BUTTON_STYLE: React.CSSProperties = { touchAction: 'manipulation', minHeight: 0, minWidth: 0 };
  
-@@ -60,7 +40,7 @@ export const MobileSessionPendingBadgeButtons: React.FC<PendingRequests & {
-       type="button"
-       data-pending-request-badge={kind}
-       className={cn(
--        "relative inline-flex shrink-0 items-center rounded text-status-warning before:absolute before:-inset-y-3 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-+        "relative inline-flex shrink-0 items-center rounded before:absolute before:-inset-y-3 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-         kind === 'form' && hasPermission ? 'before:[inset-inline-start:-3px]' : 'before:[inset-inline-start:-0.5rem]',
-         kind === 'permission' && hasForm ? 'before:[inset-inline-end:-3px]' : 'before:[inset-inline-end:-0.5rem]',
-       )}
-@@ -71,7 +51,7 @@ export const MobileSessionPendingBadgeButtons: React.FC<PendingRequests & {
-         onOpen(kind);
-       }}
-     >
--      <Icon name={icon} className="size-3" />
-+      <Icon name={icon} className={cn('size-3', kind === 'form' ? 'text-status-question' : 'text-status-warning')} />
-     </button>
-   );
-   return (
 diff --git a/packages/ui/src/apps/MobileSessionSwitcher.tsx b/packages/ui/src/apps/MobileSessionSwitcher.tsx
 index ce36b3c60..bb20fe2b5 100644
 --- a/packages/ui/src/apps/MobileSessionSwitcher.tsx
@@ -142,34 +112,8 @@ index ce36b3c60..bb20fe2b5 100644
                    meta={meta}
                    active={session.id === currentSessionId}
                    onSelect={() => {
-diff --git a/packages/ui/src/components/multirun/LaneStatusIcon.tsx b/packages/ui/src/components/multirun/LaneStatusIcon.tsx
-index a4e4b605e..ce18807d3 100644
---- a/packages/ui/src/components/multirun/LaneStatusIcon.tsx
-+++ b/packages/ui/src/components/multirun/LaneStatusIcon.tsx
-@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
- 
- const STATUS_ICON = {
-   permission: { name: 'shield', className: 'text-destructive' },
--  question: { name: 'question', className: 'text-status-info' },
-+  question: { name: 'question', className: 'text-status-question' },
-   working: { name: 'loader-4', className: 'text-[var(--status-warning)]' },
-   failed: { name: 'error-warning', className: 'text-[var(--status-error)]' },
-   stopped: { name: 'stop', className: 'text-muted-foreground' },
-diff --git a/packages/ui/src/components/overview/OverviewView.tsx b/packages/ui/src/components/overview/OverviewView.tsx
-index 046f1d4dd..901c26587 100644
---- a/packages/ui/src/components/overview/OverviewView.tsx
-+++ b/packages/ui/src/components/overview/OverviewView.tsx
-@@ -45,7 +45,7 @@ type Mark = { icon: IconName; color: string; tint?: boolean };
- 
- const WAITING_MARK = {
-   permission: { icon: 'shield', color: 'var(--status-error)', tint: true },
--  question: { icon: 'question', color: 'var(--status-info)', tint: true },
-+  question: { icon: 'question', color: 'var(--status-question)', tint: true },
-   error: { icon: 'error-warning', color: 'var(--status-error)' },
-   conflict: { icon: 'git-pull-request', color: 'var(--pr-blocked)' },
-   checks: { icon: 'git-pull-request', color: 'var(--pr-blocked)' },
 diff --git a/packages/ui/src/components/session/DOCUMENTATION.md b/packages/ui/src/components/session/DOCUMENTATION.md
-index f21e6c678..c1385f039 100644
+index f21e6c678..fb2ec03ad 100644
 --- a/packages/ui/src/components/session/DOCUMENTATION.md
 +++ b/packages/ui/src/components/session/DOCUMENTATION.md
 @@ -162,3 +162,10 @@ cmdk renders every row it navigates and a project can hold thousands of sessions
@@ -179,7 +123,7 @@ index f21e6c678..c1385f039 100644
 +
 +### Why waiting marks are bare glyphs from one component
 +
-+`SessionPendingMarks` draws what waits on the user: a permission shield, a question mark, or both, in that order. Both are bare marks at the row-mark size, so a question reads as the peer of the permission it ranks below, as `SessionActivityIndicator` is the same kind of mark; the question takes its own `status-question` role instead of sharing the permission's warning colour. With `tooltip` the label shows above the mark, as on the sidebar's rows and collapsed headers; otherwise it is the mark's native title. Rows keep their clickable badges (`PendingRequestBadges` with `onOpen`), which colour each glyph the same way.
++`SessionPendingMarks` draws what waits on the user: a permission shield, a question mark, or both, in that order. Both are bare marks at the row-mark size, so a question reads as the peer of the permission it ranks below, as `SessionActivityIndicator` is the same kind of mark; both take the warning colour, as the permission card does. With `tooltip` the label shows above the mark, as on the sidebar's rows and collapsed headers; otherwise it is the mark's native title. Rows keep their clickable badges (`PendingRequestBadges` with `onOpen`), which colour each glyph the same way.
 +
 +Both switchers count a row's waiting requests over its whole subtree: `collectSwitcherChildren` keeps every child in the node, workflow agents included, and `listedChildren` decides which of them get rows, the rule the sidebar applies. A folded switcher row and the phone's recent list (parents only) stand for their subsessions the way a collapsed sidebar row does, and a waiting request replaces the running mark, as on the sidebar and mobile rows.
 +
@@ -279,10 +223,10 @@ index 000000000..7119a6e02
 +});
 diff --git a/packages/ui/src/components/session/SessionPendingMarks.tsx b/packages/ui/src/components/session/SessionPendingMarks.tsx
 new file mode 100644
-index 000000000..a72e669d3
+index 000000000..3867d3563
 --- /dev/null
 +++ b/packages/ui/src/components/session/SessionPendingMarks.tsx
-@@ -0,0 +1,63 @@
+@@ -0,0 +1,60 @@
 +import React from 'react';
 +import { Icon } from '@/components/icon/Icon';
 +import type { IconName } from '@/components/icon/icons';
@@ -296,21 +240,18 @@ index 000000000..a72e669d3
 +    kind: 'permission',
 +    enabled: 'hasPermission',
 +    icon: 'shield',
-+    colorClass: 'text-status-warning',
 +    labelKey: 'sessions.sidebar.session.status.permissionRequired',
 +  },
 +  {
 +    kind: 'form',
 +    enabled: 'hasForm',
 +    icon: 'question',
-+    colorClass: 'text-status-question',
 +    labelKey: 'sessions.sidebar.session.status.questionPending',
 +  },
 +] as const satisfies ReadonlyArray<{
 +  kind: string;
 +  enabled: keyof BlockingRequestKinds;
 +  icon: IconName;
-+  colorClass: string;
 +  labelKey: I18nKey;
 +}>;
 +
@@ -332,7 +273,7 @@ index 000000000..a72e669d3
 +            title={tooltip ? undefined : label}
 +            data-session-pending-mark={mark.kind}
 +          >
-+            <Icon name={mark.icon} className={cn('size-3', mark.colorClass)} />
++            <Icon name={mark.icon} className="size-3 text-status-warning" />
 +          </span>
 +        );
 +        if (!tooltip) return <React.Fragment key={mark.kind}>{glyph}</React.Fragment>;
@@ -439,7 +380,7 @@ index 5faef6d34..7577855bf 100644
            <SessionActivityIndicator
              state={turnActivity ?? 'unread'}
 diff --git a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
-index 925955c96..dbdd85f57 100644
+index 925955c96..dbfb26ece 100644
 --- a/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
 +++ b/packages/ui/src/components/session/sidebar/DOCUMENTATION.md
 @@ -386,7 +386,7 @@ no Shift.
@@ -456,7 +397,7 @@ index 925955c96..dbdd85f57 100644
  updates.
  
 -Session-row permission and form badges read the relevant directory-store buckets and show only whether something waits, without a count: one form can hold many questions, and a number that does not drop as the user answers them reads as wrong. A collapsed row covers its own pending requests and those of the descendants it hides; an expanded row covers its own and those of descendants without a row (hidden subagents, workflow agents). The lookup never bootstraps a directory, so an unbootstrapped directory's store holds only live requests; until that store completes a bootstrap, the row lookup also reads permissions and forms from the cross-directory index, which the host seed fills at load, so a request already waiting in a project this client never opened still shows after a reload. Once the store completes a bootstrap it answers alone for the sessions it listed then, so a request whose settlement fell into a stream gap clears when the reconnect recovery re-reads the store. Mobile rows show the same icon-only badges through the same lookup and scopes (`apps/usePendingRequests.ts` calls `selectBlockingBadgeSessionScopes` and `useSessionBlockingRequests`), so a phone row and a desktop row agree about one session. On the phone the row is itself a button, so the badge buttons sit beside it (after the row's button on a one-line row, over the end of the second line on a detailed one, which keeps an invisible copy to hold their room): a button inside a button is invalid and VoiceOver reads it as one control. Each badge button keeps its 12px glyph in the line, opting out of the 36px touch-layout button minimum, and takes a 36px-tall touch area from a pseudo-element, 8px past the glyph on each side; between two badges each area stops 3px past its glyph, so neither reaches the other's icon in the 6px gap of a detailed row. A tap opens the waiting session and closes the drawer; while the row's swipe actions are open, it closes them first, as a tap on the row does. A page an agent shows that waits for the user's answer has no directory-store bucket, so the row lookup also reads it from the cross-directory index and shows it as a form.
-+Session-row permission and form badges read the relevant directory-store buckets and show only whether something waits, without a count: one form can hold many questions, and a number that does not drop as the user answers them reads as wrong. A collapsed row covers its own pending requests and those of the descendants it hides; an expanded row covers its own and those of descendants without a row (hidden subagents, workflow agents). The lookup never bootstraps a directory, so an unbootstrapped directory's store holds only live requests; until that store completes a bootstrap, the row lookup also reads permissions and forms from the cross-directory index, which the host seed fills at load, so a request already waiting in a project this client never opened still shows after a reload. Once the store completes a bootstrap it answers alone for the sessions it listed then, so a request whose settlement fell into a stream gap clears when the reconnect recovery re-reads the store. Mobile rows use the same lookup and the same marks: `SessionPendingMarks` (`components/session/`) draws the permission shield and the question mark at the row-mark size, the question in its own `status-question` colour, as bare glyphs with the label as a tooltip on a row and as the native title elsewhere. `MobileSessionRow` (through `MobileSessionPendingBadges`), `MobileSessionSwitcher`, the desktop switcher and the sidebar's plain row marks all take it, and the clickable badges (`PendingRequestBadges` with `onOpen`, `MobileSessionPendingBadgeButtons`) colour each glyph the same way. The mobile rows build their scopes with `selectBlockingBadgeSessionScopes` and `useSessionBlockingRequests` (`apps/usePendingRequests.ts`), so a phone row and a desktop row agree about one session. On the phone the row is itself a button, so the badge buttons sit beside it (after the row's button on a one-line row, over the end of the second line on a detailed one, which keeps an invisible copy to hold their room): a button inside a button is invalid and VoiceOver reads it as one control. Each badge button keeps its 12px glyph in the line, opting out of the 36px touch-layout button minimum, and takes a 36px-tall touch area from a pseudo-element, 8px past the glyph on each side; between two badges each area stops 3px past its glyph, so neither reaches the other's icon in the 6px gap of a detailed row. A tap opens the waiting session and closes the drawer; while the row's swipe actions are open, it closes them first, as a tap on the row does. A page an agent shows that waits for the user's answer has no directory-store bucket, so the row lookup also reads it from the cross-directory index and shows it as a form.
++Session-row permission and form badges read the relevant directory-store buckets and show only whether something waits, without a count: one form can hold many questions, and a number that does not drop as the user answers them reads as wrong. A collapsed row covers its own pending requests and those of the descendants it hides; an expanded row covers its own and those of descendants without a row (hidden subagents, workflow agents). The lookup never bootstraps a directory, so an unbootstrapped directory's store holds only live requests; until that store completes a bootstrap, the row lookup also reads permissions and forms from the cross-directory index, which the host seed fills at load, so a request already waiting in a project this client never opened still shows after a reload. Once the store completes a bootstrap it answers alone for the sessions it listed then, so a request whose settlement fell into a stream gap clears when the reconnect recovery re-reads the store. Mobile rows use the same lookup and the same marks: `SessionPendingMarks` (`components/session/`) draws the permission shield and the question mark at the row-mark size, both in the warning colour, as bare glyphs with the label as a tooltip on a row and as the native title elsewhere. `MobileSessionRow` (through `MobileSessionPendingBadges`), `MobileSessionSwitcher`, the desktop switcher and the sidebar's plain row marks all take it, and the clickable badges (`PendingRequestBadges` with `onOpen`, `MobileSessionPendingBadgeButtons`) colour each glyph the same way. The mobile rows build their scopes with `selectBlockingBadgeSessionScopes` and `useSessionBlockingRequests` (`apps/usePendingRequests.ts`), so a phone row and a desktop row agree about one session. On the phone the row is itself a button, so the badge buttons sit beside it (after the row's button on a one-line row, over the end of the second line on a detailed one, which keeps an invisible copy to hold their room): a button inside a button is invalid and VoiceOver reads it as one control. Each badge button keeps its 12px glyph in the line, opting out of the 36px touch-layout button minimum, and takes a 36px-tall touch area from a pseudo-element, 8px past the glyph on each side; between two badges each area stops 3px past its glyph, so neither reaches the other's icon in the 6px gap of a detailed row. A tap opens the waiting session and closes the drawer; while the row's swipe actions are open, it closes them first, as a tap on the row does. A page an agent shows that waits for the user's answer has no directory-store bucket, so the row lookup also reads it from the cross-directory index and shows it as a form.
  
  A session row's menu and the header's session menus (a tab's, the title's)
  are one component, `sessions/SessionActionsMenuItems.tsx`; each surface
@@ -556,7 +497,7 @@ index 069e8301e..a2fdd325e 100644
      useGlobalSessionsStore.setState(originalSessions);
      container.remove();
 diff --git a/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.marks.test.tsx b/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.marks.test.tsx
-index 2b6799450..acbe4e627 100644
+index 2b6799450..1d71ba1b1 100644
 --- a/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.marks.test.tsx
 +++ b/packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.marks.test.tsx
 @@ -16,9 +16,12 @@ const links: Array<{ url: string; directory: string | null }> = [];
@@ -581,22 +522,17 @@ index 2b6799450..acbe4e627 100644
    win = new Window({ url: 'http://localhost/' });
    const globals = {
      window: win, document: win.document, navigator: win.navigator,
-@@ -253,6 +257,20 @@ test('a mark with nothing to open is an image, not a button', async () => {
+@@ -253,6 +257,15 @@ test('a mark with nothing to open is an image, not a button', async () => {
    expect(node?.getAttribute('aria-label')).toBe('Deploy Log: Deployed');
  });
  
-+test('a row waiting on the user draws the permission shield and the question mark, each in its own colour', async () => {
++test('a row waiting on the user draws the permission shield and the question mark, both as warnings', async () => {
 +  pendingRequests = { hasPermission: true, hasForm: true };
 +  await render(rowProps());
 +
-+  // The row's badges open the waiting session (upstream's clickable badges);
-+  // the question takes the question role, the permission stays a warning.
 +  const badges = Array.from(host.querySelectorAll<HTMLElement>('[data-pending-request-badge]'));
 +  expect(badges.map((badge) => badge.dataset.pendingRequestBadge)).toEqual(['permission', 'form']);
-+  const glyphClasses = badges.map((badge) => badge.querySelector('svg')?.getAttribute('class') ?? '');
-+  expect(glyphClasses[0]).toContain('text-status-warning');
-+  expect(glyphClasses[1]).toContain('text-status-question');
-+  for (const badge of badges) expect(badge.className).not.toContain('text-status-warning');
++  for (const badge of badges) expect(badge.className).toContain('text-status-warning');
 +});
 +
  test('a row of an isolated space shows no marks', async () => {
@@ -1101,7 +1037,7 @@ index 1ea6a7191..33ef42e3d 100644
  
  describe('nodeHasPinnedMembershipChange', () => {
 diff --git a/packages/ui/src/components/session/sidebar/sessions/sessionRowMarks.tsx b/packages/ui/src/components/session/sidebar/sessions/sessionRowMarks.tsx
-index 51d165db7..8811e747d 100644
+index 51d165db7..c64724056 100644
 --- a/packages/ui/src/components/session/sidebar/sessions/sessionRowMarks.tsx
 +++ b/packages/ui/src/components/session/sidebar/sessions/sessionRowMarks.tsx
 @@ -6,6 +6,7 @@ import { sessionGoalMarkLabelKey, sessionGoalStatusColor } from '@/lib/sessionGo
@@ -1118,18 +1054,18 @@ index 51d165db7..8811e747d 100644
  const PENDING_REQUEST_BADGES = [
 -  { kind: 'permission', icon: 'shield', labelKey: 'sessions.sidebar.session.status.permissionRequired', openLabelKey: 'sessions.sidebar.session.status.permissionRequiredOpen' },
 -  { kind: 'form', icon: 'question', labelKey: 'sessions.sidebar.session.status.questionPending', openLabelKey: 'sessions.sidebar.session.status.questionPendingOpen' },
-+  { kind: 'permission', icon: 'shield', colorClass: 'text-status-warning', openLabelKey: 'sessions.sidebar.session.status.permissionRequiredOpen' },
-+  { kind: 'form', icon: 'question', colorClass: 'text-status-question', openLabelKey: 'sessions.sidebar.session.status.questionPendingOpen' },
++  { kind: 'permission', icon: 'shield', openLabelKey: 'sessions.sidebar.session.status.permissionRequiredOpen' },
++  { kind: 'form', icon: 'question', openLabelKey: 'sessions.sidebar.session.status.questionPendingOpen' },
  ] as const;
  
  const BADGE_BUTTON_STYLE: React.CSSProperties = { minHeight: 0, minWidth: 0 };
-@@ -69,25 +70,16 @@ export function PendingRequestBadges({ hasPermission, hasForm, onOpen }: {
+@@ -69,18 +70,9 @@ export function PendingRequestBadges({ hasPermission, hasForm, onOpen }: {
    onOpen?: (kind: PendingRequestBadgeKind, target: HTMLElement) => void;
  }): React.ReactNode {
    const { t } = useI18n();
 -  return PENDING_REQUEST_BADGES.map(({ kind, icon, labelKey, openLabelKey }) => {
 +  if (!onOpen) return <SessionPendingMarks hasPermission={hasPermission} hasForm={hasForm} tooltip />;
-+  return PENDING_REQUEST_BADGES.map(({ kind, icon, colorClass, openLabelKey }) => {
++  return PENDING_REQUEST_BADGES.map(({ kind, icon, openLabelKey }) => {
      if (!(kind === 'permission' ? hasPermission : hasForm)) return null;
 -    if (!onOpen) {
 -      const label = t(labelKey);
@@ -1144,23 +1080,6 @@ index 51d165db7..8811e747d 100644
      const label = t(openLabelKey);
      return (
        <RowMarkTooltip key={kind} label={label}>
-         <button
-           type="button"
-           data-pending-request-badge={kind}
--          className="relative inline-flex flex-shrink-0 cursor-pointer items-center rounded text-status-warning before:absolute before:-inset-1 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-+          className="relative inline-flex flex-shrink-0 cursor-pointer items-center rounded before:absolute before:-inset-1 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-           style={BADGE_BUTTON_STYLE}
-           aria-label={label}
-           onPointerDown={handleRowActionPointerDown}
-@@ -100,7 +92,7 @@ export function PendingRequestBadges({ hasPermission, hasForm, onOpen }: {
-             onOpen(kind, event.currentTarget);
-           }}
-         >
--          <Icon name={icon} className="h-3 w-3" />
-+          <Icon name={icon} className={cn('h-3 w-3', colorClass)} />
-         </button>
-       </RowMarkTooltip>
-     );
 diff --git a/packages/ui/src/components/session/sidebar/shell/useSwitcherItems.test.ts b/packages/ui/src/components/session/sidebar/shell/useSwitcherItems.test.ts
 index ea7227a8a..bc12f109d 100644
 --- a/packages/ui/src/components/session/sidebar/shell/useSwitcherItems.test.ts
@@ -1414,208 +1333,11 @@ index 36112e968..54218c89d 100644
  );
  
  let win: Window;
-diff --git a/packages/ui/src/lib/theme/DOCUMENTATION.md b/packages/ui/src/lib/theme/DOCUMENTATION.md
-index 498a2f5a4..1517ae4d6 100644
---- a/packages/ui/src/lib/theme/DOCUMENTATION.md
-+++ b/packages/ui/src/lib/theme/DOCUMENTATION.md
-@@ -75,6 +75,8 @@ the exception. User-message backgrounds take on the primary's hue at their own
- lightness (`tintColor`: 16% of its chroma in dark, 6% in light), so the bubble
- reads as colored without becoming a brighter patch, with enough separation from
- the canvas to remain visible. Mono keeps every role grayscale.
-+
-+The question mark a waiting question puts on a row is part of the resolved theme, like `pr`: the app owns the default violet pair, a palette may override `colors.question.base` (Mono and Mono Plus give it a neutral), and its tint and outline take the status family's alphas (0.125 and 0.314) instead of their own. Rows, collapsed headers and switchers draw the solid role with no pad, so `definition.test.ts` checks that glyph on the canvas, sidebar and elevated surfaces rather than a foreground-over-tint pair nothing paints.
- Body and secondary text retain the palette's neutral cast with distinct
- contrast levels. Body text sits at about 15.4:1 on the canvas in dark palettes
- and 13:1 in light ones, the level T3 Code's default chat text reaches (its
-diff --git a/packages/ui/src/lib/theme/cssGenerator.ts b/packages/ui/src/lib/theme/cssGenerator.ts
-index bf5e22168..9f8996bae 100644
---- a/packages/ui/src/lib/theme/cssGenerator.ts
-+++ b/packages/ui/src/lib/theme/cssGenerator.ts
-@@ -46,6 +46,7 @@ export class CSSVariableGenerator {
-     cssVars.push(...this.generateSurfaceColors(theme.colors.surface));
-     cssVars.push(...this.generateInteractiveColors(theme.colors.interactive));
-     cssVars.push(...this.generateStatusColors(theme.colors.status));
-+    cssVars.push(...this.generateQuestionColors(theme));
-     cssVars.push(...this.generatePullRequestColors(theme));
- 
-     cssVars.push(...this.generateSyntaxColors(theme.colors.syntax));
-@@ -240,6 +241,15 @@ const sidebarBaseRgb = hexToRgb(theme.colors.surface.muted);
-     return vars;
-   }
- 
-+  private generateQuestionColors(theme: Theme): string[] {
-+    const question = theme.colors.question;
-+    return [
-+      `  --status-question: ${question.base};`,
-+      `  --status-question-background: ${question.background};`,
-+      `  --status-question-border: ${question.border};`,
-+    ];
-+  }
-+
-   private generatePullRequestColors(theme: Theme): string[] {
-     const vars: string[] = [];
-     const pr = theme.colors.pr;
-diff --git a/packages/ui/src/lib/theme/definition.test.ts b/packages/ui/src/lib/theme/definition.test.ts
-index 8d7797ec3..683324a23 100644
---- a/packages/ui/src/lib/theme/definition.test.ts
-+++ b/packages/ui/src/lib/theme/definition.test.ts
-@@ -263,6 +263,26 @@ describe('rendered theme color pairs', () => {
-     }
-   });
- 
-+  test('keeps the pending-question mark readable on every surface it sits on', () => {
-+    // The shipped mark is the question glyph in the role's solid colour, drawn
-+    // on the rows, collapsed headers and switchers: canvas, sidebar and
-+    // elevated surfaces, with no tinted pad behind it. A state glyph is a
-+    // non-text mark, so the 3:1 floor applies to the pair actually painted.
-+    const failures: string[] = [];
-+    for (const theme of themes) {
-+      const { question, surface } = theme.colors;
-+      for (const [name, background] of [
-+        ['canvas', surface.background],
-+        ['sidebar', surface.muted],
-+        ['elevated', surface.elevated],
-+      ] as const) {
-+        const ratio = contrastRatio(question.base, background);
-+        if (ratio === null || ratio < 3) failures.push(`${theme.metadata.id}: question on ${name} (${ratio?.toFixed(2) ?? 'n/a'})`);
-+      }
-+    }
-+    expect(failures).toEqual([]);
-+  });
-+
-   test('keeps error text readable on the terminal alert surface', () => {
-     for (const theme of themes) {
-       const css = new CSSVariableGenerator().generate(theme);
-diff --git a/packages/ui/src/lib/theme/definition.ts b/packages/ui/src/lib/theme/definition.ts
-index 2827e575d..6c2535224 100644
---- a/packages/ui/src/lib/theme/definition.ts
-+++ b/packages/ui/src/lib/theme/definition.ts
-@@ -28,6 +28,7 @@ const definition = z.object({
-   colors: z.object({
-     primary, surface, interactive, status, syntax,
-     pr: z.object({ open: color.optional(), draft: color.optional(), blocked: color.optional(), merged: color.optional(), closed: color.optional() }).optional(),
-+    question: z.object({ base: color.optional(), foreground: color.optional(), background: color.optional(), border: color.optional() }).optional(),
-     chat: optionalColors(['background', 'userMessageBackground', 'divider']).optional(),
-     markdown: optionalColors(['link', 'linkHover', 'inlineCode', 'inlineCodeBackground', 'blockquote', 'blockquoteBorder', 'listMarker', 'bold', 'italic', 'strikethrough', 'hr']).optional(),
-     tools: z.object({ border: color.optional(), icon: color.optional(), title: color.optional(), description: color.optional(), edit: optionalColors(['addedBackground', 'removedBackground', 'modifiedBackground', 'lineNumber']).optional() }).optional(),
-@@ -44,13 +45,19 @@ function resolveTheme(source: z.output<typeof definition>): Theme {
-   const s = { ...c.surface, elevatedForeground: c.surface.elevatedForeground ?? c.surface.foreground, overlay: c.surface.overlay ?? withOpacity('#000000', 0.6), subtle: c.surface.subtle ?? c.surface.muted };
-   const selection = c.interactive.selection ?? withOpacity(s.foreground, 0.16);
-   const base = { ...c.syntax.base, background: c.syntax.base.background ?? s.background, foreground: c.syntax.base.foreground ?? s.foreground };
--  const statusFamily = (name: 'error' | 'warning' | 'success' | 'info') => ({
--    base: c.status[name],
--    foreground: c.status[`${name}Foreground`] ?? onColor(c.status[name], s.background),
--    background: c.status[`${name}Background`] ?? withOpacity(c.status[name], 0.125),
--    border: c.status[`${name}Border`] ?? withOpacity(c.status[name], 0.314),
-+  const tintedRole = (seed: string, overrides: { foreground?: string; background?: string; border?: string }) => ({
-+    base: seed,
-+    foreground: overrides.foreground ?? onColor(seed, s.background),
-+    background: overrides.background ?? withOpacity(seed, 0.125),
-+    border: overrides.border ?? withOpacity(seed, 0.314),
-+  });
-+  const statusFamily = (name: 'error' | 'warning' | 'success' | 'info') => tintedRole(c.status[name], {
-+    foreground: c.status[`${name}Foreground`],
-+    background: c.status[`${name}Background`],
-+    border: c.status[`${name}Border`],
-   });
-   const error = statusFamily('error'), warning = statusFamily('warning'), success = statusFamily('success'), info = statusFamily('info');
-+  const question = tintedRole(c.question?.base ?? (metadata.variant === 'dark' ? '#a78bfa' : '#7c3aed'), c.question ?? {});
-   const diffAdded = c.syntax.highlights?.diffAdded ?? success.base;
-   const diffRemoved = c.syntax.highlights?.diffRemoved ?? error.base;
-   const diffModified = c.syntax.highlights?.diffModified ?? info.base;
-@@ -79,6 +86,7 @@ function resolveTheme(source: z.output<typeof definition>): Theme {
-         info: info.base, infoForeground: info.foreground, infoBackground: info.background, infoBorder: info.border,
-       },
-       pr: { open: success.base, draft: s.mutedForeground, blocked: warning.base, merged: metadata.variant === 'dark' ? '#8957e5' : '#8250df', closed: error.base, ...c.pr },
-+      question,
-       syntax: resolvedSyntax,
-       chat: c.chat,
-       markdown: c.markdown,
-@@ -134,5 +142,9 @@ export function compactTheme(value: ThemeDefinition): ThemeDefinition {
-     const inherited = requireTheme({ ...source, colors: { ...c, pr: undefined } });
-     c.pr = prune(c.pr, { ...inherited.colors.pr });
-   }
-+  if (c.question) {
-+    const inherited = requireTheme({ ...source, colors: { ...c, question: undefined } });
-+    c.question = prune(c.question, { ...inherited.colors.question });
-+  }
-   return source;
- }
-diff --git a/packages/ui/src/lib/theme/themes/mono-dark.json b/packages/ui/src/lib/theme/themes/mono-dark.json
-index ca0fe7d62..882b65237 100644
---- a/packages/ui/src/lib/theme/themes/mono-dark.json
-+++ b/packages/ui/src/lib/theme/themes/mono-dark.json
-@@ -103,6 +103,9 @@
-     "pr": {
-       "merged": "#CCCCCC"
-     },
-+    "question": {
-+      "base": "#CCCCCC"
-+    },
-     "chat": {
-       "userMessageBackground": "#1A1A1A",
-       "divider": "#242424",
-diff --git a/packages/ui/src/lib/theme/themes/mono-light.json b/packages/ui/src/lib/theme/themes/mono-light.json
-index bfaed814c..f64cae529 100644
---- a/packages/ui/src/lib/theme/themes/mono-light.json
-+++ b/packages/ui/src/lib/theme/themes/mono-light.json
-@@ -103,6 +103,9 @@
-       "merged": "#333333",
-       "closed": "#666666"
-     },
-+    "question": {
-+      "base": "#333333"
-+    },
-     "chat": {
-       "userMessageBackground": "#E5E5E5",
-       "divider": "#D9D9D9",
-diff --git a/packages/ui/src/lib/theme/themes/mono-plus-dark.json b/packages/ui/src/lib/theme/themes/mono-plus-dark.json
-index 0797f56eb..fcdf373e2 100644
---- a/packages/ui/src/lib/theme/themes/mono-plus-dark.json
-+++ b/packages/ui/src/lib/theme/themes/mono-plus-dark.json
-@@ -75,6 +75,9 @@
-     "pr": {
-       "merged": "#bda2e8"
-     },
-+    "question": {
-+      "base": "#CCCCCC"
-+    },
-     "chat": {
-       "userMessageBackground": "#0e1219",
-       "divider": "#242424",
-diff --git a/packages/ui/src/lib/theme/themes/mono-plus-light.json b/packages/ui/src/lib/theme/themes/mono-plus-light.json
-index e2750933c..22c8ca9c7 100644
---- a/packages/ui/src/lib/theme/themes/mono-plus-light.json
-+++ b/packages/ui/src/lib/theme/themes/mono-plus-light.json
-@@ -83,6 +83,9 @@
-       "open": "#6a8e6a",
-       "merged": "#8769b6"
-     },
-+    "question": {
-+      "base": "#333333"
-+    },
-     "chat": {
-       "userMessageBackground": "#ebeef3",
-       "divider": "#D9D9D9",
-diff --git a/packages/ui/src/styles/design-system.css b/packages/ui/src/styles/design-system.css
-index 7aee24dc6..1fb408805 100644
---- a/packages/ui/src/styles/design-system.css
-+++ b/packages/ui/src/styles/design-system.css
-@@ -1068,6 +1068,9 @@ html[data-glass-redraw-guard] body::before {
-   --color-status-warning: var(--status-warning);
-   --color-status-error: var(--status-error);
-   --color-status-info: var(--status-info);
-+  --color-status-question: var(--status-question);
-+  --color-status-question-background: var(--status-question-background);
-+  --color-status-question-border: var(--status-question-border);
-   --color-sidebar-primary: var(--sidebar-primary);
-   --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-   --color-sidebar-accent: var(--sidebar-accent);
 diff --git a/packages/ui/src/sync/DOCUMENTATION.md b/packages/ui/src/sync/DOCUMENTATION.md
-index feb30225a..2297c1100 100644
+index 3f134f97a..9511d8d53 100644
 --- a/packages/ui/src/sync/DOCUMENTATION.md
 +++ b/packages/ui/src/sync/DOCUMENTATION.md
-@@ -1174,6 +1174,8 @@ Directories that are not bootstrapped get their initial activity from the host i
+@@ -1201,6 +1201,8 @@ Directories that are not bootstrapped get their initial activity from the host i
  
  Pending permissions and forms get the same treatment in `global-blocking-requests.ts`: the dispatcher feeds it `permission.asked`/`permission.replied`, `form.created`/`form.settled`, and `session.deleted` for every directory, and the host seed adds the `pending` map the server keeps from its own stream (`getPendingBlockingRequestsSnapshot` in `session-runtime.js`; dropped on reply, deletion, and OpenCode restart, so it carries no age cutoff). The index keeps only the fields its consumers render (`id`/`sessionID`/`action`/`resources`/`save` for a permission, `id`/`sessionID`/`title` for a form), which is also everything the host can carry. It is additive from the seed and a host snapshot never clears it by absence. A directory's own successful pending read does: `settleAbsentBlockingRequests` drops the requests the index held for that directory before the read and the answer lacks, per kind, for the sessions the read covered, and a later host snapshot cannot add them back, since the host may have missed the settlement or been read before it; a failed read drops nothing. A reconnect makes that read for every directory the index holds a request for, creating the store without a bootstrap when no row has. Directory stores stay the source for open directories; desktop and phone row badges also count the index's permissions and forms while that directory's store has not completed a bootstrap, because such a store learns only of live ones. Once the bootstrap completes, the store alone answers for the sessions it listed at that moment (`requestCoverage`), since its reply and reconnect paths clear requests the index can keep after a lost `permission.replied` or `form.settled`; a status change notifies form subscribers so rows switch source. A session that bootstrap did not list (created during a stream gap) reads the index too, also after it joins the list, because joining reads no requests; so a request the seed brings for it shows without opening its project. The index serves the tray's approval list and any surface without a mounted row. The mobile shell has no global poller, so its sessions sheet runs the seed after the list load it does each time it opens, and again when the stream reconnects while the list is shown (the iPad's sidebar, or a drawer left open in the background), since the events of the gap are lost; without it, phone rows miss every request already waiting at startup in a directory whose store has not loaded. A page an agent shows that waits for the user's answer (`render.page` with `awaitAnswer`) is a third kind, `pages` (`id` is the tool call id, plus `sessionID`/`title`). OpenCode never hears of that wait, so no directory store holds it: the server announces both ends as `openchamber:page-waiting` and `openchamber:page-settled` (`applyWaitingPageEvent`, placed by the session's directory when the server does not name one) and lists it in the seed's `pages`. Every surface counts it as a form: collapsed and expanded rows, mobile rows, run overviews and the tray, which only opens the session for either. Pages stay apart from `forms` so the form dock never tries to answer one. While one waits, the composer sends a message at once instead of queueing it, because the turn cannot end until the wait does; the message reaches the agent's plugin, which ends the wait.
  
@@ -1658,29 +1380,3 @@ index 396c092d7..57b515b3a 100644
  const EMPTY: readonly never[] = [];
  type WaitingPageEvent = Extract<SyncEvent, { type: 'openchamber.page-waiting' | 'openchamber.page-settled' | 'session.deleted' }>;
  const settledByRead = new Set<string>();
-diff --git a/packages/ui/src/types/theme.ts b/packages/ui/src/types/theme.ts
-index 6a5e03313..3e71a36ec 100644
---- a/packages/ui/src/types/theme.ts
-+++ b/packages/ui/src/types/theme.ts
-@@ -74,6 +74,13 @@ interface PullRequestColors {
-   closed: string;
- }
- 
-+interface QuestionColors {
-+  base: string;
-+  foreground: string;
-+  background: string;
-+  border: string;
-+}
-+
- interface SyntaxBaseColors {
-   background: string;
-   foreground: string;
-@@ -102,6 +109,7 @@ export interface Theme {
-     surface: SurfaceColors;
-     interactive: InteractiveColors;
-     status: StatusColors;
-+    question: QuestionColors;
-     pr?: PullRequestColors;
- 
-     syntax: SyntaxColors;

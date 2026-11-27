@@ -1536,7 +1536,7 @@ index 000000000..1dab967c4
 +    expect(markup).toContain('typography-meta');
 +    expect(markup).toContain('typography-markdown');
 +    expect(markup).not.toContain('text-base');
-+    expect(markup).toContain('color-mix(in srgb, var(--status-question-background) 55%, transparent)');
++    expect(markup).toContain('color-mix(in srgb, var(--status-warning-background) 55%, transparent)');
 +    // The tint is painted on the canvas, so the transcript cannot read through it.
 +    expect(markup).toContain('background-color:var(--surface-background)');
 +});
@@ -1671,14 +1671,14 @@ index 000000000..e570e6273
 +import { stickyHeaderBackground } from './stickyHeaderBackground';
 +import { USER_BUBBLE_TEXT_LINK_CLASS } from '../message/body/userBubbleLinkStyle';
 +
-+const RAIL_STYLE: React.CSSProperties = { borderColor: 'var(--status-question)' };
++const RAIL_STYLE: React.CSSProperties = { borderColor: 'var(--status-warning)' };
 +
 +// Match the prompt bubble's shape and subtle border without its body-sized
-+// text or full-column footprint. The faint purple fill identifies questions,
++// text or full-column footprint. The faint warning fill identifies questions,
 +// and it is painted on the canvas rather than left at the tint's own alpha:
 +// at 55% of a 12.5% tint it was near-clear, so the transcript read through
 +// the card and through the bar that covers the chat while the card is open.
-+const QUESTION_TINT = 'color-mix(in srgb, var(--status-question-background) 55%, transparent)';
++const QUESTION_TINT = 'color-mix(in srgb, var(--status-warning-background) 55%, transparent)';
 +const CARD_STYLE: React.CSSProperties = {
 +    borderRadius: 'var(--radius-xl)',
 +    borderBottomRightRadius: 'var(--radius-sm)',
@@ -1700,9 +1700,9 @@ index 000000000..e570e6273
 +    <span
 +        aria-hidden="true"
 +        className="mt-[5px] flex size-3.5 flex-shrink-0 items-center justify-center rounded-full border"
-+        style={{ borderColor: chosen ? 'var(--status-question)' : 'var(--status-question-border)' }}
++        style={{ borderColor: chosen ? 'var(--status-warning)' : 'var(--status-warning-border)' }}
 +    >
-+        {chosen ? <span className="size-1.5 rounded-full" style={{ backgroundColor: 'var(--status-question)' }} /> : null}
++        {chosen ? <span className="size-1.5 rounded-full" style={{ backgroundColor: 'var(--status-warning)' }} /> : null}
 +    </span>
 +);
 +
@@ -1806,7 +1806,7 @@ index 000000000..e570e6273
 +}
 +
 +/**
-+ * The purple card. Collapsed, one question shows its sentence and answer and
++ * The question card. Collapsed, one question shows its sentence and answer and
 + * a batch one line per question (label and answer) as far as fits. Show more
 + * opens one question straight to its options; a batch first lists every
 + * question with its answer, and Show options then opens every option.
@@ -1970,7 +1970,7 @@ index 000000000..e570e6273
 +};
 +
 +/**
-+ * A question call as its own transcript row: a purple card with each question
++ * A question call as its own transcript row: a warning-tinted card with each question
 + * and the answer it got on a rail, or a line saying it went unanswered. Show
 + * more opens the card in place (see `QuestionCard`). With the sticky user
 + * header on, an answered card sticks like a prompt until the next prompt or
@@ -3520,7 +3520,7 @@ index a74588007..1e15fb3d8 100644
    (`openContextFile` with `expanded`). Only web and desktop show it: VS Code
    and mobile open files full size already, through the path itself.
  - Every other tool, including search/fetch, OpenCode built-ins, custom tools, plugins, and MCP tools, is **expandable** and renders through `ToolPart`.
-+- A `question` call draws as its own transcript row, the purple card (`components/QuestionTurnHeader.tsx`), not as a `ToolPart`: `lib/turns/timelineRows.ts` cuts a question call into a row of its own (`questionPartId`), so an answered card can stick like a prompt and a batch can leave a bar. Collapsed, one question shows its sentence and answer and a batch one line per question; Show more lists the options with their descriptions and the chosen one marked (a batch first lists every question with its answer, then Show options opens the options). `QuestionToolContent.tsx` keeps the `ToolPart`-drawn question row (collapsed summary, expanded options) for a message body outside the row model, which is the BTW panel's path; its collapsed summary is a click target only, because the row header above is the one keyboard control.
++- A `question` call draws as its own transcript row, the question card (`components/QuestionTurnHeader.tsx`), not as a `ToolPart`: `lib/turns/timelineRows.ts` cuts a question call into a row of its own (`questionPartId`), so an answered card can stick like a prompt and a batch can leave a bar. Collapsed, one question shows its sentence and answer and a batch one line per question; Show more lists the options with their descriptions and the chosen one marked (a batch first lists every question with its answer, then Show options opens the options). `QuestionToolContent.tsx` keeps the `ToolPart`-drawn question row (collapsed summary, expanded options) for a message body outside the row model, which is the BTW panel's path; its collapsed summary is a click target only, because the row header above is the one keyboard control.
 +  - The row's open state has a single owner, `lib/questionExpandedState.ts`: the reader's own decision per part id, remembered across session switches until a reload or the 4000-entry trim, and `autoExpandAnsweredQuestions` only as the default. The transcript card, a closed fold's preview card and a `ToolPart` question row all read that one map, so a card the reader closed in the transcript cannot come back open in a preview. Turning the setting off closes rows the reader did not open themselves; a row they opened stays open.
 +  - Where a card stands comes from the app's classifier (`questionCardState` over `classifyQuestionToolError` in `sync/recoverable-questions.ts`): `Not answered` only when OpenCode dismissed the call (an error type other than `aborted`), never from the words in the error text, which is what `questionSticks` reads too.
 +  - With questions in the chat (`FormsInChatContext`, the setting's "in the chat" choice) a waiting question draws no card at its call: the form at the transcript's end takes the answer, and the card appears once it is answered. Without it the waiting card shows as the stock question row did, while the dock above the composer takes the answer.
