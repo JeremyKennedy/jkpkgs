@@ -62,12 +62,15 @@ let
     ];
     patches = [
       ./patches/commandcode-quota.patch
-      # The permission shield and question mark, drawn by one component with a
-      # question colour of their own, on rows, switchers and collapsed headers;
+      # The permission shield and question mark, drawn by one component in the
+      # sidebar's warning colour, on rows, switchers and collapsed headers;
       # a collapsed header and the switchers count pending requests by the
       # directory store once it has read them, as a row does. Carries the
       # remainder of the stale-pending-badge fix, which goes upstream with it.
       ./patches/question-indicator.patch
+      # The run page's lanes and the overview's waiting rows in the sidebar's
+      # colours: waiting requests amber, a working lane blue.
+      ./patches/lane-colours.patch
       ./patches/reply-start-scroll.patch
       ./patches/draft-heading-project-picker.patch
       ./patches/recap-full-note.patch
