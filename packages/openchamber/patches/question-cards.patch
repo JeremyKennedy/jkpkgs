@@ -644,15 +644,15 @@ index 1dab967c4..1742178b3 100644
      expect(markup).toContain('typography-meta');
      expect(markup).toContain('typography-markdown');
      expect(markup).not.toContain('text-base');
--    expect(markup).toContain('color-mix(in srgb, var(--status-question-background) 55%, transparent)');
+-    expect(markup).toContain('color-mix(in srgb, var(--status-warning-background) 55%, transparent)');
 -    // The tint is painted on the canvas, so the transcript cannot read through it.
 -    expect(markup).toContain('background-color:var(--surface-background)');
-+    // The card is the prompt bubble with the question colour mixed into the
++    // The card is the prompt bubble with the warning colour mixed into the
 +    // bubble's own fill, so it is opaque and follows the theme's bubble colour.
 +    // Mixing the role's `-background` tint instead would carry that tint's own
 +    // alpha through and leave the transcript readable through the card.
-+    expect(markup).toContain('background-color:color-mix(in srgb, var(--status-question) 14%, var(--chat-user-message-bg))');
-+    expect(markup).not.toContain('--status-question-background');
++    expect(markup).toContain('background-color:color-mix(in srgb, var(--status-warning) 14%, var(--chat-user-message-bg))');
++    expect(markup).not.toContain('--status-warning-background');
 +    expect(markup).not.toContain('--surface-background');
 +    // The prompt bubble's padding and radii, so the card lines up with a prompt.
 +    expect(markup).toContain('px-5 py-3 shadow-none border border-primary/5');
@@ -704,28 +704,28 @@ index e570e6273..3ca779eba 100644
 +import { USER_BUBBLE_SHELL_CLASS, userBubbleStyle, userBubbleTintedFill } from '../message/body/userBubbleStyle';
 +import { QuestionAnswerLine, QuestionAnswerRow, QuestionOptionRow } from '../message/parts/QuestionChoices';
  
- const RAIL_STYLE: React.CSSProperties = { borderColor: 'var(--status-question)' };
+ const RAIL_STYLE: React.CSSProperties = { borderColor: 'var(--status-warning)' };
  
 -// Match the prompt bubble's shape and subtle border without its body-sized
--// text or full-column footprint. The faint purple fill identifies questions,
+-// text or full-column footprint. The faint warning fill identifies questions,
 -// and it is painted on the canvas rather than left at the tint's own alpha:
 -// at 55% of a 12.5% tint it was near-clear, so the transcript read through
 -// the card and through the bar that covers the chat while the card is open.
--const QUESTION_TINT = 'color-mix(in srgb, var(--status-question-background) 55%, transparent)';
+-const QUESTION_TINT = 'color-mix(in srgb, var(--status-warning-background) 55%, transparent)';
 -const CARD_STYLE: React.CSSProperties = {
 -    borderRadius: 'var(--radius-xl)',
 -    borderBottomRightRadius: 'var(--radius-sm)',
 -    backgroundColor: 'var(--surface-background)',
 -    backgroundImage: `linear-gradient(${QUESTION_TINT}, ${QUESTION_TINT})`,
 -};
-+// The prompt bubble with the question colour mixed into its own fill, so the
-+// card is the same shape and reads as the row's purple sibling instead of a
++// The prompt bubble with the warning colour mixed into its own fill, so the
++// card is the same shape and reads as the row's warning-tinted sibling instead of a
 +// copy that drifted. Mixing into `--chat-user-message-bg` is what keeps it
 +// opaque: the old fill mixed the question's own tint, which is already
 +// translucent, so the card came out near-clear and the transcript read
 +// through it and through the bar that covers the chat while the card is open.
 +const CARD_STYLE: React.CSSProperties = userBubbleStyle(
-+    userBubbleTintedFill('--status-question'),
++    userBubbleTintedFill('--status-warning'),
 +);
  
  const LINK_STYLE: React.CSSProperties = { minHeight: 0, minWidth: 0 };
@@ -739,9 +739,9 @@ index e570e6273..3ca779eba 100644
 -    <span
 -        aria-hidden="true"
 -        className="mt-[5px] flex size-3.5 flex-shrink-0 items-center justify-center rounded-full border"
--        style={{ borderColor: chosen ? 'var(--status-question)' : 'var(--status-question-border)' }}
+-        style={{ borderColor: chosen ? 'var(--status-warning)' : 'var(--status-warning-border)' }}
 -    >
--        {chosen ? <span className="size-1.5 rounded-full" style={{ backgroundColor: 'var(--status-question)' }} /> : null}
+-        {chosen ? <span className="size-1.5 rounded-full" style={{ backgroundColor: 'var(--status-warning)' }} /> : null}
 -    </span>
 -);
 -
@@ -854,7 +854,7 @@ index e570e6273..3ca779eba 100644
 -                <div dir="auto" className={cn('typography-meta text-foreground/70', !open && 'line-clamp-2')} title={entry.question}>
 -                    {questionSentence(entry.question)}
 +                <div dir="auto" className="flex min-w-0 items-start gap-1.5 typography-meta text-foreground/70 oc-ui-start-align" title={entry.question} data-context-icon="question">
-+                    <Icon name="question" className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: 'var(--status-question)' }} />
++                    <Icon name="question" className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: 'var(--status-warning)' }} />
 +                    {/* The clamp goes on the text, not the row: line-clamp sets
 +                        display:-webkit-box, which beats flex and left the icon
 +                        stacked above the question. */}
@@ -1947,8 +1947,8 @@ index 000000000..17bc071ce
 +/**
 + * The bubble's fill for a card that belongs to the row it sits in but is not a
 + * typed prompt, such as a question the app asked. `role` is a solid colour role
-+ * such as `--status-question`; the result mixes it into the prompt's own fill,
-+ * so the card follows the theme's bubble colour and reads as its purple
++ * such as `--status-warning`; the result mixes it into the prompt's own fill,
++ * so the card follows the theme's bubble colour and reads as its warning-tinted
 + * sibling.
 + *
 + * Mix the solid role, not the role's own `-background` tint: that tint is
@@ -2009,8 +2009,8 @@ index 1e15fb3d8..3bd1f317f 100644
    (`openContextFile` with `expanded`). Only web and desktop show it: VS Code
    and mobile open files full size already, through the path itself.
  - Every other tool, including search/fetch, OpenCode built-ins, custom tools, plugins, and MCP tools, is **expandable** and renders through `ToolPart`.
--- A `question` call draws as its own transcript row, the purple card (`components/QuestionTurnHeader.tsx`), not as a `ToolPart`: `lib/turns/timelineRows.ts` cuts a question call into a row of its own (`questionPartId`), so an answered card can stick like a prompt and a batch can leave a bar. Collapsed, one question shows its sentence and answer and a batch one line per question; Show more lists the options with their descriptions and the chosen one marked (a batch first lists every question with its answer, then Show options opens the options). `QuestionToolContent.tsx` keeps the `ToolPart`-drawn question row (collapsed summary, expanded options) for a message body outside the row model, which is the BTW panel's path; its collapsed summary is a click target only, because the row header above is the one keyboard control.
-+- A `question` call draws as its own transcript row, the purple card (`components/QuestionTurnHeader.tsx`), not as a `ToolPart`: `lib/turns/timelineRows.ts` cuts a question call into a row of its own (`questionPartId`), so an answered card can stick like a prompt and a batch can leave a bar. Collapsed, one question shows its sentence and answer and a batch one line per question; Show more lists the options with their descriptions and the chosen one marked (a batch first lists every question with its answer, then Show options opens the options). `QuestionToolContent.tsx` keeps the `ToolPart`-drawn question row (collapsed summary, expanded options) for a message body outside the row model, which is the BTW panel's path; its collapsed summary is a click target only, because the row header above is the one keyboard control. Both draw their options and answers through `QuestionChoices.tsx`. The card draws the prompt bubble itself (`message/body/userBubbleStyle.ts`) with the question colour mixed into that bubble's fill, so a card is the same shape as the prompt above it and stays opaque: mixing the role's own `-background` tint would carry that tint's alpha through and let the transcript read through the card and the pinned bar.
+-- A `question` call draws as its own transcript row, the question card (`components/QuestionTurnHeader.tsx`), not as a `ToolPart`: `lib/turns/timelineRows.ts` cuts a question call into a row of its own (`questionPartId`), so an answered card can stick like a prompt and a batch can leave a bar. Collapsed, one question shows its sentence and answer and a batch one line per question; Show more lists the options with their descriptions and the chosen one marked (a batch first lists every question with its answer, then Show options opens the options). `QuestionToolContent.tsx` keeps the `ToolPart`-drawn question row (collapsed summary, expanded options) for a message body outside the row model, which is the BTW panel's path; its collapsed summary is a click target only, because the row header above is the one keyboard control.
++- A `question` call draws as its own transcript row, the question card (`components/QuestionTurnHeader.tsx`), not as a `ToolPart`: `lib/turns/timelineRows.ts` cuts a question call into a row of its own (`questionPartId`), so an answered card can stick like a prompt and a batch can leave a bar. Collapsed, one question shows its sentence and answer and a batch one line per question; Show more lists the options with their descriptions and the chosen one marked (a batch first lists every question with its answer, then Show options opens the options). `QuestionToolContent.tsx` keeps the `ToolPart`-drawn question row (collapsed summary, expanded options) for a message body outside the row model, which is the BTW panel's path; its collapsed summary is a click target only, because the row header above is the one keyboard control. Both draw their options and answers through `QuestionChoices.tsx`. The card draws the prompt bubble itself (`message/body/userBubbleStyle.ts`) with the warning colour mixed into that bubble's fill, so a card is the same shape as the prompt above it and stays opaque: mixing the role's own `-background` tint would carry that tint's alpha through and let the transcript read through the card and the pinned bar.
 +  - The card is the **body of the message's own row**, not the row itself: `MessageList` passes it to `ChatMessage`'s body slot, so the message keeps its error banner, its hover actions and its `model · duration` facts under the card, and the row still carries `data-message-id` and its slice. A message that ends in a question therefore loses nothing that its other rows would have drawn; the card row is the slice end, and the banner or the footer appears under the card. The card no longer reserves a prompt's hover-action band, because those actions are drawn.
    - The row's open state has a single owner, `lib/questionExpandedState.ts`: the reader's own decision per part id, remembered across session switches until a reload or the 4000-entry trim, and `autoExpandAnsweredQuestions` only as the default. The transcript card, a closed fold's preview card and a `ToolPart` question row all read that one map, so a card the reader closed in the transcript cannot come back open in a preview. Turning the setting off closes rows the reader did not open themselves; a row they opened stays open.
 +  - Where a question stands is decided **per question**, not per call: `questionCardState` reads the call (answered, waiting, dismissed, stopped), and `questionEntryState` hands each question its own state from its own answer. A call that got an answer for one of its questions and left another blank is answered, and the blank one reads "Not answered", never "Stopped before an answer". The call's state still decides whether the card sticks and what the row estimate reads.
@@ -2064,12 +2064,12 @@ index 000000000..81a4554c8
 +            'mt-0.5 flex size-3.5 flex-shrink-0 items-center justify-center border',
 +            multiple ? 'rounded-[3px]' : 'rounded-full',
 +        )}
-+        style={{ borderColor: chosen ? 'var(--status-question)' : 'var(--status-question-border)' }}
++        style={{ borderColor: chosen ? 'var(--status-warning)' : 'var(--status-warning-border)' }}
 +    >
 +        {chosen ? (
 +            multiple
-+                ? <Icon name="check" className="size-2.5" style={{ color: 'var(--status-question)' }} />
-+                : <span className="size-1.5 rounded-full" style={{ backgroundColor: 'var(--status-question)' }} />
++                ? <Icon name="check" className="size-2.5" style={{ color: 'var(--status-warning)' }} />
++                : <span className="size-1.5 rounded-full" style={{ backgroundColor: 'var(--status-warning)' }} />
 +        ) : null}
 +    </span>
 +);
@@ -2143,7 +2143,7 @@ index c669a584b..20d47927d 100644
      expect(content).not.toContain('Your answer');
      // No option matches, so the only filled radio is the typed answer's.
 -    expect(markup.split('size-1.5 rounded-full bg-[var(--interactive-selection)]').length - 1).toBe(1);
-+    expect(markup.split('size-1.5 rounded-full" style="background-color:var(--status-question)').length - 1).toBe(1);
++    expect(markup.split('size-1.5 rounded-full" style="background-color:var(--status-warning)').length - 1).toBe(1);
  });
  
  test('expanded rows carry no header or selection-mode label, and an unanswered row says so', () => {
@@ -2152,7 +2152,7 @@ index c669a584b..20d47927d 100644
  test('expanded rows mark the option the tool recommended', () => {
      const content = render(<QuestionExpandedContent entries={[entry({ answer: 'Yes (Recommended)' })]} />);
 -    expect(content).toContain('size-1.5 rounded-full bg-[var(--interactive-selection)]');
-+    expect(content).toContain('size-1.5 rounded-full" style="background-color:var(--status-question)');
++    expect(content).toContain('size-1.5 rounded-full" style="background-color:var(--status-warning)');
 +});
 +
 +test('a multi-select reply that carries the recommendation marker on one pick marks both picks once', () => {
@@ -2160,7 +2160,7 @@ index c669a584b..20d47927d 100644
 +    // Every row is a checkbox, two of them are the picks, and the reply is not
 +    // drawn again as a row of its own.
 +    expect(content.split('rounded-[3px]').length - 1).toBe(3);
-+    expect(content.split('border-color:var(--status-question)').length - 1).toBe(2);
++    expect(content.split('border-color:var(--status-warning)').length - 1).toBe(2);
 +    expect(content.split('class="sr-only">Chosen<').length - 1).toBe(2);
 +    expect(content).not.toContain('whitespace-pre-wrap');
 +    expect(content).not.toContain('Yes (Recommended)');
